@@ -1,4 +1,4 @@
-import type { Question } from './interviewEngine'
+import type { Question, QuestionGenerationMeta } from './interviewEngine'
 import type { SavedProfile } from './store'
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
@@ -149,7 +149,7 @@ export async function fetchNextAdaptiveQuestion(options: {
   history: { question: Question; answer: string }[]
   lastQuestion: Question
   lastAnswer: string
-}): Promise<Question> {
+}): Promise<{ question: Question; meta: QuestionGenerationMeta }> {
   await ensureApiSession()
   try {
     const res = await apiFetch('/api/interview/next', {
@@ -168,13 +168,33 @@ export async function fetchNextAdaptiveQuestion(options: {
     })
     if (res.ok) {
       const data = await res.json()
-      if (data.question?.text) return data.question as Question
+      if (data.question?.text) {
+        const source: 'llm' | 'template' =
+          data.questionSource === 'llm' ||
+          data.question?.generationSource === 'llm' ||
+          data.question?.focus === 'adaptive-llm'
+            ? 'llm'
+            : 'template'
+        return {
+          question: data.question as Question,
+          meta: {
+            questionSource: source,
+            llmLatencyMs: data.llmLatencyMs ?? data.question?.llmLatencyMs ?? null,
+            llmFailureReason: data.llmFailureReason ?? data.question?.llmFailureReason ?? null,
+            llmModel: data.llmModel ?? data.question?.llmModel ?? null,
+          },
+        }
+      }
+    } else if (res.status === 404) {
+      console.warn('[Interview] Session not found on server — using local backup question.')
+    } else {
+      console.warn('[Interview] /api/interview/next failed:', res.status)
     }
-  } catch {
-    // local fallback
+  } catch (err) {
+    console.warn('[Interview] /api/interview/next error:', err)
   }
 
-  return generateLocalAdaptiveQuestion(
+  const question = generateLocalAdaptiveQuestion(
     options.role,
     options.level,
     options.profile,
@@ -185,6 +205,13 @@ export async function fetchNextAdaptiveQuestion(options: {
       jobDescription: options.jobDescription,
     },
   )
+  return {
+    question,
+    meta: {
+      questionSource: 'template',
+      llmFailureReason: 'api_offline_or_session',
+    },
+  }
 }
 
 export function enrichProfileName(profile: SavedProfile | null): SavedProfile | null {

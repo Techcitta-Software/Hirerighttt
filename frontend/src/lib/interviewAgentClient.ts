@@ -3,13 +3,13 @@
  * Synchronized with Google Gemini AI (gemini-2.5-flash).
  * Generates interactive, resume-tailored questions and rubric scoring.
  */
-import type { Question } from './interviewEngine'
+import type { Question, QuestionGenerationMeta, InterviewQuestionPlan } from './interviewEngine'
+import { agentLabelForQuestionSource, deriveInterviewQuestionPlan } from './interviewEngine'
 import type { AnswerAnalysis, IntegrityLogEvent, InterviewResult, SavedProfile } from './store'
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
 import { candidateFullName } from './store'
-import { generateLocalAdaptiveQuestion } from './adaptiveInterview'
 import {
   buildResumeInterviewQuestions,
   runLocalInterviewScore,
@@ -40,20 +40,62 @@ function candidateFirstName(profile: SavedProfile | null): string {
 }
 
 const GEMINI_API_KEY = clientLlmAllowed()
-  ? import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || ''
+  ? import.meta.env.VITE_EXPERIENTIALLABS_API_KEY ||
+    import.meta.env.VITE_GEMINI_API_KEY ||
+    import.meta.env.VITE_OPENAI_API_KEY ||
+    ''
   : ''
+function clientApiKey(): string {
+  return (
+    import.meta.env.VITE_EXPERIENTIALLABS_API_KEY ||
+    import.meta.env.VITE_GEMINI_API_KEY ||
+    import.meta.env.VITE_OPENAI_API_KEY ||
+    ''
+  ).trim()
+}
+
+function clientUsesGoogleGeminiKey(): boolean {
+  const k = clientApiKey()
+  return k.startsWith('AIza') || k.startsWith('AQ.')
+}
+
 const GEMINI_BASE_URL = (
   typeof window !== 'undefined' && clientLlmAllowed()
     ? '/ai-proxy'
-    : import.meta.env.VITE_GEMINI_BASE_URL ||
-      import.meta.env.VITE_OPENAI_BASE_URL ||
-      'https://generativelanguage.googleapis.com/v1beta/openai'
+    : clientUsesGoogleGeminiKey()
+      ? import.meta.env.VITE_GEMINI_BASE_URL ||
+        'https://generativelanguage.googleapis.com/v1beta/openai'
+      : import.meta.env.VITE_EXPERIENTIALLABS_BASE_URL ||
+        import.meta.env.VITE_GEMINI_BASE_URL ||
+        import.meta.env.VITE_OPENAI_BASE_URL ||
+        'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/$/, '')
-const PRIMARY_MODEL =
-  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-2.5-flash'
-const FALLBACK_MODEL =
-  import.meta.env.VITE_FALLBACK_MODEL || 'gemini-1.5-flash'
+const useGoogleGeminiHeaders =
+  clientUsesGoogleGeminiKey() ||
+  !import.meta.env.VITE_EXPERIENTIALLABS_BASE_URL?.includes('experientiallabs')
+
+function llmRequestHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${GEMINI_API_KEY}`,
+  }
+  if (useGoogleGeminiHeaders) headers['x-goog-api-key'] = GEMINI_API_KEY
+  return headers
+}
+
+const PRIMARY_MODEL = import.meta.env.VITE_PRIMARY_MODEL || 'gpt-6-luna'
+const FALLBACK_MODEL = import.meta.env.VITE_FALLBACK_MODEL || 'gemini-2.5-flash'
+const TERTIARY_MODEL = import.meta.env.VITE_LLM_TERTIARY_MODEL || 'gemini-3.8-flash'
 const GEMINI_MODEL = PRIMARY_MODEL
+
+function clientModelCascade(): string[] {
+  const models = [PRIMARY_MODEL, FALLBACK_MODEL]
+  if (clientUsesGoogleGeminiKey()) {
+    const tertiary = TERTIARY_MODEL.trim()
+    if (tertiary && !models.includes(tertiary)) models.push(tertiary)
+  }
+  return [...new Set(models)]
+}
 
 export type InterviewStartResponse = {
   sessionId: string | null
@@ -64,6 +106,25 @@ export type InterviewStartResponse = {
   question: Question
   offline?: boolean
   adaptive?: boolean
+  questionMeta?: QuestionGenerationMeta
+  questionPlan?: InterviewQuestionPlan
+}
+
+function metaFromApiPayload(data: Record<string, unknown>, question?: Question): QuestionGenerationMeta {
+  const source: 'llm' | 'template' =
+    data.questionSource === 'llm' ||
+    question?.generationSource === 'llm' ||
+    question?.focus === 'adaptive-llm' ||
+    question?.focus === 'llm'
+      ? 'llm'
+      : 'template'
+  return {
+    questionSource: source,
+    llmLatencyMs: (data.llmLatencyMs as number | null | undefined) ?? question?.llmLatencyMs ?? null,
+    llmFailureReason:
+      (data.llmFailureReason as string | null | undefined) ?? question?.llmFailureReason ?? null,
+    llmModel: (data.llmModel as string | null | undefined) ?? question?.llmModel ?? null,
+  }
 }
 
 export type IntegritySnapshot = {
@@ -105,16 +166,11 @@ export async function checkLlmStatus(): Promise<{
     }
   }
 
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL]
-  for (const m of models) {
+  for (const m of clientModelCascade()) {
     try {
       const directRes = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
+        headers: llmRequestHeaders(),
         body: JSON.stringify({
           model: m,
           messages: [{ role: 'user', content: 'Ping' }],
@@ -221,16 +277,11 @@ Return ONLY valid JSON matching this schema:
     keyStrengths: profile?.keyStrengths || '',
   })
 
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL]
-  for (const m of models) {
+  for (const m of clientModelCascade()) {
     try {
       const res = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
+        headers: llmRequestHeaders(),
         body: JSON.stringify({
           model: m,
           messages: [
@@ -297,30 +348,37 @@ export async function startInterviewSession(
         level,
         profile: agentProfile,
         jobDescription,
-        adaptive: true,
+        adaptive: false,
         explicitRoleTrack: Boolean(explicitRoleTrack),
       }),
     })
     if (res.ok) {
       const data = await res.json()
-      const adaptive = data.adaptive !== false && Boolean(data.adaptive ?? data.mode === 'adaptive')
-      const questions = data.questions
-      const hasQuestions =
-        Array.isArray(questions) &&
-        (adaptive ? questions.length >= 1 : questions.length >= 3)
+      const adaptive = data.adaptive === true || data.mode === 'adaptive'
+      const questions = data.questions as Question[]
+      const hasQuestions = Array.isArray(questions) && questions.length >= 1
       if (hasQuestions) {
-        const llmAgent = data.agent === 'llm' || data.llm || data.agent === 'llm-adaptive'
+        const q0 = questions[0]
+        const questionPlan =
+          (data.questionPlan as InterviewQuestionPlan | undefined) ||
+          deriveInterviewQuestionPlan(questions, adaptive)
+        const questionMeta = metaFromApiPayload(data, q0)
+        questionMeta.questionSource =
+          questionPlan === 'llm-fixed' ? 'llm' : questionPlan === 'template-fixed' ? 'template' : questionMeta.questionSource
+        const fromLlm = questionPlan === 'llm-fixed'
         return {
           sessionId: data.sessionId || `session-${Date.now().toString(36)}`,
-          agent: llmAgent
-            ? 'Ava · Google Gemini · adaptive'
-            : data.agent || 'Ava · adaptive agent',
-          llm: Boolean(llmAgent),
-          total: adaptive ? questions.length : questions.length,
+          agent: fromLlm
+            ? `Ava · AI interview (${questions.length} questions)`
+            : `Ava · backup interview (${questions.length} questions)`,
+          llm: fromLlm,
+          total: questions.length,
           questions,
-          question: questions[0],
+          question: q0,
           offline: false,
           adaptive,
+          questionMeta,
+          questionPlan,
         }
       }
     }
@@ -333,14 +391,21 @@ export async function startInterviewSession(
     try {
       const geminiQuestions = await generateGeminiQuestionsDirect(role, level, agentProfile, jobDescription)
       if (geminiQuestions && geminiQuestions.length >= 3) {
+        const tagged = geminiQuestions.map((q) => ({
+          ...q,
+          generationSource: 'llm' as const,
+          focus: q.focus || 'llm',
+        }))
         return {
           sessionId: `gemini-${Date.now().toString(36)}`,
-          agent: 'Ava · Google Gemini 2.5 Flash',
+          agent: `Ava · AI interview (${tagged.length} questions)`,
           llm: true,
-          total: geminiQuestions.length,
-          questions: geminiQuestions,
-          question: geminiQuestions[0],
+          total: tagged.length,
+          questions: tagged,
+          question: tagged[0],
           offline: false,
+          adaptive: false,
+          questionPlan: 'llm-fixed',
         }
       }
     } catch (err) {
@@ -348,24 +413,24 @@ export async function startInterviewSession(
     }
   }
 
-  // 3. Local adaptive fallback (one question at a time — branches on each answer)
-  const firstAdaptive = generateLocalAdaptiveQuestion(
-    role,
-    level,
-    agentProfile,
-    [],
-    '',
-    { explicitRoleTrack, jobDescription },
+  // 3. Offline: fixed template bank only (no LLM + no extra adaptive questions)
+  const templateQuestions = buildResumeInterviewQuestions(role, level, agentProfile, jobDescription).map(
+    (q) => ({
+      ...q,
+      generationSource: 'template' as const,
+      focus: 'template-local',
+    }),
   )
   return {
     sessionId: `local-${Date.now().toString(36)}`,
-    agent: 'Ava · local adaptive agent',
+    agent: `Ava · backup interview (${templateQuestions.length} questions)`,
     llm: false,
-    total: 1,
-    questions: [firstAdaptive],
-    question: firstAdaptive,
+    total: templateQuestions.length,
+    questions: templateQuestions,
+    question: templateQuestions[0],
     offline: true,
-    adaptive: true,
+    adaptive: false,
+    questionPlan: 'template-fixed',
   }
 }
 
@@ -507,11 +572,7 @@ Return ONLY valid JSON matching this schema:
   try {
     const res = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        'x-goog-api-key': GEMINI_API_KEY,
-      },
+      headers: llmRequestHeaders(),
       body: JSON.stringify({
         model: GEMINI_MODEL,
         messages: [

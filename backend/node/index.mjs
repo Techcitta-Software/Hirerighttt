@@ -25,6 +25,9 @@ import {
   resolveCandidateName,
   scoreInterviewSession,
   summarizeProfile,
+  questionGenerationPayload,
+  resolveLlmTransport,
+  interviewModelCascade,
 } from './interviewAgent.mjs'
 
 assertProductionConfig()
@@ -377,8 +380,9 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && path === '/api/llm-status') {
       const apiKey =
-        process.env.GEMINI_API_KEY ||
+        process.env.EXPERIENTIALLABS_API_KEY ||
         process.env.OPENAI_API_KEY ||
+        process.env.GEMINI_API_KEY ||
         process.env.OPENROUTER_API_KEY ||
         process.env.LLM_API_KEY
       if (!apiKey) {
@@ -390,73 +394,82 @@ const server = createServer(async (req, res) => {
         })
       }
 
-      const isGemini =
-        Boolean(process.env.GEMINI_API_KEY) ||
-        apiKey.startsWith('AIza') ||
-        process.env.OPENAI_BASE_URL?.includes('generativelanguage.googleapis.com')
+      const transport = resolveLlmTransport(apiKey)
+      const base = transport.base.replace(/\/$/, '')
+      const cascade = interviewModelCascade()
+      const pingModels = [cascade.primary, cascade.fallback, cascade.tertiary].filter(Boolean)
 
-      const base = (
-        process.env.OPENAI_BASE_URL ||
-        (isGemini
-          ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-          : 'https://api.openai.com/v1')
-      ).replace(/\/$/, '')
-
-      const model =
-        process.env.GEMINI_MODEL ||
-        process.env.PRIMARY_MODEL ||
-        process.env.OPENAI_MODEL ||
-        (isGemini ? 'gemini-2.5-flash' : 'gpt-4o-mini')
-
-      const providerName = isGemini ? 'Google Gemini AI' : 'OpenAI / OpenRouter AI'
+      const providerName =
+        transport.provider === 'experiential'
+          ? 'ExperientialLabs AI Gateway'
+          : transport.provider === 'google-gemini'
+            ? 'Google Gemini AI'
+            : 'OpenAI / OpenRouter AI'
 
       try {
         const pingHeaders = {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         }
-        if (isGemini) {
+        if (transport.isGemini) {
           pingHeaders['x-goog-api-key'] = apiKey
         } else {
           pingHeaders['HTTP-Referer'] = 'http://localhost:5173'
           pingHeaders['X-Title'] = 'HIRERIGHTTT'
         }
 
-        const pingRes = await fetch(`${base}/chat/completions`, {
-          method: 'POST',
-          headers: pingHeaders,
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: 'Ping' }],
-            max_tokens: 5,
-          }),
-        })
-        if (pingRes.ok) {
-          return json(res, 200, {
-            active: true,
-            configured: true,
-            provider: providerName,
-            model,
-            statusCode: pingRes.status,
-            message: `✓ ${providerName} (${model}) is LIVE & Synchronized!`,
+        let lastStatus = 0
+        let lastMessage = ''
+        for (const pingModel of pingModels) {
+          const pingRes = await fetch(`${base}/chat/completions`, {
+            method: 'POST',
+            headers: pingHeaders,
+            body: JSON.stringify({
+              model: pingModel,
+              messages: [{ role: 'user', content: 'Ping' }],
+              max_tokens: 5,
+            }),
           })
-        } else {
+          if (pingRes.ok) {
+            const slot =
+              pingModel === cascade.primary
+                ? 'primary'
+                : pingModel === cascade.fallback
+                  ? 'fallback'
+                  : 'tertiary'
+            return json(res, 200, {
+              active: true,
+              configured: true,
+              provider: providerName,
+              model: pingModel,
+              interviewPrimary: cascade.primary,
+              interviewFallback: cascade.fallback,
+              modelSlot: slot,
+              statusCode: pingRes.status,
+              message: `✓ Interview LLM live (${slot}: ${pingModel}). Order: ${cascade.primary} → ${cascade.fallback}${cascade.tertiary ? ` → ${cascade.tertiary}` : ''}`,
+            })
+          }
+          lastStatus = pingRes.status
           const errData = await pingRes.json().catch(() => ({}))
-          return json(res, 200, {
-            active: false,
-            configured: true,
-            provider: providerName,
-            model,
-            statusCode: pingRes.status,
-            message: errData.error?.message || `${providerName} error (${pingRes.status})`,
-          })
+          lastMessage = errData.error?.message || `${providerName} error (${pingRes.status})`
         }
+
+        return json(res, 200, {
+          active: false,
+          configured: true,
+          provider: providerName,
+          model: cascade.primary,
+          interviewPrimary: cascade.primary,
+          interviewFallback: cascade.fallback,
+          statusCode: lastStatus,
+          message: lastMessage || 'All interview models failed ping.',
+        })
       } catch (err) {
         return json(res, 200, {
           active: false,
           configured: true,
           provider: providerName,
-          model,
+          model: cascade.primary,
           message: err instanceof Error ? err.message : `Network error connecting to ${providerName}`,
         })
       }
@@ -615,7 +628,10 @@ const server = createServer(async (req, res) => {
           accountName: account?.name,
         })
         questions = [first]
-        agentLabel = llmConfigured() ? 'llm-adaptive' : 'adaptive-agent'
+        agentLabel =
+          first?.generationSource === 'llm' || first?.focus === 'adaptive-llm'
+            ? 'llm-adaptive'
+            : 'template-adaptive'
       } else {
         const built = await buildInterviewQuestions(
           profile,
@@ -654,14 +670,25 @@ const server = createServer(async (req, res) => {
       db.interviewSessions[sessionId] = session
       saveDb(db)
 
+      const q0 = questions[0]
+      const allLlm =
+        !adaptive &&
+        questions.length > 0 &&
+        questions.every(
+          (q) => q?.generationSource === 'llm' || q?.focus === 'llm' || q?.focus === 'adaptive-llm',
+        )
+      const questionPlan = adaptive ? 'adaptive' : allLlm ? 'llm-fixed' : 'template-fixed'
       return json(res, 200, {
         sessionId,
         agent: agentLabel,
         adaptive,
-        llm: llmConfigured(),
-        total: adaptive ? null : questions.length,
+        mode: adaptive ? 'adaptive' : 'fixed',
+        questionPlan,
+        llm: q0?.generationSource === 'llm' || q0?.focus === 'adaptive-llm' || q0?.focus === 'llm',
+        ...questionGenerationPayload(q0),
+        total: questions.length,
         questionIndex: 0,
-        question: questions[0],
+        question: q0,
         questions,
         profileDigest: ctx,
       })
@@ -680,6 +707,11 @@ const server = createServer(async (req, res) => {
       const session = sessionId ? /** @type {any} */ (db.interviewSessions[sessionId]) : null
       if (!session || session.email !== email) {
         return json(res, 404, { error: 'Interview session not found.' })
+      }
+      if (session.mode === 'fixed') {
+        return json(res, 400, {
+          error: 'Fixed interview — no additional questions after the prepared set.',
+        })
       }
       const profile = mergeInterviewProfile(db, email, body.profile)
       const account = db.users.find((u) => u.email === email)
@@ -709,7 +741,11 @@ const server = createServer(async (req, res) => {
       session.questions = [...(session.questions || []), next]
       db.interviewSessions[sessionId] = session
       saveDb(db)
-      return json(res, 200, { question: next, turn: history.length + 1 })
+      return json(res, 200, {
+        question: next,
+        turn: history.length + 1,
+        ...questionGenerationPayload(next),
+      })
     }
 
     /** Interactive turn: Ava acknowledges answer before next question */

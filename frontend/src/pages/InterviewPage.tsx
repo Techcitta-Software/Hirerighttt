@@ -207,7 +207,8 @@ export function InterviewPage() {
   const speakGenRef = useRef(0)
   const bridgeRef = useRef('')
   const advancingRef = useRef(false)
-  const adaptiveRef = useRef(true)
+  const adaptiveRef = useRef(false)
+  const questionPlanRef = useRef<'llm-fixed' | 'template-fixed' | 'adaptive'>('llm-fixed')
   const interviewStartedAtRef = useRef<number>(0)
   const historyRef = useRef<{ question: Question; answer: string }[]>([])
   const lastSpeechAtRef = useRef(0)
@@ -762,9 +763,15 @@ export function InterviewPage() {
         customJd,
         explicitTrack,
       )
-      adaptiveRef.current = started.adaptive !== false
+      adaptiveRef.current = started.adaptive === true
+      questionPlanRef.current = started.questionPlan ?? (started.adaptive ? 'adaptive' : 'llm-fixed')
       sessionIdRef.current = started.sessionId
-      setAgentLabel(started.agent || 'Ava · adaptive interviewer')
+      setAgentLabel(started.agent || 'Ava · interviewer')
+      if (started.questionMeta?.questionSource === 'template') {
+        console.info(
+          `[Interview] First question is server backup (${started.questionMeta.llmFailureReason || 'unknown'}${started.questionMeta.llmLatencyMs ? `, ${started.questionMeta.llmLatencyMs}ms` : ''})`,
+        )
+      }
       setQuestions(started.questions)
       setCurrent(0)
       setDraft('')
@@ -852,16 +859,17 @@ export function InterviewPage() {
       return
     }
 
-    if (
-      !adaptiveRef.current &&
-      current >= questions.length - 1
-    ) {
+    if (current >= questions.length - 1) {
       finishingRef.current = true
       finish(next, false)
       return
     }
 
-    if (adaptiveRef.current && (answeredCount >= MAX_ADAPTIVE_QUESTIONS || current >= MAX_ADAPTIVE_QUESTIONS - 1)) {
+    if (
+      adaptiveRef.current &&
+      questionPlanRef.current === 'adaptive' &&
+      (answeredCount >= MAX_ADAPTIVE_QUESTIONS || current >= MAX_ADAPTIVE_QUESTIONS - 1)
+    ) {
       finishingRef.current = true
       finish(next, false)
       return
@@ -887,7 +895,7 @@ export function InterviewPage() {
         question: currentQuestion,
         answer,
         questionIndex: current,
-        totalQuestions: Math.max(questions.length, current + 2),
+        totalQuestions: questions.length,
         profile: getProfile(),
       })
       bridgeRef.current = turn.spoken?.trim() ? `${turn.spoken.trim()} ` : ''
@@ -895,8 +903,16 @@ export function InterviewPage() {
       bridgeRef.current = `Thanks ${name}. Let's continue. `
     }
 
+    // Fixed LLM or fixed template bank — advance in the prepared list only (no /interview/next).
+    if (questionPlanRef.current !== 'adaptive') {
+      setCurrent((c) => c + 1)
+      advancingRef.current = false
+      setAdvancing(false)
+      return
+    }
+
     try {
-      const nextQuestion = await fetchNextAdaptiveQuestion({
+      const { question: nextQuestion, meta: nextMeta } = await fetchNextAdaptiveQuestion({
         sessionId: sessionIdRef.current,
         role,
         level,
@@ -912,6 +928,11 @@ export function InterviewPage() {
       })
       setQuestions((prev) => [...prev, nextQuestion])
       setCurrent((c) => c + 1)
+      setAgentLabel(
+        nextMeta.questionSource === 'llm'
+          ? `Ava · AI-generated question${nextMeta.llmLatencyMs ? ` · ${nextMeta.llmLatencyMs}ms` : ''}`
+          : `Ava · backup question (${nextMeta.llmFailureReason || 'AI unavailable'})`,
+      )
     } catch {
       setDeviceError('Could not load the next question. Try again or say "end the interview".')
     } finally {

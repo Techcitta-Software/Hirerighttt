@@ -271,7 +271,11 @@ export function generateLocalQuestions(ctx, role, level) {
     focus: 'growth',
   })
 
-  return questions.slice(0, 5)
+  return questions.slice(0, 5).map((q) => ({
+    ...q,
+    generationSource: 'template',
+    focus: q.focus || 'template-local',
+  }))
 }
 
 /**
@@ -285,52 +289,202 @@ export function generateLocalQuestions(ctx, role, level) {
  * Dedicated LLM API caller supporting Google Gemini 2.5 Flash as primary,
  * with automatic fallback to Gemini 1.5 Flash and other models.
  */
-export async function callLlmApi({ system, user, temperature = 0.3 }) {
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY ||
-    process.env.LLM_API_KEY
-  if (!apiKey) return null
+function llmGatewayBase() {
+  return (process.env.OPENAI_BASE_URL || '').replace(/\/$/, '')
+}
+
+function isExperientialLabsGateway(base = llmGatewayBase()) {
+  return /experientiallabs/i.test(base)
+}
+
+const GOOGLE_OPENAI_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai'
+const EXPERIENTIAL_BASE = 'https://api.experientiallabs.ai/v1'
+
+/** Google Cloud / Gemini keys (not Experiential xpl_ keys). */
+function isGoogleStyleApiKey(apiKey) {
+  return apiKey.startsWith('AIza') || apiKey.startsWith('AQ.')
+}
+
+/** Interview LLM order: cheap primary → Gemini backup (override via PRIMARY_MODEL / FALLBACK_MODEL). */
+const DEFAULT_PRIMARY_MODEL = 'gpt-6-luna'
+const DEFAULT_FALLBACK_MODEL = 'gemini-2.5-flash'
+
+/**
+ * AQ./AIza keys authenticate with Google, not ExperientialLabs (xpl_).
+ * @param {string} apiKey
+ */
+export function resolveLlmTransport(apiKey) {
+  const configured = llmGatewayBase()
+  const forceExperiential = process.env.FORCE_EXPERIENTIALLABS === 'true'
+
+  if (!forceExperiential && isGoogleStyleApiKey(apiKey)) {
+    if (configured && isExperientialLabsGateway(configured)) {
+      console.info(
+        '[LLM] Google-style API key detected — routing to Google Gemini OpenAI endpoint (not ExperientialLabs). Use an xpl_ key for ExperientialLabs.',
+      )
+    }
+    return { base: GOOGLE_OPENAI_BASE, isGemini: true, provider: 'google-gemini' }
+  }
+
+  if (apiKey.startsWith('xpl_')) {
+    const base = configured || EXPERIENTIAL_BASE
+    return { base, isGemini: false, provider: 'experiential' }
+  }
+
+  const base =
+    configured ||
+    (apiKey.startsWith('AIza') ? GOOGLE_OPENAI_BASE : 'https://api.openai.com/v1')
 
   const isGemini =
-    Boolean(process.env.GEMINI_API_KEY) ||
-    apiKey.startsWith('AIza') ||
-    process.env.OPENAI_BASE_URL?.includes('generativelanguage.googleapis.com')
+    !isExperientialLabsGateway(base) &&
+    (Boolean(process.env.GEMINI_API_KEY) ||
+      isGoogleStyleApiKey(apiKey) ||
+      base.includes('generativelanguage.googleapis.com'))
 
-  const base = (
-    process.env.OPENAI_BASE_URL ||
-    (isGemini
-      ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-      : 'https://api.openai.com/v1')
-  ).replace(/\/$/, '')
+  return { base, isGemini, provider: isGemini ? 'google-gemini' : 'openai-compatible' }
+}
+
+function buildModelCascade(transport) {
+  const primaryModel =
+    process.env.PRIMARY_MODEL ||
+    process.env.OPENAI_MODEL ||
+    process.env.GEMINI_MODEL ||
+    DEFAULT_PRIMARY_MODEL
+  const fallbackModel = process.env.FALLBACK_MODEL || DEFAULT_FALLBACK_MODEL
+
+  /** @type {string[]} */
+  const names = [primaryModel, fallbackModel]
+
+  // Google-native keys cannot call Experiential slugs; try tertiary only after 404 on both.
+  if (transport.provider === 'google-gemini') {
+    const tertiary = (process.env.LLM_TERTIARY_MODEL || 'gemini-3.8-flash').trim()
+    if (tertiary && !names.includes(tertiary)) names.push(tertiary)
+  }
+
+  const uniqueNames = [...new Set(names.filter(Boolean))]
+  return uniqueNames.map((name) => ({
+    name,
+    label:
+      name === DEFAULT_PRIMARY_MODEL
+        ? `Primary · ${name}`
+        : name === DEFAULT_FALLBACK_MODEL
+          ? `Fallback · ${name}`
+          : transport.provider === 'experiential'
+            ? `ExperientialLabs · ${name}`
+            : name,
+  }))
+}
+
+/** Models used for interview question generation (primary first). */
+export function interviewModelCascade() {
+  const apiKey =
+    process.env.EXPERIENTIALLABS_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    ''
+  if (!apiKey) {
+    return { primary: DEFAULT_PRIMARY_MODEL, fallback: DEFAULT_FALLBACK_MODEL, transport: 'none' }
+  }
+  const transport = resolveLlmTransport(apiKey)
+  const cascade = buildModelCascade(transport)
+  return {
+    primary: cascade[0]?.name || DEFAULT_PRIMARY_MODEL,
+    fallback: cascade[1]?.name || DEFAULT_FALLBACK_MODEL,
+    tertiary: cascade[2]?.name || null,
+    transport: transport.provider,
+  }
+}
+
+/** Last LLM HTTP attempt (for API telemetry + template fallback reasons). */
+let lastLlmAttempt = {
+  latencyMs: 0,
+  reason: /** @type {string | null} */ (null),
+  statusCode: /** @type {number | null} */ (null),
+  timedOut: false,
+  model: /** @type {string | null} */ (null),
+}
+
+export function getLastLlmAttempt() {
+  return { ...lastLlmAttempt }
+}
+
+function resetLastLlmAttempt() {
+  lastLlmAttempt = {
+    latencyMs: 0,
+    reason: null,
+    statusCode: null,
+    timedOut: false,
+    model: null,
+  }
+}
+
+/** @param {string} raw */
+function parseLlmJsonObject(raw) {
+  const text = clean(raw)
+  if (!text) return null
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  const candidates = [fenced?.[1], text].filter(Boolean)
+  for (const chunk of candidates) {
+    const slice = String(chunk).trim()
+    try {
+      return JSON.parse(slice)
+    } catch {
+      const match = slice.match(/\{[\s\S]*\}/)
+      if (match) {
+        try {
+          return JSON.parse(match[0])
+        } catch {
+          // try next
+        }
+      }
+    }
+  }
+  return null
+}
+
+export async function callLlmApi({ system, user, temperature = 0.3 }) {
+  const apiKey =
+    process.env.EXPERIENTIALLABS_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.OPENROUTER_API_KEY ||
+    process.env.LLM_API_KEY
+  if (!apiKey) {
+    resetLastLlmAttempt()
+    lastLlmAttempt.reason = 'no_api_key'
+    return null
+  }
+
+  resetLastLlmAttempt()
+  const started = Date.now()
+  const timeoutMs = Number(process.env.LLM_REQUEST_TIMEOUT_MS) || 45_000
+
+  const transport = resolveLlmTransport(apiKey)
+  const base = transport.base.replace(/\/$/, '')
 
   const headers = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
   }
-  if (isGemini) {
+  if (transport.isGemini) {
     headers['x-goog-api-key'] = apiKey
   } else {
     headers['HTTP-Referer'] = 'http://localhost:5173'
     headers['X-Title'] = 'HIRERIGHTTT'
   }
 
-  // Model cascade: 1. Gemini gemini-2.5-flash (Primary) -> 2. Gemini gemini-1.5-flash (Fallback)
-  const primaryModel = process.env.PRIMARY_MODEL || process.env.GEMINI_MODEL || (isGemini ? 'gemini-2.5-flash' : 'gpt-4o-mini')
-  const fallbackModel = process.env.FALLBACK_MODEL || (isGemini ? 'gemini-1.5-flash' : 'gpt-4o-mini')
-
-  const candidateModels = [
-    { name: primaryModel, label: isGemini ? 'Google Gemini 2.5 Flash' : primaryModel },
-    { name: fallbackModel, label: isGemini ? 'Google Gemini 1.5 Flash' : fallbackModel },
-  ]
+  const candidateModels = buildModelCascade(transport)
 
   for (let i = 0; i < candidateModels.length; i++) {
     const { name: currentModel, label } = candidateModels[i]
+    lastLlmAttempt.model = currentModel
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
           model: currentModel,
           temperature,
@@ -351,23 +505,47 @@ export async function callLlmApi({ system, user, temperature = 0.3 }) {
             completionTokens: usage.completion_tokens || 0,
             totalTokens: usage.total_tokens || 0,
           }
+          lastLlmAttempt.latencyMs = Date.now() - started
+          lastLlmAttempt.reason = null
+          lastLlmAttempt.statusCode = res.status
           console.log(
-            `🔥 [${label}] Success! Prompt tokens: ${tokenUsage.promptTokens} | Completion: ${tokenUsage.completionTokens} | Total: ${tokenUsage.totalTokens}`,
+            `🔥 [${label}] Success in ${lastLlmAttempt.latencyMs}ms! Prompt tokens: ${tokenUsage.promptTokens} | Completion: ${tokenUsage.completionTokens} | Total: ${tokenUsage.totalTokens}`,
           )
-          return { text, tokenUsage, provider: label, model: currentModel }
+          return { text, tokenUsage, provider: label, model: currentModel, latencyMs: lastLlmAttempt.latencyMs }
         }
+        lastLlmAttempt.reason = 'empty_response'
+        lastLlmAttempt.statusCode = res.status
+      } else {
+        const errText = await res.text().catch(() => '')
+        lastLlmAttempt.statusCode = res.status
+        lastLlmAttempt.reason =
+          res.status === 401 || res.status === 403
+            ? 'auth_error'
+            : res.status === 429
+              ? 'rate_limited'
+              : 'http_error'
+        console.warn(
+          `[LLM Fallback Trigger] Model "${currentModel}" status ${res.status} (${Date.now() - started}ms). Falling back...`,
+          errText.slice(0, 160),
+        )
       }
-
-      const errText = await res.text().catch(() => '')
-      console.warn(
-        `[LLM Fallback Trigger] Model "${currentModel}" status ${res.status}. Falling back to next model...`,
-        errText.slice(0, 160),
-      )
     } catch (err) {
-      console.warn(`[LLM Fallback Trigger] Model "${currentModel}" error: ${err.message}. Falling back...`)
+      const isTimeout = err instanceof Error && err.name === 'AbortError'
+      lastLlmAttempt.timedOut = isTimeout
+      lastLlmAttempt.reason = isTimeout ? 'timeout' : 'network_error'
+      console.warn(
+        `[LLM Fallback Trigger] Model "${currentModel}" ${isTimeout ? 'timed out' : 'error'} (${Date.now() - started}ms): ${err instanceof Error ? err.message : err}. Falling back...`,
+      )
+    } finally {
+      clearTimeout(timer)
     }
   }
 
+  lastLlmAttempt.latencyMs = Date.now() - started
+  if (!lastLlmAttempt.reason) lastLlmAttempt.reason = 'all_models_failed'
+  console.warn(
+    `[LLM] No model returned text after ${lastLlmAttempt.latencyMs}ms (${lastLlmAttempt.reason}). Using server template question.`,
+  )
   return null
 }
 
@@ -433,6 +611,7 @@ Return ONLY valid JSON matching this schema:
         keywords: unique((q.keywords || []).map((k) => clean(k).toLowerCase())).slice(0, 12),
         hint: clean(q.hint) || 'Be specific and give a concrete example.',
         focus: 'llm',
+        generationSource: 'llm',
       }))
       .filter((q) => q.text.length > 20)
     return normalized.length >= 3 ? normalized.slice(0, 5) : null
@@ -659,11 +838,11 @@ Return: {"question":{"text":"Simple, clear spoken question text...","category":"
   })
 
   const llm = await callLlmApi({ system, user, temperature: 0.72 })
+  const llmMeta = getLastLlmAttempt()
   if (llm?.text) {
     try {
-      const match = llm.text.match(/\{[\s\S]*\}/)
-      if (match) {
-        const parsed = JSON.parse(match[0])
+      const parsed = parseLlmJsonObject(llm.text)
+      if (parsed) {
         const q = parsed.question || parsed
         const text = clean(q.text)
         if (text.length > 20) {
@@ -675,11 +854,16 @@ Return: {"question":{"text":"Simple, clear spoken question text...","category":"
             topic: clean(q.topic) || clean(q.category) || 'Technical',
             resumeAnchor: clean(q.resumeAnchor) || undefined,
             focus: 'adaptive-llm',
+            generationSource: 'llm',
+            llmLatencyMs: llm.latencyMs ?? llmMeta.latencyMs,
+            llmModel: llm.model ?? llmMeta.model ?? undefined,
           }
         }
       }
+      console.warn('[LLM] Response received but JSON question parse failed — using server template.')
+      lastLlmAttempt.reason = 'parse_error'
     } catch {
-      // local fallback
+      lastLlmAttempt.reason = 'parse_error'
     }
   }
 
@@ -734,6 +918,22 @@ Return: {"question":{"text":"Simple, clear spoken question text...","category":"
     hint: 'Be specific: stack, your role, and a metric or outcome.',
     topic,
     focus: 'adaptive-local',
+    generationSource: 'template',
+    llmLatencyMs: llmMeta.latencyMs,
+    llmFailureReason: llmMeta.reason || (llm ? 'parse_error' : 'llm_unavailable'),
+  }
+}
+
+/** @param {import('./interviewAgent.mjs').Question} question */
+export function questionGenerationPayload(question) {
+  const source =
+    question?.generationSource ||
+    (question?.focus === 'adaptive-llm' ? 'llm' : 'template')
+  return {
+    questionSource: source,
+    llmLatencyMs: question?.llmLatencyMs ?? null,
+    llmFailureReason: source === 'template' ? question?.llmFailureReason ?? null : null,
+    llmModel: source === 'llm' ? question?.llmModel ?? null : null,
   }
 }
 
@@ -1165,7 +1365,8 @@ export async function scoreInterviewSession(input) {
 
 export function llmConfigured() {
   return Boolean(
-    process.env.GEMINI_API_KEY ||
+    process.env.EXPERIENTIALLABS_API_KEY ||
+      process.env.GEMINI_API_KEY ||
       process.env.OPENROUTER_API_KEY ||
       process.env.OPENAI_API_KEY ||
       process.env.LLM_API_KEY,

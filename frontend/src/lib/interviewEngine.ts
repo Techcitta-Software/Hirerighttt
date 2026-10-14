@@ -7,6 +7,47 @@ export type Question = {
   hint: string
   resumeAnchor?: string
   topic?: string
+  /** Server: adaptive-llm vs adaptive-local template */
+  focus?: string
+  generationSource?: 'llm' | 'template'
+  llmLatencyMs?: number
+  llmFailureReason?: string | null
+  llmModel?: string | null
+}
+
+export type QuestionGenerationMeta = {
+  questionSource: 'llm' | 'template'
+  llmLatencyMs?: number | null
+  llmFailureReason?: string | null
+  llmModel?: string | null
+}
+
+export type InterviewQuestionPlan = 'llm-fixed' | 'template-fixed' | 'adaptive'
+
+export function isLlmGeneratedQuestion(q: Question): boolean {
+  return (
+    q.generationSource === 'llm' ||
+    q.focus === 'llm' ||
+    q.focus === 'adaptive-llm'
+  )
+}
+
+/** Fixed bank from LLM (5) or templates (5) — never mix with extra adaptive fetches. */
+export function deriveInterviewQuestionPlan(
+  questions: Question[],
+  adaptive: boolean,
+): InterviewQuestionPlan {
+  if (adaptive) return 'adaptive'
+  if (questions.length > 0 && questions.every(isLlmGeneratedQuestion)) return 'llm-fixed'
+  return 'template-fixed'
+}
+
+export function agentLabelForQuestionSource(source: 'llm' | 'template', latencyMs?: number | null) {
+  if (source === 'llm') {
+    const ms = typeof latencyMs === 'number' && latencyMs > 0 ? ` · ${latencyMs}ms` : ''
+    return `Ava · AI-generated question${ms}`
+  }
+  return 'Ava · backup question (AI unavailable)'
 }
 
 export const ROLES = [
