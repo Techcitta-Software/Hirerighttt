@@ -26,9 +26,33 @@ function pickVoice(): SpeechSynthesisVoice | null {
   )
 }
 
+let _activeUtterance: SpeechSynthesisUtterance | null = null
+let watchdogTimer: number | null = null
+let keepAliveInterval: number | null = null
+
+export function getActiveUtterance(): SpeechSynthesisUtterance | null {
+  return _activeUtterance
+}
+
 export function cancelSpeech(): void {
-  if (!isSpeechSynthesisSupported()) return
-  window.speechSynthesis.cancel()
+  if (typeof window === 'undefined' || !isSpeechSynthesisSupported()) return
+  if (watchdogTimer !== null) {
+    window.clearTimeout(watchdogTimer)
+    watchdogTimer = null
+  }
+  if (keepAliveInterval !== null) {
+    window.clearInterval(keepAliveInterval)
+    keepAliveInterval = null
+  }
+  _activeUtterance = null
+  try {
+    window.speechSynthesis.cancel()
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume()
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export function speakText(
@@ -46,31 +70,92 @@ export function speakText(
 
   cancelSpeech()
 
-  // Voices often load async — retry once after voiceschanged.
+  let completed = false
+  const finish = (cb?: () => void) => {
+    if (completed) return
+    completed = true
+    if (watchdogTimer !== null) {
+      window.clearTimeout(watchdogTimer)
+      watchdogTimer = null
+    }
+    if (keepAliveInterval !== null) {
+      window.clearInterval(keepAliveInterval)
+      keepAliveInterval = null
+    }
+    _activeUtterance = null
+    cb?.()
+  }
+
   const run = () => {
-    const utterance = new SpeechSynthesisUtterance(text.trim())
-    const voice = pickVoice()
-    if (voice) utterance.voice = voice
-    utterance.rate = 1.02
-    utterance.pitch = 1
-    utterance.volume = 1
-    utterance.onstart = () => options?.onStart?.()
-    utterance.onend = () => options?.onEnd?.()
-    utterance.onerror = () => options?.onError?.()
-    window.speechSynthesis.speak(utterance)
+    if (completed) return
+    try {
+      const utterance = new SpeechSynthesisUtterance(text.trim())
+      _activeUtterance = utterance
+      const voice = pickVoice()
+      if (voice) utterance.voice = voice
+      utterance.rate = 1.02
+      utterance.pitch = 1
+      utterance.volume = 1
+      utterance.onstart = () => {
+        if (!completed) options?.onStart?.()
+      }
+      utterance.onend = () => {
+        finish(options?.onEnd)
+      }
+      utterance.onerror = () => {
+        finish(options?.onEnd || options?.onError)
+      }
+
+      // Chromium bug workaround: keep synthesis alive if utterance > 8s
+      keepAliveInterval = window.setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          if (keepAliveInterval !== null) {
+            window.clearInterval(keepAliveInterval)
+            keepAliveInterval = null
+          }
+        } else {
+          try {
+            window.speechSynthesis.pause()
+            window.speechSynthesis.resume()
+          } catch {}
+        }
+      }, 8000)
+
+      // Safety watchdog: estimated duration based on word count
+      const words = text.trim().split(/\s+/).length
+      const estimatedMs = Math.max(6000, Math.round((words / 2.0) * 1000) + 4000)
+      watchdogTimer = window.setTimeout(() => {
+        if (!completed) {
+          try {
+            window.speechSynthesis.cancel()
+          } catch {}
+          finish(options?.onEnd)
+        }
+      }, estimatedMs)
+
+      window.speechSynthesis.speak(utterance)
+    } catch {
+      finish(options?.onEnd)
+    }
   }
 
   if (window.speechSynthesis.getVoices().length === 0) {
+    let fired = false
     const onVoices = () => {
+      if (fired) return
+      fired = true
       window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
       run()
     }
     window.speechSynthesis.addEventListener('voiceschanged', onVoices)
     // Fallback if voiceschanged never fires
     window.setTimeout(() => {
-      window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
-      if (!window.speechSynthesis.speaking) run()
-    }, 400)
+      if (!fired) {
+        fired = true
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
+        run()
+      }
+    }, 350)
     return
   }
 

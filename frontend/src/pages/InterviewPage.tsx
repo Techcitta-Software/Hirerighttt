@@ -62,7 +62,7 @@ type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
 const QUESTION_SECONDS = 180
 /** After this much silence with an answer on the transcript, auto-advance (call-style). */
-const SILENCE_ADVANCE_MS = 5000
+const SILENCE_ADVANCE_MS = 2500
 const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
@@ -71,7 +71,7 @@ const LOBBY_TIPS = [
   'No role chip selected? Questions follow your resume. Pick a role track to focus the interview on that job',
   'It works for any field — engineering, healthcare, oil & gas, and more',
   'Talk over Ava to interrupt — only your voice stops her (not background noise)',
-  'Pause ~5 seconds when you are done — the next question starts automatically',
+  'Pause ~2.5s or click "Next Question" when done — Ava promptly gives the next question',
   'Say "end the interview" when you want to finish (after 2+ answers)',
 ]
 
@@ -446,6 +446,7 @@ export function InterviewPage() {
   function stopAllSpeech() {
     cancelSpeech()
     setAiSpeaking(false)
+    aiSpeakingRef.current = false
     stopListening()
   }
 
@@ -557,7 +558,9 @@ export function InterviewPage() {
       if (aiSpeakingRef.current) {
         if (merged.bargeIn) {
           handleBargeIn()
-          const line = merged.committed.trim()
+          const line = merged.interim
+            ? `${merged.committed} ${merged.interim}`.trim()
+            : merged.committed.trim()
           if (line) {
             setDraft(line)
             draftRef.current = line
@@ -573,8 +576,6 @@ export function InterviewPage() {
       if (display) {
         setDraft(display)
         draftRef.current = display
-      }
-      if (merged.hadFinal || (merged.interim && merged.interim.length >= 12)) {
         lastSpeechAtRef.current = Date.now()
       }
     }
@@ -582,21 +583,18 @@ export function InterviewPage() {
     recognition.onend = () => {
       setListening(false)
       listeningRef.current = false
-      if (
-        listenAfterTtsRef.current &&
-        stageRef.current === 'interview' &&
-        micOnRef.current &&
-        !finishingRef.current &&
-        !advancingRef.current
-      ) {
-        try {
-          recognition.start()
-          setListening(true)
-          listeningRef.current = true
-        } catch {
-          // already started
+      window.setTimeout(() => {
+        if (
+          listenAfterTtsRef.current &&
+          stageRef.current === 'interview' &&
+          micOnRef.current &&
+          !finishingRef.current &&
+          !advancingRef.current &&
+          !listeningRef.current
+        ) {
+          startListening()
         }
-      }
+      }, 100)
     }
     recognitionRef.current = recognition
     try {
@@ -649,11 +647,7 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
-        if (
-          stageRef.current === 'interview' &&
-          micOnRef.current &&
-          !listeningRef.current
-        ) {
+        if (stageRef.current === 'interview' && micOnRef.current) {
           startListening()
         }
       },
@@ -662,7 +656,9 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
-        if (stageRef.current === 'interview' && micOnRef.current) startListening()
+        if (stageRef.current === 'interview' && micOnRef.current) {
+          startListening()
+        }
       },
     })
 
@@ -692,7 +688,7 @@ export function InterviewPage() {
       if (!last) return
       if (Date.now() - last < SILENCE_ADVANCE_MS) return
       submitAnswerRef.current()
-    }, 400)
+    }, 250)
     return () => window.clearInterval(id)
   }, [stage, current, interviewBanned])
 
@@ -799,10 +795,16 @@ export function InterviewPage() {
   function endInterviewEarly() {
     if (finishingRef.current || stage !== 'interview') return
     stopAllSpeech()
+    const cur = (draftRef.current || draft || '').trim()
     const next = [...answersRef.current]
-    next[current] = draftRef.current.trim()
-    answersRef.current = next
-    const answered = next.filter((a) => a?.trim()).length
+    if (cur) {
+      next[current] = cur
+      answersRef.current = next
+      try {
+        sessionStorage.setItem('hireright.interviewAnswers', JSON.stringify(next))
+      } catch {}
+    }
+    const answered = next.filter((a) => a?.trim() && !a.startsWith('(Answer skipped')).length
     if (answered < 1 && !next[current]?.trim()) {
       setDeviceError('Answer at least one question, or say "end the interview" after you respond.')
       return
@@ -811,7 +813,7 @@ export function InterviewPage() {
     finish(next, false)
   }
 
-  async function submitAnswer() {
+  async function submitAnswer(isSkip = false) {
     if (finishingRef.current || stage !== 'interview' || questions.length === 0) {
       return
     }
@@ -821,26 +823,27 @@ export function InterviewPage() {
         setDeviceError('Multiple people detected — interview cannot continue.')
         return
       }
-      if (faceStatus.severity === 'block') {
-        setDeviceError('Keep your face clearly in frame to submit.')
-        return
-      }
-      if (faceStatus.issue === 'looking_away' && Math.abs(faceStatus.yaw) >= 0.48) {
-        setDeviceError('Turn to face the camera, then submit your answer.')
-        return
+      if (faceStatus.issue === 'looking_away') {
+        addIntegrityLog('SIDE_GAZE_LOOKING_AWAY', 'warn', 'Looking away during answer submission')
+      } else if (faceStatus.severity === 'block') {
+        addIntegrityLog('NO_FACE_SEEN', 'warn', 'Face not centered during answer submission')
       }
     }
     listenAfterTtsRef.current = false
     stopAllSpeech()
 
-    const answer = draftRef.current.trim()
+    const rawAnswer = isSkip ? '' : (draftRef.current || draft || '').trim()
+    const answer = rawAnswer || '(Answer skipped by candidate)'
     const next = [...answersRef.current]
-    next[current] = answer
+    next[current] = rawAnswer || '(Answer skipped by candidate)'
     answersRef.current = next
+    try {
+      sessionStorage.setItem('hireright.interviewAnswers', JSON.stringify(next))
+    } catch {}
 
-    const answeredCount = next.filter((a) => a && a.trim()).length
-    if (isEndInterviewCommand(answer)) {
-      if (answeredCount < 1 && current === 0 && !answer.replace(/end|stop|finish|done/gi, '').trim()) {
+    const answeredCount = next.filter((a) => a && a.trim() && !a.startsWith('(Answer skipped')).length
+    if (isEndInterviewCommand(rawAnswer)) {
+      if (answeredCount < 1 && current === 0 && !rawAnswer.replace(/end|stop|finish|done/gi, '').trim()) {
         setDeviceError('Share at least one answer first, then say "end the interview".')
         return
       }
@@ -1069,16 +1072,18 @@ export function InterviewPage() {
     checklist.every(Boolean) &&
     !starting &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
+  const hasAnswer = draft.trim().length >= MIN_ANSWER_CHARS
   const callStatus = advancing
     ? 'Moving to your next question…'
     : aiSpeaking
-      ? 'Ava speaking — speak clearly (2+ words) to interrupt'
-      : listening
-        ? 'Listening — pause ~5s when you are done'
-        : 'Live call with Ava'
+      ? 'Ava speaking — jump in anytime to answer'
+      : hasAnswer
+        ? 'Answer captured — pause ~2.5s or click Next below'
+        : listening
+          ? 'Listening — speak your answer anytime'
+          : 'Live call with Ava'
 
-  const canSubmit =
-    Boolean(draft.trim()) && !aiSpeaking && !faceBlocks && !interviewBanned && !advancing
+  const canSubmit = !advancing && !interviewBanned
 
   return (
     <div className={styles.page}>
@@ -1694,9 +1699,9 @@ export function InterviewPage() {
                 <p>
                   {draft.trim() ||
                     (aiSpeaking
-                      ? 'Ava is asking — speak a short phrase to interrupt her, then answer.'
+                      ? 'Ava is asking — speak anytime or click "Next Question" to continue.'
                       : speechSupported
-                        ? 'Live transcript. Pause ~5 seconds when finished to go to the next question.'
+                        ? 'Live transcript. Pause ~2.5s or click "Submit & Next" when finished.'
                         : 'Speech unavailable in this browser. Type your answer.')}
                 </p>
                 {(showTypeFallback || !speechSupported) && (
@@ -1705,7 +1710,11 @@ export function InterviewPage() {
                     value={draft}
                     rows={4}
                     placeholder="Type your answer…"
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => {
+                      setDraft(e.target.value)
+                      draftRef.current = e.target.value
+                      lastSpeechAtRef.current = Date.now()
+                    }}
                   />
                 )}
                 {speechSupported && (
@@ -1777,15 +1786,30 @@ export function InterviewPage() {
                 {callStatus}
               </div>
 
+              {Boolean(draft.trim()) && !advancing && (
+                <button
+                  type="button"
+                  className={styles.skipLinkBtn}
+                  onClick={() => void submitAnswer(true)}
+                  title="Skip this question and move to next"
+                >
+                  Skip Question
+                </button>
+              )}
+
               <motion.button
                 type="button"
-                className={styles.nextBtnSecondary}
-                onClick={() => submitAnswer()}
+                className={draft.trim() ? styles.nextBtnPrimary : styles.nextBtnSecondary}
+                onClick={() => void submitAnswer(false)}
                 disabled={!canSubmit}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {faceBlocks ? 'Fix face check' : 'Submit answer now'}
+                {advancing
+                  ? 'Loading next question…'
+                  : draft.trim()
+                    ? 'Submit Answer →'
+                    : 'Skip Question →'}
               </motion.button>
 
               <button type="button" className={styles.endBtn} onClick={endInterviewEarly}>

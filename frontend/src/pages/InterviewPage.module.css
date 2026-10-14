@@ -1442,6 +1442,36 @@
   padding: 0 0.5rem;
 }
 
+.nextBtnPrimary {
+  min-height: 48px;
+  min-width: 170px;
+  padding: 0 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(112, 71, 255, 0.35);
+  background: linear-gradient(135deg, #7047ff 0%, #4f46e5 100%);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(112, 71, 255, 0.28);
+  transition: all 0.2s ease;
+}
+
+.nextBtnPrimary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6032f5 0%, #4338ca 100%);
+  box-shadow: 0 6px 18px rgba(112, 71, 255, 0.38);
+}
+
+.nextBtnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .nextBtnSecondary {
   min-height: 48px;
   min-width: 160px;
@@ -1458,6 +1488,25 @@
 .nextBtnSecondary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.skipLinkBtn {
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.skipLinkBtn:hover {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
 }
 
 .endBtn {
