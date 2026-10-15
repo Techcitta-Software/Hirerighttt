@@ -20,11 +20,9 @@ jobs:
 
       - run: npm run lint
 
-      - name: Build frontend (production-safe env)
+      - name: Build frontend
         env:
-          VITE_AUTH_PROVIDER: supabase
-          VITE_SUPABASE_URL: https://example.supabase.co
-          VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder
+          VITE_AUTH_PROVIDER: api
         run: npm run build
 
       - name: Production config smoke (Node API)
@@ -34,7 +32,5 @@ jobs:
           DATABASE_URL: postgresql://u:p@localhost:5432/db?sslmode=require
           SESSION_SECRET: ci-smoke-test-secret-at-least-32-chars-long
           CORS_ORIGINS: https://app.example.com
-          SUPABASE_URL: https://example.supabase.co
-          SUPABASE_JWT_SECRET: ci-jwt-secret-placeholder-32chars
-          EXPERIENTIALLABS_API_KEY: ci-key-placeholder
+          GEMINI_API_KEY: ci-key-placeholder
         run: node -e "import('./config.mjs').then((m)=>m.assertProductionConfig())"

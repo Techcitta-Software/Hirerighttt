@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -14,7 +14,44 @@ import {
   type EmployerJob,
 } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
+import {
+  createVendorJob,
+  fetchJobApplicants,
+  fetchVendorJobs,
+  patchApplicantStatus,
+  fetchApplicantReport,
+  type VendorApplicant,
+  type VendorAssessmentReport,
+} from '../lib/vendorApi'
+import { ensureApiSession } from '../lib/apiSession'
 import styles from './EmployerDashboard.module.css'
+
+function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
+  const statusMap: Record<string, EmployerApplicant['status']> = {
+    applied: 'New',
+    interviewed: 'In Review',
+    shortlisted: 'Shortlisted',
+    rejected: 'Rejected',
+  }
+  return {
+    id: a.id,
+    jobId: a.jobId,
+    jobTitle: a.data.jobTitle || '',
+    company: a.data.company || '',
+    candidateName: a.data.candidateName || a.candidateEmail,
+    candidateEmail: a.candidateEmail,
+    candidatePhone: '',
+    experienceYears: a.data.experienceYears || '',
+    resumeName: null,
+    resumeText: undefined,
+    interviewResult: a.data.interviewResult as EmployerApplicant['interviewResult'],
+    atsScore: a.data.atsScore,
+    jdMatchScore: a.data.jdMatchScore,
+    primarySkills: a.data.primarySkills,
+    appliedAt: a.appliedAt,
+    status: statusMap[a.status] || 'New',
+  }
+}
 
 export function EmployerDashboard() {
   const user = getUser()
@@ -31,6 +68,45 @@ export function EmployerDashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [selectedApplicant, setSelectedApplicant] = useState<EmployerApplicant | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [apiReady, setApiReady] = useState(false)
+  const [vendorReport, setVendorReport] = useState<VendorAssessmentReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      const ok = await ensureApiSession()
+      if (!ok) return
+      try {
+        const { jobs: remoteJobs } = await fetchVendorJobs()
+        if (remoteJobs.length) {
+          setJobs(
+            remoteJobs.map((j) => ({
+              id: j.id,
+              title: j.title,
+              company: j.company,
+              roleTrack: j.roleTrack || '',
+              experienceLevel: j.experienceLevel || '',
+              location: j.location || '',
+              jobDescription: j.jobDescription || '',
+              requiredSkills: j.requiredSkills || [],
+              shareableCode: j.shareableCode,
+              createdByEmail: user?.email || '',
+              createdAt: j.createdAt,
+            })),
+          )
+        }
+        const allApplicants: EmployerApplicant[] = []
+        for (const j of remoteJobs) {
+          const { applicants } = await fetchJobApplicants(j.id)
+          allApplicants.push(...applicants.map(mapVendorApplicant))
+        }
+        if (allApplicants.length) setApplicants(allApplicants)
+        setApiReady(true)
+      } catch {
+        // keep localStorage data
+      }
+    })()
+  }, [user?.email])
 
   // Form State for New Job
   const [title, setTitle] = useState('')
@@ -40,7 +116,7 @@ export function EmployerDashboard() {
   const [jobDescription, setJobDescription] = useState('')
   const [skillsStr, setSkillsStr] = useState('React, TypeScript, Redux, Node.js')
 
-  function handleCreateJob(e: React.FormEvent) {
+  async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim() || !jobDescription.trim()) return
 
@@ -49,22 +125,50 @@ export function EmployerDashboard() {
       .map((s) => s.trim())
       .filter(Boolean)
 
-    const newJob = saveEmployerJob({
-      title: title.trim(),
-      company: user?.companyName || 'TechCitta Solutions',
-      roleTrack,
-      experienceLevel,
-      location: location.trim(),
-      jobDescription: jobDescription.trim(),
-      requiredSkills: skills,
-      createdByEmail: user?.email || 'employer@hireright.com',
-    })
+    let newJob: EmployerJob | null = null
+    try {
+      await ensureApiSession()
+      const created = await createVendorJob({
+        title: title.trim(),
+        company: user?.companyName || 'TechCitta Solutions',
+        roleTrack,
+        experienceLevel,
+        location: location.trim(),
+        jobDescription: jobDescription.trim(),
+        requiredSkills: skills,
+      })
+      newJob = {
+        id: created.job.id,
+        title: created.job.title,
+        company: created.job.company,
+        roleTrack: created.job.roleTrack || roleTrack,
+        experienceLevel: created.job.experienceLevel || experienceLevel,
+        location: created.job.location || location,
+        jobDescription: created.job.jobDescription || jobDescription.trim(),
+        requiredSkills: created.job.requiredSkills || skills,
+        shareableCode: created.job.shareableCode,
+        createdByEmail: user?.email || '',
+        createdAt: created.job.createdAt,
+      }
+    } catch {
+      newJob = saveEmployerJob({
+        title: title.trim(),
+        company: user?.companyName || 'TechCitta Solutions',
+        roleTrack,
+        experienceLevel,
+        location: location.trim(),
+        jobDescription: jobDescription.trim(),
+        requiredSkills: skills,
+        createdByEmail: user?.email || 'employer@hireright.com',
+      })
+    }
 
     setJobs([newJob, ...jobs])
     setApplicants(getEmployerApplicants(newJob.id).concat(applicants))
     setShowCreateModal(false)
     setTitle('')
     setJobDescription('')
+    setApiReady(true)
   }
 
   function handleDeleteJob(id: string) {
@@ -88,11 +192,34 @@ export function EmployerDashboard() {
     setApplicants(
       applicants.map((a) => (a.id === id ? { ...a, status: newStatus } : a)),
     )
+    if (apiReady) {
+      const apiStatus =
+        newStatus === 'Shortlisted'
+          ? 'shortlisted'
+          : newStatus === 'Rejected'
+            ? 'rejected'
+            : newStatus === 'In Review'
+              ? 'interviewed'
+              : 'applied'
+      void patchApplicantStatus(id, apiStatus).catch(() => {})
+    }
   }
 
   const filteredApplicants = selectedJobId
     ? applicants.filter((a) => a.jobId === selectedJobId)
     : applicants
+
+  useEffect(() => {
+    if (!selectedApplicant || !apiReady) {
+      setVendorReport(null)
+      return
+    }
+    setReportLoading(true)
+    void fetchApplicantReport(selectedApplicant.id)
+      .then(({ report }) => setVendorReport(report))
+      .catch(() => setVendorReport(null))
+      .finally(() => setReportLoading(false))
+  }, [selectedApplicant?.id, apiReady])
 
   return (
     <div className={styles.page}>
@@ -270,7 +397,7 @@ export function EmployerDashboard() {
                     <th>Candidate</th>
                     <th>Target Job</th>
                     <th>Experience</th>
-                    <th>AI Score & Fit</th>
+                    <th>ATS / AI Score</th>
                     <th>Integrity</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -278,11 +405,13 @@ export function EmployerDashboard() {
                 </thead>
                 <tbody>
                   {filteredApplicants.map((app) => {
-                    const score = app.interviewResult?.overall ?? 88
+                    const score = app.interviewResult?.overall ?? null
+                    const ats = app.atsScore ?? null
+                    const displayScore = score ?? ats ?? null
                     const scoreClass =
-                      score >= 85
+                      (displayScore ?? 0) >= 85
                         ? styles.scoreHigh
-                        : score >= 70
+                        : (displayScore ?? 0) >= 70
                           ? styles.scoreMed
                           : styles.scoreLow
 
@@ -302,8 +431,19 @@ export function EmployerDashboard() {
                         </td>
                         <td>{app.experienceYears}</td>
                         <td>
+                          {ats != null && (
+                            <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: 4 }}>
+                              ATS {ats}%
+                              {app.jdMatchScore != null ? ` · JD ${app.jdMatchScore}%` : ''}
+                            </div>
+                          )}
                           <span className={`${styles.scorePill} ${scoreClass}`}>
-                            <HrIcon name="flame" size={14} /> {score}% Overall Fit
+                            <HrIcon name="flame" size={14} />{' '}
+                            {score != null
+                              ? `${score}% Interview`
+                              : ats != null
+                                ? `${ats}% ATS (pending interview)`
+                                : '—'}
                           </span>
                         </td>
                         <td>
@@ -492,17 +632,68 @@ export function EmployerDashboard() {
                 </div>
 
                 <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>AI EVALUATION SCORE</div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>COMPOSITE HIRE SCORE</div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: '#2563eb', marginTop: '4px' }}>
-                    {selectedApplicant.interviewResult
-                      ? `${selectedApplicant.interviewResult.overall}%`
-                      : 'Pending'}
+                    {reportLoading
+                      ? '…'
+                      : vendorReport?.compositeScore != null
+                        ? `${vendorReport.compositeScore}%`
+                        : selectedApplicant.interviewResult
+                          ? `${selectedApplicant.interviewResult.overall}%`
+                          : selectedApplicant.atsScore != null
+                            ? `${selectedApplicant.atsScore}% ATS`
+                            : 'Pending'}
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: '#059669', fontWeight: 700 }}>
-                    <HrIcon name="check" size={14} /> High Match Candidate
+                  <div style={{ fontSize: '0.82rem', color: '#475569', marginTop: 6 }}>
+                    ATS {selectedApplicant.atsScore ?? vendorReport?.atsScore ?? '—'}% · Interview{' '}
+                    {selectedApplicant.interviewResult?.overall ?? vendorReport?.interviewOverall ?? '—'}%
                   </div>
+                  {vendorReport?.recommendation && (
+                    <div style={{ fontSize: '0.82rem', color: '#0f172a', fontWeight: 700, marginTop: 8 }}>
+                      {vendorReport.recommendation}
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {vendorReport && (
+                <div style={{ marginBottom: 20 }}>
+                  <h4 style={{ margin: '0 0 8px', color: '#0f172a' }}>Executive summary</h4>
+                  <p style={{ fontSize: '0.9rem', color: '#334155', lineHeight: 1.55 }}>
+                    {vendorReport.executiveSummary || vendorReport.atsAnalysis}
+                  </p>
+                  {vendorReport.atsAnalysis && (
+                    <>
+                      <h4 style={{ margin: '16px 0 8px', color: '#0f172a' }}>ATS & JD fit analysis</h4>
+                      <p style={{ fontSize: '0.9rem', color: '#334155', lineHeight: 1.55 }}>
+                        {vendorReport.atsAnalysis}
+                      </p>
+                    </>
+                  )}
+                  {vendorReport.skillAlignment?.length > 0 && (
+                    <>
+                      <h4 style={{ margin: '16px 0 8px', color: '#0f172a' }}>Skill alignment</h4>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.88rem', color: '#334155' }}>
+                        {vendorReport.skillAlignment.map((s) => (
+                          <li key={s.skill}>
+                            <strong>{s.skill}</strong> ({s.status}) — {s.evidence}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {vendorReport.risksAndGaps?.length > 0 && (
+                    <>
+                      <h4 style={{ margin: '16px 0 8px', color: '#0f172a' }}>Risks & gaps</h4>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.88rem', color: '#334155' }}>
+                        {vendorReport.risksAndGaps.map((r) => (
+                          <li key={r}>{r}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
 
               {selectedApplicant.resumeText && (
                 <div className={styles.formGroup}>
@@ -515,12 +706,28 @@ export function EmployerDashboard() {
 
               {selectedApplicant.interviewResult && (
                 <div>
-                  <h4 style={{ margin: '18px 0 10px 0', color: '#0f172a' }}>Category Breakdown</h4>
+                  <h4 style={{ margin: '18px 0 10px 0', color: '#0f172a' }}>Category breakdown</h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    {selectedApplicant.interviewResult.categories?.map((cat) => (
-                      <div key={cat.label} style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 14px', borderRadius: '10px', display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontWeight: 600, color: '#475569' }}>{cat.label}</span>
-                        <span style={{ fontWeight: 800, color: '#2563eb' }}>{cat.score}%</span>
+                    {(vendorReport?.categoryNarratives?.length
+                      ? vendorReport.categoryNarratives.map((cat) => ({
+                          label: cat.label,
+                          score: cat.score,
+                          narrative: cat.narrative,
+                        }))
+                      : selectedApplicant.interviewResult.categories?.map((cat) => ({
+                          label: cat.label,
+                          score: cat.score,
+                          narrative: '',
+                        })) || []
+                    ).map((cat) => (
+                      <div key={cat.label} style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 14px', borderRadius: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 600, color: '#475569' }}>{cat.label}</span>
+                          <span style={{ fontWeight: 800, color: '#2563eb' }}>{cat.score}%</span>
+                        </div>
+                        {cat.narrative ? (
+                          <p style={{ margin: '6px 0 0', fontSize: '0.8rem', color: '#64748b' }}>{cat.narrative}</p>
+                        ) : null}
                       </div>
                     ))}
                   </div>

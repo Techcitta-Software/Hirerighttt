@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process'
+import { loadEnv } from '../env/loadEnv.mjs'
+
+loadEnv()
 
 function run(command, args) {
   const child = spawn(command, args, {

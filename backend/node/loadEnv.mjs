@@ -1,34 +1,14 @@
-/**
- * Load .env from project root without an extra dependency.
- */
-import { readFileSync, existsSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const currentDir = dirname(fileURLToPath(import.meta.url))
-const candidates = [
-  join(currentDir, '..', '..', '.env'),
-  join(currentDir, '..', '.env'),
-  join(currentDir, '.env'),
-]
+const here = dirname(fileURLToPath(import.meta.url))
+const monorepoLoader = join(here, '..', '..', 'env', 'loadEnv.mjs')
+const dockerLoader = join(here, 'env', 'loadEnv.mjs')
+const loaderPath = existsSync(monorepoLoader) ? monorepoLoader : dockerLoader
 
-export function loadEnv() {
-  const envPath = candidates.find((p) => existsSync(p))
-  if (!envPath) return
-  const text = readFileSync(envPath, 'utf8')
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eq = trimmed.indexOf('=')
-    if (eq < 1) continue
-    const key = trimmed.slice(0, eq).trim()
-    let value = trimmed.slice(eq + 1).trim()
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
-    if (!(key in process.env)) process.env[key] = value
-  }
+if (!existsSync(loaderPath)) {
+  throw new Error('Missing env/loadEnv.mjs — run from monorepo root layout.')
 }
+
+export const { loadEnv, REPO_ROOT, envFilePath } = await import(pathToFileURL(loaderPath).href)

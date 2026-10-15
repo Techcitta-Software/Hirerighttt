@@ -1,4 +1,4 @@
-/** Local / API demo accounts (Node seed). Supabase may not have these users — login falls back when credentials match. */
+/** Local / API demo accounts (Node seed). Login uses /api/login when the API is running. */
 export const DEMO_CANDIDATE = {
   email: 'demo@hireright.com',
   password: 'password123',

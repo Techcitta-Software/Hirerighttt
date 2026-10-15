@@ -1,6 +1,4 @@
-import { useEffect } from 'react'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { initSupabaseAuthSync } from './lib/supabaseSync'
 import { AnimatePresence, motion } from 'framer-motion'
 import { HomePage } from './pages/HomePage'
 import { HowItWorksPage } from './pages/HowItWorksPage'
@@ -17,6 +15,8 @@ import { InterviewPage } from './pages/InterviewPage'
 import { EmployerDashboard } from './pages/EmployerDashboard'
 import { CandidateApplyPage } from './pages/CandidateApplyPage'
 import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
+import { AssessmentRecruiterPage } from './pages/AssessmentRecruiterPage'
+import { AssessmentCandidatePage } from './pages/AssessmentCandidatePage'
 import { ProfileWizard } from './pages/ProfileWizard'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ContactPage } from './pages/ContactPage'
@@ -92,6 +92,22 @@ function AnimatedRoutes() {
             }
           />
           <Route
+            path="/employer/assessments"
+            element={
+              <RequireAuth role="employer">
+                <AssessmentRecruiterPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/assessment"
+            element={
+              <RequireAuth role="jobseeker">
+                <AssessmentCandidatePage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/resumes"
             element={
               <RequireAuth>
@@ -155,7 +171,6 @@ function AnimatedRoutes() {
 }
 
 function App() {
-  useEffect(() => initSupabaseAuthSync(), [])
 
   return (
     <BrowserRouter>

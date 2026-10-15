@@ -12,6 +12,7 @@ import {
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
+import { geminiChatFetch, parseGeminiChatResponse } from './geminiAuth'
 
 GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -988,30 +989,21 @@ ${text.slice(0, 12000)}`
   // 2. Direct call via /ai-proxy (local dev only)
   if (isBrowser && apiKey) {
     try {
-      const res = await fetch('/ai-proxy/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          model: 'gemini-2.5-flash',
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a high-precision JSON-only resume extraction AI. Return ONLY valid JSON matching the requested schema with no markdown or explanation.',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.1,
-        }),
+      const model = import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.5-flash-lite'
+      const system =
+        'You are a high-precision JSON-only resume extraction AI. Return ONLY valid JSON matching the requested schema with no markdown or explanation.'
+      const res = await geminiChatFetch({
+        apiKey,
+        openAiBaseUrl: '/ai-proxy',
+        model,
+        system,
+        user: prompt,
+        temperature: 0.1,
       })
 
       if (res.ok) {
         const data = await res.json()
-        const content = data.choices?.[0]?.message?.content || ''
+        const content = parseGeminiChatResponse(data)
         const parsed = cleanAndParseJson<Record<string, unknown>>(content)
         if (parsed) {
           return formatAiExtract(parsed, text)
@@ -1030,29 +1022,19 @@ ${text.slice(0, 12000)}`
         import.meta.env.VITE_OPENAI_BASE_URL ||
         'https://generativelanguage.googleapis.com/v1beta/openai'
       ).replace(/\/$/, '')
-      const res = await fetch(`${directUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          model: 'gemini-2.5-flash',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a JSON-only resume parsing engine. Output ONLY valid JSON.',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.1,
-        }),
+      const model = import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.5-flash-lite'
+      const res = await geminiChatFetch({
+        apiKey,
+        openAiBaseUrl: directUrl,
+        model,
+        system: 'You are a JSON-only resume parsing engine. Output ONLY valid JSON.',
+        user: prompt,
+        temperature: 0.1,
       })
 
       if (res.ok) {
         const data = await res.json()
-        const content = data.choices?.[0]?.message?.content || ''
+        const content = parseGeminiChatResponse(data)
         const parsed = cleanAndParseJson<Record<string, unknown>>(content)
         if (parsed) {
           return formatAiExtract(parsed, text)

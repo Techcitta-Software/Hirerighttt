@@ -20,8 +20,11 @@
     "server": "node backend/node/index.mjs",
     "server:py": "cd backend/python && python run.py",
     "test:e2e": "playwright test",
-    "prod:supabase": "docker compose -f docker-compose.supabase.prod.yml up -d --build",
-    "prod:self-hosted": "docker compose -f docker-compose.prod.yml --profile self-hosted-db up -d --build"
+    "prod:neon": "docker compose -f docker-compose.prod.yml up -d --build",
+    "db:init": "npm --prefix backend/node run db:init",
+    "db:verify": "npm --prefix backend/node run db:verify",
+    "check:env": "node scripts/check-env.mjs",
+    "check:llm": "npm --prefix backend/node run check:llm"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

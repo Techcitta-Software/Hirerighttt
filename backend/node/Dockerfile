@@ -1,13 +1,18 @@
+# Build from repository root:
+#   docker build -f backend/node/Dockerfile .
+
 FROM node:22-alpine AS runtime
-WORKDIR /app
+WORKDIR /app/backend/node
 RUN addgroup -S app && adduser -S app -G app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+COPY backend/node/package.json backend/node/package-lock.json ./
+RUN npm ci --omit=dev
 
-COPY index.mjs interviewAgent.mjs loadEnv.mjs config.mjs supabaseAuth.mjs ./
-COPY db ./db
-COPY data ./data
+COPY env /app/env
+COPY backend/node/index.mjs backend/node/interviewAgent.mjs backend/node/loadEnv.mjs backend/node/config.mjs backend/node/llmModels.mjs backend/node/geminiClient.mjs ./
+COPY backend/node/db ./db
+COPY backend/node/assessment ./assessment
+COPY backend/node/authPasswords.mjs ./
 
 USER app
 ENV NODE_ENV=production

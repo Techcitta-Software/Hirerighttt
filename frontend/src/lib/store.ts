@@ -1,5 +1,6 @@
 import type { ProfileFormData } from '../data/wizard'
 import { extractNameFromText } from './resumeParser'
+import { findUserByPhone } from './phone'
 
 export type UserRole = 'jobseeker' | 'employer'
 
@@ -140,6 +141,9 @@ export type EmployerApplicant = {
   resumeName: string | null
   resumeText?: string
   interviewResult?: InterviewResult
+  atsScore?: number
+  jdMatchScore?: number
+  primarySkills?: string[]
   appliedAt: string
   status: 'New' | 'Shortlisted' | 'In Review' | 'Rejected'
 }
@@ -231,6 +235,13 @@ export function saveUser(
   const users = readUsers()
   const email = input.email.trim().toLowerCase()
   const existingIdx = users.findIndex((u) => u.email === email)
+
+  if (input.phone?.trim()) {
+    const phoneOwner = findUserByPhone(users, input.phone)
+    if (phoneOwner && phoneOwner.email !== email) {
+      throw new Error('An account with this mobile number already exists.')
+    }
+  }
 
   if (existingIdx >= 0) {
     if (!allowOverwrite) {
@@ -437,7 +448,7 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     completedSteps: Math.max(completedSteps, getProfile()?.completedSteps ?? 0),
   }
   localStorage.setItem(profileKey(user?.email), JSON.stringify(saved))
-  void import('./supabaseSync').then((m) => m.syncProfileToSupabase(saved))
+  void import('./apiSession').then((m) => m.syncProfileToApi(saved))
   return saved
 }
 
@@ -613,7 +624,7 @@ export function saveInterviewResult(result: InterviewResult) {
   const user = getUser()
   const key = user ? `${RESULT_KEY}.${user.email}` : RESULT_KEY
   localStorage.setItem(key, JSON.stringify(result))
-  void import('./supabaseSync').then((m) => m.syncInterviewResultToSupabase(result))
+  void import('./apiSync').then((m) => m.syncInterviewResultToApi(result))
 }
 
 export function getInterviewResult(): InterviewResult | null {

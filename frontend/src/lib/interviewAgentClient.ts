@@ -8,20 +8,37 @@ import type { AnswerAnalysis, IntegrityLogEvent, InterviewResult, SavedProfile }
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
+import { geminiChatFetch, parseGeminiChatResponse } from './geminiAuth'
 import { candidateFullName } from './store'
-import { generateLocalAdaptiveQuestion } from './adaptiveInterview'
+import {
+  generateLocalAdaptiveQuestion,
+  PROFESSIONAL_INTERVIEW_LENGTH,
+} from './adaptiveInterview'
+import {
+  resolveInteractiveTurn,
+  type InteractiveFlowStepId,
+  type InterviewInteractiveResponse,
+} from './interviewInteractive'
 import {
   buildResumeInterviewQuestions,
   runLocalInterviewScore,
 } from './localInterview'
 
+const DEMO_DISPLAY_NAME = 'Arjun Sharma'
+
+function isDemoPersonaName(name: string): boolean {
+  const t = name.trim()
+  return !t || t === DEMO_DISPLAY_NAME || /^arjun\s+sharma$/i.test(t)
+}
+
 function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | null {
   if (!profile) return null
   const display = candidateFullName()
   const resolved =
-    profile.fullName?.trim() ||
-    profile.name?.trim() ||
-    (display && display !== 'Candidate' ? display : '')
+    (!isDemoPersonaName(profile.fullName || '') && profile.fullName?.trim()) ||
+    (!isDemoPersonaName(profile.name || '') && profile.name?.trim()) ||
+    (!isDemoPersonaName(display) && display) ||
+    ''
   if (!resolved) return profile
   return {
     ...profile,
@@ -32,12 +49,12 @@ function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | nul
 
 function candidateFirstName(profile: SavedProfile | null): string {
   const full =
-    profile?.fullName?.trim() ||
-    profile?.name?.trim() ||
+    enrichProfileForAgent(profile)?.fullName?.trim() ||
     candidateFullName()
-  if (!full || full === 'Candidate') return 'there'
+  if (!full || full === 'Candidate' || isDemoPersonaName(full)) return 'there'
   return full.split(/\s+/)[0] || 'there'
 }
+
 
 const GEMINI_API_KEY = clientLlmAllowed()
   ? import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || ''
@@ -50,7 +67,7 @@ const GEMINI_BASE_URL = (
       'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/$/, '')
 const PRIMARY_MODEL =
-  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-2.5-flash'
+  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.5-flash-lite'
 const FALLBACK_MODEL =
   import.meta.env.VITE_FALLBACK_MODEL || 'gemini-1.5-flash'
 const GEMINI_MODEL = PRIMARY_MODEL
@@ -108,18 +125,12 @@ export async function checkLlmStatus(): Promise<{
   const models = [PRIMARY_MODEL, FALLBACK_MODEL]
   for (const m of models) {
     try {
-      const directRes = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          model: m,
-          messages: [{ role: 'user', content: 'Ping' }],
-          max_tokens: 5,
-        }),
+      const directRes = await geminiChatFetch({
+        apiKey: GEMINI_API_KEY,
+        openAiBaseUrl: GEMINI_BASE_URL,
+        model: m,
+        user: 'Ping',
+        maxTokens: 5,
       })
 
       if (directRes.ok) {
@@ -144,146 +155,25 @@ export async function checkLlmStatus(): Promise<{
 }
 
 /**
- * Generate resume-accurate questions directly using Gemini 2.5 Flash first,
- * falling back smoothly to Gemini 1.5 Flash.
- * Calibrated specifically for candidate's exact role and years of experience.
- */
-async function generateGeminiQuestionsDirect(
-  role: string,
-  level: string,
-  profile: SavedProfile | null,
-  jobDescription?: string,
-): Promise<Question[] | null> {
-  if (!GEMINI_API_KEY) return null
-
-  const candidateName = candidateFirstName(profile)
-  const candidateFull =
-    profile?.fullName?.trim() ||
-    profile?.name?.trim() ||
-    candidateFullName() ||
-    'Candidate'
-  const skills = Array.isArray(profile?.skills) ? profile.skills.join(', ') : 'Not specified'
-  const experiences = (profile?.workExperiences || [])
-    .map((w) => `${w.jobTitle || 'Role'} at ${w.company || 'Company'}: ${w.responsibilities || (w as any).description || ''}`)
-    .join('\n')
-  const resumeText = (profile?.resumeText || '').slice(0, 3500)
-
-  const system = `You are Ava, HireRight's friendly AI Technical Interviewer powered by Google Gemini.
-You conduct an interactive, spoken video interview.
-
-ROLE & EXPERIENCE LEVEL CALIBRATION:
-- Carefully analyze the candidate's exact target role ("${role}") and years of experience ("${level}"):
-  * Freshers / Junior (0–2 Years): Ask approachable, encouraging questions about practical fundamentals, their college or internship projects, how they learn, and everyday tools. Keep questions accessible and confidence-building.
-  * Mid-Level (2–5 Years): Ask practical questions about features they built, real-world bug troubleshooting, component/service design, and day-to-day tooling.
-  * Senior / Lead (5+ Years): Ask about high-level architecture decisions, system trade-offs, scaling, and mentoring—while keeping questions conversational and straightforward.
-
-SIMPLICITY & USER-FRIENDLINESS (MANDATORY):
-- Keep all questions SIMPLE, USER-FRIENDLY, and EASY TO UNDERSTAND.
-- Use natural, friendly spoken conversational English (like chatting with a supportive colleague).
-- Avoid overly long, convoluted, academic, or confusing multi-part questions.
-- Ask about ONE clear concept or story at a time so the candidate understands immediately and can answer comfortably.
-
-Guidelines:
-1. Explicitly cite real details from their resume (employers, projects, tools, skills).
-2. Address the candidate by first name "${candidateName}" in the opening question.
-3. If a target Job Description is provided, relate their resume experience to the job's core challenges.
-
-Structure the 5 questions:
-- Q1 (Communication): Warm intro welcoming ${candidateName}, referencing their focus area and strongest skills.
-- Q2 (Technical Depth): A simple, practical question about a specific tool or language on their resume.
-- Q3 (Resume Project): A friendly walkthrough of a project or feature they built.
-- Q4 (Problem Solving): A straightforward challenge or bug they fixed.
-- Q5 (Experience & Delivery): Team collaboration or delivering an impactful result.
-
-Return ONLY valid JSON matching this schema:
-{
-  "questions": [
-    {
-      "text": "Simple spoken question text...",
-      "category": "Communication" | "Technical" | "Problem Solving" | "Experience",
-      "keywords": ["keyword1", "keyword2", "keyword3"],
-      "hint": "Actionable guidance hint for candidate",
-      "resumeAnchor": "Specific project or tool referenced from resume"
-    }
-  ]
-}`
-
-  const user = JSON.stringify({
-    candidateFirstName: candidateName,
-    candidateFullName: candidateFull,
-    targetRole: role,
-    targetLevel: level,
-    jobDescription: jobDescription || 'Not specified',
-    resumeSnippet: resumeText || 'Use candidate skills and profile',
-    skillsList: skills,
-    workHistory: experiences,
-    whoAreYou: profile?.whoAreYou || '',
-    keyStrengths: profile?.keyStrengths || '',
-  })
-
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL]
-  for (const m of models) {
-    try {
-      const res = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          model: m,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          temperature: 0.3,
-        }),
-      })
-
-      if (!res.ok) {
-        console.warn(`[Client AI Cascade] Model "${m}" status ${res.status}. Falling back...`)
-        continue
-      }
-
-      const data = await res.json()
-      const content = data.choices?.[0]?.message?.content || ''
-      const match = content.match(/\{[\s\S]*\}/)
-      if (!match) continue
-
-      const parsed = JSON.parse(match[0])
-      if (!Array.isArray(parsed.questions) || parsed.questions.length < 3) continue
-
-      const validCategories = ['Communication', 'Technical', 'Problem Solving', 'Experience'] as const
-
-      return parsed.questions.slice(0, 5).map((q: any) => {
-        const category = validCategories.includes(q.category) ? q.category : 'Technical'
-        return {
-          text: String(q.text || '').trim(),
-          category,
-          keywords: Array.isArray(q.keywords) ? q.keywords.map(String) : [category.toLowerCase()],
-          hint: String(q.hint || 'Structure your answer with a concrete example and measurable outcome.').trim(),
-          resumeAnchor: q.resumeAnchor ? String(q.resumeAnchor).trim() : undefined,
-        }
-      })
-    } catch (err: any) {
-      console.warn(`[Client AI Cascade] Model "${m}" error: ${err.message}. Falling back...`)
-    }
-  }
-
-  return null
-}
-
-/**
  * Start an interview session with Ava.
  * Tries Google Gemini AI, falling back smoothly to local resume questions.
  */
+export type JobLinkedInterviewMeta = {
+  jobId?: string
+  applicationId?: string
+  organizationId?: string
+  primarySkills?: string[]
+  atsScore?: number
+  jdMatchScore?: number
+}
+
 export async function startInterviewSession(
   role: string,
   level: string,
   profile: SavedProfile | null,
   jobDescription?: string,
   explicitRoleTrack?: boolean,
+  jobLink?: JobLinkedInterviewMeta,
 ): Promise<InterviewStartResponse> {
   const agentProfile = enrichProfileForAgent(profile)
   await ensureApiSession()
@@ -299,6 +189,12 @@ export async function startInterviewSession(
         jobDescription,
         adaptive: true,
         explicitRoleTrack: Boolean(explicitRoleTrack),
+        jobId: jobLink?.jobId,
+        applicationId: jobLink?.applicationId,
+        organizationId: jobLink?.organizationId,
+        primarySkills: jobLink?.primarySkills,
+        atsScore: jobLink?.atsScore,
+        jdMatchScore: jobLink?.jdMatchScore,
       }),
     })
     if (res.ok) {
@@ -309,59 +205,48 @@ export async function startInterviewSession(
         Array.isArray(questions) &&
         (adaptive ? questions.length >= 1 : questions.length >= 3)
       if (hasQuestions) {
-        const llmAgent = data.agent === 'llm' || data.llm || data.agent === 'llm-adaptive'
+        const firstOnly = questions.slice(0, 1)
         return {
           sessionId: data.sessionId || `session-${Date.now().toString(36)}`,
-          agent: llmAgent
-            ? 'Ava · Google Gemini · adaptive'
-            : data.agent || 'Ava · adaptive agent',
-          llm: Boolean(llmAgent),
-          total: adaptive ? questions.length : questions.length,
-          questions,
-          question: questions[0],
+          agent: data.llm ? 'Ava · Google Gemini · AI questions' : 'Ava · AI adaptive',
+          llm: Boolean(data.llm),
+          total: data.total ?? PROFESSIONAL_INTERVIEW_LENGTH,
+          questions: firstOnly,
+          question: firstOnly[0],
           offline: false,
-          adaptive,
+          adaptive: true,
         }
       }
     }
-  } catch {
-    // backend not running, proceed to direct Gemini call
-  }
-
-  // 2. Direct Google Gemini call — dev only
-  if (clientLlmAllowed()) {
-    try {
-      const geminiQuestions = await generateGeminiQuestionsDirect(role, level, agentProfile, jobDescription)
-      if (geminiQuestions && geminiQuestions.length >= 3) {
-        return {
-          sessionId: `gemini-${Date.now().toString(36)}`,
-          agent: 'Ava · Google Gemini 2.5 Flash',
-          llm: true,
-          total: geminiQuestions.length,
-          questions: geminiQuestions,
-          question: geminiQuestions[0],
-          offline: false,
-        }
-      }
-    } catch (err) {
-      console.warn('[InterviewAgent] Direct Gemini generation fallback:', err)
+    if (res.status === 503) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(
+        String(data.error || 'AI question generation unavailable. Set GEMINI_API_KEY on the server.'),
+      )
     }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('GEMINI')) throw err
+    // backend not running — try client AI fallback below
   }
 
-  // 3. Local adaptive fallback (one question at a time — branches on each answer)
-  const firstAdaptive = generateLocalAdaptiveQuestion(
-    role,
-    level,
-    agentProfile,
-    [],
-    '',
-    { explicitRoleTrack, jobDescription },
-  )
+  let firstAdaptive: Question
+  try {
+    firstAdaptive = await generateLocalAdaptiveQuestion(
+      role,
+      level,
+      agentProfile,
+      [],
+      '',
+      { explicitRoleTrack, jobDescription },
+    )
+  } catch (err) {
+    throw err instanceof Error ? err : new Error('Could not start AI interview.')
+  }
   return {
     sessionId: `local-${Date.now().toString(36)}`,
     agent: 'Ava · local adaptive agent',
     llm: false,
-    total: 1,
+    total: PROFESSIONAL_INTERVIEW_LENGTH,
     questions: [firstAdaptive],
     question: firstAdaptive,
     offline: true,
@@ -388,6 +273,55 @@ export type InterviewTurnResponse = {
   spoken: string
   interactive?: boolean
   agent?: string
+  action?: string
+}
+
+export type InterviewInteractiveTurnResponse = InterviewInteractiveResponse & {
+  agent?: string
+  replay?: boolean
+  adjustSpeechRate?: number
+}
+
+/** Pre-interview small talk + yes/next gates (JSON actions from `/api/interview/interact`). */
+export async function processInterviewInteractiveTurn(options: {
+  phase: InteractiveFlowStepId
+  userText: string
+  role: string
+  profile: SavedProfile | null
+}): Promise<InterviewInteractiveTurnResponse> {
+  await ensureApiSession()
+  const agentProfile = enrichProfileForAgent(options.profile)
+  try {
+    const res = await apiFetch('/api/interview/interact', {
+      method: 'POST',
+      body: JSON.stringify({
+        phase: options.phase,
+        userText: options.userText,
+        role: options.role,
+        profile: agentProfile,
+      }),
+    })
+    if (res.ok) {
+      const data = (await res.json()) as InterviewInteractiveTurnResponse
+      if (data.nextPhase) return data
+    }
+  } catch {
+    // local fallback
+  }
+  const local = resolveInteractiveTurn({
+    phase: options.phase,
+    userText: options.userText,
+    role: options.role,
+    firstName: candidateFirstName(agentProfile),
+  })
+  return (
+    local || {
+      action: 'listen',
+      nextPhase: options.phase,
+      interactive: false,
+      agent: 'local-interactive',
+    }
+  )
 }
 
 /** Ava acknowledges the answer and bridges to the next question (interactive agent). */
@@ -505,26 +439,18 @@ Return ONLY valid JSON matching this schema:
   })
 
   try {
-    const res = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${GEMINI_API_KEY}`,
-        'x-goog-api-key': GEMINI_API_KEY,
-      },
-      body: JSON.stringify({
-        model: GEMINI_MODEL,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        temperature: 0.2,
-      }),
+    const res = await geminiChatFetch({
+      apiKey: GEMINI_API_KEY,
+      openAiBaseUrl: GEMINI_BASE_URL,
+      model: GEMINI_MODEL,
+      system,
+      user,
+      temperature: 0.2,
     })
 
     if (!res.ok) return null
     const data = await res.json()
-    const content = data.choices?.[0]?.message?.content || ''
+    const content = parseGeminiChatResponse(data)
     const match = content.match(/\{[\s\S]*\}/)
     if (!match) return null
 
