@@ -2,6 +2,7 @@ services:
   # -------------------------------------------------------------
   # HIRE RIGHT - BACKEND NODE.JS API WEB SERVICE ON RENDER
   # -------------------------------------------------------------
+  # Dashboard service ID (link existing service): exs-db6tb9ou01pc73bhfe3g
   - type: web
     name: hireright-backend
     runtime: node
@@ -20,7 +21,7 @@ services:
       - key: PORT
         value: 8787
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://hire-rightt.vercel.app,http://localhost:5173"
       - key: ALLOW_DEMO_ACCOUNTS
         value: "true"
       - key: SIGNUP_ENABLED
