@@ -7,7 +7,7 @@ In [Render Dashboard](https://dashboard.render.com) → service **exs-db6tb9ou01
 | Setting | Value |
 |---------|--------|
 | **Repository** | `bharath-techcitta/HireRighttt-backend` |
-| **Branch** | `dev` (or `main`) |
+| **Branch** | **`dev`** (required — `main` on GitHub is behind; do not deploy `main` until merged) |
 | **Root Directory** | `backend/node` |
 | **Build Command** | `npm install` |
 | **Start Command** | `node index.mjs` |

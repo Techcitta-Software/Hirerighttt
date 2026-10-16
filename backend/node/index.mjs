@@ -598,10 +598,16 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && path === '/api/health') {
       const dbPing = await pingDatabase(config.databaseUrl)
+      const deployRef =
+        process.env.RENDER_GIT_COMMIT ||
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.GIT_COMMIT ||
+        null
       return json(res, 200, {
         ok: true,
         service: 'hireright-api',
         version: '2.0.0',
+        deployRef,
         llm: llmConfigured(),
         models: publicModelConfig(),
         database: {
