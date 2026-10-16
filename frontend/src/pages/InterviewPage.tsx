@@ -2,37 +2,38 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  LEVELS,
-  ROLES,
   mapExperienceToLevel,
   mapProfileRoleToInterviewRole,
   type Question,
 } from '../lib/interviewEngine'
 import {
   cancelSpeech,
+  configureInterviewRecognition,
+  getSpeechRecognition,
   interviewAudioConstraints,
   isSpeechRecognitionSupported,
   isSpeechSynthesisSupported,
-  getInterviewRecognitionLang,
-  getSelectedInterviewVoiceName,
-  setInterviewSpeechRate,
+  mergeRecognitionResults,
   speakText,
 } from '../lib/speech'
-import { createInterviewSttController, interviewSttHint } from '../lib/interviewStt'
 import {
   FaceTracker,
   type FaceTrackStatus,
 } from '../lib/faceTracker'
 import {
-  checkLlmStatus,
   pingInterviewIntegrity,
-  processInterviewInteractiveTurn,
   processInterviewTurn,
   scoreInterviewRemote,
   startInterviewSession,
   type IntegritySnapshot,
 } from '../lib/interviewAgentClient'
 import { InterviewRecorder } from '../lib/interviewRecorder'
+import {
+  inviteAccessFromStored,
+  isImmediateInterviewAllowed,
+  readInviteInterviewContext,
+  readStoredInterviewInvite,
+} from '../lib/interviewInviteGate'
 import {
   applyToJob,
   attachInterviewToApplicant,
@@ -50,21 +51,7 @@ import {
   MAX_ADAPTIVE_QUESTIONS,
   fetchNextAdaptiveQuestion,
   isEndInterviewCommand,
-  isNextQuestionCommand,
-  isRepeatQuestionCommand,
-  isRepeatLastCommand,
-  isSpeakSlowerCommand,
 } from '../lib/adaptiveInterview'
-import { PROFESSIONAL_INTERVIEW_LENGTH } from '../lib/adaptiveInterview'
-import {
-  isAutoAdvanceAfterSpeakStep,
-  nextFlowStepId,
-  spokenForStep,
-  stepHint,
-  stepLabel,
-  warmupProgress,
-  type InteractiveFlowStepId,
-} from '../lib/interviewInteractive'
 import { ensureApiSession, syncProfileToApi } from '../lib/apiSession'
 import { parseResumeFile } from '../lib/resumeParser'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
@@ -78,18 +65,16 @@ type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
 const QUESTION_SECONDS = 180
 /** After this much silence with an answer on the transcript, auto-advance (call-style). */
-const SILENCE_ADVANCE_MS = 2800
-const MIN_ANSWER_CHARS = 6
+const SILENCE_ADVANCE_MS = 5000
+const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
   'Only you in frame — extra people bans the interview',
   'Face the camera (not the side) the whole time',
-  'Ava uses a clear Jessica-style voice (Indian English friendly) — say "speak slower" if needed',
-  'Quick hello and how was your day — then yes to start six clear, professional questions',
-  'No role chip selected? Questions follow your resume. Pick a role track to focus the interview on that job',
+  'Questions follow your resume and the role on your profile',
   'It works for any field — engineering, healthcare, oil & gas, and more',
   'Talk over Ava to interrupt — only your voice stops her (not background noise)',
-  'Say "next question" anytime to move on, or pause ~5 seconds when you are done',
+  'Pause ~5 seconds when you are done — the next question starts automatically',
   'Say "end the interview" when you want to finish (after 2+ answers)',
 ]
 
@@ -122,12 +107,6 @@ export function InterviewPage() {
         role: string
         level: string
         applicantId?: string
-        jobId?: string
-        applicationId?: string
-        organizationId?: string
-        primarySkills?: string[]
-        atsScore?: number
-        jdMatchScore?: number
         jd?: string
       }
     } catch {
@@ -136,11 +115,11 @@ export function InterviewPage() {
   }, [])
 
   const [stage, setStage] = useState<Stage>('setup')
-  const [role, setRole] = useState<string>(() => {
+  const [role] = useState<string>(() => {
     if (targetJobRaw?.role) return targetJobRaw.role
     return mapProfileRoleToInterviewRole(profile?.currentRole ?? '')
   })
-  const [level, setLevel] = useState<string>(() => {
+  const [level] = useState<string>(() => {
     if (targetJobRaw?.level) return targetJobRaw.level
     return mapExperienceToLevel(profile?.totalExperience ?? '')
   })
@@ -162,36 +141,29 @@ export function InterviewPage() {
   const [checklist, setChecklist] = useState([false, false, false])
   const [starting, setStarting] = useState(false)
   const [agentLabel, setAgentLabel] = useState('Ava · live voice agent')
-  const [interactivePhase, setInteractivePhase] =
-    useState<InteractiveFlowStepId>('day_check')
-  const [flowCaption, setFlowCaption] = useState('')
-  const [questionSpeakKey, setQuestionSpeakKey] = useState(0)
-  const [voiceLabel] = useState(() => getSelectedInterviewVoiceName())
-  const [sttLang, setSttLang] = useState(() => getInterviewRecognitionLang())
-  const [llmStatus, setLlmStatus] = useState<{
-    active: boolean
-    model?: string
-    provider?: string
-    message?: string
-  } | null>(null)
-
-  useEffect(() => {
-    checkLlmStatus().then((status) => {
-      setLlmStatus(status)
-    })
-  }, [])
+  const [scheduleClock, setScheduleClock] = useState(() => Date.now())
 
   useEffect(() => {
     void ensureApiSession()
   }, [])
-  const [customJd, setCustomJd] = useState(
+
+  useEffect(() => {
+    const id = window.setInterval(() => setScheduleClock(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const scheduledInviteAccess = useMemo(() => {
+    if (isImmediateInterviewAllowed()) return null
+    return inviteAccessFromStored(readStoredInterviewInvite(), scheduleClock)
+  }, [scheduleClock])
+  const [customJd] = useState(
     targetJobRaw?.jd
       ? targetJobRaw.jd
       : targetJobRaw?.title
         ? `Target Job: ${targetJobRaw.title} at ${targetJobRaw.company}`
         : '',
   )
-  const [roleTrackExplicit, setRoleTrackExplicit] = useState(() => Boolean(targetJobRaw))
+  const [roleTrackExplicit] = useState(() => Boolean(targetJobRaw))
   const roleTrackExplicitRef = useRef(roleTrackExplicit)
   const [faceStatus, setFaceStatus] = useState<FaceTrackStatus>({
     faceCount: 0,
@@ -225,7 +197,9 @@ export function InterviewPage() {
   const answersRef = useRef<string[]>([])
   const finishingRef = useRef(false)
   const draftRef = useRef('')
-  const sttRef = useRef<ReturnType<typeof createInterviewSttController> | null>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const baseDraftRef = useRef('')
+  const transcriptCommittedRef = useRef('')
   const streamRef = useRef<MediaStream | null>(null)
   const lobbyVideoRef = useRef<HTMLVideoElement | null>(null)
   const roomVideoRef = useRef<HTMLVideoElement | null>(null)
@@ -234,9 +208,6 @@ export function InterviewPage() {
   const listenAfterTtsRef = useRef(true)
   const speakGenRef = useRef(0)
   const bridgeRef = useRef('')
-  const flowSpeakRef = useRef('')
-  const pendingQuestionsRef = useRef<Question[]>([])
-  const interactivePhaseRef = useRef<InteractiveFlowStepId>('day_check')
   const advancingRef = useRef(false)
   const adaptiveRef = useRef(true)
   const interviewStartedAtRef = useRef<number>(0)
@@ -245,7 +216,6 @@ export function InterviewPage() {
   const aiSpeakingRef = useRef(false)
   const listeningRef = useRef(false)
   const submitAnswerRef = useRef<() => void>(() => {})
-  const submitInteractiveRef = useRef<() => void>(() => {})
   const bargeCooldownRef = useRef(0)
 
   const question = questions[current]
@@ -286,10 +256,6 @@ export function InterviewPage() {
   useEffect(() => {
     stageRef.current = stage
   }, [stage])
-
-  useEffect(() => {
-    interactivePhaseRef.current = interactivePhase
-  }, [interactivePhase])
 
   useEffect(() => {
     aiSpeakingRef.current = aiSpeaking
@@ -470,78 +436,28 @@ export function InterviewPage() {
   }
 
   function stopListening() {
-    sttRef.current?.stop()
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    recognitionRef.current = null
     setListening(false)
-    listeningRef.current = false
-  }
-
-  function stopTtsOnly() {
-    cancelSpeech()
-    setAiSpeaking(false)
-    aiSpeakingRef.current = false
   }
 
   function stopAllSpeech() {
-    stopTtsOnly()
+    cancelSpeech()
+    setAiSpeaking(false)
     stopListening()
   }
 
   useEffect(() => {
-    sttRef.current = createInterviewSttController({
-      shouldRun: () =>
-        micOnRef.current &&
-        !finishingRef.current &&
-        !advancingRef.current &&
-        (stageRef.current === 'interview' ||
-          (stageRef.current === 'setup' && Boolean(streamRef.current))),
-      isAiSpeaking: () => aiSpeakingRef.current,
-      onListeningChange: (active) => {
-        setListening(active)
-        listeningRef.current = active
-        if (active) setSttLang(getInterviewRecognitionLang())
-      },
-      onTranscript: (display, merged) => {
-        setDraft(display)
-        draftRef.current = display
-        if (merged.hadFinal || merged.interim) {
-          lastSpeechAtRef.current = Date.now()
-        }
-      },
-      onBargeIn: () => handleBargeIn(),
-      onError: (message, code) => {
-        if (code === 'not-allowed' || code === 'service-not-allowed') {
-          setShowTypeFallback(true)
-        }
-        if (code !== 'no-speech' && code !== 'aborted') {
-          setDeviceError(message)
-        }
-        setSttLang(getInterviewRecognitionLang())
-      },
-    })
     return () => {
-      sttRef.current?.dispose()
       stopAllSpeech()
       stopTracks()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    if (!speechSupported || !micOn) return
-    const id = window.setInterval(() => {
-      if (
-        listenAfterTtsRef.current &&
-        micOnRef.current &&
-        !listeningRef.current &&
-        !finishingRef.current &&
-        !advancingRef.current &&
-        (stageRef.current === 'interview' || stageRef.current === 'setup')
-      ) {
-        sttRef.current?.start({ duringTts: true })
-      }
-    }, 2500)
-    return () => window.clearInterval(id)
-  }, [speechSupported, micOn, stage])
 
   useEffect(() => {
     if (stage === 'setup') attachStream(lobbyVideoRef.current)
@@ -575,10 +491,6 @@ export function InterviewPage() {
       setCamOn(true)
       setMicOn(true)
       attachStream(lobbyVideoRef.current)
-      if (speechSupported) {
-        listenAfterTtsRef.current = true
-        window.setTimeout(() => sttRef.current?.start({ duringTts: true }), 500)
-      }
     } catch {
       setDeviceError(
         'Camera or microphone blocked. Allow access in your browser, or continue without camera.',
@@ -633,41 +545,95 @@ export function InterviewPage() {
 
   function startListening(options?: { duringTts?: boolean }) {
     if (!speechSupported || !micOnRef.current) return
-    listenAfterTtsRef.current = true
-    sttRef.current?.start(options)
+    if (aiSpeakingRef.current && !options?.duringTts) return
+    stopListening()
+    const recognition = getSpeechRecognition()
+    if (!recognition) return
+    baseDraftRef.current = draftRef.current.trim()
+    transcriptCommittedRef.current = baseDraftRef.current
+    configureInterviewRecognition(recognition)
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const merged = mergeRecognitionResults(event, transcriptCommittedRef.current)
+      transcriptCommittedRef.current = merged.committed
+
+      if (aiSpeakingRef.current) {
+        if (merged.bargeIn) {
+          handleBargeIn()
+          const line = merged.committed.trim()
+          if (line) {
+            setDraft(line)
+            draftRef.current = line
+            lastSpeechAtRef.current = Date.now()
+          }
+        }
+        return
+      }
+
+      const display = merged.interim
+        ? `${merged.committed} ${merged.interim}`.trim()
+        : merged.committed.trim()
+      if (display) {
+        setDraft(display)
+        draftRef.current = display
+      }
+      if (merged.hadFinal || (merged.interim && merged.interim.length >= 12)) {
+        lastSpeechAtRef.current = Date.now()
+      }
+    }
+    recognition.onerror = () => setListening(false)
+    recognition.onend = () => {
+      setListening(false)
+      listeningRef.current = false
+      if (
+        listenAfterTtsRef.current &&
+        stageRef.current === 'interview' &&
+        micOnRef.current &&
+        !finishingRef.current &&
+        !advancingRef.current
+      ) {
+        try {
+          recognition.start()
+          setListening(true)
+          listeningRef.current = true
+        } catch {
+          // already started
+        }
+      }
+    }
+    recognitionRef.current = recognition
+    try {
+      recognition.start()
+      setListening(true)
+      listeningRef.current = true
+    } catch {
+      setListening(false)
+      listeningRef.current = false
+    }
   }
 
   useEffect(() => {
-    if (stage !== 'interview') return
-
-    const inFlow = interactivePhase !== 'questions'
-    if (!inFlow && !question) return
+    if (stage !== 'interview' || !question) return
 
     const gen = ++speakGenRef.current
     listenAfterTtsRef.current = true
     lastSpeechAtRef.current = 0
     setDraft('')
     draftRef.current = ''
-    sttRef.current?.resetTranscript('')
+    baseDraftRef.current = ''
+    transcriptCommittedRef.current = ''
     setAiSpeaking(true)
     aiSpeakingRef.current = true
 
-    let spoken: string
-    if (inFlow) {
-      const flowLine = flowSpeakRef.current || spokenForStep(interactivePhase, role)
-      if (flowSpeakRef.current) flowSpeakRef.current = ''
-      spoken = flowLine
-      setFlowCaption(flowLine)
-    } else {
-      const bridge = bridgeRef.current
-      if (bridge) bridgeRef.current = ''
-      const intro =
-        bridge ||
-        (current === 0
-          ? ` `
-          : '')
-      spoken = bridge ? `${bridge}${question!.text}` : `${intro}${question!.text}`
-    }
+    const bridge = bridgeRef.current
+    if (bridge) bridgeRef.current = ''
+
+    const intro =
+      bridge ||
+      (current === 0
+        ? `Hi ${name}. I'm Ava on a live interview call. I've reviewed your background for ${role}. When you're ready, you can jump in anytime. `
+        : '')
+
+    const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
 
     if (micOnRef.current && speechSupported) {
       window.setTimeout(() => startListening({ duringTts: true }), 450)
@@ -685,27 +651,12 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
-
-        const flowPhase = interactivePhaseRef.current
         if (
           stageRef.current === 'interview' &&
-          flowPhase !== 'questions' &&
-          isAutoAdvanceAfterSpeakStep(flowPhase)
+          micOnRef.current &&
+          !listeningRef.current
         ) {
-          const nextId = nextFlowStepId(flowPhase)
-          if (nextId) {
-            window.setTimeout(() => {
-              if (interactivePhaseRef.current !== flowPhase || advancingRef.current) return
-              interactivePhaseRef.current = nextId
-              setInteractivePhase(nextId)
-              setFlowCaption(spokenForStep(nextId, role))
-            }, 650)
-            return
-          }
-        }
-
-        if (stageRef.current === 'interview' || stageRef.current === 'setup') {
-          startListening({ duringTts: true })
+          startListening()
         }
       },
       onError: () => {
@@ -713,7 +664,7 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
-        if (micOnRef.current) startListening({ duringTts: true })
+        if (stageRef.current === 'interview' && micOnRef.current) startListening()
       },
     })
 
@@ -724,7 +675,7 @@ export function InterviewPage() {
       aiSpeakingRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, interactivePhase, current, question?.text, role, questionSpeakKey])
+  }, [stage, current, question?.text])
 
   useEffect(() => {
     if (stage !== 'interview') return
@@ -738,37 +689,24 @@ export function InterviewPage() {
         return
       }
       const text = draftRef.current.trim()
-      const phase = interactivePhaseRef.current
-      const minChars =
-        phase !== 'questions'
-          ? phase === 'day_check'
-            ? 2
-            : 1
-          : MIN_ANSWER_CHARS
-      if (text.length < minChars && !isNextQuestionCommand(text)) return
+      if (text.length < MIN_ANSWER_CHARS) return
       const last = lastSpeechAtRef.current
       if (!last) return
       if (Date.now() - last < SILENCE_ADVANCE_MS) return
-      if (phase !== 'questions') {
-        submitInteractiveRef.current()
-      } else {
-        submitAnswerRef.current()
-      }
+      submitAnswerRef.current()
     }, 400)
     return () => window.clearInterval(id)
-  }, [stage, current, interviewBanned, interactivePhase])
+  }, [stage, current, interviewBanned])
 
   useEffect(() => {
-    if (stage !== 'interview' || interactivePhase !== 'questions') return
+    if (stage !== 'interview') return
     setSecondsLeft(QUESTION_SECONDS)
     let alive = true
     const id = window.setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
           window.clearInterval(id)
-          if (alive && draftRef.current.trim().length >= MIN_ANSWER_CHARS) {
-            window.setTimeout(() => submitAnswer(), 0)
-          }
+          if (alive) window.setTimeout(() => submitAnswer(), 0)
           return 0
         }
         return s - 1
@@ -779,7 +717,7 @@ export function InterviewPage() {
       window.clearInterval(id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, current, interactivePhase])
+  }, [stage, current])
 
   async function startInterview() {
     if (!streamReady && !skipCamera) return
@@ -811,45 +749,41 @@ export function InterviewPage() {
       tooFarWarnings: 0,
       banned: false,
     }
-    stopTtsOnly()
+    stopAllSpeech()
     try {
       const freshProfile = getProfile()
-      if (freshProfile?.fullName || freshProfile?.name) {
-        setCandidateDisplayName(freshProfile.fullName || freshProfile.name || candidateDisplayName)
+      const inviteCtx = readInviteInterviewContext()
+      const baseProfile = freshProfile ?? profile
+      const mergedProfile =
+        baseProfile && inviteCtx?.resumeText?.trim()
+          ? { ...baseProfile, resumeText: inviteCtx.resumeText }
+          : baseProfile
+      if (mergedProfile?.fullName || mergedProfile?.name) {
+        setCandidateDisplayName(mergedProfile.fullName || mergedProfile.name || candidateDisplayName)
       }
       historyRef.current = []
       interviewStartedAtRef.current = Date.now()
+      const effectiveJd =
+        inviteCtx?.jobDescription?.trim() ||
+        customJd.trim() ||
+        targetJobRaw?.jd?.trim() ||
+        ''
       const explicitTrack =
         roleTrackExplicitRef.current ||
         Boolean(targetJobRaw) ||
-        customJd.trim().length >= 40
+        effectiveJd.length >= 40
       const started = await startInterviewSession(
         role,
         level,
-        freshProfile ?? profile,
-        customJd,
+        mergedProfile,
+        effectiveJd,
         explicitTrack,
-        targetJobRaw
-          ? {
-              jobId: targetJobRaw.jobId,
-              applicationId: targetJobRaw.applicationId,
-              organizationId: targetJobRaw.organizationId,
-              primarySkills: targetJobRaw.primarySkills,
-              atsScore: targetJobRaw.atsScore,
-              jdMatchScore: targetJobRaw.jdMatchScore,
-            }
-          : undefined,
       )
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
       setAgentLabel(started.agent || 'Ava · adaptive interviewer')
-      pendingQuestionsRef.current = started.questions
-      setQuestions([])
+      setQuestions(started.questions)
       setCurrent(0)
-      setInteractivePhase('day_check')
-      interactivePhaseRef.current = 'day_check'
-      flowSpeakRef.current = ''
-      setFlowCaption(spokenForStep('day_check', role))
       setDraft('')
       setResult(null)
       setRecordingNote('')
@@ -868,8 +802,6 @@ export function InterviewPage() {
 
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
       window.setTimeout(() => attachStream(roomVideoRef.current), 300)
-      listenAfterTtsRef.current = true
-      window.setTimeout(() => startListening({ duringTts: true }), 400)
     } catch (err) {
       setDeviceError(err instanceof Error ? err.message : 'Could not start interview agent.')
     } finally {
@@ -877,97 +809,8 @@ export function InterviewPage() {
     }
   }
 
-  async function submitInteractiveTurn() {
-    if (finishingRef.current || stage !== 'interview' || interactivePhaseRef.current === 'questions') {
-      return
-    }
-    if (interviewBanned || advancingRef.current || aiSpeakingRef.current) return
-    if (!skipCamera && faceStatus.severity === 'block') {
-      setDeviceError('Keep your face clearly in frame to respond.')
-      return
-    }
-
-    stopTtsOnly()
-
-    const answer = draftRef.current.trim()
-    const phase = interactivePhaseRef.current
-    const minWarmup = phase === 'day_check' ? 1 : 1
-    if (answer.length < minWarmup && !isNextQuestionCommand(answer)) {
-      setDeviceError(
-        phase === 'day_check'
-          ? 'Tell Ava briefly how you are, or say "next question".'
-          : 'Say hi or "next question" to continue.',
-      )
-      return
-    }
-
-    advancingRef.current = true
-    setAdvancing(true)
-    lastSpeechAtRef.current = 0
-    setDraft('')
-    setDeviceError('')
-
-    try {
-      const turn = await processInterviewInteractiveTurn({
-        phase: interactivePhaseRef.current,
-        userText: answer,
-        role,
-        profile: getProfile(),
-      })
-
-      if (typeof turn.adjustSpeechRate === 'number') {
-        setInterviewSpeechRate(turn.adjustSpeechRate)
-      }
-
-      if (turn.replay && turn.spoken?.trim()) {
-        flowSpeakRef.current = turn.spoken.trim()
-        setFlowCaption(turn.spoken.trim())
-        return
-      }
-
-      if (turn.startQuestions && pendingQuestionsRef.current.length > 0) {
-        bridgeRef.current = turn.spoken?.trim() ? `${turn.spoken.trim()} ` : ''
-        setQuestions(pendingQuestionsRef.current)
-        setCurrent(0)
-        setInteractivePhase('questions')
-        interactivePhaseRef.current = 'questions'
-      } else if (turn.spoken?.trim()) {
-        flowSpeakRef.current = turn.spoken.trim()
-        setFlowCaption(turn.spoken.trim())
-        if (turn.nextPhase && turn.nextPhase !== interactivePhaseRef.current) {
-          setInteractivePhase(turn.nextPhase)
-          interactivePhaseRef.current = turn.nextPhase
-        }
-      } else if (turn.nextPhase) {
-        setInteractivePhase(turn.nextPhase)
-        interactivePhaseRef.current = turn.nextPhase
-        setFlowCaption(spokenForStep(turn.nextPhase, role))
-      }
-    } catch {
-      setDeviceError('Could not continue the conversation. Try again.')
-    } finally {
-      advancingRef.current = false
-      setAdvancing(false)
-      listenAfterTtsRef.current = true
-      startListening({ duringTts: true })
-    }
-  }
-
-  submitInteractiveRef.current = () => {
-    void submitInteractiveTurn()
-  }
-
   function endInterviewEarly() {
     if (finishingRef.current || stage !== 'interview') return
-    if (interactivePhaseRef.current !== 'questions') {
-      stopAllSpeech()
-      setStage('setup')
-      setInteractivePhase('day_check')
-      interactivePhaseRef.current = 'day_check'
-      pendingQuestionsRef.current = []
-      setQuestions([])
-      return
-    }
     stopAllSpeech()
     const next = [...answersRef.current]
     next[current] = draftRef.current.trim()
@@ -982,35 +825,10 @@ export function InterviewPage() {
   }
 
   async function submitAnswer() {
-    if (finishingRef.current || stage !== 'interview') {
-      return
-    }
-    if (interactivePhaseRef.current !== 'questions') {
-      await submitInteractiveTurn()
-      return
-    }
-    if (questions.length === 0) {
+    if (finishingRef.current || stage !== 'interview' || questions.length === 0) {
       return
     }
     if (interviewBanned || advancingRef.current) return
-
-    const rawDraft = draftRef.current.trim()
-    if (isRepeatQuestionCommand(rawDraft) || isRepeatLastCommand(rawDraft)) {
-      stopTtsOnly()
-      setDraft('')
-      draftRef.current = ''
-      setQuestionSpeakKey((k) => k + 1)
-      return
-    }
-    if (isSpeakSlowerCommand(rawDraft)) {
-      setInterviewSpeechRate(0.82)
-      stopTtsOnly()
-      setDraft('')
-      draftRef.current = ''
-      bridgeRef.current = "Sure, I'll speak a little slower. "
-      setQuestionSpeakKey((k) => k + 1)
-      return
-    }
     if (!skipCamera) {
       if (faceStatus.issue === 'multi_person' || faceStatus.severity === 'ban') {
         setDeviceError('Multiple people detected — interview cannot continue.')
@@ -1025,20 +843,10 @@ export function InterviewPage() {
         return
       }
     }
-    stopTtsOnly()
+    listenAfterTtsRef.current = false
+    stopAllSpeech()
 
-    let answer = draftRef.current.trim()
-    if (isNextQuestionCommand(answer)) {
-      answer = answer
-        .replace(
-          /\b(next question|next one|move on|go ahead|continue|skip|next please)\b/gi,
-          '',
-        )
-        .trim()
-      if (!answer) {
-        answer = '(Candidate requested next question.)'
-      }
-    }
+    const answer = draftRef.current.trim()
     const next = [...answersRef.current]
     next[current] = answer
     answersRef.current = next
@@ -1089,9 +897,7 @@ export function InterviewPage() {
         question: currentQuestion,
         answer,
         questionIndex: current,
-        totalQuestions: adaptiveRef.current
-          ? PROFESSIONAL_INTERVIEW_LENGTH
-          : Math.max(questions.length, current + 2),
+        totalQuestions: Math.max(questions.length, current + 2),
         profile: getProfile(),
       })
       bridgeRef.current = turn.spoken?.trim() ? `${turn.spoken.trim()} ` : ''
@@ -1121,8 +927,6 @@ export function InterviewPage() {
     } finally {
       advancingRef.current = false
       setAdvancing(false)
-      listenAfterTtsRef.current = true
-      startListening({ duringTts: true })
     }
   }
 
@@ -1244,11 +1048,6 @@ export function InterviewPage() {
     }
     setRecordingUrl(null)
     stopAllSpeech()
-    pendingQuestionsRef.current = []
-    setInteractivePhase('day_check')
-    interactivePhaseRef.current = 'day_check'
-    flowSpeakRef.current = ''
-    setFlowCaption('')
     setQuestions([])
     setCurrent(0)
     setDraft('')
@@ -1279,29 +1078,23 @@ export function InterviewPage() {
       (faceStatus.issue === 'looking_away' && Math.abs(faceStatus.yaw) >= 0.48))
   const faceWarnOnly =
     !skipCamera && faceStatus.severity === 'warn' && !faceBlocks
+  const scheduleAllowsStart =
+    !scheduledInviteAccess || scheduledInviteAccess.canStart
   const canStart =
     checklist.every(Boolean) &&
     !starting &&
+    scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
-  const inWarmUp = stage === 'interview' && interactivePhase !== 'questions'
   const callStatus = advancing
-    ? inWarmUp
-      ? 'Continuing…'
-      : 'Moving to your next question…'
-    : inWarmUp
-      ? `${stepLabel(interactivePhase)} — ${stepHint(interactivePhase).split('.')[0]}`
-      : aiSpeaking
+    ? 'Moving to your next question…'
+    : aiSpeaking
       ? 'Ava speaking — speak clearly (2+ words) to interrupt'
       : listening
         ? 'Listening — pause ~5s when you are done'
         : 'Live call with Ava'
 
   const canSubmit =
-    (Boolean(draft.trim()) || isNextQuestionCommand(draft)) &&
-    !aiSpeaking &&
-    !faceBlocks &&
-    !interviewBanned &&
-    !advancing
+    Boolean(draft.trim()) && !aiSpeaking && !faceBlocks && !interviewBanned && !advancing
 
   return (
     <div className={styles.page}>
@@ -1310,7 +1103,7 @@ export function InterviewPage() {
           <BrandLogo size="md" />
         </div>
 
-        {stage === 'interview' && (inWarmUp || question) ? (
+        {stage === 'interview' && question ? (
           <div className={styles.appMeta}>
             <span className={styles.livePill}>
               <i /> Recording
@@ -1335,17 +1128,11 @@ export function InterviewPage() {
               </span>
             )}
             <span>
-              {inWarmUp
-                ? 'Warm-up'
-                : adaptiveRef.current
-                  ? `Question ${current + 1} of ${PROFESSIONAL_INTERVIEW_LENGTH}`
-                  : `Question ${current + 1} of ${Math.max(questions.length, current + 1)}`}
+              Question {current + 1} of {questions.length}
             </span>
-            {!inWarmUp && (
-              <span className={secondsLeft < 30 ? styles.timerLow : styles.timer}>
-                {timeLabel}
-              </span>
-            )}
+            <span className={secondsLeft < 30 ? styles.timerLow : styles.timer}>
+              {timeLabel}
+            </span>
           </div>
         ) : (
           <button
@@ -1375,8 +1162,8 @@ export function InterviewPage() {
               </h1>
               <p className={styles.sub}>
                 A live call with Ava — software, civil, mechanical, healthcare, oil &amp; gas,
-                and more. {interviewSttHint()} Pause briefly when you are done, or say
-                &quot;next question&quot;.
+                and more. Speak anytime; she stops when you talk. Pause briefly when you are done
+                and the next question flows automatically.
               </p>
             </div>
 
@@ -1408,12 +1195,8 @@ export function InterviewPage() {
                     Camera
                   </span>
                   <span className={streamReady && micOn ? styles.ok : styles.off}>Mic</span>
-                  <span className={speechSupported ? styles.ok : styles.warn} title={`STT: ${sttLang}`}>
-                    Speech
-                  </span>
-                  <span className={ttsSupported ? styles.ok : styles.warn} title={voiceLabel}>
-                    AI voice
-                  </span>
+                  <span className={speechSupported ? styles.ok : styles.warn}>Speech</span>
+                  <span className={ttsSupported ? styles.ok : styles.warn}>AI voice</span>
                 </div>
 
                 <div className={styles.lobbyActions}>
@@ -1456,15 +1239,6 @@ export function InterviewPage() {
               </div>
 
               <div className={styles.lobbySide}>
-                <div className={styles.llmBadge}>
-                  <span className={styles.llmDot} />
-                  <HrIcon name="check" size={14} />
-                  <span>
-                    {llmStatus?.message ||
-                      'Gemini 2.5 Flash Active (Luna Fallback) & Synchronized with Resume'}
-                  </span>
-                </div>
-
                 {targetJobRaw && (
                   <div className={styles.autoConfigBanner}>
                     <div className={styles.autoConfigLeft}>
@@ -1483,101 +1257,6 @@ export function InterviewPage() {
                     </span>
                   </div>
                 )}
-
-                <div className={styles.avaCard}>
-                  <div className={styles.avaPortrait} aria-hidden="true">
-                    <div className={styles.avaFace}>
-                      <span className={styles.avaEye} />
-                      <span className={styles.avaEye} />
-                      <span className={styles.avaSmile} />
-                    </div>
-                  </div>
-                  <div>
-                    <h3>Ava</h3>
-                    <p>AI Interviewer · Powered by Gemini 2.5 Flash / Luna</p>
-                  </div>
-                </div>
-
-                {targetJobRaw ? (
-                  <div className={styles.lockedNotice}>
-                    <span className={styles.lockedIcon}>
-                      <HrIcon name="lock" size={22} />
-                    </span>
-                    <div className={styles.lockedText}>
-                      <strong>Role & Level Locked for Application</strong>
-                      <p>
-                        Targeting <strong>{targetJobRaw.title}</strong> ({role} · {level})
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.clearTargetBtn}
-                      onClick={() => {
-                        sessionStorage.removeItem('hireright.targetJob')
-                        window.location.reload()
-                      }}
-                    >
-                      Change Job
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className={styles.field}>
-                      <span>Role track</span>
-                      <div className={styles.chips}>
-                        {ROLES.map((r) => (
-                          <button
-                            key={r}
-                            type="button"
-                            className={r === role ? styles.chipActive : styles.chip}
-                            onClick={() => {
-                              setRole(r)
-                              setRoleTrackExplicit(true)
-                            }}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className={styles.field}>
-                      <span>Level</span>
-                      <div className={styles.chips}>
-                        {LEVELS.map((l) => (
-                          <button
-                            key={l}
-                            type="button"
-                            className={l === level ? styles.chipActive : styles.chip}
-                            onClick={() => {
-                              setLevel(l)
-                              setRoleTrackExplicit(true)
-                            }}
-                          >
-                            {l}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <div className={styles.jdContainer}>
-                  <label htmlFor="custom-jd-input" className={styles.jdLabel}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <HrIcon name="document" size={18} /> Target Job Description (JD)
-                    </span>{' '}
-                    <em>— Tailors AI questions to JD + Role</em>
-                  </label>
-                  <textarea
-                    id="custom-jd-input"
-                    className={styles.jdTextarea}
-                    placeholder="Paste the Job Description (JD) or key responsibilities here (e.g. 'Senior Frontend Dev: React, TypeScript, Performance optimization, State management...'). Ava will generate tailored JD questions!"
-                    value={customJd}
-                    onChange={(e) => setCustomJd(e.target.value)}
-                    rows={3}
-                  />
-                </div>
 
                 {/* Live Resume Sync Dropzone */}
                 <div className={styles.tips} style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
@@ -1766,7 +1445,11 @@ export function InterviewPage() {
                 )}
                 {!canStart && (
                   <p className={styles.joinHint}>
-                    {faceBlocks
+                    {scheduledInviteAccess?.status === 'too_early'
+                      ? 'Your scheduled link opens at the exact slot start time. Use the email link when the countdown reaches zero.'
+                      : scheduledInviteAccess?.status === 'expired'
+                        ? 'Your interview window has ended. Ask your recruiter for a new invite link.'
+                        : faceBlocks
                       ? faceStatus.issue === 'multi_person'
                         ? 'Only one person may be in the camera — clear others to join.'
                         : faceStatus.issue === 'looking_away'
@@ -1782,7 +1465,7 @@ export function InterviewPage() {
           </motion.section>
         )}
 
-        {stage === 'interview' && (inWarmUp || question) && (
+        {stage === 'interview' && question && (
           <motion.section
             key="call"
             className={styles.call}
@@ -1843,48 +1526,33 @@ export function InterviewPage() {
                     <motion.div
                       className={styles.progressFill}
                       animate={{
-                        width: inWarmUp
-                          ? `${warmupProgress(interactivePhase)}%`
-                          : `${Math.min(
-                              100,
-                              ((current + 1) /
-                                (adaptiveRef.current
-                                  ? PROFESSIONAL_INTERVIEW_LENGTH
-                                  : Math.max(questions.length, current + 1))) *
-                                100,
-                            )}%`,
+                        width: `${Math.min(100, ((current + 1) / Math.max(questions.length, current + 1)) * 100)}%`,
                       }}
                     />
                   </div>
                   <span>
-                    {inWarmUp
-                      ? `Warm-up · ${stepLabel(interactivePhase)}`
-                      : `${question!.topic || question!.category} · Q${current + 1}/${
-                          adaptiveRef.current ? PROFESSIONAL_INTERVIEW_LENGTH : questions.length
-                        }`}
+                    {question.topic || question.category} · Q{current + 1}
+                    {adaptiveRef.current ? ' · adaptive' : `/${questions.length}`}
                     {isRecording ? ' · Recording' : ''}
                   </span>
                 </div>
 
                 <div className={styles.ccBox}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                    <span className={styles.ccTag}>
-                      {inWarmUp ? 'Ava · interactive hello' : 'Ava asks · Gemini 2.5 Flash / Luna'}
-                    </span>
-                    {!inWarmUp && question!.resumeAnchor && (
-                      <span className={styles.resumeAnchorTag} title={question!.resumeAnchor}>
+                    <span className={styles.ccTag}>Ava asks · Gemini 2.5 Flash / Luna</span>
+                    {question.resumeAnchor && (
+                      <span className={styles.resumeAnchorTag} title={question.resumeAnchor}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           <HrIcon name="document" size={14} /> Sourced from Resume:{' '}
-                          {question!.resumeAnchor.length > 38
-                            ? `${question!.resumeAnchor.slice(0, 38)}…`
-                            : question!.resumeAnchor}
+                          {question.resumeAnchor.length > 38
+                            ? `${question.resumeAnchor.slice(0, 38)}…`
+                            : question.resumeAnchor}
                         </span>
                       </span>
                     )}
                   </div>
-                  <p>{inWarmUp ? flowCaption : question!.text}</p>
-                  {!aiSpeaking && !inWarmUp && <small>{question!.hint}</small>}
-                  {!aiSpeaking && inWarmUp && <small>{stepHint(interactivePhase)}</small>}
+                  <p>{question.text}</p>
+                  {!aiSpeaking && <small>{question.hint}</small>}
                 </div>
 
                 {/* Candidate Live Speech Captions Overlay */}
@@ -1944,7 +1612,7 @@ export function InterviewPage() {
                     (aiSpeaking
                       ? 'Ava is asking — speak a short phrase to interrupt her, then answer.'
                       : speechSupported
-                        ? `Live transcript (${sttLang}). Pause ~5 seconds when finished, or say "next question".`
+                        ? 'Live transcript. Pause ~5 seconds when finished to go to the next question.'
                         : 'Speech unavailable in this browser. Type your answer.')}
                 </p>
                 {(showTypeFallback || !speechSupported) && (
@@ -2033,11 +1701,7 @@ export function InterviewPage() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {faceBlocks
-                  ? 'Fix face check'
-                  : inWarmUp
-                    ? 'Continue'
-                    : 'Submit answer now'}
+                {faceBlocks ? 'Fix face check' : 'Submit answer now'}
               </motion.button>
 
               <button type="button" className={styles.endBtn} onClick={endInterviewEarly}>

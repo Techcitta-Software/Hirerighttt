@@ -1,12 +1,72 @@
-const PRINT_CLASS = 'hr-scorecard-print'
+const REPORT_ID = 'career-intelligence-dashboard'
 
-/** Print only the talent scorecard (clean A4 layout, not the whole app chrome). */
-export function printScorecard(): void {
-  document.documentElement.classList.add(PRINT_CLASS)
-  const cleanup = () => {
-    document.documentElement.classList.remove(PRINT_CLASS)
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup)
-  window.print()
+/** A4 width in PDF points. Page height grows so the whole report stays on one page. */
+const PAGE_WIDTH = 595.28
+const PAGE_MARGIN = 28
+
+function safeFileName(name: string): string {
+  const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return `${base || 'hireright'}-career-report.pdf`
+}
+
+/**
+ * Download the career report as one PDF page. The whole dashboard is captured
+ * and scaled to fit that single page so nothing is split onto a second page.
+ */
+export async function downloadScorecardPdf(candidateName = 'candidate'): Promise<void> {
+  const root = document.getElementById(REPORT_ID)
+  if (!root) throw new Error('Report is not on the page.')
+
+  const [{ default: html2canvas }, { PDFDocument }] = await Promise.all([
+    import('html2canvas'),
+    import('pdf-lib'),
+  ])
+
+  const canvas = await html2canvas(root, {
+    backgroundColor: '#ffffff',
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    windowWidth: Math.max(root.scrollWidth, 1200),
+    onclone: (doc) => {
+      doc.querySelectorAll('[data-download-exclude]').forEach((node) => {
+        ;(node as HTMLElement).style.display = 'none'
+      })
+    },
+  })
+
+  const pngBlob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('Could not capture the report.'))),
+      'image/png',
+    )
+  })
+  const pngBytes = new Uint8Array(await pngBlob.arrayBuffer())
+
+  const pdf = await PDFDocument.create()
+  pdf.setTitle('HireRight career report')
+  pdf.setAuthor('HireRight')
+  const image = await pdf.embedPng(pngBytes)
+  const drawWidth = PAGE_WIDTH - PAGE_MARGIN * 2
+  const drawHeight = (image.height / image.width) * drawWidth
+  const page = pdf.addPage([PAGE_WIDTH, drawHeight + PAGE_MARGIN * 2])
+  page.drawImage(image, {
+    x: PAGE_MARGIN,
+    y: PAGE_MARGIN,
+    width: drawWidth,
+    height: drawHeight,
+  })
+
+  const saved = await pdf.save()
+  const file = new Blob([saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength)], {
+    type: 'application/pdf',
+  })
+  const url = URL.createObjectURL(file)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = safeFileName(candidateName)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }

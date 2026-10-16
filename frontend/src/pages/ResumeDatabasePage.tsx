@@ -1,19 +1,15 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+﻿import { useEffect, useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { extractResumeText, parseResumeFile } from '../lib/resumeParser'
-import {
-  getEmployerApplicants,
-  type EmployerApplicant,
-  type InterviewResult,
-} from '../lib/store'
-import { loadAdminCandidates, type AdminCandidate } from '../lib/adminAts'
-import { fadeUp, staggerContainer } from '../motion/variants'
-import { getUser } from '../lib/store'
+import { getUser, type InterviewResult } from '../lib/store'
 import { ensureApiSession } from '../lib/apiSession'
-import { searchTalent, type TalentSearchHit } from '../lib/vendorApi'
+import { filterJobSeekerCandidates } from '../lib/employerCandidateUtils'
+import { fetchOrganizationCandidates } from '../lib/vendorApi'
+import type { OrgCandidateRecord } from '../lib/vendorApi'
+import { fadeUp, staggerContainer } from '../motion/variants'
 import { HrIcon } from '../components/HrIcon'
 import styles from './ResumeDatabasePage.module.css'
 
@@ -38,194 +34,58 @@ export type StoredResumeCandidate = {
 
 const VAULT_STORAGE_KEY = 'hireright.talentVault'
 
-const INITIAL_DEMO_VAULT: StoredResumeCandidate[] = [
-  {
-    id: 'vault-1',
-    name: 'Sneha Iyer',
-    email: 'sneha.iyer@example.com',
-    phone: '+91 98765 43210',
-    currentRole: 'Senior Frontend Developer',
-    experienceYears: '5 years',
-    location: 'Hyderabad, India',
-    skills: ['React', 'TypeScript', 'Next.js', 'Redux', 'TailwindCSS', 'REST APIs'],
-    resumeName: 'sneha_iyer_resume.pdf',
-    resumeText: `SNEHA IYER
-Senior Frontend Developer · Hyderabad, India
-Email: sneha.iyer@example.com · Phone: +91 98765 43210
+function orgRecordToVault(c: OrgCandidateRecord): StoredResumeCandidate {
+  const interviewResult = c.interviewResult as InterviewResult | undefined
+  return {
+    id: c.id,
+    name: c.candidateName || c.candidateEmail,
+    email: c.candidateEmail,
+    phone: c.candidatePhone || '',
+    currentRole: c.candidateRole || c.jobTitle || '',
+    experienceYears: c.experienceYears || '',
+    location: c.company || 'â€”',
+    skills: c.primarySkills || [],
+    resumeName: c.resumeName || 'resume',
+    resumeText: c.resumeText || '',
+    summary: c.resumeText ? c.resumeText.slice(0, 200) : '',
+    interviewScore: interviewResult?.overall,
+    interviewResult,
+    status: 'New',
+    source: c.source || 'Database',
+    createdAt: c.appliedAt,
+  }
+}
 
-PROFESSIONAL SUMMARY
-Senior Frontend Engineer with 5+ years of experience building high-performance web applications using React, TypeScript, Next.js, and modern state management. Led UI architecture for enterprise SaaS dashboards with 100K+ monthly active users.
-
-WORK EXPERIENCE
-Senior Frontend Developer — TechCita Solutions (2022 – Present)
-• Architected scalable component library in TypeScript & React, improving development speed by 35%.
-• Optimized bundle size by 42% using Vite and code-splitting techniques.
-• Mentored 6 junior and mid-level developers in testing and design patterns.
-
-Frontend Engineer — Infosys (2019 – 2022)
-• Developed responsive client portals in React and Redux Toolkit.
-• Integrated GraphQL and REST endpoints with optimistic UI updates.
-
-EDUCATION
-B.Tech in Computer Science — JNTU Hyderabad (2015 – 2019)`,
-    summary: 'Senior Frontend Engineer with 5+ years building React & TypeScript enterprise web applications.',
-    interviewScore: 92,
-    interviewResult: {
-      role: 'Frontend Developer',
-      level: 'Senior',
-      date: new Date().toISOString(),
-      overall: 92,
-      resumeFitScore: 95,
-      agent: 'Ava (OpenRouter AI)',
-      categories: [
-        { label: 'Technical Depth', score: 94 },
-        { label: 'Communication', score: 90 },
-        { label: 'Problem Solving', score: 91 },
-        { label: 'System Design', score: 93 },
-      ],
-      strengths: [
-        'Exceptional depth in React performance optimization and TypeScript.',
-        'Clear structured STAR communication during architecture questions.',
-      ],
-      improvements: ['Could elaborate on micro-frontend boundary isolation.'],
-      answers: [],
-      integrity: {
-        faceViolations: 0,
-        singlePersonOk: true,
-        maxFacesSeen: 1,
-      },
-    },
-    status: 'Shortlisted',
-    source: 'Employer Application',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'vault-2',
-    name: 'Rahul Kapoor',
-    email: 'rahul.k@example.com',
-    phone: '+91 91234 56789',
-    currentRole: 'Backend Systems Engineer',
-    experienceYears: '4 years',
-    location: 'Bangalore, India',
-    skills: ['Node.js', 'Python', 'FastAPI', 'PostgreSQL', 'Docker', 'Redis', 'AWS'],
-    resumeName: 'rahul_kapoor_backend.pdf',
-    resumeText: `RAHUL KAPOOR
-Backend Systems Engineer · Bangalore, India
-Email: rahul.k@example.com · Phone: +91 91234 56789
-
-PROFESSIONAL SUMMARY
-Backend Developer with 4 years building microservices, high-throughput asynchronous APIs, and real-time WebSocket infrastructure in Node.js and Python.
-
-WORK EXPERIENCE
-Backend Developer — CloudScale Systems (2021 – Present)
-• Designed and maintained distributed microservices handling 15M requests/day in FastAPI & PostgreSQL.
-• Implemented caching layers in Redis reducing database query latency by 60%.
-
-EDUCATION
-B.E. in Information Technology — RVCE Bangalore`,
-    summary: 'Backend Engineer experienced in distributed microservices, FastAPI, Redis, and high-throughput pipelines.',
-    interviewScore: 88,
-    status: 'Screening',
-    source: 'Direct Ingestion',
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  },
-  {
-    id: 'vault-3',
-    name: 'Ananya Rao',
-    email: 'ananya.rao@example.com',
-    phone: '+91 99887 76655',
-    currentRole: 'Full Stack Engineer',
-    experienceYears: '3 years',
-    location: 'Remote',
-    skills: ['React', 'Node.js', 'TypeScript', 'MongoDB', 'Express', 'GraphQL'],
-    resumeName: 'ananya_rao_fullstack.docx',
-    resumeText: `ANANYA RAO
-Full Stack Developer · Remote
-Email: ananya.rao@example.com
-
-SUMMARY
-Full Stack Engineer with 3 years building end-to-end web applications with React, Node.js, and TypeScript. Passionate about responsive UI and clean RESTful API design.`,
-    summary: 'Full Stack Developer proficient across modern JavaScript ecosystem and cloud deployments.',
-    interviewScore: 85,
-    status: 'Technical',
-    source: 'Profile Upload',
-    createdAt: new Date(Date.now() - 86400000 * 6).toISOString(),
-  },
-]
 
 function loadStoredVault(): StoredResumeCandidate[] {
   try {
     const raw = localStorage.getItem(VAULT_STORAGE_KEY)
-    if (!raw) {
-      // Merge initial demo + any employer applicants + admin candidates
-      const empApplicants = getEmployerApplicants()
-      const adminCandidates = loadAdminCandidates()
-
-      const merged: StoredResumeCandidate[] = [...INITIAL_DEMO_VAULT]
-
-      empApplicants.forEach((app: EmployerApplicant) => {
-        if (!merged.some((m) => m.email === app.candidateEmail)) {
-          merged.push({
-            id: `vault-app-${app.id}`,
-            name: app.candidateName,
-            email: app.candidateEmail,
-            phone: app.candidatePhone,
-            currentRole: app.jobTitle,
-            experienceYears: app.experienceYears,
-            location: app.company ? `${app.company} Track` : 'Remote',
-            skills: ['React', 'JavaScript', 'Node.js'],
-            resumeName: app.resumeName || 'candidate_resume.pdf',
-            resumeText: app.resumeText || '',
-            summary: app.resumeText ? app.resumeText.slice(0, 160) : 'Applicant via shareable employer link.',
-            interviewScore: app.interviewResult?.overall,
-            interviewResult: app.interviewResult,
-            status: app.status === 'Shortlisted' ? 'Shortlisted' : 'New',
-            source: 'Job Assessment Link',
-            createdAt: app.appliedAt,
-          })
-        }
-      })
-
-      adminCandidates.forEach((admin: AdminCandidate) => {
-        if (!merged.some((m) => m.email === admin.email)) {
-          merged.push({
-            id: `vault-admin-${admin.id}`,
-            name: admin.name,
-            email: admin.email,
-            phone: admin.phone,
-            currentRole: admin.currentTitle,
-            experienceYears: `${admin.totalExperienceYears} years`,
-            location: admin.location,
-            skills: admin.skills,
-            resumeName: `${admin.name.toLowerCase().replace(/\s+/g, '_')}_resume.pdf`,
-            resumeText: admin.aiSummary,
-            summary: admin.aiSummary,
-            interviewScore: admin.interviewScore,
-            status: admin.stage === 'Shortlisted' ? 'Shortlisted' : 'Screening',
-            source: admin.source,
-            createdAt: admin.createdAt,
-          })
-        }
-      })
-
-      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(merged))
-      return merged
-    }
+    if (!raw) return []
     return JSON.parse(raw) as StoredResumeCandidate[]
   } catch {
-    return INITIAL_DEMO_VAULT
+    return []
   }
 }
 
 export function ResumeDatabasePage() {
-  const user = getUser()
-  const isEmployer = user?.role === 'employer'
   const [candidates, setCandidates] = useState<StoredResumeCandidate[]>(() => loadStoredVault())
+  const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    const user = getUser()
+    if (user?.role !== 'employer') return
+    void (async () => {
+      try {
+        await ensureApiSession()
+        const { candidates: rows } = await fetchOrganizationCandidates()
+        setCandidates(filterJobSeekerCandidates(rows).map(orgRecordToVault))
+        setLoadError('')
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : 'Could not load talent vault from API.')
+      }
+    })()
+  }, [])
   const [query, setQuery] = useState('')
-  const [experienceFilter, setExperienceFilter] = useState('')
-  const [platformHits, setPlatformHits] = useState<TalentSearchHit[]>([])
-  const [platformTotal, setPlatformTotal] = useState(0)
-  const [platformLoading, setPlatformLoading] = useState(false)
   const [roleFilter, setRoleFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
@@ -240,35 +100,6 @@ export function ResumeDatabasePage() {
     setCandidates(updated)
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(updated))
   }
-
-  useEffect(() => {
-    if (!isEmployer) return
-    const t = window.setTimeout(() => {
-      void (async () => {
-        if (!query.trim() && !experienceFilter.trim()) {
-          setPlatformHits([])
-          setPlatformTotal(0)
-          return
-        }
-        setPlatformLoading(true)
-        try {
-          await ensureApiSession()
-          const data = await searchTalent({
-            q: query.trim(),
-            experienceYears: experienceFilter.trim() || undefined,
-            minScore: 0,
-          })
-          setPlatformHits(data.results || [])
-          setPlatformTotal(data.total || 0)
-        } catch {
-          setPlatformHits([])
-        } finally {
-          setPlatformLoading(false)
-        }
-      })()
-    }, 400)
-    return () => window.clearTimeout(t)
-  }, [isEmployer, query, experienceFilter])
 
   // Filter and search
   const filtered = useMemo(() => {
@@ -433,26 +264,11 @@ export function ResumeDatabasePage() {
             <HrIcon name="search" size={18} />
             <input
               type="text"
-              placeholder={
-                isEmployer
-                  ? 'Search platform talent — name, role, skills (use AND for boolean, e.g. React AND 5 years)'
-                  : 'Search by candidate name, skill, email, or resume text...'
-              }
+              placeholder="Search by candidate name, skill, email, or resume text..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          {isEmployer && (
-            <div className={styles.searchBox}>
-              <HrIcon name="clock" size={18} />
-              <input
-                type="text"
-                placeholder="Years of experience filter (e.g. 5)"
-                value={experienceFilter}
-                onChange={(e) => setExperienceFilter(e.target.value)}
-              />
-            </div>
-          )}
 
           <div className={styles.filterGroup}>
             <select
@@ -487,7 +303,7 @@ export function ResumeDatabasePage() {
                 onClick={() => setViewMode('grid')}
                 title="Grid view"
               >
-                ⊞ Grid
+                âŠž Grid
               </button>
               <button
                 type="button"
@@ -500,47 +316,6 @@ export function ResumeDatabasePage() {
             </div>
           </div>
         </section>
-
-        {isEmployer && (query.trim() || experienceFilter.trim()) && (
-          <section className={styles.toolbar} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12 }}>
-            <div style={{ fontWeight: 700, color: '#0f172a' }}>
-              Platform talent (interviewed candidates){' '}
-              {platformLoading ? '…' : `— ${platformTotal} match(es)`}
-            </div>
-            {platformHits.length === 0 && !platformLoading ? (
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>
-                No indexed candidates yet. They appear after job seekers complete profiles and interviews.
-              </p>
-            ) : (
-              <div className={styles.candidateGrid}>
-                {platformHits.map((hit) => (
-                  <div key={hit.userId} className={styles.candidateCard}>
-                    <div className={styles.cardTop}>
-                      <div>
-                        <div className={styles.candidateName}>{hit.fullName}</div>
-                        <div className={styles.candidateRole}>{hit.roleTitle || '—'}</div>
-                        <div className={styles.candidateMeta}>
-                          {hit.experienceYears || '—'} · {hit.location || '—'}
-                        </div>
-                        {typeof hit.interviewScore === 'number' && (
-                          <div className={styles.scoreBadge}>Interview {hit.interviewScore}%</div>
-                        )}
-                      </div>
-                    </div>
-                    <p className={styles.cardSummary}>{hit.summary?.slice(0, 160) || hit.resumePreview}</p>
-                    <div className={styles.skillTags}>
-                      {(hit.skills || []).slice(0, 6).map((s) => (
-                        <span key={s} className={styles.skillTag}>
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
 
         {/* Candidate List Display */}
         {viewMode === 'grid' ? (
@@ -618,7 +393,7 @@ export function ResumeDatabasePage() {
                         setSelectedCandidate(c)
                       }}
                     >
-                      View Dossier →
+                      View Dossier â†’
                     </button>
                   </div>
                 </div>
@@ -666,7 +441,7 @@ export function ResumeDatabasePage() {
                           {c.interviewScore}%
                         </span>
                       ) : (
-                        <span style={{ color: '#64748b' }}>—</span>
+                        <span style={{ color: '#64748b' }}>â€”</span>
                       )}
                     </td>
                     <td>
@@ -718,11 +493,11 @@ export function ResumeDatabasePage() {
               <div className={styles.modalHeader}>
                 <div>
                   <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <HrIcon name="document" size={22} /> {selectedCandidate.name} — Full Resume &
+                    <HrIcon name="document" size={22} /> {selectedCandidate.name} â€” Full Resume &
                     Profile Dossier
                   </h2>
                   <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                    {selectedCandidate.currentRole} · {selectedCandidate.location} · Source: {selectedCandidate.source}
+                    {selectedCandidate.currentRole} Â· {selectedCandidate.location} Â· Source: {selectedCandidate.source}
                   </span>
                 </div>
                 <button

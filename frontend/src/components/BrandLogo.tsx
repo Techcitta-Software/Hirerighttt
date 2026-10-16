@@ -24,14 +24,14 @@ export function BrandLogo({
   imgStyle,
 }: BrandLogoProps) {
   const imgSrc = dark
-    ? '/logos/hireright-official-transparent.png'
-    : '/logos/hireright-official-light.png'
+    ? '/logos/hirerighttt-logo-dark.svg'
+    : '/logos/hirerighttt-logo.svg'
 
   const imgElement = (
     <img
       src={imgSrc}
-      alt="HireRight — Right People. Right Decisions."
-      title="HireRight — Right People. Right Decisions."
+      alt="HireRighttt — Talent to Talent"
+      title="HireRighttt — Talent to Talent"
       className={`${styles.logoImg} ${styles[size]}`}
       style={imgStyle}
       loading="eager"

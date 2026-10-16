@@ -1,6 +1,5 @@
 import type { ProfileFormData } from '../data/wizard'
 import { extractNameFromText } from './resumeParser'
-import { findUserByPhone } from './phone'
 
 export type UserRole = 'jobseeker' | 'employer'
 
@@ -12,6 +11,8 @@ export type User = {
   role?: UserRole
   companyName?: string
   phone?: string
+  /** Neon org scope for employer accounts (API session sync). */
+  primaryOrganizationId?: string
   createdAt: string
 }
 
@@ -119,6 +120,7 @@ export type EmployerJob = {
   id: string
   title: string
   company: string
+  companySlug?: string
   roleTrack: string
   experienceLevel: string
   location: string
@@ -137,15 +139,18 @@ export type EmployerApplicant = {
   candidateName: string
   candidateEmail: string
   candidatePhone: string
+  role?: string
   experienceYears: string
   resumeName: string | null
   resumeText?: string
   interviewResult?: InterviewResult
+  appliedAt: string
+  status: 'New' | 'Shortlisted' | 'In Review' | 'Interviewing' | 'Rejected'
+  integrityStatus?: 'verified' | 'pending' | 'unverified'
+  aiScore?: number
   atsScore?: number
   jdMatchScore?: number
   primarySkills?: string[]
-  appliedAt: string
-  status: 'New' | 'Shortlisted' | 'In Review' | 'Rejected'
 }
 
 const USERS_KEY = 'hireright.users'
@@ -231,17 +236,11 @@ function writeUsers(users: User[]) {
 export function saveUser(
   input: Omit<User, 'id' | 'createdAt'> & { createdAt?: string },
   allowOverwrite = false,
+  autoSignIn = true,
 ): User {
   const users = readUsers()
   const email = input.email.trim().toLowerCase()
   const existingIdx = users.findIndex((u) => u.email === email)
-
-  if (input.phone?.trim()) {
-    const phoneOwner = findUserByPhone(users, input.phone)
-    if (phoneOwner && phoneOwner.email !== email) {
-      throw new Error('An account with this mobile number already exists.')
-    }
-  }
 
   if (existingIdx >= 0) {
     if (!allowOverwrite) {
@@ -256,8 +255,10 @@ export function saveUser(
       phone: input.phone ?? users[existingIdx].phone,
     }
     writeUsers(users)
-    localStorage.setItem(SESSION_KEY, email)
-    window.dispatchEvent(new Event('hireright-auth'))
+    if (autoSignIn) {
+      localStorage.setItem(SESSION_KEY, email)
+      window.dispatchEvent(new Event('hireright-auth'))
+    }
     return users[existingIdx]
   }
 
@@ -273,8 +274,10 @@ export function saveUser(
   }
   users.push(user)
   writeUsers(users)
-  localStorage.setItem(SESSION_KEY, user.email)
-  window.dispatchEvent(new Event('hireright-auth'))
+  if (autoSignIn) {
+    localStorage.setItem(SESSION_KEY, user.email)
+    window.dispatchEvent(new Event('hireright-auth'))
+  }
   return user
 }
 
@@ -305,6 +308,58 @@ export function login(email: string, password: string): User | null {
 export function logout() {
   localStorage.removeItem(SESSION_KEY)
   window.dispatchEvent(new Event('hireright-auth'))
+}
+
+/** Drop cached employer lists when the active org changes (API is source of truth). */
+export function clearEmployerPortalCache(): void {
+  localStorage.removeItem(EMPLOYER_JOBS_KEY)
+  localStorage.removeItem(EMPLOYER_APPLICANTS_KEY)
+  window.dispatchEvent(new Event('hireright-employer-cache'))
+}
+
+/** Merge API `/me` user into local session (Neon / cookie auth). */
+export function persistLoggedInUser(
+  input: Pick<User, 'id' | 'name' | 'email'> &
+    Partial<Pick<User, 'role' | 'companyName' | 'phone' | 'primaryOrganizationId'>>,
+): User {
+  const email = input.email.trim().toLowerCase()
+  const users = readUsers()
+  const idx = users.findIndex((u) => u.email === email)
+  const role = input.role ?? users[idx]?.role ?? 'jobseeker'
+
+  if (idx >= 0) {
+    users[idx] = {
+      ...users[idx],
+      id: input.id || users[idx].id,
+      name: input.name.trim() || users[idx].name,
+      role,
+      companyName: input.companyName ?? users[idx].companyName,
+      phone: input.phone ?? users[idx].phone,
+      primaryOrganizationId:
+        input.primaryOrganizationId ?? users[idx].primaryOrganizationId,
+    }
+    writeUsers(users)
+    localStorage.setItem(SESSION_KEY, email)
+    window.dispatchEvent(new Event('hireright-auth'))
+    return users[idx]
+  }
+
+  const user: User = {
+    id: input.id || uid(),
+    name: input.name.trim() || email.split('@')[0],
+    email,
+    password: '',
+    role,
+    companyName: input.companyName,
+    phone: input.phone,
+    primaryOrganizationId: input.primaryOrganizationId,
+    createdAt: new Date().toISOString(),
+  }
+  users.push(user)
+  writeUsers(users)
+  localStorage.setItem(SESSION_KEY, email)
+  window.dispatchEvent(new Event('hireright-auth'))
+  return user
 }
 
 export function updateUserName(name: string): User | null {
@@ -448,7 +503,7 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     completedSteps: Math.max(completedSteps, getProfile()?.completedSteps ?? 0),
   }
   localStorage.setItem(profileKey(user?.email), JSON.stringify(saved))
-  void import('./apiSession').then((m) => m.syncProfileToApi(saved))
+  void import('./supabaseSync').then((m) => m.syncProfileToSupabase(saved))
   return saved
 }
 
@@ -540,11 +595,17 @@ export function canApplyToJobs(): boolean {
 }
 
 export type RankedJob = {
+  id?: string
   title: string
   company: string
   location: string
   match: number
   locked: boolean
+  shareableCode?: string
+  companySlug?: string
+  jobDescription?: string
+  roleTrack?: string
+  experienceLevel?: string
 }
 
 /** Job match % is derived from your real AI interview overall (1–99), not a static catalog score. */
@@ -576,7 +637,19 @@ export function jobMatchFromInterview(
   return Math.max(1, Math.min(99, Math.round(match)))
 }
 
-export function getRankedJobs(): RankedJob[] {
+export function rankPostedJobs(
+  jobs: {
+    id?: string
+    title: string
+    company: string
+    location?: string
+    shareableCode?: string
+    companySlug?: string
+    jobDescription?: string
+    roleTrack?: string
+    experienceLevel?: string
+  }[],
+): RankedJob[] {
   const interview = getInterviewResult()
   const profile = getProfile()
   const unlocked = Boolean(interview)
@@ -586,19 +659,8 @@ export function getRankedJobs(): RankedJob[] {
     profile?.preferredRoles?.[0] ||
     ''
 
-  const employerPosted = getEmployerJobs().map((job) => ({
-    title: job.title,
-    company: job.company,
-    location: job.location,
-    match: 0,
-  }))
-
-  const catalog = [...employerPosted, ...JOB_MATCHES.map((j) => ({ ...j, match: 0 }))].filter(
-    (job, index, list) =>
-      list.findIndex((j) => j.title === job.title && j.company === job.company) === index,
-  )
-
-  return catalog
+  return jobs
+    .filter((job) => job.title && job.company)
     .map((job) => {
       let match = 0
       if (unlocked && interview) {
@@ -609,22 +671,46 @@ export function getRankedJobs(): RankedJob[] {
           profile?.skills ?? [],
         )
       } else {
-        match = Math.max(1, Math.min(35, 12))
+        match = 12
       }
       return {
-        ...job,
+        id: job.id,
+        title: job.title,
+        company: job.company,
+        location: job.location || 'Remote',
         match,
         locked: !unlocked,
+        shareableCode: job.shareableCode,
+        companySlug: job.companySlug,
+        jobDescription: job.jobDescription,
+        roleTrack: job.roleTrack,
+        experienceLevel: job.experienceLevel,
       }
     })
     .sort((a, b) => b.match - a.match)
+}
+
+export function getRankedJobs(): RankedJob[] {
+  return rankPostedJobs(
+    getEmployerJobs().map((job) => ({
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      shareableCode: job.shareableCode,
+      companySlug: job.companySlug,
+      jobDescription: job.jobDescription,
+      roleTrack: job.roleTrack,
+      experienceLevel: job.experienceLevel,
+    })),
+  )
 }
 
 export function saveInterviewResult(result: InterviewResult) {
   const user = getUser()
   const key = user ? `${RESULT_KEY}.${user.email}` : RESULT_KEY
   localStorage.setItem(key, JSON.stringify(result))
-  void import('./apiSync').then((m) => m.syncInterviewResultToApi(result))
+  void import('./supabaseSync').then((m) => m.syncInterviewResultToSupabase(result))
 }
 
 export function getInterviewResult(): InterviewResult | null {
@@ -857,64 +943,508 @@ const DEFAULT_DEMO_JOB: EmployerJob = {
   shareableCode: 'techcitta-sr-frontend',
 }
 
-const DEFAULT_DEMO_APPLICANT: EmployerApplicant = {
-  id: 'app-demo-1',
-  jobId: 'job-demo-1',
-  jobTitle: 'Senior Frontend Developer',
-  company: 'TechCitta Solutions',
-  candidateName: 'Vikram Mehta',
-  candidateEmail: 'vikram.m@example.com',
-  candidatePhone: '+91 98765 43210',
-  experienceYears: '6 years',
-  resumeName: 'Vikram_Mehta_Resume.pdf',
-  resumeText:
-    'Senior Frontend Developer with 6 years experience specializing in React, TypeScript, Redux, Performance, and Micro-frontends.',
-  interviewResult: {
+export const DEFAULT_14_CANDIDATES: EmployerApplicant[] = [
+  {
+    id: 'cand-1',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Aarav Sharma',
+    candidateEmail: 'aarav.sharma92@gmail.com',
+    candidatePhone: '+91 90000 00101',
     role: 'Frontend Developer',
-    level: '6+ years',
-    date: new Date(Date.now() - 86400000 * 1).toISOString(),
-    overall: 92,
-    categories: [
-      { label: 'Communication', score: 94 },
-      { label: 'Technical', score: 92 },
-      { label: 'Problem Solving', score: 90 },
-      { label: 'Experience', score: 92 },
-    ],
-    strengths: [
-      'Exceptional React architecture knowledge',
-      'Clear, concise STAR method explanations',
-    ],
-    improvements: ['Could elaborate more on automated E2E testing'],
-    answers: [
-      {
-        question: 'Tell me about yourself',
-        answer: 'I have 6 years building high scale React apps...',
-        score: 95,
-        wordCount: 85,
-        keywordsHit: ['react', 'typescript'],
-        feedback: 'Strong intro.',
-      },
-    ],
-    resumeFitScore: 94,
-    agent: 'openrouter+hireright-agent',
-    integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    experienceYears: '6 years',
+    aiScore: 92,
+    integrityStatus: 'verified',
+    status: 'New',
+    resumeName: 'Aarav_Sharma_Resume.pdf',
+    resumeText: 'Senior Frontend Developer with 6 years experience in React, TypeScript, Next.js, Redux Toolkit, Web Performance & Micro-frontends. Led front-end architecture for high-traffic SaaS products.',
+    appliedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    interviewResult: {
+      role: 'Frontend Developer',
+      level: '6+ years',
+      date: new Date(Date.now() - 86400000 * 1).toISOString(),
+      overall: 92,
+      categories: [
+        { label: 'Technical Accuracy', score: 94 },
+        { label: 'Code Architecture', score: 92 },
+        { label: 'Problem Solving', score: 90 },
+        { label: 'Communication', score: 92 },
+      ],
+      strengths: ['Deep expertise in React internals, Virtual DOM, and Concurrent Mode', 'Clear breakdown of state management strategies'],
+      improvements: ['Could elaborate more on automated visual regression testing'],
+      answers: [
+        { question: 'Explain how React Concurrent Mode improves UX', answer: 'Concurrent Mode allows React to interrupt long renders to handle user interactions smoothly...', score: 94, wordCount: 82, keywordsHit: ['fiber', 'interruptible', 'transitions'], feedback: 'Excellent technical depth.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
   },
-  appliedAt: new Date(Date.now() - 86400000 * 1).toISOString(),
-  status: 'Shortlisted',
-}
+  {
+    id: 'cand-2',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Ananya Reddy',
+    candidateEmail: 'ananya.reddy.ux@gmail.com',
+    candidatePhone: '+91 90000 00102',
+    role: 'UI/UX Designer',
+    experienceYears: '5 years',
+    aiScore: 88,
+    integrityStatus: 'verified',
+    status: 'Shortlisted',
+    resumeName: 'Ananya_Reddy_Portfolio.pdf',
+    resumeText: 'UI/UX Designer and Design Systems Architect with 5 years experience creating intuitive B2B and consumer web platforms. Expert in Figma, Tailwind, and Design Tokens.',
+    appliedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+    interviewResult: {
+      role: 'UI/UX Designer',
+      level: '5 years',
+      date: new Date(Date.now() - 86400000 * 2).toISOString(),
+      overall: 88,
+      categories: [
+        { label: 'Visual Design', score: 92 },
+        { label: 'User Empathy', score: 90 },
+        { label: 'Prototyping', score: 86 },
+        { label: 'Design Systems', score: 84 },
+      ],
+      strengths: ['Strong portfolio of component systems and interaction design', 'Excellent cross-functional alignment with developers'],
+      improvements: ['Could deepen knowledge of automated accessibility testing tools'],
+      answers: [
+        { question: 'Describe your approach to designing complex data tables', answer: 'I prioritize information hierarchy, clear column scannability, fixed headers, and inline action triggers...', score: 90, wordCount: 75, keywordsHit: ['hierarchy', 'scannability', 'density'], feedback: 'Very practical and user-centric approach.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-3',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Arjun Kapoor',
+    candidateEmail: 'arjun.kapoor07@gmail.com',
+    candidatePhone: '+91 90000 00103',
+    role: 'Frontend Developer',
+    experienceYears: '7 years',
+    aiScore: 85,
+    integrityStatus: 'verified',
+    status: 'New',
+    resumeName: 'Arjun_Kapoor_CV.pdf',
+    resumeText: 'Senior Web Engineer with 7 years experience building scalable enterprise dashboards with React, TypeScript, GraphQL, and WebSockets.',
+    appliedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
+    interviewResult: {
+      role: 'Frontend Developer',
+      level: '7 years',
+      date: new Date(Date.now() - 86400000 * 3).toISOString(),
+      overall: 85,
+      categories: [
+        { label: 'Technical Depth', score: 86 },
+        { label: 'Performance', score: 88 },
+        { label: 'System Design', score: 84 },
+        { label: 'Team Leadership', score: 82 },
+      ],
+      strengths: ['Great knowledge of WebSocket state caching and real-time UI rendering'],
+      improvements: ['Code structure could adopt more functional composition patterns'],
+      answers: [
+        { question: 'How do you prevent unnecessary re-renders in large React apps?', answer: 'By profiling with React DevTools, memoizing expensive computations with useMemo, and keeping state localized...', score: 86, wordCount: 68, keywordsHit: ['memo', 'profiler', 'colocation'], feedback: 'Sound answer.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-4',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Divya Menon',
+    candidateEmail: 'divya.menon.qa@gmail.com',
+    candidatePhone: '+91 90000 00104',
+    role: 'QA Engineer',
+    experienceYears: '4 years',
+    aiScore: 79,
+    integrityStatus: 'pending',
+    status: 'New',
+    resumeName: 'Divya_Menon_QA.pdf',
+    resumeText: 'SDET & QA Automation Engineer with 4 years experience in Cypress, Playwright, Jest, and CI/CD quality gates for enterprise web applications.',
+    appliedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    interviewResult: {
+      role: 'QA Engineer',
+      level: '4 years',
+      date: new Date(Date.now() - 86400000 * 3).toISOString(),
+      overall: 79,
+      categories: [
+        { label: 'Test Automation', score: 84 },
+        { label: 'Bug Triage', score: 80 },
+        { label: 'CI/CD Pipelines', score: 76 },
+        { label: 'Performance QA', score: 76 },
+      ],
+      strengths: ['Strong hands-on experience with Playwright and visual snapshot tests'],
+      improvements: ['Integrity check flagged intermittent webcam stream interruption during stage 2.'],
+      answers: [
+        { question: 'What is your strategy for flaky tests in Cypress or Playwright?', answer: 'I inspect dynamic waits, avoid hardcoded sleeps, use network mocks when appropriate, and isolate state fixtures...', score: 82, wordCount: 70, keywordsHit: ['fixtures', 'flaky', 'retries'], feedback: 'Good automation understanding.' },
+      ],
+      integrity: { faceViolations: 1, singlePersonOk: false, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-5',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Karthik Iyer',
+    candidateEmail: 'karthik.iyer88@gmail.com',
+    candidatePhone: '+91 90000 00105',
+    role: 'DevOps Engineer',
+    experienceYears: '8 years',
+    aiScore: 74,
+    integrityStatus: 'verified',
+    status: 'Interviewing',
+    resumeName: 'Karthik_Iyer_DevOps.pdf',
+    resumeText: 'Cloud Infrastructure & DevOps Engineer with 8 years experience managing AWS, Kubernetes, Terraform, and Docker container clusters.',
+    appliedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+    interviewResult: {
+      role: 'DevOps Engineer',
+      level: '8 years',
+      date: new Date(Date.now() - 86400000 * 4).toISOString(),
+      overall: 74,
+      categories: [
+        { label: 'Cloud Architecture', score: 82 },
+        { label: 'Security & IAM', score: 78 },
+        { label: 'Kubernetes', score: 72 },
+        { label: 'Frontend Tooling Fit', score: 64 },
+      ],
+      strengths: ['Extensive DevOps background and infrastructure-as-code acumen'],
+      improvements: ['Lacks direct UI frontend framework development exposure for pure frontend roles'],
+      answers: [
+        { question: 'How do you design zero-downtime deployments for web applications?', answer: 'Using blue-green or rolling canary deployments in Kubernetes backed by health probes and CDN cache invalidation...', score: 78, wordCount: 65, keywordsHit: ['canary', 'probes', 'ingress'], feedback: 'Solid DevOps knowledge.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-6',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Lakshmi Prasad',
+    candidateEmail: 'lakshmi.prasad.fs@gmail.com',
+    candidatePhone: '+91 90000 00106',
+    role: 'Full Stack Developer',
+    experienceYears: '5 years',
+    aiScore: 90,
+    integrityStatus: 'verified',
+    status: 'Shortlisted',
+    resumeName: 'Lakshmi_Prasad_FullStack.pdf',
+    resumeText: 'Full Stack Developer with 5 years experience in React, Node.js, Express, PostgreSQL, and GraphQL. Experienced in building end-to-end full stack web platforms.',
+    appliedAt: new Date(Date.now() - 86400000 * 6).toISOString(),
+    interviewResult: {
+      role: 'Full Stack Developer',
+      level: '5 years',
+      date: new Date(Date.now() - 86400000 * 5).toISOString(),
+      overall: 90,
+      categories: [
+        { label: 'Frontend Expertise', score: 92 },
+        { label: 'Backend Architecture', score: 90 },
+        { label: 'Database Design', score: 88 },
+        { label: 'API Security', score: 90 },
+      ],
+      strengths: ['Excellent balance of frontend React engineering and Node.js REST/GraphQL backends'],
+      improvements: ['None notable, candidate is well aligned with senior specifications'],
+      answers: [
+        { question: 'How do you manage client-side state caching with server APIs?', answer: 'I utilize TanStack Query or SWR for automatic deduplication, cache staleness, and optimistic mutations...', score: 92, wordCount: 76, keywordsHit: ['tanstack', 'optimistic', 'deduplication'], feedback: 'Modern and accurate technical approach.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-7',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Meera Joshi',
+    candidateEmail: 'meera.joshi21@gmail.com',
+    candidatePhone: '+91 90000 00107',
+    role: 'Data Analyst',
+    experienceYears: '3 years',
+    aiScore: 81,
+    integrityStatus: 'verified',
+    status: 'New',
+    resumeName: 'Meera_Joshi_Analytics.pdf',
+    resumeText: 'Data Analyst with 3 years experience building interactive business intelligence dashboards, SQL models, Tableau reports, and Python analytics pipelines.',
+    appliedAt: new Date(Date.now() - 86400000 * 6).toISOString(),
+    interviewResult: {
+      role: 'Data Analyst',
+      level: '3 years',
+      date: new Date(Date.now() - 86400000 * 5).toISOString(),
+      overall: 81,
+      categories: [
+        { label: 'SQL & Query Optimization', score: 86 },
+        { label: 'Data Visualization', score: 84 },
+        { label: 'Statistical Thinking', score: 80 },
+        { label: 'Frontend Dashboards', score: 74 },
+      ],
+      strengths: ['Clear data presentation skills and SQL query proficiency'],
+      improvements: ['Limited experience with React component development'],
+      answers: [
+        { question: 'What visual charts do you use for multi-dimensional data?', answer: 'I recommend scatter plots with sized bubbles or grouped heatmaps to visualize complex correlation...', score: 82, wordCount: 60, keywordsHit: ['heatmap', 'correlation', 'dimensions'], feedback: 'Good data visualization fundamentals.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-8',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Nisha Verma',
+    candidateEmail: 'nisha.verma.data@gmail.com',
+    candidatePhone: '+91 90000 00108',
+    role: 'Data Analyst',
+    experienceYears: '6 years',
+    aiScore: 86,
+    integrityStatus: 'verified',
+    status: 'New',
+    resumeName: 'Nisha_Verma_Resume.pdf',
+    resumeText: 'Senior Data & Product Analyst with 6 years experience in growth telemetry, user funnels, A/B testing, and full-funnel conversion analysis.',
+    appliedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
+    interviewResult: {
+      role: 'Data Analyst',
+      level: '6 years',
+      date: new Date(Date.now() - 86400000 * 6).toISOString(),
+      overall: 86,
+      categories: [
+        { label: 'A/B Experimentation', score: 90 },
+        { label: 'Product Analytics', score: 88 },
+        { label: 'Cohort Analysis', score: 86 },
+        { label: 'Stakeholder Comms', score: 80 },
+      ],
+      strengths: ['Strong understanding of statistically valid hypothesis testing and p-values'],
+      improvements: ['Could strengthen understanding of web performance metric correlation'],
+      answers: [
+        { question: 'How do you determine statistical significance in conversion tests?', answer: 'I calculate sample size requirements upfront, verify confidence intervals above 95%, and guard against peeking bias...', score: 88, wordCount: 67, keywordsHit: ['confidence', 'p-value', 'power'], feedback: 'Very methodical.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-9',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Priya Nair',
+    candidateEmail: 'priya.nair.dev@gmail.com',
+    candidatePhone: '+91 90000 00109',
+    role: 'Full Stack Developer',
+    experienceYears: '4 years',
+    aiScore: 77,
+    integrityStatus: 'pending',
+    status: 'New',
+    resumeName: 'Priya_Nair_FullStack.pdf',
+    resumeText: 'Full Stack Engineer with 4 years experience in MERN stack, Next.js, and serverless architectures.',
+    appliedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
+    interviewResult: {
+      role: 'Full Stack Developer',
+      level: '4 years',
+      date: new Date(Date.now() - 86400000 * 6).toISOString(),
+      overall: 77,
+      categories: [
+        { label: 'React / Next.js', score: 80 },
+        { label: 'Node.js', score: 78 },
+        { label: 'Code Quality', score: 76 },
+        { label: 'Architecture', score: 74 },
+      ],
+      strengths: ['Hands-on with modern React hooks and Next.js SSR'],
+      improvements: ['Proctor recorded minor side gaze warning during question 3.'],
+      answers: [
+        { question: 'What are the trade-offs between SSR and CSR?', answer: 'SSR provides fast First Contentful Paint and SEO benefits, while CSR saves server CPU and allows quick subsequent navigations...', score: 78, wordCount: 65, keywordsHit: ['ssr', 'seo', 'fcp'], feedback: 'Accurate overview.' },
+      ],
+      integrity: { faceViolations: 1, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-10',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Rahul Desai',
+    candidateEmail: 'rahul.desai85@gmail.com',
+    candidatePhone: '+91 90000 00110',
+    role: 'Frontend Developer',
+    experienceYears: '3 years',
+    aiScore: 83,
+    integrityStatus: 'verified',
+    status: 'Interviewing',
+    resumeName: 'Rahul_Desai_Frontend.pdf',
+    resumeText: 'Frontend Developer with 3 years building responsive web apps with React, Tailwind CSS, TypeScript, and Vite.',
+    appliedAt: new Date(Date.now() - 86400000 * 8).toISOString(),
+    interviewResult: {
+      role: 'Frontend Developer',
+      level: '3 years',
+      date: new Date(Date.now() - 86400000 * 7).toISOString(),
+      overall: 83,
+      categories: [
+        { label: 'CSS / Styling', score: 88 },
+        { label: 'Component Architecture', score: 84 },
+        { label: 'JavaScript Fundamentals', score: 82 },
+        { label: 'Problem Solving', score: 78 },
+      ],
+      strengths: ['Excellent modern CSS and responsive UI styling ability'],
+      improvements: ['Needs more exposure to high-scale state management patterns'],
+      answers: [
+        { question: 'Explain CSS specificity and CSS Modules advantages', answer: 'CSS Modules scope class names locally via hashing to prevent unintended cascade collisions across large codebases...', score: 84, wordCount: 66, keywordsHit: ['hashing', 'scope', 'specificity'], feedback: 'Clear and concise.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-11',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Rohan Mehta',
+    candidateEmail: 'rohan.mehta27@gmail.com',
+    candidatePhone: '+91 90000 00111',
+    role: 'Backend Developer',
+    experienceYears: '2 years',
+    aiScore: 68,
+    integrityStatus: 'unverified',
+    status: 'New',
+    resumeName: 'Rohan_Mehta_Backend.pdf',
+    resumeText: 'Junior Backend Developer with 2 years experience writing Express microservices and Mongo/Postgres queries.',
+    appliedAt: new Date(Date.now() - 86400000 * 8).toISOString(),
+    interviewResult: {
+      role: 'Backend Developer',
+      level: '2 years',
+      date: new Date(Date.now() - 86400000 * 7).toISOString(),
+      overall: 68,
+      categories: [
+        { label: 'Backend APIs', score: 72 },
+        { label: 'Database Queries', score: 68 },
+        { label: 'Frontend Fit', score: 62 },
+        { label: 'Verification', score: 50 },
+      ],
+      strengths: ['Good REST fundamentals'],
+      improvements: ['Candidate camera was off during the first 2 minutes of the session; marked as unverified.'],
+      answers: [
+        { question: 'What is database indexing and how does B-Tree help?', answer: 'Indexes allow rapid key lookups without full table scans, sorting data in balanced tree structures...', score: 70, wordCount: 54, keywordsHit: ['b-tree', 'lookup', 'scan'], feedback: 'Basic overview given.' },
+      ],
+      integrity: { faceViolations: 2, singlePersonOk: false, maxFacesSeen: 0 },
+    },
+  },
+  {
+    id: 'cand-12',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Sai Teja',
+    candidateEmail: 'sai.teja.codes@gmail.com',
+    candidatePhone: '+91 90000 00112',
+    role: 'Backend Developer',
+    experienceYears: '1 year',
+    aiScore: 64,
+    integrityStatus: 'pending',
+    status: 'Rejected',
+    resumeName: 'Sai_Teja_Resume.pdf',
+    resumeText: 'Entry-level Backend Developer with 1 year experience in Python Flask, Django, and SQLite.',
+    appliedAt: new Date(Date.now() - 86400000 * 9).toISOString(),
+    interviewResult: {
+      role: 'Backend Developer',
+      level: '1 year',
+      date: new Date(Date.now() - 86400000 * 8).toISOString(),
+      overall: 64,
+      categories: [
+        { label: 'Python Fundamentals', score: 70 },
+        { label: 'Web Protocols', score: 64 },
+        { label: 'Experience Depth', score: 58 },
+        { label: 'Frontend Alignment', score: 52 },
+      ],
+      strengths: ['Enthusiastic beginner'],
+      improvements: ['Insufficient experience for senior frontend developer track; candidate rejected.'],
+      answers: [
+        { question: 'How do you structure API endpoints in Flask?', answer: 'Using blueprints to modularize routes and returning jsonify responses with appropriate status codes...', score: 66, wordCount: 50, keywordsHit: ['blueprints', 'jsonify'], feedback: 'Acceptable junior level answer.' },
+      ],
+      integrity: { faceViolations: 1, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-13',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Sneha Patil',
+    candidateEmail: 'sneha.patil14@gmail.com',
+    candidatePhone: '+91 90000 00113',
+    role: 'QA Engineer',
+    experienceYears: '1 year',
+    aiScore: 71,
+    integrityStatus: 'verified',
+    status: 'New',
+    resumeName: 'Sneha_Patil_QA.pdf',
+    resumeText: 'Junior QA Engineer with 1 year experience writing manual test cases and automated tests in Selenium.',
+    appliedAt: new Date(Date.now() - 86400000 * 10).toISOString(),
+    interviewResult: {
+      role: 'QA Engineer',
+      level: '1 year',
+      date: new Date(Date.now() - 86400000 * 9).toISOString(),
+      overall: 71,
+      categories: [
+        { label: 'Manual QA', score: 78 },
+        { label: 'Selenium', score: 72 },
+        { label: 'Test Documentation', score: 70 },
+        { label: 'Senior Alignment', score: 64 },
+      ],
+      strengths: ['Detail-oriented test case documentation'],
+      improvements: ['Needs more technical experience with JavaScript and TypeScript testing frameworks.'],
+      answers: [
+        { question: 'What is regression testing and when is it executed?', answer: 'Regression testing ensures that new code updates or bug fixes do not inadvertently break existing functionality...', score: 74, wordCount: 58, keywordsHit: ['regression', 'break', 'verification'], feedback: 'Good understanding.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+  {
+    id: 'cand-14',
+    jobId: 'job-demo-1',
+    jobTitle: 'Senior Frontend Developer',
+    company: 'TechCitta Solutions',
+    candidateName: 'Vikram Singh',
+    candidateEmail: 'vikram.singh.pm@gmail.com',
+    candidatePhone: '+91 90000 00114',
+    role: 'Product Manager',
+    experienceYears: '9 years',
+    aiScore: 89,
+    integrityStatus: 'verified',
+    status: 'Shortlisted',
+    resumeName: 'Vikram_Singh_Product.pdf',
+    resumeText: 'Principal Product Manager with 9 years scaling SaaS B2B platforms, roadmaps, sprint execution, and developer tool ecosystems.',
+    appliedAt: new Date(Date.now() - 86400000 * 11).toISOString(),
+    interviewResult: {
+      role: 'Product Manager',
+      level: '9 years',
+      date: new Date(Date.now() - 86400000 * 10).toISOString(),
+      overall: 89,
+      categories: [
+        { label: 'Product Strategy', score: 92 },
+        { label: 'User Research', score: 90 },
+        { label: 'Technical Empathy', score: 88 },
+        { label: 'Execution', score: 86 },
+      ],
+      strengths: ['Outstanding leadership, roadmap prioritization, and developer empathy'],
+      improvements: ['None notable'],
+      answers: [
+        { question: 'How do you resolve conflicting priorities between engineering debt and feature requests?', answer: 'I allocate a fixed continuous capacity (e.g. 20%) for tech debt while framing maintenance in terms of uptime, developer velocity, and churn reduction...', score: 90, wordCount: 78, keywordsHit: ['velocity', 'capacity', 'trade-offs'], feedback: 'Executive-level framing.' },
+      ],
+      integrity: { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1 },
+    },
+  },
+]
 
 export function getEmployerJobs(email?: string): EmployerJob[] {
   try {
     const raw = localStorage.getItem(EMPLOYER_JOBS_KEY)
-    if (!raw) {
-      localStorage.setItem(EMPLOYER_JOBS_KEY, JSON.stringify([DEFAULT_DEMO_JOB]))
-      return [DEFAULT_DEMO_JOB]
-    }
+    if (!raw) return []
     const jobs = JSON.parse(raw) as EmployerJob[]
     if (email) return jobs.filter((j) => j.createdByEmail === email)
     return jobs
   } catch {
-    return [DEFAULT_DEMO_JOB]
+    return []
   }
 }
 
@@ -949,18 +1479,12 @@ export function deleteEmployerJob(id: string) {
 export function getEmployerApplicants(jobId?: string): EmployerApplicant[] {
   try {
     const raw = localStorage.getItem(EMPLOYER_APPLICANTS_KEY)
-    if (!raw) {
-      localStorage.setItem(
-        EMPLOYER_APPLICANTS_KEY,
-        JSON.stringify([DEFAULT_DEMO_APPLICANT]),
-      )
-      return [DEFAULT_DEMO_APPLICANT]
-    }
+    if (!raw) return []
     const applicants = JSON.parse(raw) as EmployerApplicant[]
     if (jobId) return applicants.filter((a) => a.jobId === jobId)
     return applicants
   } catch {
-    return [DEFAULT_DEMO_APPLICANT]
+    return []
   }
 }
 

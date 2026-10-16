@@ -159,6 +159,11 @@ export async function searchCandidateTalent(databaseUrl, organizationId, filters
       SELECT 1 FROM organization_talent_access a
       WHERE a.organization_id = $1 AND a.user_id = t.user_id
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM users u
+    WHERE (u.id = t.user_id OR lower(u.email) = lower(t.email))
+      AND COALESCE(u.role, 'jobseeker') = 'employer'
   )`
 
   let scoreSql = ''
@@ -205,6 +210,7 @@ export async function searchCandidateTalent(databaseUrl, organizationId, filters
           OR t.full_name ILIKE '%' || ${p} || '%'
           OR t.role_title ILIKE '%' || ${p} || '%'
           OR t.experience_years ILIKE '%' || ${p} || '%'
+          OR t.resume_snippet ILIKE '%' || ${p} || '%'
           OR EXISTS (SELECT 1 FROM unnest(t.skills) s WHERE s ILIKE '%' || ${p} || '%')
         )`)
       }
@@ -220,6 +226,7 @@ export async function searchCandidateTalent(databaseUrl, organizationId, filters
         OR t.role_title ILIKE '%' || ${qParam} || '%'
         OR t.email ILIKE '%' || ${qParam} || '%'
         OR t.experience_years ILIKE '%' || ${qParam} || '%'
+        OR t.resume_snippet ILIKE '%' || ${qParam} || '%'
         OR EXISTS (SELECT 1 FROM unnest(t.skills) s WHERE s ILIKE '%' || ${qParam} || '%')
       )`
       rankSelect = `ts_rank(t.search_vector, plainto_tsquery('english', ${qParam})) AS rank`
@@ -331,6 +338,16 @@ export async function getCandidateTalentById(databaseUrl, organizationId, userId
 }
 
 /** Sync all jobseekers from in-memory db snapshot (boot / admin). */
+export async function listOrganizationTalentUserIds(databaseUrl, organizationId) {
+  if (!databaseUrl || !organizationId) return []
+  await ensureTalentSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT user_id FROM organization_talent_access WHERE organization_id = $1`,
+    [organizationId],
+  )
+  return res.rows.map((r) => r.user_id)
+}
+
 export async function reindexTalentFromDb(databaseUrl, db) {
   if (!databaseUrl) return { indexed: 0 }
   let indexed = 0

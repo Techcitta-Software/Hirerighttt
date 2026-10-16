@@ -100,6 +100,10 @@ function getPool(databaseUrl) {
       max: 10,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 15_000,
+      keepAlive: true,
+    })
+    pool.on('error', (err) => {
+      console.warn('[db] pool idle client error (Neon reconnect):', err?.message || err)
     })
   }
   return pool
@@ -200,23 +204,7 @@ async function loadRelational(client) {
   }))
 
   const jobsRes = await client.query(`SELECT * FROM jobs ORDER BY created_at DESC`)
-  db.jobs = jobsRes.rows.map((r) => ({
-    id: r.id,
-    organizationId: r.organization_id,
-    createdByUserId: r.created_by_user_id || undefined,
-    title: r.title,
-    company: r.company,
-    roleTrack: r.role_track || '',
-    experienceLevel: r.experience_level || '',
-    location: r.location || '',
-    jobDescription: r.job_description || '',
-    requiredSkills: r.required_skills || [],
-    shareableCode: r.shareable_code,
-    status: r.status,
-    createdAt: iso(r.created_at),
-    createdByEmail:
-      (typeof r.extras === 'object' && r.extras && r.extras.createdByEmail) || '',
-  }))
+  db.jobs = jobsRes.rows.map((r) => mapJobRow(r))
 
   const empAppsRes = await client.query(`SELECT * FROM employer_applications ORDER BY applied_at DESC`)
   db.employerApplications = empAppsRes.rows.map((r) => ({
@@ -268,6 +256,81 @@ async function loadRelational(client) {
 
 function iso(value) {
   return value instanceof Date ? value.toISOString() : String(value)
+}
+
+/** @param {import('pg').QueryResultRow} r */
+function mapJobRow(r) {
+  const extras = typeof r.extras === 'object' && r.extras ? r.extras : {}
+  return {
+    id: r.id,
+    organizationId: r.organization_id,
+    createdByUserId: r.created_by_user_id || undefined,
+    title: r.title,
+    company: r.company,
+    companySlug: extras.companySlug || undefined,
+    roleTrack: r.role_track || '',
+    experienceLevel: r.experience_level || '',
+    location: r.location || '',
+    jobDescription: r.job_description || '',
+    requiredSkills: r.required_skills || [],
+    shareableCode: r.shareable_code,
+    status: r.status,
+    createdAt: iso(r.created_at),
+    createdByEmail: extras.createdByEmail || '',
+  }
+}
+
+/** Direct Postgres lookup for public share links (authoritative when cache is stale). */
+export async function findJobByShareableCode(databaseUrl, shareableCode) {
+  const code = String(shareableCode || '').trim().toLowerCase()
+  if (!code) return null
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT * FROM jobs
+     WHERE LOWER(shareable_code) = $1
+       AND COALESCE(status, 'published') IN ('active', 'published')
+     LIMIT 1`,
+    [code],
+  )
+  return res.rows[0] ? mapJobRow(res.rows[0]) : null
+}
+
+/** Persist one job row immediately so share links work before the next full save. */
+export async function upsertJobRecord(databaseUrl, job) {
+  if (!job?.id || !job.shareableCode) return
+  await ensurePgSchema(databaseUrl)
+  const extras = {
+    createdByEmail: job.createdByEmail || '',
+    companySlug: job.companySlug || null,
+  }
+  await getPool(databaseUrl).query(
+    `INSERT INTO jobs (
+       id, organization_id, created_by_user_id, title, company, role_track, experience_level,
+       location, job_description, required_skills, shareable_code, status, extras, created_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::timestamptz,$15::timestamptz)
+     ON CONFLICT (id) DO UPDATE SET
+       title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
+       required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
+       role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
+       location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras`,
+    [
+      job.id,
+      job.organizationId,
+      job.createdByUserId || null,
+      job.title,
+      job.company,
+      job.roleTrack || null,
+      job.experienceLevel || null,
+      job.location || null,
+      job.jobDescription || null,
+      JSON.stringify(job.requiredSkills || []),
+      job.shareableCode,
+      job.status || 'published',
+      JSON.stringify(extras),
+      job.createdAt || new Date().toISOString(),
+      new Date().toISOString(),
+    ],
+  )
 }
 
 /** @param {import('pg').PoolClient} client @param {DbShape} db */
@@ -331,7 +394,8 @@ async function saveRelational(client, db) {
          ON CONFLICT (email) DO UPDATE SET
            name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, role = EXCLUDED.role,
            company_name = EXCLUDED.company_name, primary_organization_id = EXCLUDED.primary_organization_id,
-           status = EXCLUDED.status, phone = COALESCE(EXCLUDED.phone, users.phone)`,
+           status = EXCLUDED.status, phone = COALESCE(EXCLUDED.phone, users.phone)
+         WHERE users.id = EXCLUDED.id`,
         [
           u.id,
           u.email,
@@ -366,7 +430,10 @@ async function saveRelational(client, db) {
     // Do not delete/reinsert retained jobs: ON DELETE SET NULL destroys history links.
     await client.query('DELETE FROM jobs WHERE NOT (id = ANY($1::text[]))', [(db.jobs || []).map(job => job.id)])
     for (const job of db.jobs || []) {
-      const extras = { createdByEmail: job.createdByEmail || '' }
+      const extras = {
+        createdByEmail: job.createdByEmail || '',
+        companySlug: job.companySlug || null,
+      }
       await client.query(
         `INSERT INTO jobs (
            id, organization_id, created_by_user_id, title, company, role_track, experience_level,
@@ -397,12 +464,14 @@ async function saveRelational(client, db) {
       )
     }
 
-    await client.query('DELETE FROM employer_applications')
+    await client.query('DELETE FROM employer_applications WHERE NOT (id = ANY($1::text[]))', [(db.employerApplications || []).map(app => app.id)])
     for (const app of db.employerApplications || []) {
       await client.query(
         `INSERT INTO employer_applications
            (id, organization_id, job_id, candidate_user_id, candidate_email, status, data, applied_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)
+         ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, data=EXCLUDED.data,
+           candidate_user_id=EXCLUDED.candidate_user_id`,
         [
           app.id,
           app.organizationId,
@@ -574,6 +643,12 @@ export async function appendInterviewHistory(databaseUrl, email, data, ctx = {})
       JSON.stringify(data),
     ],
   )
+}
+
+/** @param {string} databaseUrl */
+export function dbPool(databaseUrl) {
+  requireDatabaseUrl(databaseUrl)
+  return getPool(databaseUrl)
 }
 
 export async function closeStore() {

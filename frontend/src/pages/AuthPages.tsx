@@ -4,9 +4,6 @@ import { motion } from 'framer-motion'
 import { HrIcon } from '../components/HrIcon'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
-import { BrandLogo } from '../components/BrandLogo'
-import { LoginGlobe } from '../components/LoginGlobe'
-
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {
@@ -16,12 +13,15 @@ import {
   getUser,
   login,
   logout,
+  persistLoggedInUser,
   saveAccountPrefs,
   saveUser,
   updateUserEmail,
   updateUserPassword,
 } from '../lib/store'
 import { apiHealth, apiLogin, apiLogout, apiSignup } from '../lib/api'
+import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
+import { isValidPhone, normalizePhone } from '../lib/phone'
 import {
   DEMO_ADMIN,
   DEMO_CANDIDATE,
@@ -29,45 +29,108 @@ import {
   getDemoAccount,
   isDemoEmail,
 } from '../lib/authDemo'
+import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
-import { pullProfileFromApi } from '../lib/apiSync'
+import { isSupabaseEnabled } from '../lib/supabaseClient'
+import { supabaseSignIn, supabaseSignOut, supabaseSignUp } from '../lib/supabaseAuth'
+import { pullProfileFromSupabase } from '../lib/supabaseSync'
 import { openSignOutModal } from '../lib/signOutModal'
-import { isValidPhone } from '../lib/phone'
 import styles from './AuthPages.module.css'
 
 type StoredUser = NonNullable<ReturnType<typeof getUser>>
+type RoleType = 'jobseeker' | 'employer'
 
 async function authenticateWithEmailPassword(
   targetEmail: string,
   password: string,
+  expectedRole?: RoleType,
 ): Promise<{ user: StoredUser | null; error?: string }> {
   let authenticatedUser: StoredUser | null = null
+  let supabaseRejected = false
+
+  if (isSupabaseEnabled()) {
+    const { error: sbErr } = await supabaseSignIn(targetEmail, password)
+    if (!sbErr) {
+      await pullProfileFromSupabase()
+      authenticatedUser = getUser()
+      if (await apiHealth()) {
+        const profile = getProfile()
+        const mirrorPhone =
+          authenticatedUser?.phone ||
+          (profile && 'phone' in profile ? String(profile.phone || '') : '') ||
+          ''
+        if (mirrorPhone) {
+          try {
+            await mirrorAccountToPostgres({
+              name: authenticatedUser?.name || targetEmail.split('@')[0],
+              email: targetEmail,
+              password,
+              role:
+                authenticatedUser?.role ??
+                expectedRole ??
+                (targetEmail.includes('employer') ? 'employer' : 'jobseeker'),
+              phone: mirrorPhone,
+              companyName: authenticatedUser?.companyName,
+            })
+          } catch {
+            // Postgres mirror optional when offline or already synced
+          }
+        }
+      }
+    } else {
+      supabaseRejected = true
+      const demo = getDemoAccount(targetEmail, password)
+      if (!demo) {
+        return { user: null, error: sbErr.message }
+      }
+    }
+  }
 
   try {
-    if (await apiHealth()) {
-      const apiRes = await apiLogin(targetEmail, password)
-      if (apiRes) {
-        const existing = findUserByEmail(targetEmail)
-        const apiRole =
-          apiRes.role === 'employer' || apiRes.role === 'jobseeker'
-            ? apiRes.role
-            : undefined
-        authenticatedUser = saveUser(
-          {
+    if (!authenticatedUser && (await apiHealth())) {
+      try {
+        const apiRes = await apiLogin(targetEmail, password, expectedRole)
+        if (apiRes?.email) {
+          const existing = findUserByEmail(targetEmail)
+          const apiRole =
+            apiRes.role === 'employer' || apiRes.role === 'jobseeker'
+              ? apiRes.role
+              : undefined
+          authenticatedUser = persistLoggedInUser({
+            id: apiRes.id || existing?.id || targetEmail,
             name: apiRes.name || existing?.name || targetEmail.split('@')[0],
             email: targetEmail,
-            password,
             role:
               apiRole ??
               existing?.role ??
+              expectedRole ??
               (targetEmail.includes('employer') || targetEmail.includes('admin')
                 ? 'employer'
                 : 'jobseeker'),
             companyName: apiRes.companyName || existing?.companyName,
-          },
-          true,
-        )
-        await pullProfileFromApi()
+            phone: apiRes.phone || existing?.phone,
+            primaryOrganizationId:
+              apiRes.primaryOrganizationId || existing?.primaryOrganizationId,
+          })
+          saveUser(
+            {
+              name: authenticatedUser.name,
+              email: targetEmail,
+              password,
+              role: authenticatedUser.role,
+              companyName: authenticatedUser.companyName,
+              phone: authenticatedUser.phone,
+            },
+            true,
+            false,
+          )
+          authenticatedUser = getUser()
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : ''
+        if (message.toLowerCase().includes('role')) {
+          return { user: null, error: message }
+        }
       }
     }
   } catch {
@@ -95,7 +158,7 @@ async function authenticateWithEmailPassword(
   }
 
   if (!authenticatedUser) {
-    if (isDemoEmail(targetEmail)) {
+    if (supabaseRejected && isDemoEmail(targetEmail)) {
       return {
         user: null,
         error: 'Demo sign-in failed. Start the API (npm run dev:all) or use Candidate quick login.',
@@ -110,6 +173,11 @@ async function authenticateWithEmailPassword(
   }
 
   await ensureApiSession()
+  if (await apiHealth()) {
+    await syncSessionFromApi()
+    await pullProfileFromApi()
+    authenticatedUser = getUser()
+  }
   return { user: authenticatedUser }
 }
 
@@ -178,7 +246,6 @@ function AuthPageFrame({ children }: { children: React.ReactNode }) {
 }
 
 type AuthMode = 'login' | 'signup'
-type RoleType = 'jobseeker' | 'employer'
 
 export function SignupPage() {
   return <LoginPage initialMode="signup" />
@@ -198,29 +265,68 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
       setAuthMode(initialMode)
     } else if (location.pathname === '/signup') {
       setAuthMode('signup')
+    } else if (location.pathname === '/login') {
+      setAuthMode('login')
     }
   }, [initialMode, location.pathname])
 
   const [error, setError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Sync state passed via navigation
+  useEffect(() => {
+    const navState = location.state as {
+      successMsg?: string
+      prefillEmail?: string
+      prefillPassword?: string
+    } | null
+
+    if (navState?.successMsg) {
+      setSuccessMessage(navState.successMsg)
+    }
+    if (navState?.prefillEmail) {
+      setLoginEmail(navState.prefillEmail)
+    }
+    if (navState?.prefillPassword) {
+      setLoginPassword(navState.prefillPassword)
+    }
+  }, [location.state])
 
   // Login state
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
-  const [remember, setRemember] = useState(true)
 
   // Signup state
-  const [signupRole, setSignupRole] = useState<RoleType>('jobseeker')
+  const searchRole = new URLSearchParams(location.search).get('role')
+  const initialRole: RoleType =
+    searchRole === 'employer' || searchRole === 'recruiter' || searchRole === 'vendor'
+      ? 'employer'
+      : 'jobseeker'
+  const [signupRole, setSignupRole] = useState<RoleType>(initialRole)
   const [signupName, setSignupName] = useState('')
   const [signupPhone, setSignupPhone] = useState('')
   const [signupCompanyName, setSignupCompanyName] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
-  const [signupConfirm, setSignupConfirm] = useState('')
+  const [termsAgreed, setTermsAgreed] = useState(true)
+
+  // Sync signup role if query parameters change
+  useEffect(() => {
+    const role = new URLSearchParams(location.search).get('role')
+    if (role === 'employer' || role === 'recruiter' || role === 'vendor') {
+      setSignupRole('employer')
+    } else if (role === 'jobseeker' || role === 'candidate') {
+      setSignupRole('jobseeker')
+    }
+  }, [location.search])
 
   function switchMode(newMode: AuthMode) {
     setAuthMode(newMode)
     setError('')
+    if (newMode === 'signup') {
+      setSuccessMessage('')
+    }
     if (newMode === 'signup' && location.pathname !== '/signup') {
       window.history.replaceState(null, '', '/login?mode=signup')
     } else if (newMode === 'login' && location.pathname !== '/login') {
@@ -252,7 +358,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     setSignupPhone('+91 98765 43210')
     setSignupEmail('candidate@hireright.com')
     setSignupPassword('password123')
-    setSignupConfirm('password123')
+    setTermsAgreed(true)
     setError('')
   }
 
@@ -263,7 +369,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     setSignupPhone('+91 98765 12345')
     setSignupEmail('vendor@hireright.com')
     setSignupPassword('password123')
-    setSignupConfirm('password123')
+    setTermsAgreed(true)
     setError('')
   }
 
@@ -272,6 +378,19 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
       navigate(forcedPath, { replace: true })
       return
     }
+
+    // Direct user to resume upload onboarding if that was their intent
+    const isUploadIntent = sessionStorage.getItem('hireright.intent') === 'upload_resume'
+    if (isUploadIntent) {
+      sessionStorage.removeItem('hireright.intent')
+      if (authenticatedUser.role === 'employer') {
+        navigate('/employer/dashboard', { replace: true })
+      } else {
+        navigate('/onboarding', { replace: true })
+      }
+      return
+    }
+
     const from = (location.state as { from?: string })?.from
     if (from && from !== '/login' && from !== '/signup') {
       navigate(from, { replace: true })
@@ -325,9 +444,17 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     const targetEmail = loginEmail.trim().toLowerCase()
 
     try {
+      const roleParam = new URLSearchParams(location.search).get('role')
+      const loginExpectedRole: RoleType | undefined =
+        roleParam === 'employer' || roleParam === 'recruiter' || roleParam === 'vendor'
+          ? 'employer'
+          : roleParam === 'jobseeker' || roleParam === 'candidate'
+            ? 'jobseeker'
+            : undefined
       const { user, error: authError } = await authenticateWithEmailPassword(
         targetEmail,
         loginPassword,
+        loginExpectedRole,
       )
       if (!user) {
         setError(authError ?? 'Login failed.')
@@ -345,12 +472,8 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
   async function handleSignupSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim() || !signupPhone.trim()) {
-      setError('Fill in all required fields including mobile number.')
-      return
-    }
-    if (!isValidPhone(signupPhone.trim())) {
-      setError('Enter a valid mobile number (10–15 digits; include country code if needed).')
+    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim()) {
+      setError('Fill in all required fields to create your account.')
       return
     }
     if (signupRole === 'employer' && !signupCompanyName.trim()) {
@@ -365,15 +488,53 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
       setError('Password must be at least 6 characters.')
       return
     }
-    if (signupPassword !== signupConfirm) {
-      setError('Passwords do not match.')
+    if (!isValidPhone(signupPhone)) {
+      setError('Enter a valid mobile number (10–15 digits, with country code if needed).')
+      return
+    }
+    if (!termsAgreed) {
+      setError('Please agree to the Terms of Use and Privacy Policy.')
       return
     }
     setError('')
     setLoading(true)
 
     try {
-      if (await apiHealth()) {
+      if (isSupabaseEnabled()) {
+        const { error: sbErr } = await supabaseSignUp({
+          name: signupName.trim(),
+          email: signupEmail.trim().toLowerCase(),
+          password: signupPassword,
+          role: signupRole,
+          companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
+          phone: signupPhone.trim() || undefined,
+        })
+        if (sbErr) {
+          setError(sbErr.message)
+          return
+        }
+        const phoneNorm = normalizePhone(signupPhone) || signupPhone.trim()
+        try {
+          await mirrorAccountToPostgres({
+            name: signupName.trim(),
+            email: signupEmail.trim().toLowerCase(),
+            password: signupPassword,
+            role: signupRole,
+            phone: phoneNorm,
+            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
+          })
+        } catch (mirrorErr) {
+          setError(
+            mirrorErr instanceof Error
+              ? mirrorErr.message
+              : 'Account created in auth, but could not sync to the hiring database.',
+          )
+          return
+        }
+        await ensureApiSession()
+        await pullProfileFromSupabase()
+      } else if (await apiHealth()) {
+        const phoneNorm = normalizePhone(signupPhone) || signupPhone.trim()
         try {
           await apiSignup(
             signupName.trim(),
@@ -382,12 +543,15 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
             {
               role: signupRole,
               companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-              phone: signupPhone.trim() || undefined,
+              phone: phoneNorm,
             },
           )
-          await pullProfileFromApi()
-        } catch (err) {
-          setError(err instanceof Error ? err.message : 'Could not create account on server.')
+        } catch (apiErr) {
+          setError(
+            apiErr instanceof Error
+              ? apiErr.message
+              : 'Could not create your account on the server.',
+          )
           return
         }
       }
@@ -398,14 +562,37 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           password: signupPassword,
           role: signupRole,
           companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-          phone: signupPhone.trim() || undefined,
+          phone: normalizePhone(signupPhone) || signupPhone.trim(),
         },
         true,
+        false,
       )
-      if (signupRole === 'employer') {
-        navigate('/employer/dashboard')
+
+      const createdEmail = signupEmail.trim().toLowerCase()
+      const createdPassword = signupPassword
+      setLoginEmail(createdEmail)
+      setLoginPassword(createdPassword)
+      setError('')
+
+      const successMsg =
+        sessionStorage.getItem('hireright.intent') === 'upload_resume'
+          ? 'Account created! Please log in to upload your resume.'
+          : 'Account created successfully! Please log in to continue.'
+
+      setSuccessMessage(successMsg)
+
+      // Direct to Login page as requested: "WHEN SIGN UP THEN GO TO LOGIN"
+      if (location.pathname === '/signup') {
+        navigate('/login', {
+          replace: true,
+          state: {
+            successMsg,
+            prefillEmail: createdEmail,
+            prefillPassword: createdPassword,
+          },
+        })
       } else {
-        navigate('/onboarding')
+        switchMode('login')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account.')
@@ -416,140 +603,177 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
   return (
     <div className={styles.splitPage}>
+      {/* LEFT COLUMN: PDF Page 1 Branding */}
       <aside className={styles.splitLeft}>
-        <LoginGlobe />
         <div className={styles.splitLeftInner}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <BrandLogo dark size="lg" />
-          </div>
+          <Link to="/" className={styles.brandLink} title="Back to HireRighttt Home">
+            <img
+              src="/logos/hirerighttt-logo-dark.svg"
+              alt="HireRighttt — Talent to Talent"
+              className={styles.brandLogoImg}
+            />
+          </Link>
+
           <div className={styles.splitLeftCopy}>
-            <p className={styles.splitWelcome}>
-              {authMode === 'signup' ? 'Get started with' : 'Welcome to'}
-            </p>
-            <h2 className={styles.splitCommunity}>HireRight Community</h2>
-            <p className={styles.splitTagline}>
-              {authMode === 'signup'
-                ? 'Join thousands of job seekers, recruiters, and vendors hiring with certified AI assessments.'
-                : 'Home to job seekers, recruiters, and teams hiring fairly worldwide.'}
-            </p>
-            <Link to="/about" className={styles.splitKnowMore}>
-              Know more
-            </Link>
+            {authMode === 'signup' ? (
+              <>
+                <h1 className={styles.leftHeadline}>
+                  Your future starts with
+                  <br />
+                  understanding you.
+                </h1>
+                <ul className={styles.leftChecklist}>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Save your 360° Career View and come back anytime</span>
+                  </li>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Follow your 30, 60 and 90 day action roadmap</span>
+                  </li>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Track your progress as your insights improve</span>
+                  </li>
+                </ul>
+              </>
+            ) : (
+              <>
+                <h1 className={styles.leftHeadline}>
+                  Pick up where your
+                  <br />
+                  career conversation
+                  <br />
+                  left off.
+                </h1>
+                <p className={styles.leftSubtitle}>
+                  Log in to see your 360° Career View, your next steps and your progress.
+                </p>
+              </>
+            )}
           </div>
+
+          <p className={styles.leftFooter}>
+            {authMode === 'signup'
+              ? 'No resume required to get started'
+              : 'Your Personal AI Career Companion'}
+          </p>
         </div>
       </aside>
 
+      {/* RIGHT COLUMN: PDF Page 1 Form + Image 2 Quick Demo Access */}
       <motion.main
         className={styles.splitRight}
         initial={{ opacity: 0, x: 16 }}
         animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.45, ease: easeOut }}
+        transition={{ duration: 0.4, ease: easeOut }}
       >
         <div className={styles.splitFormWrap}>
-          {/* Segmented Mode Switcher */}
-          <div className={styles.authModeToggle}>
-            <button
-              type="button"
-              className={`${styles.modeTab} ${authMode === 'login' ? styles.modeTabActive : ''}`}
-              onClick={() => switchMode('login')}
-            >
-              Log In
-            </button>
-            <button
-              type="button"
-              className={`${styles.modeTab} ${authMode === 'signup' ? styles.modeTabActive : ''}`}
-              onClick={() => switchMode('signup')}
-            >
-              Sign Up
-            </button>
-          </div>
-
-          <header className={styles.splitFormHead}>
-            <p className={styles.splitHello}>
-              {authMode === 'signup' ? 'Create new account' : 'Welcome back!'}
-            </p>
-            <h1 className={styles.splitTitle}>
-              {authMode === 'signup'
-                ? 'Sign up to get started'
-                : 'Login to your account'}
-            </h1>
-            <p className={styles.splitSubtitle}>
-              {authMode === 'signup'
-                ? 'Experience automated, bias-free AI video evaluations and career matching.'
-                : "It's nice to see you again. Ready for your next interview?"}
-            </p>
-          </header>
-
           {authMode === 'login' ? (
-            /* LOGIN FORM */
-            <form className={styles.splitForm} onSubmit={handleLoginSubmit}>
-              <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Your username or email</span>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  placeholder="Your username or email"
-                  onChange={(event) => setLoginEmail(event.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </label>
+            /* LOGIN VIEW */
+            <div className={styles.authContainer}>
+              <header className={styles.formHeader}>
+                <h1 className={styles.welcomeTitle}>Welcome back</h1>
+                <p className={styles.welcomeSub}>Log in to continue your career journey.</p>
+              </header>
 
-              <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Your password</span>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  placeholder="Your password"
-                  onChange={(event) => setLoginPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+              <form className={styles.loginForm} onSubmit={handleLoginSubmit}>
+                {successMessage ? (
+                  <div className={styles.successBanner} role="status">
+                    <span>✓</span>
+                    <span>{successMessage}</span>
+                  </div>
+                ) : sessionStorage.getItem('hireright.intent') === 'upload_resume' ? (
+                  <div className={styles.successBanner} role="status">
+                    <span>📄</span>
+                    <span>Resume saved! Log in to automatically attach it to your profile.</span>
+                  </div>
+                ) : null}
 
-              {error && (
-                <p className={styles.error} role="alert">
-                  {error}
-                </p>
-              )}
+                {error && (
+                  <div className={styles.errorBanner} role="alert">
+                    {error}
+                  </div>
+                )}
 
-              <div className={styles.splitOptions}>
-                <label className={styles.rememberRow}>
+                <div className={styles.formGroup}>
+                  <label htmlFor="login-email" className={styles.formLabel}>
+                    Email address
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(e) => setRemember(e.target.checked)}
+                    id="login-email"
+                    type="email"
+                    value={loginEmail}
+                    placeholder="you@example.com"
+                    onChange={(event) => setLoginEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    className={styles.formInput}
                   />
-                  Remember me
-                </label>
-                <Link to="/contact" className={styles.forgotLink}>
-                  Forgot password?
-                </Link>
-              </div>
+                </div>
 
-              <MotionButton type="submit" className={styles.splitSubmit} disabled={loading} lift>
-                {loading ? 'Signing in...' : 'Log in'}
-              </MotionButton>
+                <div className={styles.formGroup}>
+                  <div className={styles.labelRow}>
+                    <label htmlFor="login-password" className={styles.formLabel}>
+                      Password
+                    </label>
+                    <Link to="/contact" className={styles.forgotLink}>
+                      Forgot password?
+                    </Link>
+                  </div>
+                  <input
+                    id="login-password"
+                    type="password"
+                    value={loginPassword}
+                    placeholder="Enter your password"
+                    onChange={(event) => setLoginPassword(event.target.value)}
+                    autoComplete="current-password"
+                    required
+                    className={styles.formInput}
+                  />
+                </div>
 
-              <div className={styles.splitOr}>
-                <span>or</span>
-              </div>
+                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
+                  {loading ? 'LOGGING IN...' : 'LOG IN'}
+                </button>
 
-              <div className={styles.demoSection}>
-                <p className={styles.demoLabel}>Quick demo access</p>
-                <div className={styles.demoGrid}>
+                <div className={styles.authLinksBelow}>
+                  <p className={styles.subLinkLine}>
+                    New to HireRighttt?{' '}
+                    <button
+                      type="button"
+                      className={styles.switchModeLink}
+                      onClick={() => switchMode('signup')}
+                    >
+                      Create an account
+                    </button>
+                  </p>
+                  <p className={styles.subLinkLine}>
+                    Just exploring?{' '}
+                    <Link to="/career-view" className={styles.discoveryLink}>
+                      Start My Career Discovery
+                    </Link>{' '}
+                    <span className={styles.noResumeText}>— no resume required.</span>
+                  </p>
+                </div>
+
+                {/* IMAGE 2: QUICK DEMO ACCESS */}
+                <div className={styles.quickDemoAccessWrap}>
+                  <p className={styles.quickDemoLabel}>QUICK DEMO ACCESS</p>
+
                   <button
                     type="button"
-                    className={styles.socialBtn}
+                    className={styles.demoCandidateBigBtn}
                     onClick={() => void runQuickLogin(DEMO_CANDIDATE, '/interview')}
                     disabled={loading}
                   >
                     Candidate · Interview demo
                   </button>
-                  <div className={styles.demoHalfRow}>
+
+                  <div className={styles.demoTwoBtnRow}>
                     <button
                       type="button"
-                      className={styles.socialBtnHalf}
+                      className={styles.demoRoleBtn}
                       onClick={() => void runQuickLogin(DEMO_EMPLOYER, '/employer/dashboard')}
                       disabled={loading}
                     >
@@ -557,189 +781,235 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                     </button>
                     <button
                       type="button"
-                      className={styles.socialBtnHalf}
+                      className={styles.demoRoleBtn}
                       onClick={() => void runQuickLogin(DEMO_ADMIN, '/admin')}
                       disabled={loading}
                     >
                       Admin
                     </button>
                   </div>
+
+                  <div className={styles.demoThreeBtnRow}>
+                    <button
+                      type="button"
+                      className={styles.demoFillUnderlineBtn}
+                      onClick={fillLoginCandidate}
+                    >
+                      Fill candidate
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.demoFillUnderlineBtn}
+                      onClick={fillLoginEmployer}
+                    >
+                      Fill vendor
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.demoFillUnderlineBtn}
+                      onClick={fillLoginAdmin}
+                    >
+                      Fill admin
+                    </button>
+                  </div>
+
+                  <p className={styles.demoBottomSignupText}>
+                    Don&apos;t have an account?{' '}
+                    <button
+                      type="button"
+                      className={styles.demoBottomSignupLink}
+                      onClick={() => switchMode('signup')}
+                    >
+                      Sign up
+                    </button>
+                  </p>
                 </div>
-                <div className={styles.demoFillRow}>
-                  <button type="button" className={styles.demoLinkBtn} onClick={fillLoginCandidate}>
-                    Fill candidate
-                  </button>
-                  <button type="button" className={styles.demoLinkBtn} onClick={fillLoginEmployer}>
-                    Fill vendor
-                  </button>
-                  <button type="button" className={styles.demoLinkBtn} onClick={fillLoginAdmin}>
-                    Fill admin
-                  </button>
-                </div>
-              </div>
-            </form>
+              </form>
+            </div>
           ) : (
-            /* SIGNUP FORM */
-            <form className={styles.splitForm} onSubmit={handleSignupSubmit}>
-              {/* Role Switcher */}
-              <div className={styles.splitRoleGrid}>
-                <button
-                  type="button"
-                  className={`${styles.splitRoleBtn} ${signupRole === 'jobseeker' ? styles.splitRoleBtnActive : ''}`}
-                  onClick={() => setSignupRole('jobseeker')}
-                >
-                  <HrIcon name="user" size={18} /> Job Seeker
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.splitRoleBtn} ${signupRole === 'employer' ? styles.splitRoleBtnActive : ''}`}
-                  onClick={() => setSignupRole('employer')}
-                >
-                  <HrIcon name="building" size={18} /> Vendor / Recruiter
-                </button>
-              </div>
+            /* SIGNUP VIEW */
+            <div className={styles.authContainer}>
+              <header className={styles.formHeader}>
+                <h1 className={styles.welcomeTitle}>Create your account</h1>
+                <p className={styles.welcomeSub}>
+                  It takes under a minute. You can begin your career discovery right after.
+                </p>
+              </header>
 
-              {/* Full Name */}
-              <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Full Name</span>
-                <input
-                  type="text"
-                  value={signupName}
-                  placeholder={signupRole === 'employer' ? 'Sarah Jenkins' : 'Arjun Sharma'}
-                  onChange={(event) => setSignupName(event.target.value)}
-                  autoComplete="name"
-                  required
-                />
-              </label>
+              <form className={styles.loginForm} onSubmit={handleSignupSubmit}>
+                {/* Image 2: Role Switcher */}
+                <div className={styles.splitRoleGrid}>
+                  <button
+                    type="button"
+                    className={`${styles.splitRoleBtn} ${signupRole === 'jobseeker' ? styles.splitRoleBtnActive : ''}`}
+                    onClick={() => setSignupRole('jobseeker')}
+                  >
+                    <HrIcon name="user" size={18} /> Job Seeker
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.splitRoleBtn} ${signupRole === 'employer' ? styles.splitRoleBtnActive : ''}`}
+                    onClick={() => setSignupRole('employer')}
+                  >
+                    <HrIcon name="building" size={18} /> Vendor / Recruiter
+                  </button>
+                </div>
 
-              {/* Phone Number */}
-              <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Mobile Number (required, one account per number)</span>
-                <input
-                  type="tel"
-                  value={signupPhone}
-                  placeholder="+91 98765 43210"
-                  onChange={(event) => setSignupPhone(event.target.value)}
-                  autoComplete="tel"
-                  required
-                />
-              </label>
+                {sessionStorage.getItem('hireright.intent') === 'upload_resume' && (
+                  <div className={styles.successBanner} role="status" style={{ marginBottom: 16 }}>
+                    <span>📄</span>
+                    <span>Resume selected! Create your account to automatically analyze your profile.</span>
+                  </div>
+                )}
 
-              {/* Company / Vendor Name (if Vendor / Recruiter) */}
-              {signupRole === 'employer' && (
-                <label className={styles.splitLabel}>
-                  <span className={styles.fieldH4}>Vendor / Company Name</span>
+                {error && (
+                  <div className={styles.errorBanner} role="alert">
+                    {error}
+                  </div>
+                )}
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-name" className={styles.formLabel}>
+                    Full name
+                  </label>
                   <input
+                    id="signup-name"
                     type="text"
-                    value={signupCompanyName}
-                    placeholder="TechCitta Solutions"
-                    onChange={(event) => setSignupCompanyName(event.target.value)}
+                    value={signupName}
+                    placeholder="Your name"
+                    onChange={(event) => setSignupName(event.target.value)}
+                    autoComplete="name"
                     required
+                    className={styles.formInput}
                   />
-                </label>
-              )}
+                </div>
 
-              {/* Email Address */}
-              <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Work Email Address</span>
-                <input
-                  type="email"
-                  value={signupEmail}
-                  placeholder="you@example.com"
-                  onChange={(event) => setSignupEmail(event.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </label>
+                {signupRole === 'employer' && (
+                  <div className={styles.formGroup}>
+                    <label htmlFor="signup-company" className={styles.formLabel}>
+                      Vendor / Company Name
+                    </label>
+                    <input
+                      id="signup-company"
+                      type="text"
+                      value={signupCompanyName}
+                      placeholder="TechCitta Solutions"
+                      onChange={(event) => setSignupCompanyName(event.target.value)}
+                      required
+                      className={styles.formInput}
+                    />
+                  </div>
+                )}
 
-              {/* Password and Confirm in 2 columns */}
-              <div className={styles.splitRow2}>
-                <label className={styles.splitLabel}>
-                  <span className={styles.fieldH4}>Password</span>
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-email" className={styles.formLabel}>
+                    Email address
+                  </label>
                   <input
+                    id="signup-email"
+                    type="email"
+                    value={signupEmail}
+                    placeholder="you@example.com"
+                    onChange={(event) => setSignupEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    className={styles.formInput}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-phone" className={styles.formLabel}>
+                    Mobile number <span className={styles.requiredMark}>(required)</span>
+                  </label>
+                  <input
+                    id="signup-phone"
+                    type="tel"
+                    value={signupPhone}
+                    placeholder="+91 98765 43210"
+                    onChange={(event) => setSignupPhone(event.target.value)}
+                    autoComplete="tel"
+                    required
+                    className={styles.formInput}
+                  />
+                  <p className={styles.fieldHint}>Used for interview reminders and job applications.</p>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-pwd" className={styles.formLabel}>
+                    Password
+                  </label>
+                  <input
+                    id="signup-pwd"
                     type="password"
                     value={signupPassword}
-                    placeholder="••••••••"
+                    placeholder="At least 8 characters"
                     onChange={(event) => setSignupPassword(event.target.value)}
                     autoComplete="new-password"
                     required
+                    className={styles.formInput}
                   />
-                </label>
-                <label className={styles.splitLabel}>
-                  <span className={styles.fieldH4}>Confirm Password</span>
+                </div>
+
+                {/* PDF Page 1 Terms Checkbox */}
+                <label className={styles.termsRow}>
                   <input
-                    type="password"
-                    value={signupConfirm}
-                    placeholder="••••••••"
-                    onChange={(event) => setSignupConfirm(event.target.value)}
-                    autoComplete="new-password"
+                    type="checkbox"
+                    checked={termsAgreed}
+                    onChange={(e) => setTermsAgreed(e.target.checked)}
                     required
                   />
+                  <span>
+                    I agree to the{' '}
+                    <Link to="/about" className={styles.termsLink}>
+                      Terms of Use
+                    </Link>{' '}
+                    and have read the{' '}
+                    <Link to="/about" className={styles.termsLink}>
+                      Privacy Policy
+                    </Link>
+                    .
+                  </span>
                 </label>
-              </div>
 
-              {error && (
-                <p className={styles.error} role="alert">
-                  {error}
-                </p>
-              )}
-
-              <MotionButton type="submit" className={styles.splitSubmit} disabled={loading} lift>
-                {loading
-                  ? 'Creating account...'
-                  : signupRole === 'employer'
-                    ? 'Create Vendor Account →'
-                    : 'Create Job Seeker Account →'}
-              </MotionButton>
-
-              <div className={styles.splitOr}>
-                <span>or</span>
-              </div>
-
-              <div className={styles.demoFillRow} style={{ marginTop: '0.25rem' }}>
-                <button
-                  type="button"
-                  className={styles.demoLinkBtn}
-                  onClick={fillSignupCandidate}
-                >
-                  Fill Candidate Demo
+                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
+                  {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
                 </button>
-                <button
-                  type="button"
-                  className={styles.demoLinkBtn}
-                  onClick={fillSignupVendor}
-                >
-                  Fill Vendor Demo
-                </button>
-              </div>
-            </form>
+
+                <div className={styles.authLinksBelow}>
+                  <p className={styles.subLinkLine}>
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      className={styles.switchModeLink}
+                      onClick={() => switchMode('login')}
+                    >
+                      Log in
+                    </button>
+                  </p>
+                </div>
+
+                {/* IMAGE 3: DEMO SELECTION BUTTONS */}
+                <div className={styles.quickDemoAccessWrap}>
+                  <div className={styles.demoTwoBtnRow}>
+                    <button
+                      type="button"
+                      className={styles.demoFillUnderlineBtn}
+                      onClick={fillSignupCandidate}
+                    >
+                      Fill Candidate Demo
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.demoFillUnderlineBtn}
+                      onClick={fillSignupVendor}
+                    >
+                      Fill Vendor Demo
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
           )}
-
-          <p className={styles.splitSignup}>
-            {authMode === 'login' ? (
-              <>
-                Don&apos;t have an account?{' '}
-                <button
-                  type="button"
-                  className={styles.inlineSwitchBtn}
-                  onClick={() => switchMode('signup')}
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  className={styles.inlineSwitchBtn}
-                  onClick={() => switchMode('login')}
-                >
-                  Log in
-                </button>
-              </>
-            )}
-          </p>
         </div>
       </motion.main>
     </div>
@@ -1004,6 +1274,7 @@ export function LogoutPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    void supabaseSignOut()
     void apiLogout()
     logout()
     navigate('/', { replace: true })

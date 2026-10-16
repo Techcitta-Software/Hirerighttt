@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
+import { fetchMailStatus, sendInterviewConfirmationEmail } from '../lib/api'
+import { ensureApiSession } from '../lib/apiSession'
+import { persistScheduledInvite } from '../lib/interviewInviteGate'
+import { getPendingJob } from '../lib/pendingJobApply'
 import { getInterviewResult, getProfile } from '../lib/store'
 import styles from './AiInterviewStep.module.css'
 
@@ -51,10 +55,19 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
   const [selectedDate, setSelectedDate] = useState(initial.date)
   const [selectedSlot, setSelectedSlot] = useState(initial.slot)
   const [month, setMonth] = useState(new Date(initial.date.getFullYear(), initial.date.getMonth(), 1))
-  const scheduled = `Scheduled: ${appointment(selectedDate, selectedSlot).toISOString()}`
+  const [confirmLoading, setConfirmLoading] = useState(false)
+  const [confirmNote, setConfirmNote] = useState('')
+  const [inviteUrl, setInviteUrl] = useState('')
+  const [smtpReady, setSmtpReady] = useState<boolean | null>(null)
+  const scheduledAt = appointment(selectedDate, selectedSlot)
+  const scheduled = `Scheduled: ${scheduledAt.toISOString()}`
   useEffect(() => {
     if (data.interviewNotes !== scheduled) onChange('interviewNotes', scheduled)
   }, [data.interviewNotes, onChange, scheduled])
+
+  useEffect(() => {
+    void fetchMailStatus().then((s) => setSmtpReady(s.smtpConfigured))
+  }, [])
   const firstDay = month.getDay()
   const totalDays = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
   const cellCount = Math.ceil((firstDay + totalDays) / 7) * 7
@@ -72,7 +85,63 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     const existing = getInterviewResult()
     sessionStorage.setItem('hireright.returnToWizard', '1')
     if (existing) sessionStorage.setItem('hireright.previousScore', String(existing.overall))
-    navigate('/interview')
+    navigate('/interview/now')
+  }
+
+  async function confirmSlotAndEmail() {
+    if (scheduledAt.getTime() <= Date.now()) {
+      setConfirmNote('Pick a future time slot first.')
+      return
+    }
+    setConfirmLoading(true)
+    setConfirmNote('')
+    try {
+      await ensureApiSession()
+      const pending = getPendingJob()
+      const payload = {
+        scheduledStart: scheduledAt.toISOString(),
+        durationMinutes: 60,
+        jobTitle: pending?.title || 'HireRight AI Interview',
+        jobDescription: pending?.jd || '',
+        roleTrack: pending?.role || data.currentRole || '',
+        experienceLevel: data.totalExperience || pending?.level || '',
+        primarySkills: pending?.primarySkills || data.skills?.slice(0, 12) || [],
+      }
+      const res = await sendInterviewConfirmationEmail(payload)
+      setInviteUrl(res.inviteUrl)
+      persistScheduledInvite({
+        token: res.token,
+        inviteUrl: res.inviteUrl,
+        scheduledStart: res.scheduledStart,
+        scheduledEnd: res.scheduledEnd,
+        jobTitle: payload.jobTitle,
+      })
+      localStorage.setItem('hireright.lastInviteUrl', res.inviteUrl)
+      if (res.emailSent) {
+        setConfirmNote('Confirmation email sent. Use your link at the exact slot time to start.')
+      } else {
+        setConfirmNote('Invite created. Copy the link below — email could not be sent.')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not send confirmation.'
+      if (msg.toLowerCase().includes('smtp')) {
+        setConfirmNote('SMTP is not configured on the server yet. Ask your admin to set SMTP_* in .env.')
+      } else {
+        setConfirmNote(msg)
+      }
+    } finally {
+      setConfirmLoading(false)
+    }
+  }
+
+  async function copyInviteLink() {
+    if (!inviteUrl) return
+    try {
+      await navigator.clipboard.writeText(inviteUrl)
+      setConfirmNote('Interview link copied.')
+    } catch {
+      window.prompt('Copy your interview link', inviteUrl)
+    }
   }
 
   return <div className={styles.stack}>
@@ -115,6 +184,33 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       <div className={styles.assurance}><Icon kind="shield" /><p>Smooth, secure and distraction-free experience</p></div>
     </section>
     <section className={styles.readyCard}><span className={styles.confetti} aria-hidden="true">🎉</span><div><h2>All Set! You&apos;re Good to Go!</h2><h3>We&apos;re looking forward to your interview.<br />Get ready to showcase <strong>your best</strong> self.</h3></div><span className={styles.readyCheck}><Icon kind="check" /></span></section>
-    <button className={styles.liveLink} type="button" onClick={launchLiveInterview}>Prefer to start now? Launch Live AI Interview →</button>
+    <section className={styles.actionBar} aria-label="Schedule actions">
+      <button
+        type="button"
+        className={styles.confirmBtn}
+        disabled={confirmLoading || scheduledAt.getTime() <= Date.now()}
+        onClick={() => void confirmSlotAndEmail()}
+      >
+        {confirmLoading ? 'Sending…' : 'Confirm slot & email me'}
+      </button>
+      <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
+        <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
+        Take interview immediately
+      </button>
+      {smtpReady === false && (
+        <p className={styles.smtpHint}>
+          Email delivery needs SMTP on the server (SMTP_HOST, SMTP_USER, SMTP_PASS in .env).
+        </p>
+      )}
+      {confirmNote && <p className={styles.confirmNote}>{confirmNote}</p>}
+      {inviteUrl && (
+        <div className={styles.linkRow}>
+          <code className={styles.linkPreview}>{inviteUrl}</code>
+          <button type="button" className={styles.copyBtn} onClick={() => void copyInviteLink()}>
+            Copy link
+          </button>
+        </div>
+      )}
+    </section>
   </div>
 }

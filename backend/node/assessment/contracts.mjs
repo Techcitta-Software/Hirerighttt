@@ -71,6 +71,7 @@ export function validateEvaluation(value, answer) {
   check(typeof value.needs_human_review === 'boolean', 'Review flag required')
   return {
     score: value.score, evidence, strengths: strings(value.strengths, 'strengths'), gaps: strings(value.gaps, 'gaps'),
+    improvements: value.improvements === undefined ? strings(value.gaps, 'gaps') : strings(value.improvements, 'improvements'),
     reasoning: text(value.reasoning, 'reasoning', 4000), confidence: value.confidence,
     needs_human_review: value.needs_human_review || value.confidence < 0.7,
     review_reason: value.needs_human_review ? text(value.review_reason, 'review reason') : value.confidence < 0.7 ? 'Low assessment confidence' : '',

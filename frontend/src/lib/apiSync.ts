@@ -1,7 +1,14 @@
 import { apiMe, apiSaveInterview } from './api'
-import type { InterviewResult, SavedProfile } from './store'
-import { getProfile, getUser, profileKey } from './store'
+import type { InterviewResult, SavedProfile, User } from './store'
+import {
+  clearEmployerPortalCache,
+  getProfile,
+  getUser,
+  persistLoggedInUser,
+  profileKey,
+} from './store'
 import { ensureApiSession } from './apiSession'
+import { requireApiForAuth } from './authConfig'
 
 /** Pull server profile into localStorage when cloud copy is newer. */
 export async function pullProfileFromApi(): Promise<SavedProfile | null> {
@@ -33,6 +40,47 @@ export async function pullProfileFromApi(): Promise<SavedProfile | null> {
     return local
   } catch {
     return getProfile()
+  }
+}
+
+/** Align local session with Neon user (role, id) — production SaaS source of truth. */
+export async function syncSessionFromApi(): Promise<User | null> {
+  const local = getUser()
+  if (!local && !requireApiForAuth()) return null
+  const ok = await ensureApiSession()
+  if (!ok) return local
+  try {
+    const data = await apiMe()
+    const u = data.user as {
+      id?: string
+      name?: string
+      email?: string
+      role?: string
+      companyName?: string
+      phone?: string
+      primaryOrganizationId?: string
+    }
+    if (!u?.email) return local
+    const role = u.role === 'employer' ? 'employer' : 'jobseeker'
+    if (
+      local?.role === 'employer' &&
+      u.primaryOrganizationId &&
+      local.primaryOrganizationId &&
+      local.primaryOrganizationId !== u.primaryOrganizationId
+    ) {
+      clearEmployerPortalCache()
+    }
+    return persistLoggedInUser({
+      id: u.id || u.email,
+      name: u.name || local?.name || u.email.split('@')[0],
+      email: u.email,
+      role,
+      companyName: u.companyName || local?.companyName,
+      phone: u.phone || local?.phone,
+      primaryOrganizationId: u.primaryOrganizationId || local?.primaryOrganizationId,
+    })
+  } catch {
+    return local
   }
 }
 

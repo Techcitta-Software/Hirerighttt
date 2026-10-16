@@ -6,11 +6,19 @@
 
 import { geminiApiConfigured, isGeminiProvider, modelCascadeForTier } from './llmModels.mjs'
 import { geminiChat, resolveGeminiApiKey, isGeminiAuthKey } from './geminiClient.mjs'
+import { extractPrimarySkillsFromJd, computeAtsScore } from './vendor/atsScore.mjs'
 
 export const INTERVIEW_TURN_COUNT = 6
 export { publicModelConfig, geminiKeyFormatWarning } from './llmModels.mjs'
 
 const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience']
+
+/** Session scorecard: three weighted rubrics (0–100 each). Question score = weighted sum. */
+export const INTERVIEW_RUBRICS = [
+  { id: 'evidence', label: 'Evidence & Relevance', weight: 0.4 },
+  { id: 'structure', label: 'Structure & Clarity', weight: 0.35 },
+  { id: 'impact', label: 'Impact & Specificity', weight: 0.25 },
+]
 
 /**
  * @typedef {{ text: string, category: string, keywords: string[], hint: string, focus?: string }} Question
@@ -110,7 +118,10 @@ export function summarizeProfile(profile = {}, accountName = '') {
   const jobs = (profile.workExperiences || [])
     .filter((w) => w?.jobTitle || w?.company)
     .slice(0, 4)
-    .map((w) => `${clean(w.jobTitle) || 'Role'} @ ${clean(w.company) || 'Company'}${w.description ? `: ${clean(w.description).slice(0, 180)}` : ''}`)
+    .map((w) => {
+      const detail = clean(w.description || w.responsibilities)
+      return `${clean(w.jobTitle) || 'Role'} @ ${clean(w.company) || 'Company'}${detail ? `: ${detail.slice(0, 180)}` : ''}`
+    })
   const achievements = (profile.achievements || []).map(clean).filter(Boolean).slice(0, 5)
   const certs = (profile.certifications || []).map((c) => clean(c?.name)).filter(Boolean).slice(0, 5)
   const resumeSnippet = clean(profile.resumeText).slice(0, 3500)
@@ -283,6 +294,51 @@ export function generateLocalQuestions(ctx, role, level) {
   })
 
   return questions.slice(0, 5)
+}
+
+function isFresherExperienceLevel(level) {
+  const l = clean(level).toLowerCase().replace(/\s+/g, ' ')
+  return (
+    l.includes('fresher') ||
+    l.includes('0-1') ||
+    l.includes('0–1') ||
+    l.includes('0 to 1') ||
+    l.includes('intern') ||
+    l.includes('student') ||
+    l.includes('campus')
+  )
+}
+
+
+function skillDisplayLabel(jdSkills, key) {
+  const k = String(key || '').toLowerCase()
+  return jdSkills.find((s) => s.toLowerCase() === k) || k.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Extract JD skills and résumé overlap before building employer interview questions.
+ */
+export function analyzeInterviewSkillMatch({ jobDescription, requiredSkills, profile, ctx }) {
+  const resumeText = String(profile?.resumeText || ctx?.resumeSnippet || '')
+  const jd = String(jobDescription || '')
+  const jdSkills = extractPrimarySkillsFromJd(jd, requiredSkills || [])
+  const ats = computeAtsScore({ jobDescription: jd, resumeText, requiredSkills: jdSkills })
+  return {
+    jdSkills,
+    matchedSkills: ats.matchedSkills.map((m) => skillDisplayLabel(jdSkills, m)),
+    missingSkills: ats.missingSkills.map((m) => skillDisplayLabel(jdSkills, m)),
+    atsScore: ats.atsScore,
+    jdMatchScore: ats.jdMatchScore,
+    resumeSkillCoverage: ats.resumeSkillCoverage,
+  }
+}
+
+/** @param {{ applicationId?: string, jobId?: string, jobDescription?: string, requiredSkills?: string[], mode?: string }} options */
+export function resolveInterviewQuestionMode(options = {}) {
+  if (options.mode === 'resume_only') return 'resume_only'
+  if (options.mode === 'employer' || options.applicationId || options.jobId) return 'employer'
+  if (options.mode === 'individual_jd') return 'individual_jd'
+  return 'resume_only'
 }
 
 /**
@@ -609,40 +665,81 @@ function pickResumeTopicFromCtx(ctx, history) {
   return null
 }
 
-/** @param {string} first @param {string} skill @param {string} role @param {boolean} roleTrack */
-function buildClaimedSkillQuestion(first, skill, role, roleTrack) {
+/** Address the candidate without inventing a name. `there` means speak with "you". */
+function spokenLead(first, clause) {
+  const body = clean(clause)
+  if (!body) return ''
+  if (!first || first === 'there') return body.charAt(0).toUpperCase() + body.slice(1)
+  return `${first}, ${body}`
+}
+
+function isSeniorExperienceLevel(level) {
+  const l = clean(level).toLowerCase()
+  if (/\b(senior|lead|principal|staff|architect|director)\b/.test(l)) return true
+  const range = l.match(/(\d+)\s*[-–]\s*(\d+)/)
+  if (range) return Number(range[2]) >= 5
+  const plus = l.match(/(\d+)\s*\+/)
+  if (plus) return Number(plus[1]) >= 5
+  const years = l.match(/(\d+)\s*(?:years?|yrs?)/)
+  if (years) return Number(years[1]) >= 5
+  return false
+}
+
+function isThinAnswer(text) {
+  return clean(text).split(/\s+/).filter(Boolean).length < 12
+}
+
+function questionMentions(history, label) {
+  const key = clean(label).toLowerCase()
+  if (key.length < 2) return false
+  return (history || []).some((h) => {
+    const text = clean(h.question?.text || h.question).toLowerCase()
+    const topic = clean(h.question?.topic).toLowerCase()
+    return topic === key || text.includes(key)
+  })
+}
+
+/**
+ * Spec §2.4 patterns. Full-stack, math, or a concrete skill claim in `{role}` context.
+ * @param {string} first
+ * @param {string} skill
+ * @param {string} role
+ */
+function buildClaimedSkillQuestion(first, skill, role) {
   const fullStackLike = /full[\s-]?stack|mern|mean/i.test(skill)
   const mathLike = /math|statistic|calculus|algebra|geometry/i.test(skill)
   if (fullStackLike) {
-    return `${first}, you said you're good at ${skill}. Pick one real product feature and walk me through it end to end — client/UI, APIs or services, database, auth if any, and how you tested and shipped it.`
+    return spokenLead(
+      first,
+      `you said you're good at ${skill}. Pick one real product feature and walk me through it end to end — client/UI, APIs or services, database, auth if any, and how you tested and shipped it.`,
+    )
   }
   if (mathLike) {
-    return `${first}, you said you're strong in ${skill}. Walk me through a problem you solved with ${skill} — setup, method, and how you verified the result.`
+    return spokenLead(
+      first,
+      `you said you're strong in ${skill}. Walk me through a problem you solved with ${skill} — setup, method, and how you verified the result.`,
+    )
   }
-  const roleBit = roleTrack && role ? ` in a ${role} context` : ''
-  return `${first}, you mentioned ${skill}. Describe a concrete situation where you applied ${skill}${roleBit} — challenge, actions, and outcome.`
-}
-
-function isFresherExperienceLevel(level) {
-  const l = clean(level).toLowerCase().replace(/\s+/g, ' ')
-  return (
-    l.includes('fresher') ||
-    l.includes('0-1') ||
-    l.includes('0–1') ||
-    l.includes('0 to 1') ||
-    l.includes('intern') ||
-    l.includes('student') ||
-    l.includes('campus')
+  const roleBit = role ? ` in a ${role} context` : ''
+  return spokenLead(
+    first,
+    `you mentioned ${skill}. Describe a concrete situation where you applied ${skill}${roleBit} — challenge, actions, and outcome.`,
   )
 }
 
-function buildFirstAdaptiveQuestionLocal(first, role, level, ctx, explicitRoleTrack) {
+function buildFirstAdaptiveQuestionLocal(first, role, level, ctx) {
   const fresher = isFresherExperienceLevel(level)
   if (fresher) {
     return {
       text: ctx.resumeSnippet
-        ? `${first}, you're interviewing for ${role} as a ${level} candidate. Walk me through yourself — education, projects or internships, and strengths from your résumé that fit this role.`
-        : `${first}, tell me about yourself for ${role} — your background, what you've built or learned, and why this field fits you.`,
+        ? spokenLead(
+            first,
+            `you're interviewing for ${role} as a ${level} candidate. Walk me through yourself — education, projects or internships, and strengths from your résumé that fit this role.`,
+          )
+        : spokenLead(
+            first,
+            `tell me about yourself for ${role} — your background, what you've built or learned, and why this field fits you.`,
+          ),
       category: 'Communication',
       keywords: unique(['education', 'project', 'intern', 'skill', 'learn', role.toLowerCase()]),
       hint: 'About a minute: who you are, one project, skills for this role.',
@@ -654,22 +751,110 @@ function buildFirstAdaptiveQuestionLocal(first, role, level, ctx, explicitRoleTr
   const jobHead = job.split(':')[0]?.trim() || job
   return {
     text: jobHead
-      ? `${first}, for this ${role} interview (${level}), start with your industry experience — especially ${jobHead}. What did you own, and what impact did you create?`
+      ? spokenLead(
+          first,
+          `for this ${role} interview (${level}), start with your industry experience — especially ${jobHead}. What did you own, and what impact did you create?`,
+        )
       : ctx.resumeSnippet
-        ? `${first}, I've reviewed your résumé for ${role} (${level}). Walk me through your professional experience — roles, industry context, and outcomes you're proud of.`
-        : `${first}, describe your industry experience for ${role} (${level}) — responsibilities and measurable results.`,
+        ? spokenLead(
+            first,
+            `I've reviewed your résumé for ${role} (${level}). Walk me through your professional experience — roles, industry context, and outcomes you're proud of.`,
+          )
+        : spokenLead(
+            first,
+            `describe your industry experience for ${role} (${level}) — responsibilities and measurable results.`,
+          ),
     category: 'Experience',
     keywords: unique(['experience', 'impact', 'role', 'team', role.toLowerCase()]),
     hint: 'Use real employers, timelines, and results from your résumé.',
-    topic: 'Industry experience',
+    topic: jobHead || 'Industry experience',
     resumeAnchor: jobHead || undefined,
     focus: 'experienced-intro',
   }
 }
 
+function buildResumeTopicQuestion(first, role, level, topic) {
+  const label = topic.label
+  const fresher = isFresherExperienceLevel(level)
+  const senior = isSeniorExperienceLevel(level)
+  let text
+  let category = 'Experience'
+  if (fresher) {
+    text = spokenLead(
+      first,
+      `on your background I see ${label}. Walk me through what you built or learned, the tools you used, and how you checked that it worked.`,
+    )
+    category = 'Experience'
+  } else if (senior) {
+    text = spokenLead(
+      first,
+      `looking at ${label}: what did you own, which trade-offs did you accept, and what outcome did that create?`,
+    )
+    category = 'Problem Solving'
+  } else {
+    text = spokenLead(
+      first,
+      `on your background I see ${label}. Walk me through your responsibility, a hard decision, and the outcome.`,
+    )
+  }
+  return {
+    text,
+    category,
+    keywords: unique([String(label).toLowerCase().slice(0, 48), 'outcome', role.toLowerCase()]),
+    hint: 'Use only details that are actually on your résumé.',
+    topic: topic.topic || label,
+    resumeAnchor: label,
+    focus: 'adaptive-local',
+  }
+}
+
+function nextResumeSkillInJobDescription(jobDescription, ctx, history) {
+  const jd = clean(jobDescription).toLowerCase()
+  if (!jd) return ''
+  const snippet = clean(ctx.resumeSnippet).toLowerCase()
+  for (const skill of ctx.skills || []) {
+    const s = clean(skill)
+    if (s.length < 2) continue
+    const key = s.toLowerCase()
+    if (!jd.includes(key)) continue
+    if (!snippet.includes(key) && !(ctx.skills || []).some((x) => clean(x).toLowerCase() === key)) continue
+    if (questionMentions(history, s)) continue
+    return s
+  }
+  return ''
+}
+
+function buildLevelFallbackQuestion(first, role, level, turnNumber) {
+  const fresher = isFresherExperienceLevel(level)
+  const senior = isSeniorExperienceLevel(level)
+  if (turnNumber >= INTERVIEW_TURN_COUNT) {
+    return spokenLead(
+      first,
+      `why is this ${role} role a fit for you now, and what is one strength from your own experience we should remember?`,
+    )
+  }
+  if (fresher) {
+    return spokenLead(
+      first,
+      `pick a project or class from your own background for ${role}. What did you build or learn, and how did you check that it worked?`,
+    )
+  }
+  if (senior) {
+    return spokenLead(
+      first,
+      `describe a decision you owned in ${role} work — the options, the trade-off you accepted, and the result.`,
+    )
+  }
+  return spokenLead(
+    first,
+    `describe a concrete situation from your own experience in ${role} — the challenge, the actions you took, and the outcome.`,
+  )
+}
+
 /**
- * One adaptive question — follows candidate claims (e.g. "good at Java") and never repeats prior questions.
- * @param {object} input
+ * Parse + validate one LLM question (see repo `question-generation.md` §3).
+ * @param {object} raw
+ * @param {string[]} priorTexts
  */
 function normalizeAdaptiveQuestion(raw, priorTexts = []) {
   const text = clean(raw.text)
@@ -686,8 +871,146 @@ function normalizeAdaptiveQuestion(raw, priorTexts = []) {
   }
 }
 
+/** @param {{ turnNumber: number, role: string, level: string, first: string }} p */
+function buildAdaptiveQuestionSystemPrompt(p) {
+  const nameRule =
+    p.first === 'there'
+      ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
+      : `You may use the first name "${p.first}" once if natural.`
+  return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
+
+Rules:
+- This is question ${p.turnNumber} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
+- Use the candidate resume, role "${p.role}", experience "${p.level}", job description (if any), and their last answer to choose the next realistic topic.
+- One clear idea per question — how a real hiring manager speaks.
+- ${nameRule}
+- Do not invent employers, degrees, or projects absent from the resume snippet.
+- category must be one of: Communication, Technical, Problem Solving, Experience.
+
+Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
+}
+
+/** @param {object} p */
+function buildAdaptiveQuestionUserPayload(p) {
+  return JSON.stringify({
+    turnNumber: p.turnNumber,
+    totalTurns: INTERVIEW_TURN_COUNT,
+    roleTrack: p.role,
+    experienceLevel: p.level,
+    jobDescription: p.jobDescription || null,
+    candidateSummary: {
+      skills: (p.ctx.skills || []).slice(0, 16),
+      jobs: (p.ctx.jobs || []).slice(0, 4),
+      achievements: (p.ctx.achievements || []).slice(0, 5),
+      resumeSnippet: (p.ctx.resumeSnippet || '').slice(0, 2800),
+    },
+    priorQuestions: p.priorTexts,
+    lastAnswer: p.lastAnswer || null,
+  })
+}
+
 /**
- * One AI-generated question per turn (Gemini / compatible LLM). No static question bank.
+ * Same decision order as question-generation.md when Gemini is unavailable:
+ * one question, no invented employers, follow the last answer, never repeat.
+ * @param {object} input
+ */
+export function generateAdaptiveQuestionLocal(input) {
+  const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
+  const role = input.role || 'Full Stack Engineer'
+  const level = input.level || '1–3 years'
+  const jobDescription = clean(input.jobDescription)
+  const history = Array.isArray(input.history) ? input.history : []
+  const lastAnswer = clean(input.lastAnswer)
+  const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
+  const first = firstNameFromFull(ctx.name)
+  const turnNumber = history.length + 1
+
+  /** @type {object[]} */
+  const candidates = []
+  if (history.length === 0) {
+    candidates.push(buildFirstAdaptiveQuestionLocal(first, role, level, ctx))
+  } else {
+    const claimed = extractClaimedSkills(lastAnswer).filter((skill) => !questionMentions(history, skill))
+    if (claimed[0]) {
+      const skill = claimed[0]
+      const fullStackLike = /full[\s-]?stack|mern|mean/i.test(skill)
+      const mathLike = /math|statistic|calculus|algebra|geometry/i.test(skill)
+      candidates.push({
+        text: buildClaimedSkillQuestion(first, skill, role),
+        category: fullStackLike || mathLike ? 'Technical' : 'Experience',
+        keywords: unique([skill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
+        hint: 'Give a concrete example with tools and outcome.',
+        topic: skill,
+        focus: 'adaptive-local',
+      })
+    }
+    if (!claimed[0] || isThinAnswer(lastAnswer)) {
+      const topic = pickResumeTopicFromCtx(ctx, history)
+      if (topic && !questionMentions(history, topic.label)) {
+        candidates.push(buildResumeTopicQuestion(first, role, level, topic))
+      }
+    }
+    const jdSkill = nextResumeSkillInJobDescription(jobDescription, ctx, history)
+    if (jdSkill) {
+      candidates.push({
+        text: spokenLead(
+          first,
+          `your résumé lists ${jdSkill}, and this role asks for it. Describe a concrete situation where you applied ${jdSkill} in a ${role} context — challenge, actions, and outcome.`,
+        ),
+        category: 'Technical',
+        keywords: unique([jdSkill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
+        hint: 'Give a concrete example with tools and outcome.',
+        topic: jdSkill,
+        resumeAnchor: jdSkill,
+        focus: 'adaptive-local',
+      })
+    }
+  }
+
+  const fallbackCategory = turnNumber >= INTERVIEW_TURN_COUNT ? 'Communication' : 'Problem Solving'
+  candidates.push({
+    text: buildLevelFallbackQuestion(first, role, level, turnNumber),
+    category: fallbackCategory,
+    keywords: unique(['experience', 'outcome', role.toLowerCase()]),
+    hint: 'Give a concrete example with tools and outcome.',
+    topic: turnNumber >= INTERVIEW_TURN_COUNT ? 'Closing' : 'Interview',
+    focus: 'adaptive-local',
+  })
+  candidates.push({
+    text: spokenLead(
+      first,
+      `for question ${turnNumber} of ${INTERVIEW_TURN_COUNT}, describe a result you personally produced for ${role} work — what you did and how you knew it worked.`,
+    ),
+    category: 'Experience',
+    keywords: unique(['result', role.toLowerCase()]),
+    hint: 'Give a concrete example with tools and outcome.',
+    topic: `Turn ${turnNumber}`,
+    focus: 'adaptive-local',
+  })
+
+  for (const raw of candidates) {
+    const q = normalizeAdaptiveQuestion(raw, priorTexts)
+    if (!q) continue
+    return { ...q, focus: raw.focus || 'adaptive-local' }
+  }
+
+  return {
+    text: spokenLead(
+      first,
+      `tell me about work you actually did for ${role}. Include the situation, what you did, and the result. This is question ${turnNumber}.`,
+    ),
+    category: 'Experience',
+    keywords: unique(['experience', role.toLowerCase()]),
+    hint: 'Give a concrete example with tools and outcome.',
+    topic: `Turn ${turnNumber}`,
+    focus: 'adaptive-local',
+  }
+}
+
+/**
+ * One question per turn. Uses the quality-tier LLM when Gemini is configured,
+ * otherwise the same local rules in `generateAdaptiveQuestionLocal`.
+ * Spec: `question-generation.md` §2–3 and §6.
  * @param {object} input
  */
 export async function generateAdaptiveQuestion(input) {
@@ -697,36 +1020,22 @@ export async function generateAdaptiveQuestion(input) {
   const jobDescription = clean(input.jobDescription)
   const history = Array.isArray(input.history) ? input.history : []
   const lastAnswer = clean(input.lastAnswer)
-  const first = firstNameFromFull(ctx.name)
-  const turn = history.length + 1
+  const turnNumber = history.length + 1
   const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
+  const first = firstNameFromFull(ctx.name)
+  const localInput = { ...input, ctx, role, level, jobDescription, history, lastAnswer }
 
-  const system = `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
+  if (!llmConfigured()) return generateAdaptiveQuestionLocal(localInput)
 
-Rules:
-- This is question ${turn} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
-- Use the candidate resume, role "${role}", experience "${level}", job description (if any), and their last answer to choose the next realistic topic.
-- One clear idea per question — how a real hiring manager speaks.
-- ${first === 'there' ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".' : `You may use the first name "${first}" once if natural.`}
-- Do not invent employers, degrees, or projects absent from the resume snippet.
-- category must be one of: Communication, Technical, Problem Solving, Experience.
-
-Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
-
-  const user = JSON.stringify({
-    turnNumber: turn,
-    totalTurns: INTERVIEW_TURN_COUNT,
-    roleTrack: role,
-    experienceLevel: level,
-    jobDescription: jobDescription || null,
-    candidateSummary: {
-      skills: ctx.skills?.slice(0, 16),
-      jobs: ctx.jobs?.slice(0, 6),
-      achievements: ctx.achievements?.slice(0, 5),
-      resumeSnippet: ctx.resumeSnippet?.slice(0, 2800),
-    },
-    priorQuestions: priorTexts,
-    lastAnswer: lastAnswer || null,
+  const system = buildAdaptiveQuestionSystemPrompt({ turnNumber, role, level, first })
+  const user = buildAdaptiveQuestionUserPayload({
+    turnNumber,
+    role,
+    level,
+    jobDescription,
+    ctx,
+    priorTexts,
+    lastAnswer,
   })
 
   for (const temperature of [0.62, 0.42]) {
@@ -739,32 +1048,122 @@ Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint
       const q = normalizeAdaptiveQuestion(parsed.question || parsed, priorTexts)
       if (q) return q
     } catch {
-      // try next temperature / model cascade inside callLlmApi
+      // retry other temperature
     }
   }
 
-  throw new Error(
-    'AI question generation failed. Set GEMINI_API_KEY (or OPENAI_API_KEY) on the server and restart the API.',
+  return generateAdaptiveQuestionLocal(localInput)
+}
+
+function wordCountBandScore(wordCount) {
+  if (wordCount < 8) return 15
+  if (wordCount < 25) return 45
+  if (wordCount < 45) return 72
+  if (wordCount <= 180) return 100
+  if (wordCount <= 260) return 78
+  return 55
+}
+
+function stdDev(values) {
+  if (!values.length) return 0
+  const mean = values.reduce((a, b) => a + b, 0) / values.length
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length
+  return Math.round(Math.sqrt(variance) * 10) / 10
+}
+
+function median(values) {
+  if (!values.length) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+}
+
+/**
+ * @param {Question} question
+ * @param {string} answer
+ * @param {ReturnType<typeof summarizeProfile>} ctx
+ */
+function computeRubricScores(question, answer, ctx) {
+  const text = clean(answer)
+  const lower = text.toLowerCase()
+  const words = text.split(/\s+/).filter(Boolean)
+  const wordCount = words.length
+
+  const keywords = (question.keywords || []).map((k) => String(k).toLowerCase()).filter(Boolean)
+  const keywordsHit = keywords.filter((k) => lower.includes(k))
+  const keywordCoverage =
+    keywords.length > 0
+      ? Math.round((keywordsHit.length / Math.min(keywords.length, 6)) * 100)
+      : wordCount >= 20
+        ? 70
+        : 35
+
+  const skillsHit = ctx.skills.filter((s) => s.length >= 2 && lower.includes(s.toLowerCase()))
+  const companyTokens = ctx.jobs
+    .flatMap((j) => j.split(/[@:]/).map((p) => p.trim().toLowerCase()))
+    .filter((t) => t.length >= 3 && !['role', 'company', 'at'].includes(t))
+  const companiesHit = companyTokens.filter((t) => lower.includes(t))
+  const resumeEvidence = Math.min(
+    100,
+    Math.round(skillsHit.length * 22 + companiesHit.length * 28 + (ctx.resumeSnippet && wordCount > 35 ? 12 : 0)),
   )
+
+  const evidence = Math.min(100, Math.round(keywordCoverage * 0.55 + resumeEvidence * 0.45))
+
+  const structureHits = STRUCTURE_SIGNALS.filter((s) => lower.includes(s)).length
+  const structureSignals = Math.min(100, Math.round((structureHits / 3) * 100))
+  const clarityBand = wordCountBandScore(wordCount)
+  const fillerPenalty = /\b(um+|uh+|like,|you know)\b/i.test(text) ? 8 : 0
+  const structure = Math.max(0, Math.min(100, Math.round(clarityBand * 0.6 + structureSignals * 0.4 - fillerPenalty)))
+
+  const hasNumbers = /\d/.test(text)
+  const hasMetrics = /\b(\d+\s*%|\$\d|percent|increase|reduce|saved|improved|latency|throughput)\b/i.test(text)
+  const hasTools =
+    /\b(react|node|python|sql|aws|docker|typescript|java|kafka|postgres|kubernetes|api|microservice)\b/i.test(
+      text,
+    )
+  const outcomeWords = (text.match(/\b(built|shipped|led|fixed|designed|implemented|delivered|migrated)\b/gi) || [])
+    .length
+  let impact = 25
+  if (hasNumbers) impact += 28
+  if (hasMetrics) impact += 18
+  if (hasTools) impact += 14
+  impact += Math.min(15, outcomeWords * 5)
+  impact = Math.min(100, impact)
+
+  const rubricMap = { evidence, structure, impact }
+  const rubrics = INTERVIEW_RUBRICS.map((r) => ({
+    id: r.id,
+    label: r.label,
+    weight: r.weight,
+    score: rubricMap[r.id] ?? 0,
+  }))
+  const questionScore = Math.min(
+    100,
+    Math.round(rubrics.reduce((sum, r) => sum + r.score * r.weight, 0)),
+  )
+
+  return { rubrics, questionScore, wordCount, keywordsHit: unique([...keywordsHit, ...skillsHit]), skillsHit }
 }
 
 function analyzeAnswerDetailed(question, answer, ctx) {
   const base = analyzeAnswer(question, answer, ctx)
-  const accuracy = Math.min(10, Math.max(2, Math.round(base.score / 10)))
-  const clarity = Math.min(10, Math.max(2, Math.round(base.wordCount / 12 + base.keywordsHit.length)))
-  const understanding = Math.min(10, Math.max(2, Math.round((base.keywordsHit.length * 1.5) + (base.score >= 70 ? 3 : 1))))
-  const depth = Math.min(10, Math.max(2, Math.round(base.score / 12)))
-  const total40 = Math.min(40, accuracy + clarity + understanding + depth)
-  const stars = '★'.repeat(Math.max(1, Math.round((total40 / 40) * 5))).padEnd(5, '☆')
+  const { rubrics, questionScore, wordCount, keywordsHit, skillsHit } = computeRubricScores(
+    question,
+    answer,
+    ctx,
+  )
+  const performance =
+    questionScore >= 80 ? 'Strong' : questionScore >= 65 ? 'Good' : questionScore >= 45 ? 'Fair' : 'Needs work'
   return {
     ...base,
+    score: questionScore,
+    wordCount,
+    keywordsHit,
+    resumeSkillsHit: skillsHit,
     topic: question.topic || question.category || 'Interview',
-    accuracy,
-    clarity,
-    understanding,
-    depth,
-    total40,
-    stars,
+    rubrics,
+    performance,
   }
 }
 
@@ -782,10 +1181,7 @@ export function buildCareerScorecard(params) {
   } = params
   const first = firstNameFromFull(ctx.name)
 
-  const catScore = (label) => {
-    const row = categoryRows.find((c) => c.label === label)
-    return row?.score ?? 0
-  }
+  void categoryRows
   const tagFor = (score) =>
     score >= 75 ? 'Strong' : score >= 50 ? 'Moderate' : score >= 25 ? 'Developing' : 'Needs work'
   const colorFor = (score) =>
@@ -793,42 +1189,40 @@ export function buildCareerScorecard(params) {
 
   const qaRows = analyses.map((a, i) => ({
     index: i + 1,
-    topic: a.topic || 'Technical',
+    topic: a.topic || 'Interview',
     question: a.question,
-    accuracy: a.accuracy,
-    clarity: a.clarity,
-    understanding: a.understanding,
-    depth: a.depth,
-    total40: a.total40,
-    stars: a.stars,
+    score: a.score,
+    rubrics: (a.rubrics || []).map((r) => ({ label: r.label, score: r.score, weight: r.weight })),
+    performance: a.performance || tagFor(a.score),
     feedback: a.feedback,
   }))
 
-  const catMap = new Map()
+  const rubricTotals = new Map(INTERVIEW_RUBRICS.map((r) => [r.id, []]))
   for (const a of analyses) {
-    const cat = a.topic || 'Technical'
-    const list = catMap.get(cat) || []
-    list.push(a.score)
-    catMap.set(cat, list)
+    for (const r of a.rubrics || []) {
+      const list = rubricTotals.get(r.id) || []
+      list.push(r.score)
+      rubricTotals.set(r.id, list)
+    }
   }
-  const avg = (arr) => (arr.length ? Math.round(arr.reduce((x, y) => x + y, 0) / arr.length) : overall)
+  const rubricSessionScores = INTERVIEW_RUBRICS.map((def) => {
+    const scores = rubricTotals.get(def.id) || []
+    const score = scores.length
+      ? Math.round(scores.reduce((x, y) => x + y, 0) / scores.length)
+      : 0
+    return { label: def.label, score, weight: def.weight }
+  })
 
-  const commScore = catScore('Communication')
-  const techScore = catScore('Technical')
-  const problemScore = catScore('Problem Solving')
-  const expScore = catScore('Experience')
-
-  const donuts = [
-    { label: 'Communication', score: commScore, tag: tagFor(commScore), color: colorFor(commScore) },
-    { label: 'Technical', score: techScore, tag: tagFor(techScore), color: colorFor(techScore) },
-    { label: 'Problem Solving', score: problemScore, tag: tagFor(problemScore), color: colorFor(problemScore) },
-    { label: 'Experience', score: expScore, tag: tagFor(expScore), color: colorFor(expScore) },
-    { label: 'Overall', score: overall, tag: tagFor(overall), color: colorFor(overall) },
-  ]
+  const donuts = rubricSessionScores.map((r) => ({
+    label: r.label,
+    score: r.score,
+    tag: tagFor(r.score),
+    color: colorFor(r.score),
+  }))
 
   const healthMetrics = donuts.map((d, i) => ({
     label: d.label,
-    icon: ['💬', '💻', '🧩', '📋', '🎯'][i] || '🎯',
+    icon: ['📎', '🧭', '📈'][i] || '🎯',
     score: d.score,
     tag: d.tag,
     color: d.color,
@@ -837,10 +1231,7 @@ export function buildCareerScorecard(params) {
   const careerScore = Math.min(980, Math.max(50, Math.round(overall * 10)))
 
   const radarAxes = [
-    { label: 'Communication', val: commScore },
-    { label: 'Technical', val: techScore },
-    { label: 'Problem Solving', val: problemScore },
-    { label: 'Experience', val: expScore },
+    ...rubricSessionScores.map((r) => ({ label: r.label, val: r.score })),
     { label: 'Overall', val: overall },
   ]
 
@@ -866,10 +1257,12 @@ export function buildCareerScorecard(params) {
     radarAxes,
     careerPaths,
     starPatterns: qaRows.slice(0, 7).map((r) => ({
-      name: r.topic,
-      stars: r.stars,
-      level: r.total40 >= 32 ? 'Strong' : r.total40 >= 24 ? 'Good' : 'Moderate',
+      name: `Q${r.index}`,
+      stars: '★'.repeat(Math.max(1, Math.round(r.score / 20))).padEnd(5, '☆'),
+      level: r.performance,
     })),
+    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, weight: r.weight })),
+    statistics: params.statistics,
     priorities: improvements.slice(0, 4).map((text, i) => ({
       num: i + 1,
       title: text.split('.')[0]?.slice(0, 60) || `Priority ${i + 1}`,
@@ -1055,23 +1448,32 @@ export async function scoreInterviewSession(input) {
   const ctx = summarizeProfile(input.profile, input.accountName || '')
   const analyses = input.questions.map((q, i) => analyzeAnswerDetailed(q, input.answers[i] || '', ctx))
 
-  const byCategory = new Map()
-  input.questions.forEach((q, i) => {
-    const list = byCategory.get(q.category) || []
-    list.push(analyses[i].score)
-    byCategory.set(q.category, list)
+  const questionScores = analyses.map((a) => a.score)
+  let overall = Math.round(questionScores.reduce((a, b) => a + b, 0) / Math.max(questionScores.length, 1))
+
+  const rubricAgg = new Map(INTERVIEW_RUBRICS.map((r) => [r.id, []]))
+  for (const a of analyses) {
+    for (const r of a.rubrics || []) {
+      rubricAgg.get(r.id)?.push(r.score)
+    }
+  }
+  const categories = INTERVIEW_RUBRICS.map((def) => {
+    const scores = rubricAgg.get(def.id) || []
+    const score = scores.length
+      ? Math.round(scores.reduce((x, y) => x + y, 0) / scores.length)
+      : 0
+    return { label: def.label, score, weight: def.weight }
   })
 
-  const categories = CATEGORIES.map((label) => {
-    const scores = byCategory.get(label)
-    const score =
-      scores && scores.length
-        ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-        : 0
-    return { label, score }
-  })
-
-  let overall = Math.round(analyses.reduce((a, b) => a + b.score, 0) / Math.max(analyses.length, 1))
+  const statistics = {
+    questionCount: analyses.length,
+    meanQuestionScore: overall,
+    medianQuestionScore: median(questionScores),
+    stdDevQuestionScore: stdDev(questionScores),
+    minQuestionScore: questionScores.length ? Math.min(...questionScores) : 0,
+    maxQuestionScore: questionScores.length ? Math.max(...questionScores) : 0,
+    meanWordCount: Math.round(analyses.reduce((a, b) => a + b.wordCount, 0) / Math.max(analyses.length, 1)),
+  }
 
   const joined = (input.answers || []).join(' ').toLowerCase()
   const skillsReferenced = ctx.skills.filter((s) => joined.includes(s.toLowerCase())).length
@@ -1109,8 +1511,13 @@ export async function scoreInterviewSession(input) {
 
   const best = [...categories].sort((a, b) => b.score - a.score)[0]
   const worst = [...categories].sort((a, b) => a.score - b.score)[0]
-  if (best?.score >= 60) strengths.push(`${best.label} stands out (${best.score}/100).`)
-  if (worst?.score < 60) improvements.push(`${worst.label} needs more practice (${worst.score}/100).`)
+  if (best?.score >= 60) strengths.push(`${best.label} is your strongest rubric (${best.score}/100).`)
+  if (worst?.score < 60) improvements.push(`Strengthen ${worst.label} (${worst.score}/100) with clearer examples and outcomes.`)
+
+  const weakQuestions = analyses.filter((a) => a.score < 50).length
+  if (weakQuestions > 0) {
+    improvements.push(`${weakQuestions} answer(s) scored below 50 — add evidence and measurable results.`)
+  }
 
   const llmRefine = await refineWithLlm({
     role: input.role,
@@ -1142,7 +1549,9 @@ export async function scoreInterviewSession(input) {
     categories,
     strengths: strengthsOut,
     improvements: improvementsOut,
-    answers: analyses.map(({ resumeSkillsHit: _r, accuracy: _a, clarity: _c, understanding: _u, depth: _d, total40: _t, stars: _s, topic: _tp, ...rest }) => rest),
+    answers: analyses.map(({ resumeSkillsHit: _r, ...rest }) => rest),
+    statistics,
+    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, weight: r.weight })),
     scorecard: buildCareerScorecard({
       ctx,
       analyses,
@@ -1154,6 +1563,7 @@ export async function scoreInterviewSession(input) {
       durationMinutes: input.durationMinutes || Math.max(12, input.questions.length * 4),
       strengths: strengthsOut,
       improvements: improvementsOut,
+      statistics,
     }),
     integrity: {
       faceViolations: integrity.faceViolations || 0,
@@ -1491,7 +1901,16 @@ JSON Schema:
       "dateEarned": "YYYY-MM or Year",
       "credentialId": "Credential ID"
     }
-  ]
+  ],
+  "awards": ["Honors or awards explicitly listed"],
+  "metrics": [
+    { "metric": "KPI", "contribution": "Action", "impact": "Outcome", "timePeriod": "Period" }
+  ],
+  "noticePeriod": "If stated",
+  "preferredRoles": ["If stated"],
+  "preferredLocations": ["If stated"],
+  "workMode": "Remote/Hybrid/On-site if stated",
+  "salaryExpectation": "If explicitly stated"
 }
 
 Resume Text:

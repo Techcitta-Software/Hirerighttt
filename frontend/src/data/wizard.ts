@@ -30,6 +30,7 @@ export interface Certification {
 
 export interface ProfileFormData {
   resumeFile: File | null
+  resumeName?: string | null
   whoAreYou: string
   whatDrivesYou: string
   keyStrengths: string
@@ -292,6 +293,7 @@ export function createEmptyCertification(): Certification {
 
 export const initialFormData: ProfileFormData = {
   resumeFile: null,
+  resumeName: null,
   whoAreYou: '',
   whatDrivesYou: '',
   keyStrengths: '',

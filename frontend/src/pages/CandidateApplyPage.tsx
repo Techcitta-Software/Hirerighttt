@@ -7,61 +7,84 @@ import {
   findUserByEmail,
   getEmployerJobByCode,
   getUser,
-  saveEmployerApplicant,
   saveUser,
   type EmployerJob,
 } from '../lib/store'
 import { parseResumeFile } from '../lib/resumeParser'
-import { applyToPublicJob, fetchPublicJob, type VendorJob } from '../lib/vendorApi'
-import { ensureApiSession } from '../lib/apiSession'
-import { apiSaveProfile } from '../lib/api'
 import { HrIcon } from '../components/HrIcon'
+import { resolvePublicJob } from '../lib/resolvePublicJob'
+import { vendorJobToEmployerJob } from '../lib/employerCandidateUtils'
+import { applyToPublicJob } from '../lib/vendorApi'
+import { ensureApiSession } from '../lib/apiSession'
+import { apiHealth } from '../lib/api'
+import { isValidPhone, normalizePhone } from '../lib/phone'
+import { companySlugMatches } from '../lib/jobLink'
 import styles from './CandidateApplyPage.module.css'
 
-export function CandidateApplyPage() {
-  const { code } = useParams<{ code: string }>()
-  const navigate = useNavigate()
-  const user = getUser()
+type ApplyJob = EmployerJob & { companySlug?: string }
 
-  const [job, setJob] = useState<EmployerJob | null>(() =>
-    code ? getEmployerJobByCode(code) : null,
-  )
-  const [name, setName] = useState(user?.name || '')
-  const [email, setEmail] = useState(user?.email || '')
-  const [phone, setPhone] = useState('')
+function localJobToApply(job: EmployerJob): ApplyJob {
+  return { ...job }
+}
+
+export function CandidateApplyPage() {
+  const { code, companySlug } = useParams<{ code: string; companySlug?: string }>()
+  const navigate = useNavigate()
+  const sessionUser = getUser()
+
+  const [job, setJob] = useState<ApplyJob | null>(() => {
+    if (!code) return null
+    const local = getEmployerJobByCode(code)
+    return local ? localJobToApply(local) : null
+  })
+  const [loadingJob, setLoadingJob] = useState(true)
+  const [name, setName] = useState(sessionUser?.name || '')
+  const [email, setEmail] = useState(sessionUser?.email || '')
+  const [phone, setPhone] = useState(sessionUser?.phone || '')
   const [experience, setExperience] = useState('3 years')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [resumeText, setResumeText] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
-  function vendorJobToLocal(v: VendorJob): EmployerJob {
-    return {
-      id: v.id,
-      title: v.title,
-      company: v.company,
-      roleTrack: v.roleTrack || 'Software Engineer',
-      experienceLevel: v.experienceLevel || '2–5 years',
-      location: v.location || 'Remote',
-      jobDescription: v.jobDescription || '',
-      requiredSkills: v.requiredSkills || [],
-      shareableCode: v.shareableCode,
-      createdByEmail: '',
-      createdAt: v.createdAt,
-    }
-  }
+  const [atsSummary, setAtsSummary] = useState<{
+    atsScore: number
+    jdMatchScore: number
+    matchedSkills: string[]
+    missingSkills: string[]
+    summary?: string
+  } | null>(null)
 
   useEffect(() => {
-    if (!code) return
-    const local = getEmployerJobByCode(code)
-    if (local) {
-      setJob(local)
-      return
+    let cancelled = false
+    void (async () => {
+      if (!code) {
+        setLoadingJob(false)
+        return
+      }
+      setLoadingJob(true)
+      const local = getEmployerJobByCode(code)
+      if (local && companySlugMatches(local.company, companySlug)) {
+        if (!cancelled) setJob(localJobToApply(local))
+      }
+      try {
+        const { job: remote, error: remoteError } = await resolvePublicJob(code, companySlug)
+        if (!cancelled && remote) {
+          setJob(
+            vendorJobToEmployerJob(remote, sessionUser?.email || 'candidate@hireright.com'),
+          )
+        } else if (!cancelled && !local && remoteError) {
+          setError(remoteError)
+        }
+      } catch {
+        // keep local demo job if any
+      } finally {
+        if (!cancelled) setLoadingJob(false)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-    void fetchPublicJob(code)
-      .then(({ job: remote }) => setJob(vendorJobToLocal(remote)))
-      .catch(() => setJob(null))
-  }, [code])
+  }, [code, companySlug, sessionUser?.email])
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -84,8 +107,16 @@ export function CandidateApplyPage() {
       setError('Please fill in your basic details (Name, Email, Phone).')
       return
     }
+    if (!isValidPhone(phone)) {
+      setError('Enter a valid mobile number (10–15 digits).')
+      return
+    }
     if (!job) {
       setError('Invalid job application link.')
+      return
+    }
+    if (resumeText.trim().length < 30) {
+      setError('Upload a resume with enough detail (at least a short summary).')
       return
     }
 
@@ -97,69 +128,73 @@ export function CandidateApplyPage() {
 
     setLoading(true)
     setError('')
+    setAtsSummary(null)
 
     try {
-      const account = saveUser(
+      const phoneNorm = normalizePhone(phone) || phone.trim()
+      saveUser(
         {
           name: name.trim(),
           email: targetEmail,
-          password: 'password123',
+          password: sessionUser?.password || 'password123',
           role: 'jobseeker',
+          phone: phoneNorm,
         },
         true,
       )
 
-      const resumePayload =
-        resumeText || `${name.trim()} - ${job.title} applicant`
+      const useApi = await apiHealth()
+      if (useApi) {
+        const sessionOk = await ensureApiSession()
+        if (!sessionOk) {
+          navigate('/login', {
+            state: {
+              from: window.location.pathname,
+              prefillEmail: targetEmail,
+            },
+          })
+          return
+        }
 
-      let applicantId = ''
-      let applicationId = ''
-      let organizationId = ''
-      let primarySkills: string[] = job.requiredSkills || []
-      let atsScore = 0
-      let jdMatchScore = 0
+        const applied = await applyToPublicJob(
+          job.shareableCode,
+          {
+            candidateName: name.trim(),
+            candidateEmail: targetEmail,
+            candidatePhone: phoneNorm,
+            experienceYears: experience,
+            resumeText: resumeText.trim(),
+            resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
+          },
+          companySlug || job.companySlug,
+        )
 
-      try {
-        await ensureApiSession()
-        const applied = await applyToPublicJob(code || job.shareableCode, {
-          candidateName: account.name,
-          candidateEmail: account.email,
-          candidatePhone: phone.trim(),
-          experienceYears: experience,
-          resumeText: resumePayload,
-          resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
+        setAtsSummary({
+          atsScore: applied.ats.atsScore,
+          jdMatchScore: applied.ats.jdMatchScore,
+          matchedSkills: applied.ats.matchedSkills || [],
+          missingSkills: applied.ats.missingSkills || [],
+          summary: applied.ats.summary,
         })
-        applicationId = applied.applicationId
-        organizationId = applied.organizationId
-        primarySkills = applied.ats.primarySkills
-        atsScore = applied.ats.atsScore
-        jdMatchScore = applied.ats.jdMatchScore
-        await apiSaveProfile({
-          fullName: account.name,
-          resumeText: resumePayload,
-          currentRole: job.roleTrack,
-          totalExperience: experience,
-          skills: primarySkills,
-        } as never)
-      } catch {
-        // Offline fallback — local applicant only
-      }
 
-      const applicant = saveEmployerApplicant({
-        jobId: job.id,
-        jobTitle: job.title,
-        company: job.company,
-        candidateName: account.name,
-        candidateEmail: account.email,
-        candidatePhone: phone.trim(),
-        experienceYears: experience,
-        resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
-        resumeText: resumePayload,
-        atsScore,
-        jdMatchScore,
-        primarySkills,
-      })
-      applicantId = applicant.id
+        sessionStorage.setItem(
+          'hireright.targetJob',
+          JSON.stringify({
+            title: job.title,
+            company: job.company,
+            role: job.roleTrack,
+            level: job.experienceLevel,
+            jd: job.jobDescription,
+            jobId: applied.job.id,
+            applicationId: applied.applicationId,
+            organizationId: applied.organizationId,
+            primarySkills: applied.ats.primarySkills || job.requiredSkills,
+            atsScore: applied.ats.atsScore,
+            jdMatchScore: applied.ats.jdMatchScore,
+          }),
+        )
+        return
+      }
 
       sessionStorage.setItem(
         'hireright.targetJob',
@@ -169,22 +204,25 @@ export function CandidateApplyPage() {
           role: job.roleTrack,
           level: job.experienceLevel,
           jd: job.jobDescription,
-          applicantId,
-          jobId: job.id,
-          applicationId,
-          organizationId,
-          primarySkills,
-          atsScore,
-          jdMatchScore,
         }),
       )
-
       navigate('/interview')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not start the application.')
+      setError(err instanceof Error ? err.message : 'Could not submit your application.')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (loadingJob) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.shell}>
+          <SiteNav />
+          <p className={styles.loadingText}>Loading job details…</p>
+        </div>
+      </div>
+    )
   }
 
   if (!job) {
@@ -193,12 +231,13 @@ export function CandidateApplyPage() {
         <div className={styles.shell}>
           <SiteNav />
           <div className={styles.card} style={{ textAlign: 'center', marginTop: '60px' }}>
-            <h2 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <h2 className={styles.errorTitle}>
               <HrIcon name="warning" size={22} /> Private Job Link Not Found
             </h2>
-            <p style={{ color: '#64748b' }}>
-              The job application link you accessed (`{code}`) may have expired or been removed by the employer.
+            <p className={styles.muted}>
+              The job application link you accessed may have expired or been removed by the employer.
             </p>
+            {error && <p className={styles.error}>{error}</p>}
             <button
               type="button"
               className={styles.submitBtn}
@@ -235,29 +274,18 @@ export function CandidateApplyPage() {
             <span className={styles.badge}>Location: {job.location}</span>
           </div>
 
-          {/* Job Description Box */}
           <div className={styles.jdBox}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h3 className={styles.jdHeading}>
               <HrIcon name="document" size={20} /> Job Description & Requirements
             </h3>
             <p>{job.jobDescription}</p>
 
             {job.requiredSkills && job.requiredSkills.length > 0 && (
-              <div style={{ marginTop: '16px' }}>
-                <strong style={{ fontSize: '0.85rem', color: '#64748b' }}>REQUIRED SKILLS:</strong>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              <div className={styles.skillsBlock}>
+                <strong className={styles.skillsLabel}>REQUIRED SKILLS:</strong>
+                <div className={styles.skillsRow}>
                   {job.requiredSkills.map((sk) => (
-                    <span
-                      key={sk}
-                      style={{
-                        background: '#ffffff',
-                        border: '1px solid #cbd5e1',
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                      }}
-                    >
+                    <span key={sk} className={styles.skillPill}>
                       {sk}
                     </span>
                   ))}
@@ -266,105 +294,131 @@ export function CandidateApplyPage() {
             )}
           </div>
 
-          {/* Candidate Information Form */}
-          <h3
-            style={{
-              fontSize: '1.2rem',
-              fontWeight: 800,
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <HrIcon name="form" size={22} /> Fill Basic Details & Upload Resume to Start AI Assessment
-          </h3>
-
-          <form onSubmit={handleSubmit}>
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Full Name</label>
-                <input
-                  type="text"
-                  required
-                  className={styles.input}
-                  placeholder="e.g. Arjun Sharma"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+          {atsSummary ? (
+            <div className={styles.atsCard}>
+              <h3 className={styles.atsTitle}>Application submitted — ATS match</h3>
+              <div className={styles.atsScores}>
+                <div>
+                  <span className={styles.atsLabel}>Resume fit</span>
+                  <strong>{Math.round(atsSummary.atsScore)}%</strong>
+                </div>
+                <div>
+                  <span className={styles.atsLabel}>JD match</span>
+                  <strong>{Math.round(atsSummary.jdMatchScore)}%</strong>
+                </div>
               </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Email Address</label>
-                <input
-                  type="email"
-                  required
-                  className={styles.input}
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Phone Number</label>
-                <input
-                  type="tel"
-                  required
-                  className={styles.input}
-                  placeholder="+91 98765 43210"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.label}>Years of Experience</label>
-                <input
-                  type="text"
-                  required
-                  className={styles.input}
-                  placeholder="e.g. 4 years"
-                  value={experience}
-                  onChange={(e) => setExperience(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroupFull}>
-                <label className={styles.label}>Upload Resume (PDF / DOCX)</label>
-                <label className={styles.fileInputBox}>
-                  <input
-                    type="file"
-                    accept=".pdf,.docx,.txt"
-                    style={{ display: 'none' }}
-                    onChange={handleFileChange}
-                  />
-                  <div style={{ marginBottom: '6px', color: '#e11d48' }}>
-                    <HrIcon name="folder" size={32} />
-                  </div>
-                  <div style={{ fontWeight: 700, color: '#0f172a' }}>
-                    {resumeFile ? resumeFile.name : 'Click to Upload Resume PDF'}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
-                    {resumeFile ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <HrIcon name="check" size={14} /> File attached (
-                        {Math.round(resumeFile.size / 1024)} KB)
-                      </span>
-                    ) : (
-                      'Ava will extract your projects & skills to personalize the AI interview'
-                    )}
-                  </div>
-                </label>
-              </div>
+              {atsSummary.summary && <p className={styles.muted}>{atsSummary.summary}</p>}
+              {atsSummary.matchedSkills.length > 0 && (
+                <p className={styles.muted}>
+                  <strong>Matched:</strong> {atsSummary.matchedSkills.join(', ')}
+                </p>
+              )}
+              {atsSummary.missingSkills.length > 0 && (
+                <p className={styles.muted}>
+                  <strong>Gaps:</strong> {atsSummary.missingSkills.join(', ')}
+                </p>
+              )}
+              <button
+                type="button"
+                className={styles.submitBtn}
+                onClick={() => navigate('/interview')}
+              >
+                Continue to AI interview →
+              </button>
             </div>
+          ) : (
+            <>
+              <h3 className={styles.formSectionTitle}>
+                <HrIcon name="form" size={22} /> Apply with resume (sign-in required on server)
+              </h3>
 
-            {error && <div className={styles.error}>{error}</div>}
+              <form onSubmit={handleSubmit}>
+                <div className={styles.formGrid}>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      className={styles.input}
+                      placeholder="e.g. Arjun Sharma"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </div>
 
-            <button type="submit" className={styles.submitBtn} disabled={loading}>
-              {loading ? 'Initializing AI Interview Studio...' : 'Start AI Interview Now →'}
-            </button>
-          </form>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      className={styles.input}
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Phone Number</label>
+                    <input
+                      type="tel"
+                      required
+                      className={styles.input}
+                      placeholder="+91 98765 43210"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Years of Experience</label>
+                    <input
+                      type="text"
+                      required
+                      className={styles.input}
+                      placeholder="e.g. 4 years"
+                      value={experience}
+                      onChange={(e) => setExperience(e.target.value)}
+                    />
+                  </div>
+
+                  <div className={styles.formGroupFull}>
+                    <label className={styles.label}>Upload Resume (PDF / DOCX)</label>
+                    <label className={styles.fileInputBox}>
+                      <input
+                        type="file"
+                        accept=".pdf,.docx,.txt"
+                        style={{ display: 'none' }}
+                        onChange={handleFileChange}
+                      />
+                      <div style={{ marginBottom: '6px', color: '#6036eb' }}>
+                        <HrIcon name="folder" size={32} />
+                      </div>
+                      <div style={{ fontWeight: 700, color: '#141638' }}>
+                        {resumeFile ? resumeFile.name : 'Click to Upload Resume PDF'}
+                      </div>
+                      <div className={styles.muted} style={{ marginTop: '2px', fontSize: '0.8rem' }}>
+                        {resumeFile ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <HrIcon name="check" size={14} /> File attached (
+                            {Math.round(resumeFile.size / 1024)} KB)
+                          </span>
+                        ) : (
+                          'Ava uses your resume for adaptive interview questions'
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {error && <div className={styles.error}>{error}</div>}
+
+                <button type="submit" className={styles.submitBtn} disabled={loading}>
+                  {loading ? 'Submitting application…' : 'Submit & start AI interview →'}
+                </button>
+              </form>
+            </>
+          )}
         </motion.div>
       </div>
       <SiteFooter />

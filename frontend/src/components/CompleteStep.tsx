@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
 import { candidateFullName, firstName, getInterviewResult, getUser } from '../lib/store'
+import { finalizePendingJobApplication, getPendingJob } from '../lib/pendingJobApply'
 import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
 import styles from './CompleteStep.module.css'
 
@@ -23,6 +24,18 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   const interview = getInterviewResult()
   const [showDossier, setShowDossier] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
+  const [applyNote, setApplyNote] = useState('')
+
+  useEffect(() => {
+    if (!getPendingJob()) return
+    void finalizePendingJobApplication()
+      .then((ok) => {
+        if (ok) setApplyNote('Your job application was submitted with ATS scoring.')
+      })
+      .catch((err) => {
+        setApplyNote(err instanceof Error ? err.message : 'Could not complete job application.')
+      })
+  }, [])
   const rawSchedule = data.interviewNotes?.startsWith('Scheduled: ') ? data.interviewNotes.slice(11).trim() : ''
   const parsedDate = rawSchedule ? new Date(rawSchedule) : null
   const scheduled = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
@@ -43,7 +56,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   return <div className={styles.stack}>
     <section className={styles.headerBanner}>
       <div className={styles.successSeal} aria-hidden="true">✓</div>
-      <div className={styles.bannerText}><h1>All Set, {name}! 🎉</h1><h2>{scheduled ? 'Your 15-Minute AI Interview is Confirmed!' : 'You’re Ready for Your AI Interview!'}</h2><h3>We’re excited to connect with you and help you take the next step<br className={styles.desktopBreak} /> in your career journey.</h3></div>
+      <div className={styles.bannerText}><h1>All Set, {name}! 🎉</h1><h2>{scheduled ? 'Your 15-Minute AI Interview is Confirmed!' : 'You’re Ready for Your AI Interview!'}</h2><h3>We’re excited to connect with you and help you take the next step<br className={styles.desktopBreak} /> in your career journey.</h3>{applyNote && <p className={styles.applyNote}>{applyNote}</p>}</div>
       <div role="img" aria-label="Ava, your friendly AI interviewer" className={styles.robotAvatarImg} />
     </section>
     <section className={styles.detailsCard}>
@@ -55,7 +68,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
         <div className={styles.infoItem}><Icon kind="info" /><div><span>Interview Type</span><strong>Technical + Behavioral Assessment</strong></div></div>
       </div><div className={styles.nextCard}><h3>What’s Next?</h3><ul><li>Our AI will conduct a fair and personalized conversation to understand you better.</li><li>Showcase your skills, experiences and problem-solving approach.</li><li>Get matched with opportunities that are the right fit for you.</li></ul></div></div>
       <div className={styles.detailsActions}><button className={styles.outlineButton} onClick={downloadCalendar}><Icon kind="calendar" />Add to Calendar</button><button className={styles.primaryButton} onClick={() => setShowGuide(!showGuide)} aria-expanded={showGuide}>View Interview Guide <span>→</span></button></div>
-      {showGuide && <div className={styles.guide}><h4>Your interview checklist</h4><p>Choose a quiet, well-lit space. Check your camera, microphone and internet connection. Have examples of your work ready and answer in your own words.</p><div><button onClick={() => onEditStep(4)}>Change interview time</button><button onClick={() => navigate('/interview')}>Open interview studio →</button></div></div>}
+      {showGuide && <div className={styles.guide}><h4>Your interview checklist</h4><p>Choose a quiet, well-lit space. Check your camera, microphone and internet connection. Have examples of your work ready and answer in your own words.</p><div><button onClick={() => onEditStep(4)}>Change interview time</button><button type="button" onClick={() => { const link = localStorage.getItem('hireright.lastInviteUrl'); if (link) window.location.href = link; else navigate('/interview/now') }}>Open interview link →</button></div></div>}
     </section>
     <section className={styles.section}><h2>Your Confirmation Details</h2><h3>Keep your interview details handy with email and WhatsApp.</h3><div className={styles.notifGrid}>
       <article className={styles.emailCard}><header><Icon kind="mail" /><h3>Email Confirmation</h3><span className={styles.previewBadge}>Preview</span></header><p>To: {getUser()?.email || 'Your email address'}</p><p>Subject: Your AI Interview {scheduled ? 'is Confirmed' : 'Details'}</p><div className={styles.message}><p>Hi {name},</p><p>{scheduled ? 'Great news! Your 15-minute AI interview is confirmed.' : 'Your 15-minute AI interview is ready to schedule.'}</p><p>♧ &nbsp;Date: {dateText}<br />◷ &nbsp;Time: {timeText}</p><p>We look forward to meeting you!</p><p>– Team HireRight</p></div><a className={styles.outlineButton} href={`mailto:${encodeURIComponent(getUser()?.email || '')}?subject=${encodeURIComponent('Your AI Interview Details')}&body=${encodeURIComponent(message)}`}>Open Email</a></article>

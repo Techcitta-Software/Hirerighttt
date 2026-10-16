@@ -1,14 +1,16 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useRef, useState, useEffect, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   parseResumeFile,
   type ResumeExtract,
 } from '../lib/resumeParser'
+import { getPendingResume, clearPendingResume } from '../lib/pendingResume'
 import { easeOut } from '../motion/variants'
 import styles from './ResumeUpload.module.css'
 
 interface ResumeUploadProps {
   file: File | null
+  existingFileName?: string | null
   onFileChange: (file: File | null) => void
   onParsed?: (extract: ResumeExtract) => void
 }
@@ -40,6 +42,7 @@ function isAccepted(file: File) {
 
 export function ResumeUpload({
   file,
+  existingFileName,
   onFileChange,
   onParsed,
 }: ResumeUploadProps) {
@@ -49,6 +52,27 @@ export function ResumeUpload({
   const [status, setStatus] = useState('')
   const [parsing, setParsing] = useState(false)
   const [showWhy, setShowWhy] = useState(false)
+
+  // Automatically load and parse resume selected before signup/login
+  useEffect(() => {
+    let active = true
+    async function loadPending() {
+      if (file) return
+      try {
+        const pending = await getPendingResume()
+        if (pending && active) {
+          await clearPendingResume()
+          void validateAndSet(pending)
+        }
+      } catch (err) {
+        console.warn('Could not auto-load pending resume in onboarding', err)
+      }
+    }
+    void loadPending()
+    return () => {
+      active = false
+    }
+  }, [file])
 
   async function validateAndSet(next: File | null) {
     setError('')
@@ -154,7 +178,7 @@ export function ResumeUpload({
           <h3 className={styles.dropPromptTitle}>Upload your latest resume to get started</h3>
           <h3 className={styles.dropPromptDesc}>We&apos;ll use it to understand your background and make the process easier.</h3>
 
-          {!file ? (
+          {!file && !existingFileName ? (
             <div
               className={`${styles.dropzone} ${dragging ? styles.dragging : ''}`}
               onDragOver={(event) => {
@@ -194,9 +218,10 @@ export function ResumeUpload({
                   </svg>
                 </span>
                 <div className={styles.fileMeta}>
-                  <span className={styles.fileName}>{file.name}</span>
+                  <span className={styles.fileName}>{file ? file.name : existingFileName}</span>
                   <span className={styles.fileSize}>
-                    {(file.size / 1024).toFixed(1)} KB · {parsing ? 'Extracting…' : 'Uploaded'}
+                    {file ? `${(file.size / 1024).toFixed(1)} KB · ` : ''}
+                    {parsing ? 'Extracting…' : 'Uploaded'}
                   </span>
                 </div>
               </div>

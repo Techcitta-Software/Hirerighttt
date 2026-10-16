@@ -10,7 +10,6 @@ import {
 } from '../lib/interviewEngine'
 import {
   MIN_APPLY_SCORE,
-  applicationStats,
   applyToJob,
   calcProfileStrength,
   canApplyToJobs,
@@ -18,26 +17,63 @@ import {
   getApplications,
   getInterviewResult,
   getProfile,
-  getRankedJobs,
   getUser,
   hasInterviewScore,
   markNotificationsRead,
+  rankPostedJobs,
   withdrawApplication,
+  type InterviewResult,
+  type RankedJob,
+  type SavedProfile,
 } from '../lib/store'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
+import { downloadScorecardPdf } from '../lib/printScorecard'
+import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import styles from './AppPages.module.css'
+
+function snapshotLastUpdated(profile: SavedProfile | null, interview: InterviewResult | null): string {
+  const stamps = [profile?.updatedAt, interview?.date]
+    .filter(Boolean)
+    .map((d) => new Date(String(d)).getTime())
+    .filter((t) => !Number.isNaN(t))
+  if (!stamps.length) return 'Not saved yet'
+  return new Date(Math.max(...stamps)).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
 
 export function DashboardPage() {
   const user = getUser()
-  if (user?.role === 'employer') {
-    return <Navigate to="/employer/dashboard" replace />
-  }
   const interview = getInterviewResult()
   const profile = getProfile()
   const name = firstName()
   const strength = interview ? interview.overall : calcProfileStrength(profile)
-  const stats = applicationStats()
-  const ranked = getRankedJobs().slice(0, 3)
+  const snapshotReadiness = calcProfileStrength(profile)
+  const snapshotUpdated = snapshotLastUpdated(profile, interview)
+  const [ranked, setRanked] = useState<RankedJob[]>([])
+  const [jobsError, setJobsError] = useState('')
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetchOpenJobs()
+      .then(({ jobs }) => {
+        if (!cancelled) setRanked(rankPostedJobs(jobs).slice(0, 3))
+      })
+      .catch(() => {
+        if (!cancelled) setJobsError('Employer jobs could not be loaded.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [interview?.overall])
+
+  if (user?.role === 'employer') {
+    return <Navigate to="/employer/dashboard" replace />
+  }
 
   return (
     <div className={styles.page}>
@@ -59,6 +95,22 @@ export function DashboardPage() {
               </p>
             </div>
             <div className={styles.headActions}>
+              {interview && (
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  disabled={downloading}
+                  onClick={() => {
+                    setDownloadError('')
+                    setDownloading(true)
+                    void downloadScorecardPdf(user?.name || profile?.fullName || name)
+                      .catch(() => setDownloadError('Could not download the report. Try again.'))
+                      .finally(() => setDownloading(false))
+                  }}
+                >
+                  {downloading ? 'Preparing download…' : 'Download report'}
+                </button>
+              )}
               <Link to="/jobs" className={styles.secondary}>
                 View matches
               </Link>
@@ -109,6 +161,7 @@ export function DashboardPage() {
                   <Link to="/profile" className={styles.link}>
                     Open talent scorecard →
                   </Link>
+                  {downloadError ? <p className={styles.muted}>{downloadError}</p> : null}
                 </>
               ) : (
                 <>
@@ -150,10 +203,14 @@ export function DashboardPage() {
                 <p className={styles.muted} style={{ marginTop: 12, textAlign: 'left' }}>
                   Matches stay locked until you finish your AI interview.
                 </p>
+              ) : ranked.length === 0 ? (
+                <p className={styles.muted} style={{ marginTop: 12, textAlign: 'left' }}>
+                  {jobsError || 'No jobs yet. Roles show up here after an employer posts them.'}
+                </p>
               ) : (
                 <ul className={styles.matchList}>
                   {ranked.map((job) => (
-                    <li key={job.title}>
+                    <li key={job.id || `${job.company}-${job.title}`}>
                       <div>
                         <strong>{job.title}</strong>
                         <span>
@@ -170,20 +227,47 @@ export function DashboardPage() {
               </Link>
             </motion.article>
 
-            <motion.article className={styles.card} variants={fadeUp}>
-              <h2>Applications</h2>
-              <div className={styles.stats}>
-                {[
-                  [String(stats.applied), 'Applied'],
-                  [String(stats.inReview), 'In Review'],
-                  [String(stats.interviews), 'Interviews'],
-                  [String(stats.offers), 'Offers'],
-                ].map(([value, label]) => (
-                  <div key={label}>
-                    <strong>{value}</strong>
-                    <span>{label}</span>
-                  </div>
-                ))}
+            <motion.article className={`${styles.card} ${styles.snapshotCard}`} variants={fadeUp}>
+              <h2>Update your current snapshot</h2>
+              <p className={styles.muted} style={{ marginTop: 8, textAlign: 'left' }}>
+                This is what employers and job matches use today — keep your role, résumé, and
+                interview score in sync.
+              </p>
+              <p className={styles.snapshotMeta}>
+                Last updated <strong>{snapshotUpdated}</strong> · Readiness{' '}
+                <strong>{snapshotReadiness}%</strong>
+              </p>
+              <ul className={styles.snapshotList}>
+                <li>
+                  <span>Role</span>
+                  <strong>{profile?.currentRole || interview?.role || 'Add your role'}</strong>
+                </li>
+                <li>
+                  <span>Experience</span>
+                  <strong>{profile?.totalExperience || interview?.level || 'Add experience'}</strong>
+                </li>
+                <li>
+                  <span>Skills on file</span>
+                  <strong>{profile?.skills?.length ?? 0}</strong>
+                </li>
+                <li>
+                  <span>Résumé</span>
+                  <strong>{profile?.resumeName || 'Upload résumé'}</strong>
+                </li>
+                <li>
+                  <span>AI interview</span>
+                  <strong>
+                    {interview ? `Score ${interview.overall} · ${interview.role}` : 'Not completed'}
+                  </strong>
+                </li>
+              </ul>
+              <div className={styles.snapshotActions}>
+                <Link to="/onboarding" className={styles.primary}>
+                  Update snapshot
+                </Link>
+                <Link to="/interview" className={styles.secondary}>
+                  {interview ? 'Refresh interview score' : 'Add interview score'}
+                </Link>
               </div>
             </motion.article>
 
@@ -216,6 +300,17 @@ export function DashboardPage() {
             </motion.article>
           </div>
         </motion.main>
+        {interview && (
+          <div className={styles.reportCapture} aria-hidden="true" inert>
+            <CareerIntelligenceDashboard
+              result={interview}
+              candidateName={user?.name || profile?.fullName || name}
+              candidateRole={profile?.currentRole || interview.role}
+              candidateExperience={profile?.totalExperience || interview.level}
+              skills={profile?.skills ?? []}
+            />
+          </div>
+        )}
       </div>
       <SiteFooter />
     </div>
@@ -225,13 +320,43 @@ export function DashboardPage() {
 export function JobsPage() {
   const navigate = useNavigate()
   const [toast, setToast] = useState('')
+  const [ranked, setRanked] = useState<RankedJob[]>([])
+  const [jobsError, setJobsError] = useState('')
   const interview = getInterviewResult()
   const unlocked = hasInterviewScore()
   const canApply = canApplyToJobs()
-  const ranked = getRankedJobs()
 
-  function handleApply(job: (typeof ranked)[number]) {
+  useEffect(() => {
+    let cancelled = false
+    fetchOpenJobs()
+      .then(({ jobs }) => {
+        if (!cancelled) setRanked(rankPostedJobs(jobs))
+      })
+      .catch(() => {
+        if (!cancelled) setJobsError('Employer jobs could not be loaded.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [interview?.overall])
+
+  async function handleApply(job: RankedJob) {
     try {
+      const user = getUser()
+      const profile = getProfile()
+      if (job.shareableCode) {
+        await applyToPublicJob(
+          job.shareableCode,
+          {
+            candidateName: user?.name || profile?.fullName || 'Candidate',
+            candidateEmail: user?.email || '',
+            experienceYears: profile?.totalExperience || '',
+            resumeText: profile?.resumeText || '',
+            resumeName: profile?.resumeName || undefined,
+          },
+          job.companySlug,
+        )
+      }
       applyToJob(job)
       setToast(`Applied to ${job.title} at ${job.company}`)
     } catch (err) {
@@ -240,9 +365,9 @@ export function JobsPage() {
     window.setTimeout(() => setToast(''), 2800)
   }
 
-  function handleInterviewToApply(job: (typeof ranked)[number]) {
-    const targetRole = mapProfileRoleToInterviewRole(job.title)
-    const targetLevel = mapExperienceToLevel(job.title)
+  function handleInterviewToApply(job: RankedJob) {
+    const targetRole = job.roleTrack || mapProfileRoleToInterviewRole(job.title)
+    const targetLevel = job.experienceLevel || mapExperienceToLevel(job.title)
     sessionStorage.setItem(
       'hireright.targetJob',
       JSON.stringify({
@@ -250,6 +375,7 @@ export function JobsPage() {
         company: job.company,
         role: targetRole,
         level: targetLevel,
+        jd: job.jobDescription || '',
       }),
     )
     navigate('/interview')
@@ -297,7 +423,12 @@ export function JobsPage() {
           {toast && <p className={styles.toast}>{toast}</p>}
 
           <div className={styles.jobList}>
-            {ranked.map((job) => (
+            {ranked.length === 0 ? (
+              <p className={styles.muted}>
+                {jobsError || 'No jobs yet. Roles appear after an employer creates them.'}
+              </p>
+            ) : (
+              ranked.map((job) => (
               <motion.article
                 key={`${job.company}-${job.title}`}
                 className={`${styles.jobCard} ${job.locked ? styles.jobLocked : ''}`}
@@ -334,7 +465,8 @@ export function JobsPage() {
                   )}
                 </div>
               </motion.article>
-            ))}
+              ))
+            )}
           </div>
         </motion.main>
       </div>

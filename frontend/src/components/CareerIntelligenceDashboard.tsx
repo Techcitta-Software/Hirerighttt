@@ -1,6 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { InterviewResult } from '../lib/store'
-import { printScorecard } from '../lib/printScorecard'
+import { downloadScorecardPdf } from '../lib/printScorecard'
 import { HrIcon, type HrIconName } from './HrIcon'
 import { BrandLogo } from './BrandLogo'
 import styles from './CareerIntelligenceDashboard.module.css'
@@ -44,6 +44,8 @@ export function CareerIntelligenceDashboard({
   onRetake,
   onContinue,
 }: Props) {
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
   const sc = result.scorecard
   const overall = result.overall
   const careerScore =
@@ -175,14 +177,25 @@ export function CareerIntelligenceDashboard({
             </div>
           </div>
 
-          <div className={styles.headerActions}>
+          <div className={styles.headerActions} data-download-exclude>
             <button
               type="button"
               className={styles.printBtn}
-              onClick={() => printScorecard()}
+              disabled={downloading}
+              onClick={() => {
+                setDownloadError('')
+                setDownloading(true)
+                void downloadScorecardPdf(candidateName)
+                  .catch(() => {
+                    setDownloadError('Could not download the report. Try again.')
+                  })
+                  .finally(() => setDownloading(false))
+              }}
             >
-              <HrIcon name="document" size={16} /> Export / Print PDF Dossier
+              <HrIcon name="download" size={16} />
+              {downloading ? 'Preparing download…' : 'Download report'}
             </button>
+            {downloadError ? <p className={styles.downloadError}>{downloadError}</p> : null}
           </div>
         </div>
 
@@ -735,7 +748,7 @@ export function CareerIntelligenceDashboard({
           </span>
         </div>
 
-        <div className={styles.actionButtonRow}>
+        <div className={styles.actionButtonRow} data-download-exclude>
           {onRetake && (
             <button type="button" className={styles.secondaryBtn} onClick={onRetake}>
               Retake Interview with Ava

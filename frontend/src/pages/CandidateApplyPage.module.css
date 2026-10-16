@@ -181,6 +181,99 @@
   margin-top: 8px;
 }
 
+.loadingText {
+  text-align: center;
+  color: #64748b;
+  margin-top: 48px;
+}
+
+.muted {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.errorTitle {
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.jdHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skillsBlock {
+  margin-top: 16px;
+}
+
+.skillsLabel {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.skillsRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.skillPill {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.formSectionTitle {
+  font-size: 1.2rem;
+  font-weight: 800;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atsCard {
+  background: #f5f2ff;
+  border: 1px solid rgba(96, 54, 235, 0.25);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 8px;
+}
+
+.atsTitle {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+  color: #141638;
+}
+
+.atsScores {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 12px;
+}
+
+.atsScores strong {
+  display: block;
+  font-size: 1.5rem;
+  color: #6036eb;
+}
+
+.atsLabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  font-weight: 700;
+}
+
 @media (max-width: 640px) {
   .shell {
     padding-bottom: 40px;

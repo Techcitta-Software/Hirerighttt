@@ -26,26 +26,30 @@
   object-fit: contain;
   user-select: none;
   pointer-events: none;
+  image-rendering: -webkit-optimize-contrast;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .sm {
-  height: 30px;
+  height: 38px;
 }
 
 .md {
-  height: 45px;
+  height: 54px;
 }
 
 .lg {
-  height: 56px;
+  height: 68px;
 }
 
 .xl {
-  height: 68px;
+  height: 84px;
 }
 
 @media (max-width: 640px) {
   .md {
-    height: 36px;
+    height: 44px;
   }
 }
+

@@ -75,6 +75,7 @@ export function ProfileWizard() {
       preferredRoles: saved.preferredRoles ?? initialFormData.preferredRoles,
       preferredLocations: saved.preferredLocations ?? initialFormData.preferredLocations,
       resumeText: saved.resumeText || '',
+      resumeName: saved.resumeName || null,
       resumeFile: null,
     }
   })
@@ -164,6 +165,7 @@ export function ProfileWizard() {
 
   const meta = STEP_TITLES[step]
   const showAutoSaveFooter = step >= 2
+  const isScheduled = Boolean(data.interviewNotes?.startsWith('Scheduled:'))
 
   return (
     <>
@@ -300,7 +302,9 @@ export function ProfileWizard() {
                 {saving
                   ? 'Saving…'
                   : step === 4
-                    ? 'Save & Start AI Interview'
+                    ? isScheduled
+                      ? 'Save & finish scheduling'
+                      : 'Save & Start AI Interview'
                     : step === 5
                       ? 'Explore matched roles'
                       : 'Save & Continue'}

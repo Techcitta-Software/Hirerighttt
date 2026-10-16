@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 /** SQL files applied in order on every Neon connect / db:init */
-export const SCHEMA_FILES = ['schema.sql', 'schema-talent-search.sql', 'schema-assessment.sql']
+export const SCHEMA_FILES = [
+  'schema.sql',
+  'schema-talent-search.sql',
+  'schema-assessment.sql',
+  'schema-interview-invites.sql',
+]
 
 export function readAllSchemaSql() {
   return SCHEMA_FILES.map((file) => readFileSync(join(__dirname, file), 'utf8')).join('\n')
@@ -36,7 +41,9 @@ export const EXPECTED_TABLES = [
   'candidate_talent_profiles',
   'organization_talent_access',
   'recruiter_saved_searches',
+  'interview_invites',
   'assessment_jobs', 'assessment_resumes', 'interview_plans', 'interview_questions',
   'assessment_sessions', 'interview_answers', 'answer_evaluations', 'recruiter_reviews',
   'interview_reports', 'assessment_events', 'assessment_usage',
+  'personalized_interview_links',
 ]

@@ -1,0 +1,14 @@
+.screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: linear-gradient(180deg, #f8f7fc 0%, #ffffff 40%);
+}
+
+.text {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #3d3760;
+}

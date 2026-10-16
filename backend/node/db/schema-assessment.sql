@@ -99,3 +99,15 @@ CREATE INDEX IF NOT EXISTS idx_assessment_sessions_candidate ON assessment_sessi
 CREATE INDEX IF NOT EXISTS idx_assessment_sessions_org ON assessment_sessions(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_assessment_reviews_evaluation ON recruiter_reviews(evaluation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_assessment_events_org ON assessment_events(organization_id, created_at DESC);
+
+-- Snapshots used by the main candidate flow are private and never public job listings.
+ALTER TABLE assessment_jobs ADD COLUMN IF NOT EXISTS personal_candidate_id TEXT REFERENCES users(id);
+CREATE TABLE IF NOT EXISTS personalized_interview_links (
+  session_id UUID PRIMARY KEY REFERENCES assessment_sessions(id) ON DELETE CASCADE,
+  candidate_id TEXT NOT NULL REFERENCES users(id),
+  job_id TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+  application_id TEXT REFERENCES employer_applications(id) ON DELETE SET NULL,
+  request_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(candidate_id, request_id)
+);

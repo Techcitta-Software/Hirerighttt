@@ -8,37 +8,21 @@ import type { AnswerAnalysis, IntegrityLogEvent, InterviewResult, SavedProfile }
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
-import { geminiChatFetch, parseGeminiChatResponse } from './geminiAuth'
 import { candidateFullName } from './store'
-import {
-  generateLocalAdaptiveQuestion,
-  PROFESSIONAL_INTERVIEW_LENGTH,
-} from './adaptiveInterview'
-import {
-  resolveInteractiveTurn,
-  type InteractiveFlowStepId,
-  type InterviewInteractiveResponse,
-} from './interviewInteractive'
+import { generateLocalAdaptiveQuestion, INTERVIEW_TURN_COUNT } from './adaptiveInterview'
+import { generateAdaptiveQuestionClient } from './interviewQuestionGeneration'
 import {
   buildResumeInterviewQuestions,
   runLocalInterviewScore,
 } from './localInterview'
 
-const DEMO_DISPLAY_NAME = 'Arjun Sharma'
-
-function isDemoPersonaName(name: string): boolean {
-  const t = name.trim()
-  return !t || t === DEMO_DISPLAY_NAME || /^arjun\s+sharma$/i.test(t)
-}
-
 function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | null {
   if (!profile) return null
   const display = candidateFullName()
   const resolved =
-    (!isDemoPersonaName(profile.fullName || '') && profile.fullName?.trim()) ||
-    (!isDemoPersonaName(profile.name || '') && profile.name?.trim()) ||
-    (!isDemoPersonaName(display) && display) ||
-    ''
+    profile.fullName?.trim() ||
+    profile.name?.trim() ||
+    (display && display !== 'Candidate' ? display : '')
   if (!resolved) return profile
   return {
     ...profile,
@@ -49,12 +33,12 @@ function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | nul
 
 function candidateFirstName(profile: SavedProfile | null): string {
   const full =
-    enrichProfileForAgent(profile)?.fullName?.trim() ||
+    profile?.fullName?.trim() ||
+    profile?.name?.trim() ||
     candidateFullName()
-  if (!full || full === 'Candidate' || isDemoPersonaName(full)) return 'there'
+  if (!full || full === 'Candidate') return 'there'
   return full.split(/\s+/)[0] || 'there'
 }
-
 
 const GEMINI_API_KEY = clientLlmAllowed()
   ? import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || ''
@@ -67,7 +51,7 @@ const GEMINI_BASE_URL = (
       'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/$/, '')
 const PRIMARY_MODEL =
-  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.5-flash-lite'
+  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-2.5-flash'
 const FALLBACK_MODEL =
   import.meta.env.VITE_FALLBACK_MODEL || 'gemini-1.5-flash'
 const GEMINI_MODEL = PRIMARY_MODEL
@@ -81,6 +65,12 @@ export type InterviewStartResponse = {
   question: Question
   offline?: boolean
   adaptive?: boolean
+}
+
+export type JobLinkedInterviewMeta = {
+  applicationId?: string
+  jobId?: string
+  organizationId?: string
 }
 
 export type IntegritySnapshot = {
@@ -125,12 +115,18 @@ export async function checkLlmStatus(): Promise<{
   const models = [PRIMARY_MODEL, FALLBACK_MODEL]
   for (const m of models) {
     try {
-      const directRes = await geminiChatFetch({
-        apiKey: GEMINI_API_KEY,
-        openAiBaseUrl: GEMINI_BASE_URL,
-        model: m,
-        user: 'Ping',
-        maxTokens: 5,
+      const directRes = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GEMINI_API_KEY}`,
+          'x-goog-api-key': GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          model: m,
+          messages: [{ role: 'user', content: 'Ping' }],
+          max_tokens: 5,
+        }),
       })
 
       if (directRes.ok) {
@@ -158,22 +154,12 @@ export async function checkLlmStatus(): Promise<{
  * Start an interview session with Ava.
  * Tries Google Gemini AI, falling back smoothly to local resume questions.
  */
-export type JobLinkedInterviewMeta = {
-  jobId?: string
-  applicationId?: string
-  organizationId?: string
-  primarySkills?: string[]
-  atsScore?: number
-  jdMatchScore?: number
-}
-
 export async function startInterviewSession(
   role: string,
   level: string,
   profile: SavedProfile | null,
   jobDescription?: string,
   explicitRoleTrack?: boolean,
-  jobLink?: JobLinkedInterviewMeta,
 ): Promise<InterviewStartResponse> {
   const agentProfile = enrichProfileForAgent(profile)
   await ensureApiSession()
@@ -189,12 +175,6 @@ export async function startInterviewSession(
         jobDescription,
         adaptive: true,
         explicitRoleTrack: Boolean(explicitRoleTrack),
-        jobId: jobLink?.jobId,
-        applicationId: jobLink?.applicationId,
-        organizationId: jobLink?.organizationId,
-        primarySkills: jobLink?.primarySkills,
-        atsScore: jobLink?.atsScore,
-        jdMatchScore: jobLink?.jdMatchScore,
       }),
     })
     if (res.ok) {
@@ -205,48 +185,69 @@ export async function startInterviewSession(
         Array.isArray(questions) &&
         (adaptive ? questions.length >= 1 : questions.length >= 3)
       if (hasQuestions) {
-        const firstOnly = questions.slice(0, 1)
+        const llmAgent = data.agent === 'llm' || data.llm || data.agent === 'llm-adaptive'
+        const totalTurns =
+          typeof data.total === 'number' && data.total > 0
+            ? data.total
+            : adaptive
+              ? INTERVIEW_TURN_COUNT
+              : questions.length
         return {
           sessionId: data.sessionId || `session-${Date.now().toString(36)}`,
-          agent: data.llm ? 'Ava · Google Gemini · AI questions' : 'Ava · AI adaptive',
-          llm: Boolean(data.llm),
-          total: data.total ?? PROFESSIONAL_INTERVIEW_LENGTH,
-          questions: firstOnly,
-          question: firstOnly[0],
+          agent: llmAgent
+            ? 'Ava · Google Gemini · adaptive'
+            : data.agent || 'Ava · adaptive agent',
+          llm: Boolean(llmAgent),
+          total: totalTurns,
+          questions,
+          question: questions[0],
           offline: false,
-          adaptive: true,
+          adaptive,
         }
       }
     }
-    if (res.status === 503) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(
-        String(data.error || 'AI question generation unavailable. Set GEMINI_API_KEY on the server.'),
-      )
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('GEMINI')) throw err
-    // backend not running — try client AI fallback below
+  } catch {
+    // backend not running, proceed to direct Gemini call
   }
 
-  let firstAdaptive: Question
-  try {
-    firstAdaptive = await generateLocalAdaptiveQuestion(
+  // 2. Direct adaptive question (one LLM call — same spec as server)
+  if (clientLlmAllowed()) {
+    const firstLlm = await generateAdaptiveQuestionClient({
+      profile: agentProfile,
       role,
       level,
-      agentProfile,
-      [],
-      '',
-      { explicitRoleTrack, jobDescription },
-    )
-  } catch (err) {
-    throw err instanceof Error ? err : new Error('Could not start AI interview.')
+      jobDescription,
+      history: [],
+      lastAnswer: '',
+    })
+    if (firstLlm) {
+      return {
+        sessionId: `gemini-${Date.now().toString(36)}`,
+        agent: 'Ava · adaptive LLM (client)',
+        llm: true,
+        total: INTERVIEW_TURN_COUNT,
+        questions: [firstLlm],
+        question: firstLlm,
+        offline: true,
+        adaptive: true,
+      }
+    }
   }
+
+  // 3. Local template fallback (one question at a time)
+  const firstAdaptive = generateLocalAdaptiveQuestion(
+    role,
+    level,
+    agentProfile,
+    [],
+    '',
+    { explicitRoleTrack, jobDescription },
+  )
   return {
     sessionId: `local-${Date.now().toString(36)}`,
     agent: 'Ava · local adaptive agent',
     llm: false,
-    total: PROFESSIONAL_INTERVIEW_LENGTH,
+    total: INTERVIEW_TURN_COUNT,
     questions: [firstAdaptive],
     question: firstAdaptive,
     offline: true,
@@ -273,55 +274,6 @@ export type InterviewTurnResponse = {
   spoken: string
   interactive?: boolean
   agent?: string
-  action?: string
-}
-
-export type InterviewInteractiveTurnResponse = InterviewInteractiveResponse & {
-  agent?: string
-  replay?: boolean
-  adjustSpeechRate?: number
-}
-
-/** Pre-interview small talk + yes/next gates (JSON actions from `/api/interview/interact`). */
-export async function processInterviewInteractiveTurn(options: {
-  phase: InteractiveFlowStepId
-  userText: string
-  role: string
-  profile: SavedProfile | null
-}): Promise<InterviewInteractiveTurnResponse> {
-  await ensureApiSession()
-  const agentProfile = enrichProfileForAgent(options.profile)
-  try {
-    const res = await apiFetch('/api/interview/interact', {
-      method: 'POST',
-      body: JSON.stringify({
-        phase: options.phase,
-        userText: options.userText,
-        role: options.role,
-        profile: agentProfile,
-      }),
-    })
-    if (res.ok) {
-      const data = (await res.json()) as InterviewInteractiveTurnResponse
-      if (data.nextPhase) return data
-    }
-  } catch {
-    // local fallback
-  }
-  const local = resolveInteractiveTurn({
-    phase: options.phase,
-    userText: options.userText,
-    role: options.role,
-    firstName: candidateFirstName(agentProfile),
-  })
-  return (
-    local || {
-      action: 'listen',
-      nextPhase: options.phase,
-      interactive: false,
-      agent: 'local-interactive',
-    }
-  )
 }
 
 /** Ava acknowledges the answer and bridges to the next question (interactive agent). */
@@ -439,18 +391,26 @@ Return ONLY valid JSON matching this schema:
   })
 
   try {
-    const res = await geminiChatFetch({
-      apiKey: GEMINI_API_KEY,
-      openAiBaseUrl: GEMINI_BASE_URL,
-      model: GEMINI_MODEL,
-      system,
-      user,
-      temperature: 0.2,
+    const res = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        'x-goog-api-key': GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.2,
+      }),
     })
 
     if (!res.ok) return null
     const data = await res.json()
-    const content = parseGeminiChatResponse(data)
+    const content = data.choices?.[0]?.message?.content || ''
     const match = content.match(/\{[\s\S]*\}/)
     if (!match) return null
 

@@ -61,6 +61,7 @@ export function createAssessmentService(repo, callAI = structuredCall) {
       const { rows: jobs } = await repo.query('SELECT * FROM assessment_jobs WHERE id=$1', [body.job_id])
       const job = jobs[0]
       check(job, 'Job not found', 404)
+      check(!job.personal_candidate_id || job.personal_candidate_id === actor.id, 'Job not found', 404)
       const { rows: resumes } = await repo.query('SELECT extracted_text FROM assessment_resumes WHERE id=$1 AND candidate_id=$2 AND expires_at>NOW()', [body.resume_id, actor.id])
       check(resumes[0], 'Your unexpired resume is required', 404)
       const resumeText = resumes[0].extracted_text
@@ -175,9 +176,9 @@ export function createAssessmentService(repo, callAI = structuredCall) {
       return { ...saved.response, ...await evaluateAnswer(actor, id, saved.answer.id) }
     },
     evaluateAnswer,
-    async report(actor, id) {
+    async report(actor, id, { candidateAccess = false } = {}) {
       return repo.transaction(async db => {
-        const session = await loadSession(db, id, actor, { lock: true, recruiterOnly: true })
+        const session = await loadSession(db, id, actor, { lock: true, recruiterOnly: !candidateAccess, candidateOnly: candidateAccess })
         check(session.status === 'completed', 'Report is available after completion', 409)
         const { questions, job } = await sessionDetails(db, session)
         const { rows: answers } = await db.query('SELECT * FROM interview_answers WHERE session_id=$1 ORDER BY created_at', [id])
@@ -222,6 +223,7 @@ export function createAssessmentService(repo, callAI = structuredCall) {
       const { rows } = await repo.query(
         `SELECT j.id,j.title,j.description,j.experience_level,j.organization_id,j.created_at,o.name AS organization_name
          FROM assessment_jobs j JOIN organizations o ON o.id=j.organization_id
+         WHERE j.personal_candidate_id IS NULL AND o.status='active'
          ORDER BY j.created_at DESC LIMIT 50`,
       )
       return { jobs: rows }

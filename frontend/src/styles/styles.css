@@ -117,9 +117,7 @@ button {
    3. Top Navbar
    -------------------------------------------------------------------------- */
 .site-header {
-  position: sticky;
-  top: 0;
-  left: 0;
+  position: static;
   width: 100%;
   background-color: var(--color-white);
   border-bottom: 1px solid #edf2f7;

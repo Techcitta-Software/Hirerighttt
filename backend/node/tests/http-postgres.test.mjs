@@ -35,9 +35,19 @@ test('HTTP auth, vault isolation and invalid request handling', { skip: !url, ti
     }
     assert.ok(ready, 'Test API did not start')
     for (const path of ['/api/confidential/candidates', '/api/confidential/export', '/api/confidential/stats', '/api/assessments']) assert.equal((await request(path)).status, 401)
-    const first = await request('/api/signup', 'POST', { name: 'Recruiter A', email: 'a@example.test', password: 'example-password', role: 'employer' })
+    const signupBody = (email, phone) => ({
+      name: 'Recruiter',
+      email,
+      password: 'example-password',
+      role: 'employer',
+      companyName: 'Acme Hiring',
+      phone,
+    })
+    const first = await request('/api/signup', 'POST', signupBody('a@example.test', '+15550000001'))
     assert.equal(first.status, 201)
-    const second = await request('/api/signup', 'POST', { name: 'Recruiter B', email: 'b@example.test', password: 'example-password', role: 'employer' })
+    const dupEmail = await request('/api/signup', 'POST', signupBody('a@example.test', '+15550000099'))
+    assert.equal(dupEmail.status, 409)
+    const second = await request('/api/signup', 'POST', signupBody('b@example.test', '+15550000002'))
     assert.equal(second.status, 201)
     assert.equal((await request('/api/login', 'POST', { email: 'a@example.test', password: 'example-password' })).status, 200)
     const added = await request('/api/confidential/candidates', 'POST', { name: 'Private Candidate' }, first.data.token)

@@ -1,26 +1,103 @@
 import { createServer } from 'node:http'
 import { createAssessmentHandler } from './assessment/routes.mjs'
+import { createPersonalizedHandler } from './assessment/personalizedRoutes.mjs'
 import { randomBytes } from 'node:crypto'
 import { hashPassword, verifyPassword } from './authPasswords.mjs'
+import { registerAccount, UniqueAccountError } from './authRegister.mjs'
+import { validateEmployerSignup, loginRoleMismatchMessage } from './authRoles.mjs'
 import { normalizePhone, isValidPhoneInput, findUserByPhone } from './authPhone.mjs'
-import { evaluateResumeAgainstJd, generateVendorAssessmentSheet } from './vendor/aiEvaluation.mjs'
+import {
+  evaluateResumeAgainstJd,
+  generateVendorAssessmentSheet,
+  vendorReportNeedsRefresh,
+} from './vendor/aiEvaluation.mjs'
 import { config, assertProductionConfig, isProdLike } from './config.mjs'
 import {
   loadDb as loadDbFromStore,
   saveDb as persistDb,
+  upsertJobRecord,
   saveSessionToken,
   resolveSessionEmail,
   deleteSessionToken,
   pingDatabase,
   appendInterviewHistory,
   emptyDb,
+  dbPool,
 } from './db/store.mjs'
+import { smtpConfigured } from './mail.mjs'
+import {
+  newInviteToken,
+  insertInterviewInvite,
+  getInterviewInviteByToken,
+  inviteAccessState,
+  sendInterviewInviteEmail,
+  invitePublicUrl,
+  buildInterviewInviteEmail,
+  parseInviteContext,
+} from './interviewInvites.mjs'
+import { sendMail } from './mail.mjs'
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { createReadStream, existsSync, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, extname } from 'node:path'
+import { join, extname, normalize, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const frontendDistFromEnv = (process.env.FRONTEND_DIST || '').trim()
+const frontendDistDefault = join(repoRoot, 'frontend', 'dist')
+const frontendDistRoot = resolve(frontendDistFromEnv || frontendDistDefault)
+const serveFrontend =
+  process.env.SERVE_FRONTEND === 'true' ||
+  (isProdLike &&
+    process.env.SERVE_FRONTEND !== 'false' &&
+    existsSync(join(frontendDistRoot, 'index.html')))
+
+const STATIC_MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
+function serveSpaStatic(req, res, urlPath) {
+  if (!serveFrontend || (req.method !== 'GET' && req.method !== 'HEAD')) return false
+  if (urlPath.startsWith('/api')) return false
+
+  const safePath = normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, '')
+  let filePath = join(frontendDistRoot, safePath === '/' ? 'index.html' : safePath)
+  if (!filePath.startsWith(frontendDistRoot)) {
+    filePath = join(frontendDistRoot, 'index.html')
+  } else {
+    try {
+      const st = statSync(filePath)
+      if (st.isDirectory()) filePath = join(filePath, 'index.html')
+    } catch {
+      filePath = join(frontendDistRoot, 'index.html')
+    }
+  }
+
+  if (!existsSync(filePath)) {
+    filePath = join(frontendDistRoot, 'index.html')
+  }
+
+  const type = STATIC_MIME[extname(filePath).toLowerCase()] || 'application/octet-stream'
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': urlPath === '/' ? 'no-cache' : 'public, max-age=3600' })
+  if (req.method === 'HEAD') {
+    res.end()
+    return true
+  }
+  createReadStream(filePath).pipe(res)
+  return true
+}
 import { provisionEmployerTenant, tagVaultForOrganization } from './db/saasHelpers.mjs'
 import { geminiChat, resolveGeminiApiKey } from './geminiClient.mjs'
 import { isGeminiProvider } from './llmModels.mjs'
@@ -33,8 +110,10 @@ import {
 } from './db/talentIndex.mjs'
 import {
   createVendorJob,
-  getJobByShareableCode,
+  resolvePublicJob,
+  parsePublicJobPath,
   listOrgJobs,
+  listOpenJobs,
   getOrgJob,
   getOrgApplication,
   createJobApplication,
@@ -43,7 +122,14 @@ import {
   publicJobPayload,
 } from './vendor/jobs.mjs'
 import {
+  listJobCandidates,
+  listOrganizationCandidates,
+} from './vendor/orgCandidates.mjs'
+import {
   generateAdaptiveQuestion,
+  generateAdaptiveQuestionLocal,
+  analyzeInterviewSkillMatch,
+  resolveInterviewQuestionMode,
   INTERVIEW_TURN_COUNT,
   generateInterviewTurn,
   getInterviewInteractiveFlowJson,
@@ -58,6 +144,35 @@ import {
 } from './interviewAgent.mjs'
 
 assertProductionConfig()
+
+function buildEmployerInviteContext(db, app, job) {
+  const email = String(app.candidateEmail || '').toLowerCase()
+  const profile = db.profiles?.[email] || {}
+  return {
+    source: 'employer',
+    resumeText: String(app.data?.resumeText || profile.resumeText || '').slice(0, 80000),
+    resumeName: app.data?.resumeName || profile.resumeName || null,
+    jobDescription: String(job?.jobDescription || app.data?.jobDescription || '').slice(0, 80000),
+    roleTrack: job?.roleTrack || app.data?.candidateRole || '',
+    experienceLevel: app.data?.experienceYears || job?.experienceLevel || '',
+    primarySkills: app.data?.primarySkills || job?.requiredSkills || [],
+    candidateRole: app.data?.candidateRole || profile.currentRole || '',
+  }
+}
+
+function buildJobSeekerInviteContext(db, email, body = {}) {
+  const profile = db.profiles?.[email] || {}
+  return {
+    source: 'jobseeker',
+    resumeText: String(profile.resumeText || body.resumeText || '').slice(0, 80000),
+    resumeName: profile.resumeName || body.resumeName || null,
+    jobDescription: String(body.jobDescription || '').slice(0, 80000),
+    roleTrack: body.roleTrack || profile.currentRole || '',
+    experienceLevel: body.experienceLevel || profile.totalExperience || '',
+    primarySkills: body.primarySkills || profile.skills || [],
+    jobTitle: body.jobTitle || '',
+  }
+}
 
 const PADDLE_SCRIPT_PATH = [
   new URL('./python/paddle_resume_parser.py', import.meta.url),
@@ -198,12 +313,14 @@ async function seedDemoUsers(db) {
       name: 'Arjun Sharma',
       email: 'demo@hireright.com',
       password: 'password123',
+      phone: '+919000000001',
       role: 'jobseeker',
     },
     {
       name: 'Sarah Jenkins (Recruiter)',
       email: 'employer@hireright.com',
       password: 'password123',
+      phone: '+919000000002',
       role: 'employer',
       companyName: 'TechCitta Solutions',
     },
@@ -211,6 +328,7 @@ async function seedDemoUsers(db) {
       name: 'Alex Morgan (Admin)',
       email: 'admin@hireright.com',
       password: 'password123',
+      phone: '+919000000003',
       role: 'employer',
       companyName: 'HIRERIGHT Recruiting',
     },
@@ -222,6 +340,7 @@ async function seedDemoUsers(db) {
         id: randomBytes(8).toString('hex'),
         name: demo.name,
         email: demo.email,
+        phone: demo.phone,
         passwordHash: await hashPassword(demo.password),
         role: demo.role,
         companyName: demo.companyName,
@@ -331,6 +450,7 @@ function json(res, status, body) {
 }
 
 function readBody(req) {
+  if (req.parsedBody) return Promise.resolve(req.parsedBody)
   req.setEncoding('utf8')
   return new Promise((resolve, reject) => {
     let data = ''
@@ -390,7 +510,24 @@ async function authEmail(req) {
 
 async function requireAuth(req, res) {
   const email = await authEmail(req)
-  if (!email || !dbCache.users.some(user => user.email === email && user.status === 'active')) {
+  if (!email) {
+    json(res, 401, { error: 'Unauthorized' })
+    return null
+  }
+  let active = dbCache.users.some((user) => user.email === email && user.status === 'active')
+  if (!active && config.databaseUrl) {
+    try {
+      const fresh = await loadDbFromStore(config.databaseUrl)
+      const hit = fresh.users.find((u) => u.email === email && u.status === 'active')
+      if (hit && !dbCache.users.some((u) => u.email === email)) {
+        dbCache.users.push(hit)
+      }
+      active = Boolean(hit)
+    } catch {
+      active = false
+    }
+  }
+  if (!active) {
     json(res, 401, { error: 'Unauthorized' })
     return null
   }
@@ -445,6 +582,7 @@ const server = createServer(async (req, res) => {
 
   try {
     if (await assessmentHandler(req, res, url)) return
+    if (await personalizedHandler(req, res, url)) return
     // Every confidential vault operation is authenticated and tenant-scoped.
     let vaultTenantId = null
     if (path.startsWith('/api/confidential/')) {
@@ -488,30 +626,51 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { plans })
     }
 
-    /** Public: resolve shareable job link (no auth) */
-    if (req.method === 'GET' && path.startsWith('/api/jobs/public/')) {
-      const code = path.replace('/api/jobs/public/', '').split('/')[0]
+    /** Jobs actually posted by employer accounts. No static catalog. */
+    if (req.method === 'GET' && path === '/api/jobs') {
+      const email = await requireAuth(req, res)
+      if (!email) return
       const db = loadDb()
-      const job = getJobByShareableCode(db, code)
+      const jobs = listOpenJobs(db).map((job) => publicJobPayload(job))
+      return json(res, 200, { jobs })
+    }
+
+    /** Public: resolve shareable job link (no auth) — /api/jobs/public/:code or /api/jobs/public/:companySlug/:code */
+    if (req.method === 'GET' && path.startsWith('/api/jobs/public/')) {
+      const { code, companySlug, isApply } = parsePublicJobPath(path)
+      if (isApply || !code) {
+        return json(res, 404, { error: 'Job link not found or expired.' })
+      }
+      const db = loadDb()
+      const job = await resolvePublicJob(db, config.databaseUrl, code, companySlug)
       if (!job) return json(res, 404, { error: 'Job link not found or expired.' })
       return json(res, 200, { job: publicJobPayload(job) })
     }
 
     /** Public apply: ATS score + application row (optional Bearer for logged-in candidate) */
     if (req.method === 'POST' && path.startsWith('/api/jobs/public/') && path.endsWith('/apply')) {
-      const parts = path.split('/')
-      const code = parts[4]
+      const { code, companySlug } = parsePublicJobPath(path)
       const body = await readBody(req)
       const db = loadDb()
-      const job = getJobByShareableCode(db, code)
+      const job = await resolvePublicJob(db, config.databaseUrl, code, companySlug)
       if (!job) return json(res, 404, { error: 'Job link not found or expired.' })
       let candidateUserId = null
-      const optionalAuth = await authEmail(req)
+      const optionalAuth = await requireAuth(req, res)
+      if (!optionalAuth) return
       if (optionalAuth) {
         const u = db.users.find((x) => x.email === optionalAuth)
+        if (u?.role === 'employer') {
+          return json(res, 403, {
+            error:
+              'Employer (vendor) accounts cannot apply to jobs as candidates. Sign out and use a candidate account with its own email and phone.',
+          })
+        }
         candidateUserId = u?.id || null
       }
       const resumeText = String(body.resumeText || '')
+      if (resumeText.trim().length < 30 || resumeText.length > 100000) {
+        return json(res, 400, { error: 'Upload a readable resume before applying (30–100,000 characters).' })
+      }
       const atsEvaluation = await evaluateResumeAgainstJd({
         resumeText,
         jobDescription: job.jobDescription || '',
@@ -520,6 +679,7 @@ const server = createServer(async (req, res) => {
       })
       const { application, created, ats } = createJobApplication(db, job, {
         ...body,
+        candidateEmail: optionalAuth,
         candidateUserId,
         atsEvaluation,
       })
@@ -563,6 +723,11 @@ const server = createServer(async (req, res) => {
         json(res, 403, { error: 'No organization linked to this employer account.' })
         return null
       }
+      const memberRole = tenant.membership?.role || ''
+      if (!['owner', 'admin', 'recruiter'].includes(memberRole)) {
+        json(res, 403, { error: 'Recruiter access required for this organization.' })
+        return null
+      }
       return { user, tenant }
     }
 
@@ -572,8 +737,9 @@ const server = createServer(async (req, res) => {
       if (!ctx) return
       const body = await readBody(req)
       const job = createVendorJob(db, ctx.tenant.organization.id, ctx.user.id, body)
+      await upsertJobRecord(config.databaseUrl, job)
       await saveDb(db)
-      return json(res, 201, { job })
+      return json(res, 201, { job: publicJobPayload(job) })
     }
 
     if (req.method === 'GET' && path === '/api/vendor/jobs') {
@@ -595,6 +761,47 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { job, applicants })
     }
 
+    if (req.method === 'GET' && path === '/api/vendor/candidates') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const orgId = ctx.tenant.organization.id
+      const filters = {
+        name: url.searchParams.get('name') || '',
+        job: url.searchParams.get('job') || '',
+        experienceYears:
+          url.searchParams.get('experienceYears') || url.searchParams.get('experience') || '',
+        keywords: url.searchParams.get('keywords') || url.searchParams.get('q') || '',
+        jobId: url.searchParams.get('jobId') || '',
+      }
+      const roster = await listOrganizationCandidates(db, orgId, config.databaseUrl, filters)
+      return json(res, 200, {
+        organizationId: orgId,
+        ...roster,
+      })
+    }
+
+    if (
+      req.method === 'GET' &&
+      /^\/api\/vendor\/jobs\/[^/]+\/candidates$/.test(path)
+    ) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const jobId = path.split('/')[4]
+      const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
+      if (!job) return json(res, 404, { error: 'Job not found.' })
+      const filters = {
+        name: url.searchParams.get('name') || '',
+        job: url.searchParams.get('job') || '',
+        experienceYears:
+          url.searchParams.get('experienceYears') || url.searchParams.get('experience') || '',
+        keywords: url.searchParams.get('keywords') || url.searchParams.get('q') || '',
+      }
+      const roster = listJobCandidates(db, ctx.tenant.organization.id, jobId, filters)
+      return json(res, 200, { job, organizationId: ctx.tenant.organization.id, ...roster })
+    }
+
     if (req.method === 'GET' && path.startsWith('/api/vendor/applicants/') && path.endsWith('/report')) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
@@ -603,7 +810,8 @@ const server = createServer(async (req, res) => {
       const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
       if (!app) return json(res, 404, { error: 'Applicant not found.' })
       const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
-      if (app.data?.vendorReport?.aiGenerated) {
+      const forceRefresh = url.searchParams.get('refresh') === '1'
+      if (!vendorReportNeedsRefresh(app.data, forceRefresh) && app.data?.vendorReport) {
         return json(res, 200, { report: app.data.vendorReport, application: app })
       }
       const report = await generateVendorAssessmentSheet({
@@ -629,11 +837,138 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { report, application: app })
     }
 
+    if (req.method === 'GET' && /^\/api\/vendor\/applicants\/[^/]+\/interview-plan$/.test(path)) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const appId = path.split('/')[4]
+      const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
+      if (!app) return json(res, 404, { error: 'Applicant not found.' })
+      const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
+      const jobDescription = String(job?.jobDescription || '')
+      const requiredSkills = job?.requiredSkills || app.data?.primarySkills || []
+      const profile = {
+        resumeText: app.data?.resumeText || '',
+        workExperiences: app.data?.workExperiences || [],
+        skills: app.data?.skills || [],
+        experienceYears: app.data?.experienceYears || '',
+      }
+      const digest = summarizeProfile(profile, app.data?.candidateName || app.candidateEmail)
+      const skillAnalysis = analyzeInterviewSkillMatch({
+        jobDescription,
+        requiredSkills,
+        profile,
+        ctx: digest,
+      })
+      const role = job?.roleTrack || job?.title || app.data?.jobTitle || 'Engineer'
+      const level = app.data?.experienceYears || job?.experienceLevel || '1–3 years'
+      const questions = []
+      const history = []
+      for (let turn = 0; turn < INTERVIEW_TURN_COUNT; turn++) {
+        const question = generateAdaptiveQuestionLocal({
+          ctx: digest,
+          role,
+          level,
+          jobDescription,
+          history,
+          lastAnswer: '',
+        })
+        questions.push(question)
+        history.push({ question, answer: '' })
+      }
+      return json(res, 200, {
+        questionMode: 'adaptive',
+        role,
+        level,
+        skillAnalysis,
+        questions: questions.map((q) => ({
+          text: q.text,
+          category: q.category,
+          topic: q.topic,
+        })),
+      })
+    }
+
+    if (req.method === 'POST' && /^\/api\/vendor\/applicants\/[^/]+\/interview-invite$/.test(path)) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const appId = path.split('/')[4]
+      const body = await readBody(req)
+      const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
+      if (!app) return json(res, 404, { error: 'Applicant not found.' })
+      const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
+      const scheduledStartRaw = body.scheduledStart || body.scheduledAt
+      const start = new Date(scheduledStartRaw)
+      if (Number.isNaN(start.getTime())) {
+        return json(res, 400, { error: 'scheduledStart (ISO datetime) is required.' })
+      }
+      const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
+      const end = new Date(start.getTime() + durationMin * 60 * 1000)
+      const token = newInviteToken()
+      const contextJson = buildEmployerInviteContext(db, app, job)
+      const pool = dbPool(config.databaseUrl)
+      await insertInterviewInvite(pool, {
+        token,
+        organizationId: ctx.tenant.organization.id,
+        applicationId: app.id,
+        jobId: app.jobId,
+        candidateEmail: app.candidateEmail,
+        candidateName: app.data?.candidateName || '',
+        jobTitle: job?.title || app.data?.jobTitle || '',
+        scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        createdByUserId: ctx.user.id,
+        contextJson,
+      })
+      const inviteUrl = invitePublicUrl(token)
+      let emailSent = false
+      let emailError = null
+      if (smtpConfigured()) {
+        try {
+          await sendInterviewInviteEmail({
+            to: app.candidateEmail,
+            candidateName: app.data?.candidateName,
+            jobTitle: job?.title,
+            scheduledStart: start.toISOString(),
+            inviteUrl,
+          })
+          await pool.query(
+            'UPDATE interview_invites SET email_sent_at = NOW() WHERE token = $1',
+            [token],
+          )
+          emailSent = true
+        } catch (err) {
+          emailError = err instanceof Error ? err.message : 'Email failed'
+        }
+      }
+      app.data = app.data || {}
+      app.data.lastInterviewInvite = {
+        token,
+        inviteUrl,
+        scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        emailSent,
+      }
+      await saveDb(db)
+      return json(res, 201, {
+        invite: {
+          token,
+          inviteUrl,
+          scheduledStart: start.toISOString(),
+          scheduledEnd: end.toISOString(),
+          emailSent,
+          emailError,
+          smtpConfigured: smtpConfigured(),
+        },
+      })
+    }
+
     if (req.method === 'PATCH' && path.startsWith('/api/vendor/applicants/')) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
-      const appId = path.replace('/api/vendor/applicants/', '')
+      const appId = path.replace('/api/vendor/applicants/', '').split('/')[0]
       const body = await readBody(req)
       const app = (db.employerApplications || []).find(
         (a) => a.id === appId && a.organizationId === ctx.tenant.organization.id,
@@ -642,6 +977,108 @@ const server = createServer(async (req, res) => {
       if (body.status) app.status = String(body.status)
       await saveDb(db)
       return json(res, 200, { application: app })
+    }
+
+    if (req.method === 'GET' && path.startsWith('/api/interview-invites/')) {
+      const token = path.replace('/api/interview-invites/', '').trim()
+      if (!token) return json(res, 400, { error: 'Invite token required.' })
+      const pool = dbPool(config.databaseUrl)
+      const row = await getInterviewInviteByToken(pool, token)
+      if (!row) return json(res, 404, { error: 'Invite not found.' })
+      const access = inviteAccessState(row)
+      const db = loadDb()
+      const orgId = row.organization_id
+      const job = orgId && row.job_id ? getOrgJob(db, orgId, row.job_id) : null
+      const app =
+        orgId && row.application_id ? getOrgApplication(db, orgId, row.application_id) : null
+      const ctx = parseInviteContext(row)
+      const resumeText =
+        ctx.resumeText || app?.data?.resumeText || db.profiles?.[row.candidate_email]?.resumeText || ''
+      const jobDescription =
+        ctx.jobDescription || job?.jobDescription || app?.data?.jobDescription || ''
+      return json(res, 200, {
+        invite: {
+          token: row.token,
+          candidateEmail: row.candidate_email,
+          candidateName: row.candidate_name,
+          jobTitle: row.job_title || job?.title || ctx.jobTitle,
+          scheduledStart: row.scheduled_start,
+          scheduledEnd: row.scheduled_end,
+          applicationId: row.application_id || null,
+          jobId: row.job_id || null,
+          organizationId: orgId || null,
+          jobDescription,
+          resumeText,
+          resumeName: ctx.resumeName || app?.data?.resumeName || null,
+          roleTrack: ctx.roleTrack || job?.roleTrack || '',
+          experienceLevel: ctx.experienceLevel || job?.experienceLevel || '',
+          company: job?.company || '',
+          primarySkills: ctx.primarySkills || app?.data?.primarySkills || job?.requiredSkills || [],
+          atsScore: app?.data?.atsScore ?? null,
+          jdMatchScore: app?.data?.jdMatchScore ?? null,
+          contextSource: ctx.source || null,
+          ...access,
+          interviewPath: `/interview/invite/${row.token}`,
+        },
+      })
+    }
+
+    if (req.method === 'POST' && path === '/api/interview/confirmation-email') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const body = await readBody(req)
+      const scheduledStart = body.scheduledStart || body.scheduledAt
+      const start = scheduledStart ? new Date(scheduledStart) : null
+      if (!start || Number.isNaN(start.getTime())) {
+        return json(res, 400, { error: 'scheduledStart is required.' })
+      }
+      if (!smtpConfigured()) {
+        return json(res, 503, { error: 'SMTP not configured on server.', smtpConfigured: false })
+      }
+      const db = loadDb()
+      const user = db.users.find((u) => u.email === email)
+      const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
+      const end = new Date(start.getTime() + durationMin * 60 * 1000)
+      const token = newInviteToken()
+      const orgId =
+        user?.primaryOrganizationId ||
+        db.organizationMembers?.find((m) => m.userId === user?.id)?.organizationId ||
+        null
+      const contextJson = buildJobSeekerInviteContext(db, email, body)
+      const pool = dbPool(config.databaseUrl)
+      await insertInterviewInvite(pool, {
+        token,
+        organizationId: orgId,
+        candidateEmail: email,
+        candidateName: user?.name || '',
+        jobTitle: body.jobTitle || contextJson.jobTitle || 'AI Interview',
+        scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        createdByUserId: user?.id,
+        contextJson,
+      })
+      const inviteUrl = invitePublicUrl(token)
+      const { subject, html, text } = buildInterviewInviteEmail({
+        candidateName: user?.name,
+        jobTitle: body.jobTitle || contextJson.jobTitle,
+        scheduledStart: start.toISOString(),
+        inviteUrl,
+      })
+      await sendMail({ to: email, subject, html, text })
+      await pool.query('UPDATE interview_invites SET email_sent_at = NOW() WHERE token = $1', [token])
+      return json(res, 200, {
+        ok: true,
+        inviteUrl,
+        emailSent: true,
+        token,
+        scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        smtpConfigured: true,
+      })
+    }
+
+    if (req.method === 'GET' && path === '/api/mail/status') {
+      return json(res, 200, { smtpConfigured: smtpConfigured() })
     }
 
     if (req.method === 'GET' && path === '/api/organization') {
@@ -689,7 +1126,7 @@ const server = createServer(async (req, res) => {
 
       const isGemini = isGeminiProvider()
       const models = publicModelConfig()
-      const providerName = isGemini ? 'Google Gemini AI' : 'OpenAI / OpenRouter AI'
+      const providerName = 'HireRight AI'
 
       try {
         if (isGemini) {
@@ -712,21 +1149,20 @@ const server = createServer(async (req, res) => {
               active: true,
               configured: true,
               provider: providerName,
-              model,
+              model: 'hireright-ai',
               statusCode: ping.status,
               authMode: apiKey.startsWith('AQ.') ? 'gemini-auth-key-native' : 'gemini-openai-compatible',
-              message: `✓ ${providerName} (${model}) is LIVE & Synchronized!`,
+              message: 'Ava AI interview is ready.',
               models,
             })
           }
-          const formatHint = geminiKeyFormatWarning()
           return json(res, 200, {
             active: false,
             configured: true,
             provider: providerName,
-            model,
+            model: 'hireright-ai',
             statusCode: ping.status,
-            message: formatHint || ping.error || `${providerName} error (${ping.status})`,
+            message: 'Ava AI interview · using built-in question engine.',
           })
         }
 
@@ -750,28 +1186,27 @@ const server = createServer(async (req, res) => {
             active: true,
             configured: true,
             provider: providerName,
-            model,
+            model: 'hireright-ai',
             statusCode: pingRes.status,
-            message: `✓ ${providerName} (${model}) is LIVE & Synchronized!`,
+            message: 'Ava AI interview is ready.',
             models,
           })
         }
-        const errData = await pingRes.json().catch(() => ({}))
         return json(res, 200, {
           active: false,
           configured: true,
           provider: providerName,
-          model,
+          model: 'hireright-ai',
           statusCode: pingRes.status,
-          message: errData.error?.message || `${providerName} error (${pingRes.status})`,
+          message: 'Ava AI interview · using built-in question engine.',
         })
-      } catch (err) {
+      } catch {
         return json(res, 200, {
           active: false,
           configured: true,
           provider: providerName,
-          model,
-          message: err instanceof Error ? err.message : `Network error connecting to ${providerName}`,
+          model: 'hireright-ai',
+          message: 'Ava AI interview · using built-in question engine.',
         })
       }
     }
@@ -793,10 +1228,6 @@ const server = createServer(async (req, res) => {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return json(res, 400, { error: 'Enter a valid email address.' })
       }
-      const db = loadDb()
-      if (db.users.some((u) => u.email === email)) {
-        return json(res, 409, { error: 'An account with this email already exists.' })
-      }
       const phoneRaw = String(body.phone || '').trim()
       if (!isValidPhoneInput(phoneRaw)) {
         return json(res, 400, {
@@ -804,28 +1235,41 @@ const server = createServer(async (req, res) => {
         })
       }
       const phone = normalizePhone(phoneRaw)
+      const db = loadDb()
+      if (db.users.some((u) => u.email === email)) {
+        return json(res, 409, {
+          error:
+            'An account with this email already exists. Each email can only be registered once as either a candidate or a vendor (employer).',
+        })
+      }
       if (findUserByPhone(db.users, phoneRaw)) {
         return json(res, 409, { error: 'An account with this mobile number already exists.' })
       }
       const role = body.role === 'employer' ? 'employer' : 'jobseeker'
       const companyName = String(body.companyName || '').trim()
-      const user = {
-        id: randomBytes(8).toString('hex'),
-        name,
-        email,
-        phone,
-        passwordHash: await hashPassword(password),
-        role,
-        companyName: role === 'employer' ? companyName : undefined,
-        status: 'active',
-        createdAt: new Date().toISOString(),
+      const employerErr = validateEmployerSignup(role, companyName)
+      if (employerErr) return json(res, 400, { error: employerErr })
+      const createdAt = new Date().toISOString()
+      let user
+      try {
+        const registered = await registerAccount(config.databaseUrl, {
+          id: randomBytes(8).toString('hex'),
+          name,
+          email,
+          phone,
+          passwordHash: await hashPassword(password),
+          role,
+          companyName: role === 'employer' ? companyName : undefined,
+          createdAt,
+        })
+        user = registered.user
+        dbCache = await loadDbFromStore(config.databaseUrl)
+      } catch (err) {
+        if (err instanceof UniqueAccountError) {
+          return json(res, 409, { error: err.message })
+        }
+        throw err
       }
-      db.users.push(user)
-      if (role === 'employer') {
-        provisionEmployerTenant(db, user)
-      }
-      dbCache = db
-      await persistDb(db, config.databaseUrl)
       if (role !== 'employer' && config.databaseUrl) {
         await upsertCandidateTalent(config.databaseUrl, user, {}, null)
       }
@@ -856,6 +1300,13 @@ const server = createServer(async (req, res) => {
       if (!user || user.status !== 'active' || !await verifyPassword(password, user.passwordHash)) {
         return json(res, 401, { error: 'Email or password is incorrect.' })
       }
+      const expectedRole =
+        body.expectedRole === 'employer' || body.expectedRole === 'jobseeker'
+          ? body.expectedRole
+          : null
+      const actualRole = user.role === 'employer' ? 'employer' : 'jobseeker'
+      const roleErr = loginRoleMismatchMessage(expectedRole, actualRole)
+      if (roleErr) return json(res, 403, { error: roleErr })
       if (!user.passwordHash.startsWith('scrypt$')) {
         user.passwordHash = await hashPassword(password)
         await saveDb(db)
@@ -868,8 +1319,10 @@ const server = createServer(async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role || (email.includes('employer') ? 'employer' : 'jobseeker'),
+          role: actualRole,
           companyName: user.companyName,
+          phone: user.phone,
+          primaryOrganizationId: user.primaryOrganizationId,
         },
       })
     }
@@ -893,8 +1346,9 @@ const server = createServer(async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role,
+          role: user.role === 'employer' ? 'employer' : 'jobseeker',
           companyName: user.companyName,
+          phone: user.phone,
           primaryOrganizationId: user.primaryOrganizationId,
         },
         organization: tenant.organization,
@@ -1020,29 +1474,47 @@ const server = createServer(async (req, res) => {
       const account = db.users.find((u) => u.email === email)
 
       const ctx = summarizeProfile(profile, account?.name)
-      const explicitRoleTrack =
-        body.explicitRoleTrack === true || jobDescription.length >= 40
+      const explicitRoleTrack = body.explicitRoleTrack === true
+      const questionModeHint = String(body.questionMode || '').trim()
+      const jobRecord = body.jobId
+        ? (db.jobs || []).find((j) => j.id === String(body.jobId))
+        : null
+      const requiredSkills =
+        Array.isArray(body.primarySkills) && body.primarySkills.length
+          ? body.primarySkills.map(String)
+          : jobRecord?.requiredSkills || []
 
-      let first
-      try {
-        first = await generateAdaptiveQuestion({
-          ctx,
+      const questionMode = resolveInterviewQuestionMode({
+        mode: questionModeHint || undefined,
+        applicationId: body.applicationId,
+        jobId: body.jobId,
+        jobDescription: jobDescription || jobRecord?.jobDescription || '',
+        requiredSkills,
+      })
+      const effectiveJd = jobDescription || jobRecord?.jobDescription || ''
+      let skillAnalysis = null
+      if (questionMode === 'employer' || questionMode === 'individual_jd') {
+        skillAnalysis = analyzeInterviewSkillMatch({
+          jobDescription: effectiveJd,
+          requiredSkills,
           profile,
-          role,
-          level,
-          jobDescription,
-          explicitRoleTrack,
-          history: [],
-          lastAnswer: '',
-          accountName: account?.name,
-        })
-      } catch (err) {
-        return json(res, 503, {
-          error: err.message || 'AI question generation unavailable.',
+          ctx,
         })
       }
+
+      const first = await generateAdaptiveQuestion({
+        ctx,
+        profile,
+        role,
+        level,
+        jobDescription: effectiveJd,
+        explicitRoleTrack,
+        history: [],
+        lastAnswer: '',
+        accountName: account?.name,
+      })
       const questions = [first]
-      const agentLabel = llmConfigured() ? 'llm-adaptive' : 'adaptive-agent'
+      const agentLabel = first.focus === 'adaptive-llm' ? 'llm-adaptive' : 'adaptive-local'
       const adaptive = true
 
       const sessionId = randomBytes(12).toString('hex')
@@ -1057,14 +1529,30 @@ const server = createServer(async (req, res) => {
         answers: [],
         agent: agentLabel,
         context: ctx,
-        jobDescription,
+        jobDescription: effectiveJd,
         explicitRoleTrack,
         jobId: body.jobId ? String(body.jobId) : null,
         applicationId: body.applicationId ? String(body.applicationId) : null,
-        organizationId: body.organizationId ? String(body.organizationId) : null,
-        primarySkills: Array.isArray(body.primarySkills) ? body.primarySkills : [],
-        atsScore: typeof body.atsScore === 'number' ? body.atsScore : null,
-        jdMatchScore: typeof body.jdMatchScore === 'number' ? body.jdMatchScore : null,
+        organizationId: (() => {
+          const fromBody = body.organizationId ? String(body.organizationId) : ''
+          if (fromBody) return fromBody
+          if (!body.applicationId) return null
+          const linked = (db.employerApplications || []).find(
+            (a) => a.id === String(body.applicationId),
+          )
+          return linked?.organizationId ? String(linked.organizationId) : null
+        })(),
+        primarySkills: skillAnalysis?.jdSkills || requiredSkills,
+        questionMode,
+        skillAnalysis,
+        atsScore:
+          typeof body.atsScore === 'number'
+            ? body.atsScore
+            : skillAnalysis?.atsScore ?? null,
+        jdMatchScore:
+          typeof body.jdMatchScore === 'number'
+            ? body.jdMatchScore
+            : skillAnalysis?.jdMatchScore ?? null,
         integrity: {
           faceViolations: 0,
           singlePersonOk: true,
@@ -1087,6 +1575,16 @@ const server = createServer(async (req, res) => {
         question: questions[0],
         questions,
         profileDigest: ctx,
+        questionMode,
+        skillAnalysis: skillAnalysis
+          ? {
+              jdSkills: skillAnalysis.jdSkills,
+              matchedSkills: skillAnalysis.matchedSkills,
+              missingSkills: skillAnalysis.missingSkills,
+              atsScore: skillAnalysis.atsScore,
+              jdMatchScore: skillAnalysis.jdMatchScore,
+            }
+          : null,
       })
     }
 
@@ -1116,27 +1614,18 @@ const server = createServer(async (req, res) => {
       const lastAnswer = String(body.lastAnswer || '')
       const nextJobDescription = String(body.jobDescription || session.jobDescription || '')
       const explicitRoleTrack =
-        body.explicitRoleTrack === true ||
-        session.explicitRoleTrack === true ||
-        nextJobDescription.length >= 40
-      let next
-      try {
-        next = await generateAdaptiveQuestion({
-          ctx,
-          profile,
-          role: String(body.role || session.role),
-          level: String(body.level || session.level),
-          jobDescription: nextJobDescription,
-          explicitRoleTrack,
-          history,
-          lastAnswer,
-          accountName: account?.name,
-        })
-      } catch (err) {
-        return json(res, 503, {
-          error: err.message || 'AI question generation unavailable.',
-        })
-      }
+        body.explicitRoleTrack === true || session.explicitRoleTrack === true
+      const next = await generateAdaptiveQuestion({
+        ctx,
+        profile,
+        role: String(body.role || session.role),
+        level: String(body.level || session.level),
+        jobDescription: nextJobDescription,
+        explicitRoleTrack,
+        history,
+        lastAnswer,
+        accountName: account?.name,
+      })
       session.questions = [...(session.questions || []), next]
       db.interviewSessions[sessionId] = session
       await saveDb(db)
@@ -1286,19 +1775,38 @@ const server = createServer(async (req, res) => {
       const db = loadDb()
       const sessionId = String(body.sessionId || '')
       const session = sessionId ? /** @type {any} */ (db.interviewSessions[sessionId]) : null
-      if (session && session.email !== email) {
+      if (!session || session.email !== email) {
         return json(res, 404, { error: 'Interview session not found.' })
       }
 
       const profile = mergeInterviewProfile(db, email, body.profile)
 
-      const questions = body.questions || session?.questions
-      const answers = body.answers || []
+      const rawQuestions = body.questions || session?.questions
+      const answers = Array.isArray(body.answers) ? body.answers.map(String) : []
       const role = String(body.role || session?.role || 'Full Stack Engineer')
       const level = String(body.level || session?.level || '1–3 years')
 
-      if (!Array.isArray(questions) || questions.length === 0) {
+      const questions = (Array.isArray(rawQuestions) ? rawQuestions : []).map((q) => {
+        if (q && typeof q === 'object' && q.text) return q
+        if (typeof q === 'string') {
+          return { text: q, category: 'Technical', keywords: [], hint: '' }
+        }
+        return null
+      }).filter(Boolean)
+
+      if (!questions.length) {
         return json(res, 400, { error: 'Questions required to score interview.' })
+      }
+
+      const pairCount = Math.min(
+        questions.length,
+        answers.length,
+        answers.filter((a) => String(a || '').trim()).length || answers.length,
+      )
+      const scoredQuestions = questions.slice(0, pairCount)
+      const scoredAnswers = answers.slice(0, pairCount)
+      if (!pairCount) {
+        return json(res, 400, { error: 'At least one answer is required to score the interview.' })
       }
 
       const integrity = {
@@ -1312,8 +1820,8 @@ const server = createServer(async (req, res) => {
       const result = await scoreInterviewSession({
         role,
         level,
-        questions,
-        answers,
+        questions: scoredQuestions,
+        answers: scoredAnswers,
         profile,
         integrity,
         accountName: db.users.find((u) => u.email === email)?.name,
@@ -1323,27 +1831,37 @@ const server = createServer(async (req, res) => {
       db.interviews[email] = result
       if (session) {
         session.status = 'completed'
-        session.answers = answers
+        session.answers = scoredAnswers
+        session.questions = scoredQuestions
         session.result = result
         session.completedAt = new Date().toISOString()
         db.interviewSessions[sessionId] = session
       }
       await saveDb(db)
       const scoredUser = db.users.find((u) => u.email === email)
-      if (session?.applicationId && session?.organizationId) {
-        const app = getOrgApplication(db, session.organizationId, session.applicationId)
-        const job = app ? getOrgJob(db, session.organizationId, app.jobId) : null
+      const applicationId = String(session?.applicationId || '')
+      let organizationId = String(session?.organizationId || '')
+      if (applicationId && !organizationId) {
+        const linked = (db.employerApplications || []).find((a) => a.id === applicationId)
+        if (linked?.organizationId) organizationId = String(linked.organizationId)
+      }
+      if (applicationId && organizationId) {
+        const app = getOrgApplication(db, organizationId, applicationId)
+        if (!app || app.candidateEmail !== email || (app.candidateUserId && app.candidateUserId !== scoredUser?.id)) {
+          return json(res, 403, { error: 'This application does not belong to your account.' })
+        }
+        const job = app ? getOrgJob(db, organizationId, app.jobId) : null
         let vendorReport = null
         if (app) {
           vendorReport = await generateVendorAssessmentSheet({
             candidateName: app.data.candidateName || email,
             jobTitle: job?.title || app.data.jobTitle,
             company: job?.company || app.data.company,
-            jobDescription: job?.jobDescription || session.jobDescription || '',
+            jobDescription: job?.jobDescription || session?.jobDescription || body.jobDescription || '',
             resumeText: app.data.resumeText || String(db.profiles[email]?.resumeText || ''),
             atsEvaluation: {
-              atsScore: app.data.atsScore ?? session.atsScore,
-              jdMatchScore: app.data.jdMatchScore ?? session.jdMatchScore,
+              atsScore: app.data.atsScore ?? session?.atsScore,
+              jdMatchScore: app.data.jdMatchScore ?? session?.jdMatchScore,
               primarySkills: app.data.primarySkills,
               matchedSkills: app.data.matchedSkills,
               missingSkills: app.data.missingSkills,
@@ -1354,9 +1872,9 @@ const server = createServer(async (req, res) => {
             interviewResult: result,
           })
         }
-        updateApplicationInterview(db, session.applicationId, session.organizationId, result, {
-          atsScore: session.atsScore ?? null,
-          jdMatchScore: session.jdMatchScore ?? null,
+        updateApplicationInterview(db, applicationId, organizationId, result, {
+          atsScore: session?.atsScore ?? app?.data?.atsScore ?? null,
+          jdMatchScore: session?.jdMatchScore ?? app?.data?.jdMatchScore ?? null,
           vendorReport,
         })
         await saveDb(db)
@@ -1536,6 +2054,8 @@ const server = createServer(async (req, res) => {
       })
     }
 
+    if (serveSpaStatic(req, res, path)) return
+
     return json(res, 404, { error: 'Not found' })
   } catch (err) {
     console.error('[api] request failed', err.code || err.name)
@@ -1546,6 +2066,19 @@ const server = createServer(async (req, res) => {
 })
 
 const assessmentHandler = createAssessmentHandler({ databaseUrl: config.databaseUrl, requireAuth, readBody, json, rateLimit })
+const personalizedHandler = createPersonalizedHandler({
+  databaseUrl: config.databaseUrl, requireAuth, readBody, json, rateLimit,
+  onResult: async (email, result, link, organizationId) => {
+    const db = loadDb()
+    db.interviews[email] = result
+    if (link.application_id) {
+      const app = getOrgApplication(db, organizationId, link.application_id)
+      if (!app || app.candidateEmail !== email) throw Object.assign(new Error('Application not found'), { status: 404 })
+      updateApplicationInterview(db, app.id, organizationId, result, { assessmentSessionId: result.sessionId, vendorReport: null })
+    }
+    await saveDb(db)
+  },
+})
 
 try {
   await bootstrapDb()
@@ -1557,6 +2090,9 @@ try {
 server.listen(PORT, () => {
   console.log(`HIRERIGHT API v2 [${config.environment}] on http://localhost:${PORT}`)
   console.log('Storage: PostgreSQL (Neon)')
+  if (serveFrontend) {
+    console.log(`Frontend SPA: serving ${frontendDistRoot} (unknown routes → index.html)`)
+  }
   const geminiHint = geminiKeyFormatWarning()
   if (geminiHint) console.warn(`[llm] ${geminiHint}`)
   const key = resolveGeminiApiKey()

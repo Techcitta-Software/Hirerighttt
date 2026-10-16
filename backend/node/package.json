@@ -8,10 +8,12 @@
     "start": "node index.mjs",
     "db:init": "node db/init.mjs",
     "db:verify": "node db/verify.mjs",
-    "check:llm": "node scripts/ping-llm.mjs"
+    "check:llm": "node scripts/ping-llm.mjs",
+    "check:smoke": "node scripts/smoke-features.mjs"
   },
   "dependencies": {
     "mammoth": "1.12.0",
+    "nodemailer": "^6.9.16",
     "pdfjs-dist": "6.2.108",
     "pg": "^8.16.3"
   }
