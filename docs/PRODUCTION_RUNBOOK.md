@@ -61,6 +61,8 @@ After saving env vars: **Manual Deploy** → deploy latest **`main`** commit.
 
 > New API **exits on boot** without `DATABASE_URL`. If deploy fails, Render may keep serving the previous (old) version — fix env, then redeploy.
 
+> **Render crash `Missing env/loadEnv.mjs`:** fixed in `backend/node/loadEnv.mjs` — redeploy latest `main`. On Render you do **not** need a `.env` file if all vars are set in the dashboard.
+
 ## Vercel
 
 - Project **hire-rightt** linked to `bharath-techcitta/HireRighttt-backend`, branch **`main`**
