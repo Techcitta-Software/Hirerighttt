@@ -50,7 +50,6 @@ __pycache__/
 .venv/
 venv/
 ENV/
-env/
 .pytest_cache/
 
 # Temporary export dumps
