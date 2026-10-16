@@ -251,6 +251,10 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.88rem;
+  min-width: 720px;
+}
+
+.candidatesTableWide {
   min-width: 1050px;
 }
 
@@ -450,6 +454,33 @@
 
 .inspectBtn:hover {
   background: #ede9fe;
+}
+
+.docLinkBtn {
+  background: transparent;
+  border: none;
+  color: #4f46e5;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.docLinkBtn:hover {
+  background: #ede9fe;
+}
+
+.docMuted {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  font-weight: 500;
 }
 
 .emptyState {

@@ -160,72 +160,84 @@ const RESULT_KEY = 'hireright.interviewResult'
 const APPS_KEY = 'hireright.applications'
 const EMPLOYER_JOBS_KEY = 'hireright.employerJobs'
 const EMPLOYER_APPLICANTS_KEY = 'hireright.employerApplicants'
+const STORAGE_VERSION_KEY = 'hireright.storageVersion'
+/** Bump when employer roster / DB shape changes — clears stale local demo data once. */
+const CLIENT_STORAGE_VERSION = '2026-10-16-clean-roster-v1'
+
+const LEGACY_DEMO_EMAILS = new Set([
+  'demo@hireright.com',
+  'employer@hireright.com',
+  'admin@hireright.com',
+])
 
 function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-const DEFAULT_DEMO_USER: User = {
-  id: 'demo-user-1',
-  name: 'Arjun Sharma',
-  email: 'demo@hireright.com',
-  password: 'password123',
-  role: 'jobseeker',
-  createdAt: new Date().toISOString(),
-}
+/** One-time cleanup so browsers stop showing seeded demo rows after a DB reset. */
+export function applyClientStorageMigration(): void {
+  try {
+    if (localStorage.getItem(STORAGE_VERSION_KEY) === CLIENT_STORAGE_VERSION) return
 
-const DEFAULT_EMPLOYER_USER: User = {
-  id: 'demo-employer-1',
-  name: 'Sarah Jenkins (Recruiter)',
-  email: 'employer@hireright.com',
-  password: 'password123',
-  role: 'employer',
-  companyName: 'TechCitta Solutions',
-  createdAt: new Date().toISOString(),
+    clearEmployerPortalCache()
+    localStorage.removeItem(APPS_KEY)
+    localStorage.removeItem(EMPLOYER_JOBS_KEY)
+
+    const raw = localStorage.getItem(USERS_KEY)
+    if (raw) {
+      const users = (JSON.parse(raw) as User[]).filter(
+        (u) => !LEGACY_DEMO_EMAILS.has(u.email.trim().toLowerCase()),
+      )
+      writeUsers(users)
+    }
+
+    const sessionEmail = localStorage.getItem(SESSION_KEY)?.trim().toLowerCase()
+    if (sessionEmail && LEGACY_DEMO_EMAILS.has(sessionEmail)) {
+      localStorage.removeItem(SESSION_KEY)
+    }
+
+    localStorage.setItem(STORAGE_VERSION_KEY, CLIENT_STORAGE_VERSION)
+    window.dispatchEvent(new Event('hireright-auth'))
+  } catch {
+    localStorage.setItem(STORAGE_VERSION_KEY, CLIENT_STORAGE_VERSION)
+  }
 }
 
 function readUsers(): User[] {
   try {
+    applyClientStorageMigration()
     const raw = localStorage.getItem(USERS_KEY)
     if (!raw) {
-      // Migrate legacy single-user key if present.
       const legacy = localStorage.getItem('hireright.user')
       if (legacy) {
         const user = JSON.parse(legacy) as User
         if (!user.id) user.id = uid()
+        if (LEGACY_DEMO_EMAILS.has(user.email.trim().toLowerCase())) {
+          localStorage.removeItem('hireright.user')
+          return []
+        }
         writeUsers([user])
         localStorage.removeItem('hireright.user')
         return [user]
       }
-      writeUsers([DEFAULT_DEMO_USER, DEFAULT_EMPLOYER_USER])
-      return [DEFAULT_DEMO_USER, DEFAULT_EMPLOYER_USER]
+      return []
     }
     const users = JSON.parse(raw) as User[]
-    if (users.length === 0) {
-      writeUsers([DEFAULT_DEMO_USER, DEFAULT_EMPLOYER_USER])
-      return [DEFAULT_DEMO_USER, DEFAULT_EMPLOYER_USER]
-    }
-    let next: User[] = users.map((u) => ({
+    if (users.length === 0) return []
+    const next: User[] = users.map((u) => ({
       ...u,
       role:
         u.role ??
         (u.email.includes('employer') ? ('employer' as const) : ('jobseeker' as const)),
-      companyName:
-        u.companyName ??
-        (u.email === DEFAULT_EMPLOYER_USER.email ? DEFAULT_EMPLOYER_USER.companyName : undefined),
+      companyName: u.companyName,
     }))
-    const missingDemo = !next.some((u) => u.email === DEFAULT_DEMO_USER.email)
-    const missingEmployer = !next.some((u) => u.email === DEFAULT_EMPLOYER_USER.email)
-    if (missingDemo) next.push(DEFAULT_DEMO_USER)
-    if (missingEmployer) next.push(DEFAULT_EMPLOYER_USER)
-    const changed =
-      missingDemo ||
-      missingEmployer ||
-      next.some((u, i) => u.role !== users[i]?.role || u.companyName !== users[i]?.companyName)
+    const changed = next.some(
+      (u, i) => u.role !== users[i]?.role || u.companyName !== users[i]?.companyName,
+    )
     if (changed) writeUsers(next)
     return next
   } catch {
-    return [DEFAULT_DEMO_USER, DEFAULT_EMPLOYER_USER]
+    return []
   }
 }
 
@@ -326,6 +338,7 @@ export function persistLoggedInUser(
   const users = readUsers()
   const idx = users.findIndex((u) => u.email === email)
   const role = input.role ?? users[idx]?.role ?? 'jobseeker'
+  if (role === 'employer') clearEmployerPortalCache()
 
   if (idx >= 0) {
     users[idx] = {

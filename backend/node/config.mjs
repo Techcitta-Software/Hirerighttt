@@ -21,9 +21,8 @@ export const config = {
     .filter(Boolean),
   databaseUrl: process.env.DATABASE_URL || '',
   sessionSecret: process.env.SESSION_SECRET || process.env.SECRET_KEY || '',
-  allowDemoAccounts:
-    process.env.ALLOW_DEMO_ACCOUNTS === 'true' ||
-    (!isProdLike && process.env.ALLOW_DEMO_ACCOUNTS !== 'false'),
+  /** Demo logins (demo@ / employer@) only when explicitly enabled — never re-seed after db:purge. */
+  allowDemoAccounts: process.env.ALLOW_DEMO_ACCOUNTS === 'true',
   signupEnabled: process.env.SIGNUP_ENABLED !== 'false',
   maxBodyBytes: Number(process.env.MAX_REQUEST_BYTES) || 3_000_000,
   trustProxy: process.env.TRUST_PROXY === 'true' || isProdLike,

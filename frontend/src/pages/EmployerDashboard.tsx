@@ -12,10 +12,17 @@ import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
 import {
   filterJobSeekerCandidates,
+  hasHireRightReport,
+  hasResumeContent,
   mapApplicantStatusToApi,
   mapOrgCandidate,
+  resumeDisplayLabel,
   vendorJobToEmployerJob,
 } from '../lib/employerCandidateUtils'
+import {
+  EmployerCandidateDocumentModal,
+  type EmployerDocumentKind,
+} from '../components/EmployerCandidateDocumentModal'
 import {
   createVendorJob,
   fetchJobCandidatesRoster,
@@ -85,6 +92,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   // Modals
   const [showCreateJobModal, setShowCreateJobModal] = useState(false)
   const [selectedApplicant, setSelectedApplicant] = useState<EmployerApplicant | null>(null)
+  const [documentViewer, setDocumentViewer] = useState<{
+    kind: EmployerDocumentKind
+    applicant: EmployerApplicant
+  } | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [showSearchPanel, setShowSearchPanel] = useState(false)
 
@@ -701,23 +712,37 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
           {/* Candidates Table */}
           <div className={styles.tableContainer}>
-            <table className={styles.candidatesTable}>
+            <table
+              className={`${styles.candidatesTable}${isCandidatesView ? '' : ` ${styles.candidatesTableWide}`}`}
+            >
               <thead>
                 <tr>
-                  <th style={{ width: '22%' }}>CANDIDATE ▲</th>
-                  <th style={{ width: '13%' }}>ROLE</th>
-                  <th style={{ width: '16%' }}>TARGET JOB</th>
-                  <th style={{ width: '9%' }}>EXPERIENCE</th>
-                  <th style={{ width: '14%' }}>AI SCORE & FIT</th>
-                  <th style={{ width: '12%' }}>INTEGRITY</th>
-                  <th style={{ width: '10%' }}>STATUS</th>
-                  <th style={{ width: '11%' }}>ACTIONS</th>
+                  {isCandidatesView ? (
+                    <>
+                      <th style={{ width: '26%' }}>NAME</th>
+                      <th style={{ width: '18%' }}>ROLE</th>
+                      <th style={{ width: '14%' }}>EXPERIENCE</th>
+                      <th style={{ width: '20%' }}>RESUME</th>
+                      <th style={{ width: '22%' }}>REPORT ON HIRERIGHTTT</th>
+                    </>
+                  ) : (
+                    <>
+                      <th style={{ width: '22%' }}>CANDIDATE ▲</th>
+                      <th style={{ width: '13%' }}>ROLE</th>
+                      <th style={{ width: '16%' }}>TARGET JOB</th>
+                      <th style={{ width: '9%' }}>EXPERIENCE</th>
+                      <th style={{ width: '14%' }}>AI SCORE & FIT</th>
+                      <th style={{ width: '12%' }}>INTEGRITY</th>
+                      <th style={{ width: '10%' }}>STATUS</th>
+                      <th style={{ width: '11%' }}>ACTIONS</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filteredApplicants.length === 0 ? (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={isCandidatesView ? 5 : 8}>
                       <div className={styles.emptyState}>
                         <h3>No candidates in database</h3>
                         <p>
@@ -742,6 +767,65 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             : styles.scoreAmber
 
                     const integ = cand.integrityStatus ?? (cand.interviewResult?.integrity?.faceViolations ? 'pending' : 'verified')
+
+                    if (isCandidatesView) {
+                      const resumeLabel = resumeDisplayLabel(cand)
+                      const resumeReady = hasResumeContent(cand)
+                      const reportReady = hasHireRightReport(cand)
+
+                      return (
+                        <tr key={cand.id}>
+                          <td>
+                            <div className={styles.candidateCell}>
+                              <div className={styles.avatar}>{initials}</div>
+                              <div>
+                                <div className={styles.candidateName}>{cand.candidateName}</div>
+                                <div className={styles.candidateContact}>
+                                  {cand.candidateEmail}
+                                  {cand.candidatePhone ? ` · ${cand.candidatePhone}` : ''}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={styles.roleTag}>{cand.role || '—'}</span>
+                          </td>
+                          <td>
+                            <span className={styles.experienceText}>
+                              {cand.experienceYears || '—'}
+                            </span>
+                          </td>
+                          <td>
+                            {resumeReady ? (
+                              <button
+                                type="button"
+                                className={styles.docLinkBtn}
+                                onClick={() => setDocumentViewer({ kind: 'resume', applicant: cand })}
+                              >
+                                <HrIcon name="document" size={14} />
+                                {resumeLabel}
+                              </button>
+                            ) : (
+                              <span className={styles.docMuted}>No resume</span>
+                            )}
+                          </td>
+                          <td>
+                            {reportReady ? (
+                              <button
+                                type="button"
+                                className={styles.docLinkBtn}
+                                onClick={() => setDocumentViewer({ kind: 'report', applicant: cand })}
+                              >
+                                <HrIcon name="sparkle" size={14} />
+                                View HireRighttt report
+                              </button>
+                            ) : (
+                              <span className={styles.docMuted}>No interview yet</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    }
 
                     return (
                       <tr key={cand.id}>
@@ -952,6 +1036,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </div>
         )}
 
+        {documentViewer && (
+          <EmployerCandidateDocumentModal
+            kind={documentViewer.kind}
+            applicant={documentViewer.applicant}
+            onClose={() => setDocumentViewer(null)}
+          />
+        )}
+
         {/* Detailed Applicant AI Evaluation Report Modal */}
         {selectedApplicant && (
           <div className={styles.modalOverlay}>
@@ -1007,7 +1099,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <h4>Schedule AI interview invite</h4>
                 <p className={styles.inviteHint}>
                   Candidate receives an email (SMTP) with a link that opens at the scheduled start time.
-                  Ava uses their resume and this job description for personalized questions.
+                  Candidate gets an email with a link. They can join from the exact start time for 5
+                  minutes (e.g. 2:00 AM–2:05 AM), then go straight into the interview. Ava uses their
+                  resume and this job description for personalized questions.
                 </p>
                 <div className={styles.inviteRow}>
                   <label>

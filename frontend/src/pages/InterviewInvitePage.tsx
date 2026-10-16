@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -46,6 +46,7 @@ export function InterviewInvitePage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
+  const autoRedirected = useRef(false)
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
@@ -102,6 +103,8 @@ export function InterviewInvitePage() {
 
   function startInterview() {
     if (!invite || !token || !canStart) return
+    if (autoRedirected.current) return
+    autoRedirected.current = true
     persistScheduledInvite({
       token,
       scheduledStart: invite.scheduledStart,
@@ -145,8 +148,13 @@ export function InterviewInvitePage() {
         }),
       )
     }
-    navigate('/interview')
+    navigate('/interview', { replace: true })
   }
+
+  useEffect(() => {
+    if (!canStart || !invite || !token || loading || error || autoRedirected.current) return
+    startInterview()
+  }, [canStart, invite, token, loading, error])
 
   const start = invite ? new Date(invite.scheduledStart) : null
   const end = invite ? new Date(invite.scheduledEnd) : null
@@ -178,8 +186,9 @@ export function InterviewInvitePage() {
                 </p>
               </div>
               <div>
-                <span className={styles.label}>Window (IST)</span>
+                <span className={styles.label}>Join window (IST)</span>
                 <p className={styles.value}>
+                  Opens{' '}
                   {formatIst(invite.scheduledStart, {
                     weekday: 'short',
                     day: 'numeric',
@@ -187,7 +196,7 @@ export function InterviewInvitePage() {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}{' '}
-                  —{' '}
+                  · join by{' '}
                   {formatIst(invite.scheduledEnd, { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
@@ -216,7 +225,10 @@ export function InterviewInvitePage() {
 
             {status === 'too_early' && (
               <div className={styles.noticeWarn}>
-                <strong>Link opens at your slot start time.</strong>
+                <strong>Your interview opens at the exact scheduled time.</strong>
+                <p className={styles.mutedInline}>
+                  When the countdown hits zero, you will be taken straight into the AI interview.
+                </p>
                 {countdown && <p className={styles.countdown}>Starts in {countdown}</p>}
               </div>
             )}

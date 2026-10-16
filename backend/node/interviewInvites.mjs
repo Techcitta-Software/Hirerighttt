@@ -1,6 +1,17 @@
 import { randomBytes } from 'node:crypto'
 import { sendMail, publicAppOrigin, smtpConfigured } from './mail.mjs'
 
+/** How long after scheduled start the candidate may open the interview (e.g. 2:00 → join until 2:05). */
+export const INVITE_JOIN_WINDOW_MINUTES = Math.min(
+  30,
+  Math.max(1, Number(process.env.INVITE_JOIN_WINDOW_MINUTES || 5)),
+)
+
+export function inviteJoinWindowEnd(scheduledStart, joinMinutes = INVITE_JOIN_WINDOW_MINUTES) {
+  const start = new Date(scheduledStart)
+  return new Date(start.getTime() + joinMinutes * 60 * 1000)
+}
+
 export function newInviteToken() {
   return randomBytes(24).toString('hex')
 }
@@ -81,8 +92,9 @@ export function buildInterviewInviteEmail({ candidateName, jobTitle, scheduledSt
     <div style="font-family:system-ui,sans-serif;max-width:560px;color:#0f172a">
       <p>${greeting}</p>
       <p>You are invited to a <strong>15-minute AI video interview</strong>${jobTitle ? ` for <strong>${jobTitle}</strong>` : ''}.</p>
-      <p><strong>Scheduled:</strong> ${dateText} (IST)</p>
-      <p>The interview link opens at your scheduled start time and stays active until the end of your window.</p>
+      <p><strong>Scheduled start:</strong> ${dateText} (IST)</p>
+      <p>You can join from the <strong>exact start time</strong> for the next <strong>${INVITE_JOIN_WINDOW_MINUTES} minutes</strong> (for example 2:00 AM → join by 2:05 AM).</p>
+      <p>At start time, open the link — you will go straight into your AI interview.</p>
       <p style="margin:24px 0">
         <a href="${inviteUrl}" style="background:#6036eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">
           Join your interview

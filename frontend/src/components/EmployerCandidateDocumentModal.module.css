@@ -1,0 +1,260 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modal {
+  width: min(820px, 100%);
+  max-height: min(88vh, 900px);
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.closeBtn {
+  border: none;
+  background: #f8fafc;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  cursor: pointer;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.closeBtn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 22px 20px;
+}
+
+.resumeText {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.empty {
+  margin: 24px 0;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.92rem;
+}
+
+.reportRoot {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.reportHero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+.reportLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.reportName {
+  font-size: 1.1rem;
+  font-weight: 800;
+  margin-top: 4px;
+}
+
+.reportMeta {
+  font-size: 0.85rem;
+  color: #475569;
+  margin-top: 2px;
+}
+
+.scoreBlock {
+  text-align: right;
+}
+
+.scoreValue {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #6036eb;
+  line-height: 1.1;
+}
+
+.metricsRow {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.skills {
+  font-size: 0.85rem;
+  color: #334155;
+  margin-bottom: 16px;
+}
+
+.sectionTitle {
+  margin: 18px 0 10px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.categoryCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.categoryCard strong {
+  color: #4f46e5;
+}
+
+.qaList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qaCard {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.qaQuestion {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.qaAnswer {
+  font-size: 0.85rem;
+  color: #334155;
+  font-style: italic;
+  margin-bottom: 6px;
+}
+
+.qaMeta {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+
+.downloadError {
+  flex: 1 1 100%;
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  color: #b45309;
+}
+
+.secondaryBtn,
+.primaryBtn {
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 10px 16px;
+  cursor: pointer;
+  border: none;
+}
+
+.secondaryBtn {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.primaryBtn {
+  background: #4f46e5;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primaryBtn:not(:disabled):hover {
+  background: #4338ca;
+}

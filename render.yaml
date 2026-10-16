@@ -23,7 +23,7 @@ services:
       - key: CORS_ORIGINS
         value: "https://hire-rightt.vercel.app,http://localhost:5173"
       - key: ALLOW_DEMO_ACCOUNTS
-        value: "true"
+        value: "false"
       - key: SIGNUP_ENABLED
         value: "true"
       - key: SESSION_SECRET
@@ -37,13 +37,17 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: PUBLIC_APP_URL
-        sync: false
+        value: https://hire-rightt.vercel.app
+      - key: INVITE_JOIN_WINDOW_MINUTES
+        value: "5"
       - key: SMTP_HOST
-        sync: false
+        value: smtp.sendgrid.net
       - key: SMTP_PORT
-        sync: false
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
       - key: SMTP_USER
-        sync: false
+        value: apikey
       - key: SMTP_PASS
         sync: false
       - key: SMTP_FROM

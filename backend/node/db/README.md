@@ -9,6 +9,14 @@ npm run db:init
 npm run db:verify
 ```
 
+### Reset all candidate / employer data (keep plans + platform org)
+
+```bash
+CONFIRM_PURGE=yes npm run db:purge
+```
+
+Removes every user, job, application, interview, vault row, and session. Use before go-live or after testing so **All candidates** only shows real signups.
+
 The API also runs the same SQL on startup via `store.mjs`.
 
 ## Files

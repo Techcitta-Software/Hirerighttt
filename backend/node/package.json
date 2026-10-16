@@ -8,6 +8,7 @@
     "start": "node index.mjs",
     "db:init": "node db/init.mjs",
     "db:verify": "node db/verify.mjs",
+    "db:purge": "node scripts/purge-all-data.mjs",
     "check:llm": "node scripts/ping-llm.mjs",
     "check:smoke": "node scripts/smoke-features.mjs"
   },

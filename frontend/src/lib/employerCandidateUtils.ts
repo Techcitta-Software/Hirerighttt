@@ -114,6 +114,20 @@ export function mapOrgCandidate(c: OrgCandidateRecord): EmployerApplicant {
   }
 }
 
+export function resumeDisplayLabel(app: EmployerApplicant): string {
+  if (app.resumeName?.trim()) return app.resumeName.trim()
+  if (app.resumeText?.trim()) return 'Resume'
+  return '—'
+}
+
+export function hasResumeContent(app: EmployerApplicant): boolean {
+  return Boolean(app.resumeText?.trim())
+}
+
+export function hasHireRightReport(app: EmployerApplicant): boolean {
+  return Boolean(app.interviewResult)
+}
+
 export function downloadResumeFile(app: EmployerApplicant) {
   const text = app.resumeText?.trim()
   if (!text) return
@@ -125,4 +139,9 @@ export function downloadResumeFile(app: EmployerApplicant) {
   a.download = name.endsWith('.txt') || name.includes('.') ? name : `${name}.txt`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+export function hireRightReportPdfName(candidateName: string): string {
+  const base = candidateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return `${base || 'candidate'}-hireright-report.pdf`
 }

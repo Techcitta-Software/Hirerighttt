@@ -27,6 +27,7 @@ import { ContactPage } from './pages/ContactPage'
 import { RequireAuth } from './components/RequireAuth'
 import { SignOutModal } from './components/SignOutModal'
 import { pageTransition } from './motion/variants'
+import { applyClientStorageMigration } from './lib/store'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -192,7 +193,10 @@ function AnimatedRoutes() {
 }
 
 function App() {
-  useEffect(() => initSupabaseAuthSync(), [])
+  useEffect(() => {
+    applyClientStorageMigration()
+    initSupabaseAuthSync()
+  }, [])
 
   return (
     <BrowserRouter>

@@ -24,7 +24,7 @@ import {
   emptyDb,
   dbPool,
 } from './db/store.mjs'
-import { smtpConfigured } from './mail.mjs'
+import { smtpConfigured, publicAppOrigin } from './mail.mjs'
 import {
   newInviteToken,
   insertInterviewInvite,
@@ -32,6 +32,8 @@ import {
   inviteAccessState,
   sendInterviewInviteEmail,
   invitePublicUrl,
+  inviteJoinWindowEnd,
+  INVITE_JOIN_WINDOW_MINUTES,
   buildInterviewInviteEmail,
   parseInviteContext,
 } from './interviewInvites.mjs'
@@ -98,7 +100,7 @@ function serveSpaStatic(req, res, urlPath) {
   createReadStream(filePath).pipe(res)
   return true
 }
-import { provisionEmployerTenant, tagVaultForOrganization } from './db/saasHelpers.mjs'
+import { provisionEmployerTenant } from './db/saasHelpers.mjs'
 import { geminiChat, resolveGeminiApiKey } from './geminiClient.mjs'
 import { isGeminiProvider } from './llmModels.mjs'
 import {
@@ -216,96 +218,6 @@ const PORT = config.port
 
 let dbCache = emptyDb()
 
-const SEED_CONFIDENTIAL_CANDIDATES = [
-  {
-    id: 'conf-1',
-    name: 'Sneha Iyer',
-    email: 'sneha.iyer@example.com',
-    phone: '+91 98765 43210',
-    currentRole: 'Senior Frontend Developer',
-    experienceYears: '5 years',
-    location: 'Hyderabad, India',
-    skills: ['React', 'TypeScript', 'Next.js', 'Redux', 'TailwindCSS', 'REST APIs'],
-    resumeName: 'sneha_iyer_resume.pdf',
-    resumeText: `SNEHA IYER
-Senior Frontend Developer · Hyderabad, India
-Email: sneha.iyer@example.com · Phone: +91 98765 43210
-
-PROFESSIONAL SUMMARY
-Senior Frontend Engineer with 5+ years of experience building high-performance web applications using React, TypeScript, Next.js, and modern state management. Led UI architecture for enterprise SaaS dashboards with 100K+ monthly active users.
-
-WORK EXPERIENCE
-Senior Frontend Developer — TechCita Solutions (2022 – Present)
-• Architected scalable component library in TypeScript & React, improving development speed by 35%.
-• Optimized bundle size by 42% using Vite and code-splitting techniques.
-• Mentored 6 junior and mid-level developers in testing and design patterns.
-
-Frontend Engineer — Infosys (2019 – 2022)
-• Developed responsive client portals in React and Redux Toolkit.
-• Integrated GraphQL and REST endpoints with optimistic UI updates.
-
-EDUCATION
-B.Tech in Computer Science — JNTU Hyderabad (2015 – 2019)`,
-    summary: 'Senior Frontend Engineer with 5+ years building React & TypeScript enterprise web applications.',
-    interviewScore: 92,
-    status: 'Shortlisted',
-    source: 'Employer Assessment Link',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'conf-2',
-    name: 'Rahul Kapoor',
-    email: 'rahul.k@example.com',
-    phone: '+91 91234 56789',
-    currentRole: 'Backend Systems Engineer',
-    experienceYears: '4 years',
-    location: 'Bangalore, India',
-    skills: ['Node.js', 'Python', 'FastAPI', 'PostgreSQL', 'Docker', 'Redis', 'AWS'],
-    resumeName: 'rahul_kapoor_backend.pdf',
-    resumeText: `RAHUL KAPOOR
-Backend Systems Engineer · Bangalore, India
-Email: rahul.k@example.com · Phone: +91 91234 56789
-
-PROFESSIONAL SUMMARY
-Backend Developer with 4 years building microservices, high-throughput asynchronous APIs, and real-time WebSocket infrastructure in Node.js and Python.
-
-WORK EXPERIENCE
-Backend Developer — CloudScale Systems (2021 – Present)
-• Designed and maintained distributed microservices handling 15M requests/day in FastAPI & PostgreSQL.
-• Implemented caching layers in Redis reducing database query latency by 60%.
-
-EDUCATION
-B.E. in Information Technology — RVCE Bangalore`,
-    summary: 'Backend Engineer experienced in distributed microservices, FastAPI, Redis, and high-throughput pipelines.',
-    interviewScore: 88,
-    status: 'Screening',
-    source: 'Direct Ingestion',
-    createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  },
-  {
-    id: 'conf-3',
-    name: 'Ananya Rao',
-    email: 'ananya.rao@example.com',
-    phone: '+91 99887 76655',
-    currentRole: 'Full Stack Engineer',
-    experienceYears: '3 years',
-    location: 'Remote',
-    skills: ['React', 'Node.js', 'TypeScript', 'MongoDB', 'Express', 'GraphQL'],
-    resumeName: 'ananya_rao_fullstack.docx',
-    resumeText: `ANANYA RAO
-Full Stack Developer · Remote
-Email: ananya.rao@example.com
-
-SUMMARY
-Full Stack Engineer with 3 years building end-to-end web applications with React, Node.js, and TypeScript. Passionate about responsive UI and clean RESTful API design.`,
-    summary: 'Full Stack Developer proficient across modern JavaScript ecosystem and cloud deployments.',
-    interviewScore: 85,
-    status: 'Technical',
-    source: 'Profile Upload',
-    createdAt: new Date(Date.now() - 86400000 * 6).toISOString(),
-  },
-]
-
 async function seedDemoUsers(db) {
   if (!config.allowDemoAccounts) return db
   const demos = [
@@ -358,10 +270,6 @@ async function seedDemoUsers(db) {
       provisionEmployerTenant(db, account, { planId: 'plan-pro' })
       if ((db.organizations?.length || 0) > before) changed = true
     }
-  }
-  if (!isProdLike && (!db.confidentialVault || db.confidentialVault.length === 0)) {
-    db.confidentialVault = tagVaultForOrganization([...SEED_CONFIDENTIAL_CANDIDATES], 'org-platform')
-    changed = true
   }
   if (changed) await saveDb(db)
   return db
@@ -912,9 +820,13 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: 'scheduledStart (ISO datetime) is required.' })
       }
       const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
-      const end = new Date(start.getTime() + durationMin * 60 * 1000)
+      const end = inviteJoinWindowEnd(start)
       const token = newInviteToken()
-      const contextJson = buildEmployerInviteContext(db, app, job)
+      const contextJson = {
+        ...buildEmployerInviteContext(db, app, job),
+        interviewDurationMinutes: durationMin,
+        joinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
+      }
       const pool = dbPool(config.databaseUrl)
       await insertInterviewInvite(pool, {
         token,
@@ -1046,13 +958,17 @@ const server = createServer(async (req, res) => {
       const db = loadDb()
       const user = db.users.find((u) => u.email === email)
       const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
-      const end = new Date(start.getTime() + durationMin * 60 * 1000)
+      const end = inviteJoinWindowEnd(start)
       const token = newInviteToken()
       const orgId =
         user?.primaryOrganizationId ||
         db.organizationMembers?.find((m) => m.userId === user?.id)?.organizationId ||
         null
-      const contextJson = buildJobSeekerInviteContext(db, email, body)
+      const contextJson = {
+        ...buildJobSeekerInviteContext(db, email, body),
+        interviewDurationMinutes: durationMin,
+        joinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
+      }
       const pool = dbPool(config.databaseUrl)
       await insertInterviewInvite(pool, {
         token,
@@ -1086,7 +1002,11 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/mail/status') {
-      return json(res, 200, { smtpConfigured: smtpConfigured() })
+      return json(res, 200, {
+        smtpConfigured: smtpConfigured(),
+        publicAppUrl: publicAppOrigin(),
+        inviteJoinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
+      })
     }
 
     if (req.method === 'GET' && path === '/api/organization') {
