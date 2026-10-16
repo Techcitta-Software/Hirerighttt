@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
@@ -18,6 +18,7 @@ import {
 } from '../lib/employerCandidateUtils'
 import {
   createVendorJob,
+  deleteVendorJob,
   fetchJobCandidatesRoster,
   fetchOrganizationCandidates,
   fetchVendorJobs,
@@ -31,6 +32,20 @@ function getInitials(name: string): string {
   if (!parts.length) return '??'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+function slugifyCompanyName(name: string) {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+  return base || 'company'
+}
+
+function isOptimisticJobId(id: string) {
+  return id.startsWith('optimistic-')
 }
 
 function normalizeApplicant(row: EmployerApplicant): EmployerApplicant {
@@ -106,35 +121,54 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   // Advanced Search Candidates Query (Image 2)
   const [candidateSearchQuery, setCandidateSearchQuery] = useState<CandidateSearchQuery | null>(null)
 
+  /** Ignore in-flight job list fetches after optimistic create/delete. */
+  const jobsLoadSeqRef = useRef(0)
+
+  function bumpJobsLoadGeneration() {
+    jobsLoadSeqRef.current += 1
+  }
+
+  async function refreshJobCountsForJobs(mapped: EmployerJob[], loadSeq: number) {
+    const counts: Record<string, number> = {}
+    for (const job of mapped) {
+      if (loadSeq !== jobsLoadSeqRef.current) return
+      if (isOptimisticJobId(job.id)) {
+        counts[job.id] = 0
+        continue
+      }
+      try {
+        const { total } = await fetchJobCandidatesRoster(job.id)
+        counts[job.id] = total
+      } catch {
+        counts[job.id] = 0
+      }
+    }
+    if (loadSeq !== jobsLoadSeqRef.current) return
+    setJobCounts((prev) => ({ ...prev, ...counts }))
+  }
+
   async function loadJobsFromApi() {
     if (!user || user.role !== 'employer') return
+    const loadSeq = ++jobsLoadSeqRef.current
     const online = await apiHealth()
+    if (loadSeq !== jobsLoadSeqRef.current) return
     if (!online) {
       setPortalError('API is offline. Start the backend (npm run dev:all) to load jobs from the database.')
       setJobs([])
       return
     }
     const sessionOk = await ensureApiSession()
+    if (loadSeq !== jobsLoadSeqRef.current) return
     if (!sessionOk) {
       setPortalError('Could not authenticate with the API. Sign in again as an employer.')
       setJobs([])
       return
     }
     const { jobs: remoteJobs } = await fetchVendorJobs()
+    if (loadSeq !== jobsLoadSeqRef.current) return
     const mapped = remoteJobs.map((j) => vendorJobToEmployerJob(j, user.email))
     setJobs(mapped)
-    const counts: Record<string, number> = {}
-    await Promise.all(
-      mapped.map(async (job) => {
-        try {
-          const { total } = await fetchJobCandidatesRoster(job.id)
-          counts[job.id] = total
-        } catch {
-          counts[job.id] = 0
-        }
-      }),
-    )
-    setJobCounts(counts)
+    void refreshJobCountsForJobs(mapped, loadSeq)
   }
 
   async function loadOrgCandidatesFromApi(filters?: {
@@ -324,7 +358,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault()
     const jd = newJobDescription.trim()
-    if (!newJobTitle.trim() || jd.length < 30) {
+    const title = newJobTitle.trim()
+    if (!title || jd.length < 30) {
       setJobFormError('Job title and description (min 30 characters) are required.')
       return
     }
@@ -335,32 +370,123 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       .filter(Boolean)
     const company = user?.companyName || 'TechCitta Solutions'
     const createdByEmail = user?.email || 'employer@hireright.com'
+    const location = newJobLocation.trim()
+    const roleTrack = newJobRoleTrack
+    const experienceLevel = newJobExp
+
+    const optimisticId = `optimistic-${Date.now()}`
+    const optimisticJob: EmployerJob = {
+      id: optimisticId,
+      title,
+      company,
+      companySlug: slugifyCompanyName(company),
+      roleTrack,
+      experienceLevel,
+      location,
+      jobDescription: jd,
+      requiredSkills,
+      createdByEmail,
+      createdAt: new Date().toISOString(),
+      shareableCode: 'pending',
+    }
+
+    bumpJobsLoadGeneration()
+    setJobs((prev) => [optimisticJob, ...prev])
+    setJobCounts((prev) => ({ ...prev, [optimisticId]: 0 }))
+    setShowCreateJobModal(false)
+    setNewJobTitle('')
+    setNewJobDescription('')
+    setNewJobSkills('React, TypeScript, Node.js')
+    setPortalError('')
+    setPortalSyncNote(`Creating “${title}”…`)
 
     try {
       await ensureApiSession()
       if (!(await apiHealth())) {
-        setJobFormError('API is offline. Start the backend to create jobs in the database.')
-        return
+        throw new Error('API is offline. Start the backend to create jobs in the database.')
       }
       const { job } = await createVendorJob({
-        title: newJobTitle.trim(),
+        title,
         jobDescription: jd,
-        roleTrack: newJobRoleTrack,
-        experienceLevel: newJobExp,
-        location: newJobLocation.trim(),
+        roleTrack,
+        experienceLevel,
+        location,
         requiredSkills,
         company,
       })
       const created = vendorJobToEmployerJob(job, createdByEmail)
-      setJobs([created, ...jobs])
-      setJobCounts((prev) => ({ ...prev, [created.id]: 0 }))
-      setShowCreateJobModal(false)
-      setNewJobTitle('')
-      setNewJobDescription('')
-      setNewJobSkills('React, TypeScript, Node.js')
+      setJobs((prev) => prev.map((j) => (j.id === optimisticId ? created : j)))
+      setJobCounts((prev) => {
+        const next = { ...prev }
+        delete next[optimisticId]
+        next[created.id] = next[created.id] ?? 0
+        return next
+      })
       setPortalSyncNote(`Job “${created.title}” saved to the database. Share the link to collect applicants.`)
     } catch (err) {
+      setJobs((prev) => prev.filter((j) => j.id !== optimisticId))
+      setJobCounts((prev) => {
+        const next = { ...prev }
+        delete next[optimisticId]
+        return next
+      })
+      setShowCreateJobModal(true)
+      setNewJobTitle(title)
+      setNewJobDescription(jd)
+      setNewJobRoleTrack(roleTrack)
+      setNewJobExp(experienceLevel)
+      setNewJobLocation(location)
+      setNewJobSkills(requiredSkills.join(', '))
       setJobFormError(err instanceof Error ? err.message : 'Could not create job in the database.')
+      setPortalSyncNote('')
+    }
+  }
+
+  async function handleDeleteJob(job: EmployerJob) {
+    if (isOptimisticJobId(job.id)) return
+    const ok = window.confirm(
+      `Delete “${job.title}”?\n\nThis removes the job posting from your dashboard and the database. Application links for this opening will stop working.`,
+    )
+    if (!ok) return
+
+    const removedJob = job
+    const prevJobs = jobs
+    const prevCounts = jobCounts
+    const prevApplicants = applicants
+    const prevSelectedJobId = selectedJobId
+    const prevSelectedJobTitle = selectedJobTitle
+
+    bumpJobsLoadGeneration()
+    setJobs((prev) => prev.filter((j) => j.id !== job.id))
+    setJobCounts((prev) => {
+      const next = { ...prev }
+      delete next[job.id]
+      return next
+    })
+    if (selectedJobId === job.id) {
+      setSelectedJobId(null)
+      setSelectedJobTitle('')
+      setApplicants([])
+    } else {
+      setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
+    }
+    setPortalError('')
+    setPortalSyncNote(`Job “${job.title}” was deleted.`)
+
+    try {
+      await ensureApiSession()
+      if (!(await apiHealth())) {
+        throw new Error('API is offline. Start the backend to delete jobs from the database.')
+      }
+      await deleteVendorJob(job.id)
+    } catch (err) {
+      setJobs(prevJobs)
+      setJobCounts(prevCounts)
+      setApplicants(prevApplicants)
+      setSelectedJobId(prevSelectedJobId)
+      setSelectedJobTitle(prevSelectedJobTitle)
+      setPortalError(err instanceof Error ? err.message : 'Could not delete job.')
+      setPortalSyncNote('')
     }
   }
 
@@ -476,11 +602,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   const count = jobCounts[job.id] ?? 0
                   const isCopied = copiedCode === job.shareableCode
                   const isSelected = selectedJobId === job.id
+                  const isPending = isOptimisticJobId(job.id)
 
                   return (
                     <div
                       key={job.id}
-                      className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''}`}
+                      className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''} ${isPending ? styles.jobCardPending : ''}`}
                     >
                       <div>
                         <h4 className={styles.jobCardTitle}>{job.title}</h4>
@@ -492,11 +619,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
                         <div className={styles.linkBox}>
                           <span className={styles.linkUrl}>
-                            {buildApplyUrl(job.company, job.shareableCode)}
+                            {isPending
+                              ? 'Generating shareable link…'
+                              : buildApplyUrl(job.company, job.shareableCode)}
                           </span>
                           <button
                             type="button"
                             className={styles.copyBtn}
+                            disabled={isPending}
                             onClick={() => handleCopyLink(job)}
                           >
                             {isCopied ? 'Copied!' : 'Copy'}
@@ -506,13 +636,25 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
                       <div className={styles.jobFooter}>
                         <span>{count} in roster</span>
-                        <button
-                          type="button"
-                          className={styles.inspectBtn}
-                          onClick={() => void loadJobCandidatesFromApi(job.id)}
-                        >
-                          View interviews →
-                        </button>
+                        <div className={styles.jobFooterActions}>
+                          <button
+                            type="button"
+                            className={styles.inspectBtn}
+                            disabled={isPending}
+                            onClick={() => void loadJobCandidatesFromApi(job.id)}
+                          >
+                            View interviews →
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.deleteJobBtn}
+                            disabled={isPending}
+                            onClick={() => void handleDeleteJob(job)}
+                            aria-label={`Delete job ${job.title}`}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -704,20 +846,31 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             <table className={styles.candidatesTable}>
               <thead>
                 <tr>
-                  <th style={{ width: '22%' }}>CANDIDATE ▲</th>
-                  <th style={{ width: '13%' }}>ROLE</th>
-                  <th style={{ width: '16%' }}>TARGET JOB</th>
-                  <th style={{ width: '9%' }}>EXPERIENCE</th>
-                  <th style={{ width: '14%' }}>AI SCORE & FIT</th>
-                  <th style={{ width: '12%' }}>INTEGRITY</th>
-                  <th style={{ width: '10%' }}>STATUS</th>
-                  <th style={{ width: '11%' }}>ACTIONS</th>
+                  {isCandidatesView ? (
+                    <>
+                      <th style={{ width: '32%' }}>CANDIDATE ▲</th>
+                      <th style={{ width: '22%' }}>ROLE</th>
+                      <th style={{ width: '22%' }}>EXPERIENCE</th>
+                      <th style={{ width: '24%' }}>FINAL SCORE</th>
+                    </>
+                  ) : (
+                    <>
+                      <th style={{ width: '22%' }}>CANDIDATE ▲</th>
+                      <th style={{ width: '13%' }}>ROLE</th>
+                      <th style={{ width: '16%' }}>TARGET JOB</th>
+                      <th style={{ width: '9%' }}>EXPERIENCE</th>
+                      <th style={{ width: '14%' }}>AI SCORE & FIT</th>
+                      <th style={{ width: '12%' }}>INTEGRITY</th>
+                      <th style={{ width: '10%' }}>STATUS</th>
+                      <th style={{ width: '11%' }}>ACTIONS</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
                 {filteredApplicants.length === 0 ? (
                   <tr>
-                    <td colSpan={8}>
+                    <td colSpan={isCandidatesView ? 4 : 8}>
                       <div className={styles.emptyState}>
                         <h3>No candidates in database</h3>
                         <p>
@@ -743,6 +896,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
                     const integ = cand.integrityStatus ?? (cand.interviewResult?.integrity?.faceViolations ? 'pending' : 'verified')
 
+                    const finalScore = cand.aiScore ?? cand.interviewResult?.overall ?? null
+                    const finalScoreLabel =
+                      finalScore != null && Number.isFinite(Number(finalScore))
+                        ? `✦ ${Math.round(Number(finalScore))}%`
+                        : '-'
+
                     return (
                       <tr key={cand.id}>
                         {/* CANDIDATE */}
@@ -751,9 +910,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             <div className={styles.avatar}>{initials}</div>
                             <div>
                               <div className={styles.candidateName}>{cand.candidateName}</div>
-                              <div className={styles.candidateContact}>
-                                {cand.candidateEmail} · {cand.candidatePhone}
-                              </div>
+                              {!isCandidatesView && (
+                                <div className={styles.candidateContact}>
+                                  {cand.candidateEmail} · {cand.candidatePhone}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -763,72 +924,89 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                           <span className={styles.roleTag}>{cand.role || '—'}</span>
                         </td>
 
-                        {/* TARGET JOB */}
-                        <td>
-                          <div className={styles.targetJobTitle}>{cand.jobTitle}</div>
-                          <div className={styles.targetJobCompany}>{cand.company}</div>
-                        </td>
+                        {isCandidatesView ? (
+                          <>
+                            <td>
+                              <span className={styles.experienceText}>
+                                {cand.experienceYears?.trim() ? cand.experienceYears : '—'}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={`${styles.scorePill} ${scoreStyle}`}>
+                                {finalScoreLabel}
+                              </span>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            {/* TARGET JOB */}
+                            <td>
+                              <div className={styles.targetJobTitle}>{cand.jobTitle}</div>
+                              <div className={styles.targetJobCompany}>{cand.company}</div>
+                            </td>
 
-                        {/* EXPERIENCE */}
-                        <td>
-                          <span className={styles.experienceText}>{cand.experienceYears}</span>
-                        </td>
+                            {/* EXPERIENCE */}
+                            <td>
+                              <span className={styles.experienceText}>{cand.experienceYears}</span>
+                            </td>
 
-                        {/* AI SCORE & FIT */}
-                        <td>
-                          <span className={`${styles.scorePill} ${scoreStyle}`}>
-                            {score != null ? `✦ ${score}% Overall Fit` : 'No interview yet'}
-                          </span>
-                        </td>
+                            {/* AI SCORE & FIT */}
+                            <td>
+                              <span className={`${styles.scorePill} ${scoreStyle}`}>
+                                {score != null ? `✦ ${score}% Overall Fit` : 'No interview yet'}
+                              </span>
+                            </td>
 
-                        {/* INTEGRITY */}
-                        <td>
-                          {integ === 'verified' && (
-                            <span className={`${styles.integrityText} ${styles.integrityVerified}`}>
-                              <HrIcon name="shield-check" size={14} /> Verified Candidate
-                            </span>
-                          )}
-                          {integ === 'pending' && (
-                            <span className={`${styles.integrityText} ${styles.integrityPending}`}>
-                              <HrIcon name="shield-check" size={14} /> Verification pending
-                            </span>
-                          )}
-                          {integ === 'unverified' && (
-                            <span className={`${styles.integrityText} ${styles.integrityUnverified}`}>
-                              <HrIcon name="close" size={13} /> Not verified
-                            </span>
-                          )}
-                        </td>
+                            {/* INTEGRITY */}
+                            <td>
+                              {integ === 'verified' && (
+                                <span className={`${styles.integrityText} ${styles.integrityVerified}`}>
+                                  <HrIcon name="shield-check" size={14} /> Verified Candidate
+                                </span>
+                              )}
+                              {integ === 'pending' && (
+                                <span className={`${styles.integrityText} ${styles.integrityPending}`}>
+                                  <HrIcon name="shield-check" size={14} /> Verification pending
+                                </span>
+                              )}
+                              {integ === 'unverified' && (
+                                <span className={`${styles.integrityText} ${styles.integrityUnverified}`}>
+                                  <HrIcon name="close" size={13} /> Not verified
+                                </span>
+                              )}
+                            </td>
 
-                        {/* STATUS */}
-                        <td>
-                          <select
-                            className={styles.statusDropdown}
-                            value={cand.status}
-                            onChange={(e) =>
-                              handleStatusChange(
-                                cand.id,
-                                e.target.value as EmployerApplicant['status'],
-                              )
-                            }
-                          >
-                            <option value="New">New</option>
-                            <option value="Shortlisted">Shortlisted</option>
-                            <option value="Interviewing">Interviewing</option>
-                            <option value="Rejected">Rejected</option>
-                          </select>
-                        </td>
+                            {/* STATUS */}
+                            <td>
+                              <select
+                                className={styles.statusDropdown}
+                                value={cand.status}
+                                onChange={(e) =>
+                                  handleStatusChange(
+                                    cand.id,
+                                    e.target.value as EmployerApplicant['status'],
+                                  )
+                                }
+                              >
+                                <option value="New">New</option>
+                                <option value="Shortlisted">Shortlisted</option>
+                                <option value="Interviewing">Interviewing</option>
+                                <option value="Rejected">Rejected</option>
+                              </select>
+                            </td>
 
-                        {/* ACTIONS */}
-                        <td>
-                          <button
-                            type="button"
-                            className={styles.inspectBtn}
-                            onClick={() => setSelectedApplicant(cand)}
-                          >
-                            Inspect AI Report →
-                          </button>
-                        </td>
+                            {/* ACTIONS */}
+                            <td>
+                              <button
+                                type="button"
+                                className={styles.inspectBtn}
+                                onClick={() => setSelectedApplicant(cand)}
+                              >
+                                Inspect AI Report →
+                              </button>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     )
                   })

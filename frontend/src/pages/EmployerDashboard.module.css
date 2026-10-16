@@ -568,6 +568,12 @@
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
 }
 
+.jobCardPending {
+  border-style: dashed;
+  border-color: #a5b4fc;
+  background: #f5f3ff;
+}
+
 .jobCardTitle {
   font-size: 1.1rem;
   font-weight: 700;
@@ -633,6 +639,36 @@
   border-top: 1px solid #e2e8f0;
   font-size: 0.8rem;
   color: #64748b;
+}
+
+.jobFooterActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.deleteJobBtn {
+  background: transparent;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.deleteJobBtn:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+.deleteJobBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Modals */

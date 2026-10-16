@@ -88,6 +88,13 @@ export async function createVendorJob(payload: {
   return parse<{ job: VendorJob }>(res)
 }
 
+export async function deleteVendorJob(jobId: string) {
+  const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  })
+  return parse<{ ok: boolean; id: string; title?: string }>(res)
+}
+
 export async function fetchJobApplicants(jobId: string) {
   const res = await apiFetch(`/api/vendor/jobs/${jobId}/applicants`)
   return parse<{ job: VendorJob; applicants: VendorApplicant[] }>(res)

@@ -16,6 +16,7 @@ import {
   loadDb as loadDbFromStore,
   saveDb as persistDb,
   upsertJobRecord,
+  deleteJobRecord,
   saveSessionToken,
   resolveSessionEmail,
   deleteSessionToken,
@@ -110,6 +111,7 @@ import {
 } from './db/talentIndex.mjs'
 import {
   createVendorJob,
+  deleteVendorJob,
   resolvePublicJob,
   parsePublicJobPath,
   listOrgJobs,
@@ -748,6 +750,27 @@ const server = createServer(async (req, res) => {
       if (!ctx) return
       const jobs = listOrgJobs(db, ctx.tenant.organization.id)
       return json(res, 200, { jobs })
+    }
+
+    if (
+      req.method === 'DELETE' &&
+      /^\/api\/vendor\/jobs\/[^/]+$/.test(path)
+    ) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const jobId = path.split('/')[4]
+      try {
+        const removed = deleteVendorJob(db, ctx.tenant.organization.id, jobId)
+        if (config.databaseUrl) {
+          await deleteJobRecord(config.databaseUrl, jobId, ctx.tenant.organization.id)
+        }
+        await saveDb(db)
+        return json(res, 200, { ok: true, ...removed })
+      } catch (err) {
+        const status = err.status || 500
+        return json(res, status, { error: err.message || 'Could not delete job.' })
+      }
     }
 
     if (req.method === 'GET' && path.startsWith('/api/vendor/jobs/') && path.endsWith('/applicants')) {
