@@ -25,7 +25,8 @@
     "db:verify": "npm --prefix backend/node run db:verify",
     "check:env": "node scripts/check-env.mjs",
     "check:llm": "npm --prefix backend/node run check:llm",
-    "check:smoke": "npm --prefix backend/node run check:smoke"
+    "check:smoke": "npm --prefix backend/node run check:smoke",
+    "verify:prod": "node scripts/verify-production.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

@@ -23,7 +23,7 @@ jobs:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$RENDER_DEPLOY_HOOK" ]; then
-            echo "RENDER_DEPLOY_HOOK secret is not set. Connect the repo in Render or add the hook URL under GitHub Actions secrets."
+            echo "::warning::RENDER_DEPLOY_HOOK not set — trigger Manual Deploy in Render if auto-deploy did not run."
             exit 0
           fi
           curl -fsS -X POST "$RENDER_DEPLOY_HOOK"

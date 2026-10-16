@@ -9,7 +9,7 @@ services:
     plan: free
     region: oregon
     rootDir: backend/node
-    buildCommand: npm install
+    buildCommand: npm install && node -e "console.log('render build ok')"
     startCommand: node index.mjs
     healthCheckPath: /api/health
     autoDeploy: true

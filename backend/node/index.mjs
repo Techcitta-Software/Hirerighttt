@@ -603,10 +603,12 @@ const server = createServer(async (req, res) => {
         process.env.VERCEL_GIT_COMMIT_SHA ||
         process.env.GIT_COMMIT ||
         null
+      const apiBuildId = process.env.API_BUILD_ID || 'hireright-neon-2026-10-16'
       return json(res, 200, {
         ok: true,
         service: 'hireright-api',
         version: '2.0.0',
+        apiBuildId,
         deployRef,
         llm: llmConfigured(),
         models: publicModelConfig(),
