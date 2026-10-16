@@ -40,7 +40,7 @@ Project: **hire-rightt** → Settings → Environment Variables:
 
 | Key | Value |
 |-----|--------|
-| `RENDER_API_URL` | `https://YOUR-SERVICE.onrender.com` (no trailing slash) |
+| `RENDER_API_URL` | `https://hireright-backend-ykln.onrender.com` (optional; rewrite in `vercel.json` is primary) |
 | `VITE_API_URL` | *(leave empty)* — browser uses same-origin `/api` via proxy |
 
 Redeploy production after saving env vars.

@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://hirerighttt-backend.onrender.com/api/:path*"
+      "destination": "https://hireright-backend-ykln.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
