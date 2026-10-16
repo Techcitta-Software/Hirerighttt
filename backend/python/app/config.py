@@ -7,16 +7,17 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Settings(BaseSettings):
-    """Runtime configuration loaded from environment variables or backend/.env."""
+    """Runtime configuration from repo-root `.env` (same file as Node API)."""
 
     model_config = SettingsConfigDict(
-        env_file=str(ROOT / ".env"),
+        env_file=str(REPO_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,

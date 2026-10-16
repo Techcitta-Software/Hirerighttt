@@ -8,7 +8,8 @@
     "backend/node"
   ],
   "scripts": {
-    "dev": "npm --prefix frontend run dev",
+    "dev": "node scripts/dev-all.mjs",
+    "dev:frontend-only": "npm --prefix frontend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "node backend/node/index.mjs",
     "dev:python": "cd backend/python && python run.py",
@@ -20,8 +21,13 @@
     "server": "node backend/node/index.mjs",
     "server:py": "cd backend/python && python run.py",
     "test:e2e": "playwright test",
-    "prod:supabase": "docker compose -f docker-compose.supabase.prod.yml up -d --build",
-    "prod:self-hosted": "docker compose -f docker-compose.prod.yml --profile self-hosted-db up -d --build"
+    "prod:neon": "docker compose -f docker-compose.prod.yml up -d --build",
+    "db:init": "npm --prefix backend/node run db:init",
+    "db:verify": "npm --prefix backend/node run db:verify",
+    "check:env": "node scripts/check-env.mjs",
+    "check:llm": "npm --prefix backend/node run check:llm",
+    "check:groq": "npm --prefix backend/node run check:groq",
+    "test:live-caption": "node --test frontend/tests/mergeLiveCaption.test.mjs && npm --prefix backend/node run test:live-caption"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

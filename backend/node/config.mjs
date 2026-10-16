@@ -1,9 +1,11 @@
 /**
  * Production-safe runtime configuration for the Node interview API.
  */
-import { loadEnv } from './loadEnv.mjs'
+import { loadEnv, envFilePath } from './loadEnv.mjs'
 
-loadEnv()
+if (!loadEnv()) {
+  console.warn(`[config] No ${envFilePath()} — copy .env.example to .env at repo root.`)
+}
 
 const env = process.env.ENVIRONMENT || process.env.NODE_ENV || 'development'
 export const isProduction = env === 'production'
@@ -19,27 +21,31 @@ export const config = {
     .filter(Boolean),
   databaseUrl: process.env.DATABASE_URL || '',
   sessionSecret: process.env.SESSION_SECRET || process.env.SECRET_KEY || '',
-  allowDemoAccounts: process.env.ALLOW_DEMO_ACCOUNTS === 'true' || !isProdLike,
+  allowDemoAccounts: process.env.ALLOW_DEMO_ACCOUNTS === 'true' || (process.env.ALLOW_DEMO_ACCOUNTS !== 'false' && !isProdLike),
   signupEnabled: process.env.SIGNUP_ENABLED !== 'false',
-  maxBodyBytes: Number(process.env.MAX_REQUEST_BYTES) || 2_000_000,
-  supabaseUrl: process.env.SUPABASE_URL || '',
-  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
-  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+  maxBodyBytes: Number(process.env.MAX_REQUEST_BYTES) || 3_000_000,
   trustProxy: process.env.TRUST_PROXY === 'true' || isProdLike,
 }
 
+/** Neon Postgres is mandatory for all environments (no db.json). */
+export function assertDatabaseConfig() {
+  if (!config.databaseUrl?.trim()) {
+    console.error(
+      '[config] DATABASE_URL is required.\n' +
+        '  Set DATABASE_URL in repo-root .env (see .env.example)\n' +
+        '  Example: postgresql://USER:PASS@ep-xxx.region.aws.neon.tech/neondb?sslmode=require\n' +
+        '  Then run: npm run db:init',
+    )
+    process.exit(1)
+  }
+}
+
 export function assertProductionConfig() {
+  assertDatabaseConfig()
+
   if (!isProdLike) return
 
   const errors = []
-  if (!config.databaseUrl) {
-    errors.push(
-      'DATABASE_URL is required in production (Supabase: Project Settings → Database → connection string URI).',
-    )
-  }
-  if (config.supabaseUrl && !config.supabaseJwtSecret) {
-    errors.push('SUPABASE_JWT_SECRET is required when SUPABASE_URL is set (Project Settings → API → JWT Secret).')
-  }
   if (!config.sessionSecret || config.sessionSecret.length < 32) {
     errors.push('SESSION_SECRET (or SECRET_KEY) must be at least 32 random characters in production.')
   }

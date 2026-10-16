@@ -18,6 +18,12 @@ import {
   mergeRecognitionResults,
   speakText,
 } from '../lib/speech'
+import { fetchGroqSttAvailable } from '../lib/groqTranscribe'
+import {
+  createLiveInterviewSttController,
+  liveInterviewSttHint,
+  type LiveInterviewSttController,
+} from '../lib/liveInterviewStt'
 import {
   FaceTracker,
   type FaceTrackStatus,
@@ -26,6 +32,8 @@ import {
   checkLlmStatus,
   pingInterviewIntegrity,
   processInterviewTurn,
+  recordInterviewAnswer,
+  completeInterviewResult,
   scoreInterviewRemote,
   startInterviewSession,
   type IntegritySnapshot,
@@ -61,8 +69,6 @@ import styles from './InterviewPage.module.css'
 type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
 const QUESTION_SECONDS = 180
-/** After this much silence with an answer on the transcript, auto-advance (call-style). */
-const SILENCE_ADVANCE_MS = 2500
 const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
@@ -71,7 +77,8 @@ const LOBBY_TIPS = [
   'No role chip selected? Questions follow your resume. Pick a role track to focus the interview on that job',
   'It works for any field — engineering, healthcare, oil & gas, and more',
   'Talk over Ava to interrupt — only your voice stops her (not background noise)',
-  'Pause ~2.5s or click "Next Question" when done — Ava promptly gives the next question',
+  'Live captions appear as you speak (browser + Groq Whisper)',
+  'Click "Submit Answer" when you are done — Ava waits for you',
   'Say "end the interview" when you want to finish (after 2+ answers)',
 ]
 
@@ -144,11 +151,14 @@ export function InterviewPage() {
     provider?: string
     message?: string
   } | null>(null)
+  const [groqSttAvailable, setGroqSttAvailable] = useState(false)
+  const [sttTranscribing, setSttTranscribing] = useState(false)
 
   useEffect(() => {
     checkLlmStatus().then((status) => {
       setLlmStatus(status)
     })
+    fetchGroqSttAvailable().then(setGroqSttAvailable)
   }, [])
 
   useEffect(() => {
@@ -179,6 +189,7 @@ export function InterviewPage() {
   const [, setRecordingNote] = useState('')
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const pendingAnswerWritesRef = useRef<Promise<boolean>[]>([])
   const integrityRef = useRef<IntegritySnapshot>({
     faceViolations: 0,
     singlePersonOk: true,
@@ -196,6 +207,7 @@ export function InterviewPage() {
   const finishingRef = useRef(false)
   const draftRef = useRef('')
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const liveSttRef = useRef<LiveInterviewSttController | null>(null)
   const baseDraftRef = useRef('')
   const transcriptCommittedRef = useRef('')
   const streamRef = useRef<MediaStream | null>(null)
@@ -213,11 +225,12 @@ export function InterviewPage() {
   const lastSpeechAtRef = useRef(0)
   const aiSpeakingRef = useRef(false)
   const listeningRef = useRef(false)
-  const submitAnswerRef = useRef<() => void>(() => {})
   const bargeCooldownRef = useRef(0)
 
   const question = questions[current]
-  const speechSupported = isSpeechRecognitionSupported()
+  const browserSttSupported = isSpeechRecognitionSupported()
+  const useGroqStt = groqSttAvailable
+  const speechSupported = useGroqStt || browserSttSupported
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
   const [resumeNote, setResumeNote] = useState('')
@@ -434,6 +447,12 @@ export function InterviewPage() {
   }
 
   function stopListening() {
+    if (useGroqStt) {
+      liveSttRef.current?.stop()
+      setListening(false)
+      listeningRef.current = false
+      return
+    }
     try {
       recognitionRef.current?.stop()
     } catch {
@@ -441,6 +460,7 @@ export function InterviewPage() {
     }
     recognitionRef.current = null
     setListening(false)
+    listeningRef.current = false
   }
 
   function stopAllSpeech() {
@@ -451,9 +471,42 @@ export function InterviewPage() {
   }
 
   useEffect(() => {
+    if (!useGroqStt || !streamReady) return
+
+    liveSttRef.current = createLiveInterviewSttController({
+      getStream: () => streamRef.current,
+      shouldRun: () =>
+        micOnRef.current &&
+        !finishingRef.current &&
+        !advancingRef.current &&
+        (stageRef.current === 'interview' || stageRef.current === 'setup'),
+      isAiSpeaking: () => aiSpeakingRef.current,
+      onListeningChange: (active) => {
+        setListening(active)
+        listeningRef.current = active
+      },
+      onTranscribingChange: (active) => setSttTranscribing(active),
+      onBargeIn: () => handleBargeIn(),
+      onError: (message) => setDeviceError(message),
+      onTranscript: (display) => {
+        setDraft(display)
+        draftRef.current = display
+        if (display.trim()) lastSpeechAtRef.current = Date.now()
+      },
+    })
+
+    return () => {
+      liveSttRef.current?.dispose()
+      liveSttRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useGroqStt, streamReady])
+
+  useEffect(() => {
     return () => {
       stopAllSpeech()
       stopTracks()
+      liveSttRef.current?.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -542,10 +595,21 @@ export function InterviewPage() {
     listenAfterTtsRef.current = true
   }
 
-  function startListening(options?: { duringTts?: boolean }) {
+  function startListening() {
     if (!speechSupported || !micOnRef.current) return
-    if (aiSpeakingRef.current && !options?.duringTts) return
+    if (aiSpeakingRef.current) return
     stopListening()
+
+    if (useGroqStt) {
+      baseDraftRef.current = draftRef.current.trim()
+      liveSttRef.current?.resetTranscript(baseDraftRef.current)
+      void liveSttRef.current?.start().then(() => {
+        setListening(true)
+        listeningRef.current = true
+      })
+      return
+    }
+
     const recognition = getSpeechRecognition()
     if (!recognition) return
     baseDraftRef.current = draftRef.current.trim()
@@ -613,10 +677,12 @@ export function InterviewPage() {
     const gen = ++speakGenRef.current
     listenAfterTtsRef.current = true
     lastSpeechAtRef.current = 0
+    stopListening()
     setDraft('')
     draftRef.current = ''
     baseDraftRef.current = ''
     transcriptCommittedRef.current = ''
+    liveSttRef.current?.resetTranscript('')
     setAiSpeaking(true)
     aiSpeakingRef.current = true
 
@@ -630,10 +696,6 @@ export function InterviewPage() {
         : '')
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
-
-    if (micOnRef.current && speechSupported) {
-      window.setTimeout(() => startListening({ duringTts: true }), 450)
-    }
 
     speakText(spoken, {
       onStart: () => {
@@ -673,41 +735,17 @@ export function InterviewPage() {
 
   useEffect(() => {
     if (stage !== 'interview') return
-    const id = window.setInterval(() => {
-      if (
-        finishingRef.current ||
-        advancingRef.current ||
-        aiSpeakingRef.current ||
-        interviewBanned
-      ) {
-        return
-      }
-      const text = draftRef.current.trim()
-      if (text.length < MIN_ANSWER_CHARS) return
-      const last = lastSpeechAtRef.current
-      if (!last) return
-      if (Date.now() - last < SILENCE_ADVANCE_MS) return
-      submitAnswerRef.current()
-    }, 250)
-    return () => window.clearInterval(id)
-  }, [stage, current, interviewBanned])
-
-  useEffect(() => {
-    if (stage !== 'interview') return
     setSecondsLeft(QUESTION_SECONDS)
-    let alive = true
     const id = window.setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
           window.clearInterval(id)
-          if (alive) window.setTimeout(() => submitAnswer(), 0)
           return 0
         }
         return s - 1
       })
     }, 1000)
     return () => {
-      alive = false
       window.clearInterval(id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -764,6 +802,11 @@ export function InterviewPage() {
       )
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
+      if (started.offline || String(started.sessionId || '').startsWith('local-')) {
+        setDeviceError(
+          'Interview is running offline — Q&A will not save to Neon. Start the backend (port 8787) and begin again.',
+        )
+      }
       setAgentLabel(started.agent || 'Ava · adaptive interviewer')
       setQuestions(started.questions)
       setCurrent(0)
@@ -785,6 +828,7 @@ export function InterviewPage() {
 
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
       window.setTimeout(() => attachStream(roomVideoRef.current), 300)
+      void ensureApiSession()
     } catch (err) {
       setDeviceError(err instanceof Error ? err.message : 'Could not start interview agent.')
     } finally {
@@ -792,25 +836,15 @@ export function InterviewPage() {
     }
   }
 
-  function endInterviewEarly() {
-    if (finishingRef.current || stage !== 'interview') return
-    stopAllSpeech()
-    const cur = (draftRef.current || draft || '').trim()
-    const next = [...answersRef.current]
-    if (cur) {
-      next[current] = cur
-      answersRef.current = next
-      try {
-        sessionStorage.setItem('hireright.interviewAnswers', JSON.stringify(next))
-      } catch {}
-    }
-    const answered = next.filter((a) => a?.trim() && !a.startsWith('(Answer skipped')).length
-    if (answered < 1 && !next[current]?.trim()) {
-      setDeviceError('Answer at least one question, or say "end the interview" after you respond.')
-      return
-    }
+  function leaveInterviewToDashboard() {
+    if (finishingRef.current) return
     finishingRef.current = true
-    finish(next, false)
+    stopAllSpeech()
+    stopTracks()
+    if (sessionIdRef.current) {
+      void completeInterviewResult(sessionIdRef.current, 'abandoned')
+    }
+    navigate('/dashboard')
   }
 
   async function submitAnswer(isSkip = false) {
@@ -840,6 +874,20 @@ export function InterviewPage() {
     try {
       sessionStorage.setItem('hireright.interviewAnswers', JSON.stringify(next))
     } catch {}
+
+    const sid = sessionIdRef.current
+    const questionForRecord = questions[current]
+    if (sid && questionForRecord && !isEndInterviewCommand(rawAnswer)) {
+      pendingAnswerWritesRef.current.push(
+        recordInterviewAnswer({
+          sessionId: sid,
+          questionIndex: current,
+          question: questionForRecord,
+          answer: rawAnswer,
+          skipped: isSkip || !rawAnswer,
+        }),
+      )
+    }
 
     const answeredCount = next.filter((a) => a && a.trim() && !a.startsWith('(Answer skipped')).length
     if (isEndInterviewCommand(rawAnswer)) {
@@ -871,6 +919,8 @@ export function InterviewPage() {
     setAdvancing(true)
     lastSpeechAtRef.current = 0
     setDraft('')
+    draftRef.current = ''
+    liveSttRef.current?.resetTranscript('')
     setDeviceError('')
 
     const currentQuestion = questions[current]
@@ -920,10 +970,6 @@ export function InterviewPage() {
     }
   }
 
-  submitAnswerRef.current = () => {
-    void submitAnswer()
-  }
-
   function finish(finalAnswers: string[], banned: boolean, banReason?: string) {
     setStage('analyzing')
     setIsRecording(false)
@@ -965,6 +1011,15 @@ export function InterviewPage() {
           recordingNoteLocal = 'Could not save recording locally.'
         }
         setRecordingNote(recordingNoteLocal)
+
+        await Promise.allSettled(pendingAnswerWritesRef.current)
+        pendingAnswerWritesRef.current = []
+        if (sessionIdRef.current) {
+          void completeInterviewResult(
+            sessionIdRef.current,
+            banned ? 'abandoned' : 'completed',
+          )
+        }
 
         const answerCount = finalAnswers.length
         const trimmedQuestions = questions.slice(0, answerCount)
@@ -1076,14 +1131,14 @@ export function InterviewPage() {
   const callStatus = advancing
     ? 'Moving to your next question…'
     : aiSpeaking
-      ? 'Ava speaking — jump in anytime to answer'
+      ? 'Ava is asking the question — listen first'
       : hasAnswer
-        ? 'Answer captured — pause ~2.5s or click Next below'
+        ? 'Answer captured — click Submit Answer when ready'
         : listening
-          ? 'Listening — speak your answer anytime'
+          ? 'Listening — speak your answer, then click Submit Answer'
           : 'Live call with Ava'
 
-  const canSubmit = !advancing && !interviewBanned
+  const canSubmit = !advancing && !interviewBanned && !aiSpeaking
 
   return (
     <div className={styles.page}>
@@ -1184,7 +1239,12 @@ export function InterviewPage() {
                     Camera
                   </span>
                   <span className={streamReady && micOn ? styles.ok : styles.off}>Mic</span>
-                  <span className={speechSupported ? styles.ok : styles.warn}>Speech</span>
+                  <span
+                    className={speechSupported ? styles.ok : styles.warn}
+                    title={useGroqStt ? liveInterviewSttHint() : 'Browser speech recognition'}
+                  >
+                    {useGroqStt ? 'Groq STT' : 'Speech'}
+                  </span>
                   <span className={ttsSupported ? styles.ok : styles.warn}>AI voice</span>
                 </div>
 
@@ -1648,7 +1708,13 @@ export function InterviewPage() {
                 <div className={styles.webcamCaptionsOverlay}>
                   <span className={styles.ccLiveTag}>● LIVE CAPTION</span>
                   <p className={styles.ccLiveText}>
-                    {draft.trim() ? `"${draft}"` : listening ? 'Listening... Speak your answer out loud.' : 'Waiting for Ava to finish question...'}
+                    {sttTranscribing
+                      ? 'Transcribing your sentence…'
+                      : draft.trim()
+                        ? `"${draft}"`
+                        : listening
+                          ? 'Listening… speak clearly; pause briefly after each sentence.'
+                          : 'Waiting for Ava to finish question...'}
                   </p>
                 </div>
 
@@ -1701,7 +1767,9 @@ export function InterviewPage() {
                     (aiSpeaking
                       ? 'Ava is asking — speak anytime or click "Next Question" to continue.'
                       : speechSupported
-                        ? 'Live transcript. Pause ~2.5s or click "Submit & Next" when finished.'
+                        ? useGroqStt
+                          ? `${liveInterviewSttHint()} Click "Submit Answer" when you are done.`
+                          : 'Live transcript. Click "Submit Answer" when you are done.'
                         : 'Speech unavailable in this browser. Type your answer.')}
                 </p>
                 {(showTypeFallback || !speechSupported) && (
@@ -1770,8 +1838,8 @@ export function InterviewPage() {
                   <button
                     type="button"
                     className={`${styles.roundBtn} ${listening ? styles.roundLive : ''}`}
-                    onClick={() => (listening ? stopListening() : startListening({ duringTts: true }))}
-                    disabled={!micOn}
+                    onClick={() => (listening ? stopListening() : startListening())}
+                    disabled={!micOn || aiSpeaking}
                   >
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
@@ -1812,7 +1880,7 @@ export function InterviewPage() {
                     : 'Skip Question →'}
               </motion.button>
 
-              <button type="button" className={styles.endBtn} onClick={endInterviewEarly}>
+              <button type="button" className={styles.endBtn} onClick={leaveInterviewToDashboard}>
                 Leave
               </button>
             </footer>

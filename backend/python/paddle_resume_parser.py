@@ -340,7 +340,13 @@ def llm_parse(text):
     if not api_key:
         return None
 
-    is_gemini = bool(os.environ.get("GEMINI_API_KEY")) or api_key.startswith("AIza") or "googleapis" in os.environ.get("OPENAI_BASE_URL", "")
+    is_gemini = (
+        bool(os.environ.get("GEMINI_API_KEY"))
+        or api_key.startswith("AIza")
+        or api_key.startswith("AQ.")
+        or "googleapis" in os.environ.get("OPENAI_BASE_URL", "")
+    )
+    is_auth_key = api_key.strip().startswith("AQ.")
     base_url = (os.environ.get("OPENAI_BASE_URL") or ("https://generativelanguage.googleapis.com/v1beta/openai" if is_gemini else "https://api.openai.com/v1")).rstrip("/")
     model = os.environ.get("GEMINI_MODEL") or os.environ.get("PRIMARY_MODEL") or os.environ.get("OPENAI_MODEL") or ("gemini-2.5-flash" if is_gemini else "gpt-4o-mini")
 
@@ -395,30 +401,42 @@ PaddleOCR Resume Text:
 {text[:12000]}"""
 
     try:
-        req_data = json.dumps({
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are a JSON-only resume parser. Return strictly valid JSON with no markdown formatting."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.1
-        }).encode('utf-8')
+        system_msg = "You are a JSON-only resume parser. Return strictly valid JSON with no markdown formatting."
+        if is_auth_key:
+            native_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            req_data = json.dumps({
+                "systemInstruction": {"parts": [{"text": system_msg}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1},
+            }).encode('utf-8')
+            headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+            req = urllib.request.Request(native_url, data=req_data, headers=headers)
+        else:
+            req_data = json.dumps({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.1
+            }).encode('utf-8')
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        if is_gemini:
-            headers["x-goog-api-key"] = api_key
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            if is_gemini:
+                headers["x-goog-api-key"] = api_key
 
-        req = urllib.request.Request(
-            f"{base_url}/chat/completions",
-            data=req_data,
-            headers=headers
-        )
+            req = urllib.request.Request(
+                f"{base_url}/chat/completions",
+                data=req_data,
+                headers=headers
+            )
         with urllib.request.urlopen(req, timeout=30) as response:
             res_body = json.loads(response.read().decode('utf-8'))
-            content = res_body['choices'][0]['message']['content'].strip()
+            if is_auth_key:
+                parts = res_body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                content = "".join(p.get("text", "") for p in parts).strip()
+            else:
+                content = res_body['choices'][0]['message']['content'].strip()
             # Clean markdown
             content = re.sub(r'^```(?:json)?\s*', '', content, flags=re.I)
             content = re.sub(r'\s*```$', '', content)

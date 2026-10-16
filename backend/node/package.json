@@ -4,10 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "node index.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "start": "node index.mjs",
+    "db:init": "node db/init.mjs",
+    "db:verify": "node db/verify.mjs",
+    "check:llm": "node scripts/ping-llm.mjs",
+    "check:groq": "node scripts/ping-groq-whisper.mjs",
+    "test:live-caption": "node --test tests/live-transcript-latency.test.mjs",
+    "smoke:interview-results": "node scripts/smoke-interview-results.mjs",
+    "smoke:multi-interviews": "node scripts/smoke-multi-interview-sessions.mjs"
   },
   "dependencies": {
-    "jsonwebtoken": "^9.0.2",
+    "mammoth": "1.12.0",
+    "pdfjs-dist": "6.2.108",
     "pg": "^8.16.3"
   }
 }

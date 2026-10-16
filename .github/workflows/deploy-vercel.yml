@@ -36,10 +36,7 @@ jobs:
       - name: Build Frontend
         env:
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
-          VITE_AUTH_PROVIDER: ${{ secrets.VITE_AUTH_PROVIDER || 'supabase' }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_EXPERIENTIALLABS_API_KEY: ${{ secrets.VITE_EXPERIENTIALLABS_API_KEY }}
+          VITE_AUTH_PROVIDER: api
         run: npm run build
 
       - name: Deploy to Vercel

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -11,6 +11,9 @@ import {
 } from '../lib/store'
 import { loadAdminCandidates, type AdminCandidate } from '../lib/adminAts'
 import { fadeUp, staggerContainer } from '../motion/variants'
+import { getUser } from '../lib/store'
+import { ensureApiSession } from '../lib/apiSession'
+import { searchTalent, type TalentSearchHit } from '../lib/vendorApi'
 import { HrIcon } from '../components/HrIcon'
 import styles from './ResumeDatabasePage.module.css'
 
@@ -215,8 +218,14 @@ function loadStoredVault(): StoredResumeCandidate[] {
 }
 
 export function ResumeDatabasePage() {
+  const user = getUser()
+  const isEmployer = user?.role === 'employer'
   const [candidates, setCandidates] = useState<StoredResumeCandidate[]>(() => loadStoredVault())
   const [query, setQuery] = useState('')
+  const [experienceFilter, setExperienceFilter] = useState('')
+  const [platformHits, setPlatformHits] = useState<TalentSearchHit[]>([])
+  const [platformTotal, setPlatformTotal] = useState(0)
+  const [platformLoading, setPlatformLoading] = useState(false)
   const [roleFilter, setRoleFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
@@ -231,6 +240,35 @@ export function ResumeDatabasePage() {
     setCandidates(updated)
     localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(updated))
   }
+
+  useEffect(() => {
+    if (!isEmployer) return
+    const t = window.setTimeout(() => {
+      void (async () => {
+        if (!query.trim() && !experienceFilter.trim()) {
+          setPlatformHits([])
+          setPlatformTotal(0)
+          return
+        }
+        setPlatformLoading(true)
+        try {
+          await ensureApiSession()
+          const data = await searchTalent({
+            q: query.trim(),
+            experienceYears: experienceFilter.trim() || undefined,
+            minScore: 0,
+          })
+          setPlatformHits(data.results || [])
+          setPlatformTotal(data.total || 0)
+        } catch {
+          setPlatformHits([])
+        } finally {
+          setPlatformLoading(false)
+        }
+      })()
+    }, 400)
+    return () => window.clearTimeout(t)
+  }, [isEmployer, query, experienceFilter])
 
   // Filter and search
   const filtered = useMemo(() => {
@@ -395,11 +433,26 @@ export function ResumeDatabasePage() {
             <HrIcon name="search" size={18} />
             <input
               type="text"
-              placeholder="Search by candidate name, skill, email, or resume text..."
+              placeholder={
+                isEmployer
+                  ? 'Search platform talent — name, role, skills (use AND for boolean, e.g. React AND 5 years)'
+                  : 'Search by candidate name, skill, email, or resume text...'
+              }
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          {isEmployer && (
+            <div className={styles.searchBox}>
+              <HrIcon name="clock" size={18} />
+              <input
+                type="text"
+                placeholder="Years of experience filter (e.g. 5)"
+                value={experienceFilter}
+                onChange={(e) => setExperienceFilter(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className={styles.filterGroup}>
             <select
@@ -447,6 +500,47 @@ export function ResumeDatabasePage() {
             </div>
           </div>
         </section>
+
+        {isEmployer && (query.trim() || experienceFilter.trim()) && (
+          <section className={styles.toolbar} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 12 }}>
+            <div style={{ fontWeight: 700, color: '#0f172a' }}>
+              Platform talent (interviewed candidates){' '}
+              {platformLoading ? '…' : `— ${platformTotal} match(es)`}
+            </div>
+            {platformHits.length === 0 && !platformLoading ? (
+              <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>
+                No indexed candidates yet. They appear after job seekers complete profiles and interviews.
+              </p>
+            ) : (
+              <div className={styles.candidateGrid}>
+                {platformHits.map((hit) => (
+                  <div key={hit.userId} className={styles.candidateCard}>
+                    <div className={styles.cardTop}>
+                      <div>
+                        <div className={styles.candidateName}>{hit.fullName}</div>
+                        <div className={styles.candidateRole}>{hit.roleTitle || '—'}</div>
+                        <div className={styles.candidateMeta}>
+                          {hit.experienceYears || '—'} · {hit.location || '—'}
+                        </div>
+                        {typeof hit.interviewScore === 'number' && (
+                          <div className={styles.scoreBadge}>Interview {hit.interviewScore}%</div>
+                        )}
+                      </div>
+                    </div>
+                    <p className={styles.cardSummary}>{hit.summary?.slice(0, 160) || hit.resumePreview}</p>
+                    <div className={styles.skillTags}>
+                      {(hit.skills || []).slice(0, 6).map((s) => (
+                        <span key={s} className={styles.skillTag}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Candidate List Display */}
         {viewMode === 'grid' ? (

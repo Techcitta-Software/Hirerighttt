@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getUser, logout } from '../lib/store'
 import { apiLogout } from '../lib/api'
-import { supabaseSignOut } from '../lib/supabaseAuth'
 import { OPEN_SIGNOUT_EVENT } from '../lib/signOutModal'
 import styles from './SignOutModal.module.css'
 
@@ -39,11 +38,6 @@ export function SignOutModal() {
   }, [isOpen])
 
   async function handleConfirmSignOut() {
-    try {
-      await supabaseSignOut()
-    } catch (err) {
-      console.warn('Supabase sign-out notice:', err)
-    }
     try {
       await apiLogout()
     } catch (err) {

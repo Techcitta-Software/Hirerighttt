@@ -7,6 +7,7 @@ export type Question = {
   hint: string
   resumeAnchor?: string
   topic?: string
+  focus?: string
 }
 
 export const ROLES = [

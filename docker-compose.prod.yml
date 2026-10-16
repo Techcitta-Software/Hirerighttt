@@ -1,8 +1,9 @@
-# Production stack with self-hosted Postgres (optional).
-# For Supabase-managed Postgres + Auth, prefer:
-#   docker compose -f docker-compose.supabase.prod.yml up -d --build
+# Production: Node API + static frontend. Postgres via Neon (DATABASE_URL in repo-root .env).
 #
-# Usage: copy .env.production.example to .env and run:
+#   cp .env.production.example .env   # fill secrets
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Optional local Postgres instead of Neon:
 #   docker compose -f docker-compose.prod.yml --profile self-hosted-db up -d --build
 
 services:
@@ -24,25 +25,16 @@ services:
 
   api:
     build:
-      context: ./backend/node
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/node/Dockerfile
+    env_file:
+      - .env
     environment:
       ENVIRONMENT: production
       NODE_ENV: production
       PORT: 8787
       TRUST_PROXY: "true"
       DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-hireright}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hireright}}
-      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET}
-      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS}
-      ALLOW_DEMO_ACCOUNTS: ${ALLOW_DEMO_ACCOUNTS:-false}
-      SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
-      PRIMARY_MODEL: ${PRIMARY_MODEL:-gemini-2.5-flash}
-      FALLBACK_MODEL: ${FALLBACK_MODEL:-gemini-1.5-flash}
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,9 +59,6 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_URL: ${PUBLIC_API_URL:-}
-        VITE_AUTH_PROVIDER: ${VITE_AUTH_PROVIDER:-supabase}
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
     ports:
       - '${WEB_PORT:-8080}:80'
     depends_on:

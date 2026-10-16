@@ -4,6 +4,12 @@
  * Uses OpenAI when OPENAI_API_KEY / LLM_API_KEY is set; otherwise a strong local agent.
  */
 
+import { geminiApiConfigured, isGeminiProvider, modelCascadeForTier } from './llmModels.mjs'
+import { geminiChat, resolveGeminiApiKey, isGeminiAuthKey } from './geminiClient.mjs'
+
+export const INTERVIEW_TURN_COUNT = 6
+export { publicModelConfig, geminiKeyFormatWarning } from './llmModels.mjs'
+
 const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience']
 
 /**
@@ -35,6 +41,12 @@ function unique(arr) {
 
 const DEMO_ACCOUNT_NAME = 'Arjun Sharma'
 
+function isDemoPlaceholderName(name) {
+  const t = clean(name)
+  if (!t) return false
+  return t === DEMO_ACCOUNT_NAME || /^arjun\s+sharma$/i.test(t)
+}
+
 /**
  * Prefer resume / profile name over generic demo account labels.
  * @param {ProfileContext} profile
@@ -42,7 +54,7 @@ const DEMO_ACCOUNT_NAME = 'Arjun Sharma'
  */
 export function resolveCandidateName(profile = {}, accountName = '') {
   const fromProfile = clean(profile.fullName) || clean(profile.name)
-  if (fromProfile && fromProfile !== DEMO_ACCOUNT_NAME) return fromProfile
+  if (fromProfile && !isDemoPlaceholderName(fromProfile)) return fromProfile
 
   const resume = clean(profile.resumeText)
   if (resume) {
@@ -79,16 +91,15 @@ export function resolveCandidateName(profile = {}, accountName = '') {
     }
   }
 
-  if (fromProfile) return fromProfile
   const acct = clean(accountName)
-  if (acct && acct !== DEMO_ACCOUNT_NAME) return acct
-  return fromProfile || acct || 'Candidate'
+  if (acct && !isDemoPlaceholderName(acct)) return acct
+  return 'Candidate'
 }
 
 /** @param {string} full */
 export function firstNameFromFull(full) {
   const n = clean(full)
-  if (!n || n === 'Candidate') return 'there'
+  if (!n || n === 'Candidate' || isDemoPlaceholderName(n)) return 'there'
   return n.split(/\s+/)[0]
 }
 
@@ -285,60 +296,68 @@ export function generateLocalQuestions(ctx, role, level) {
  * Dedicated LLM API caller supporting Google Gemini 2.5 Flash as primary,
  * with automatic fallback to Gemini 1.5 Flash and other models.
  */
-export async function callLlmApi({ system, user, temperature = 0.3 }) {
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY ||
-    process.env.LLM_API_KEY
+/**
+ * @param {{ system: string, user: string, temperature?: number, tier?: 'quality' | 'fast', maxTokens?: number }} opts
+ */
+export async function callLlmApi({ system, user, temperature = 0.3, tier = 'quality', maxTokens }) {
+  const apiKey = resolveGeminiApiKey()
   if (!apiKey) return null
 
-  const isGemini =
-    Boolean(process.env.GEMINI_API_KEY) ||
-    apiKey.startsWith('AIza') ||
-    process.env.OPENAI_BASE_URL?.includes('generativelanguage.googleapis.com')
-
-  const base = (
-    process.env.OPENAI_BASE_URL ||
-    (isGemini
-      ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-      : 'https://api.openai.com/v1')
-  ).replace(/\/$/, '')
-
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
-  }
-  if (isGemini) {
-    headers['x-goog-api-key'] = apiKey
-  } else {
-    headers['HTTP-Referer'] = 'http://localhost:5173'
-    headers['X-Title'] = 'HIRERIGHTTT'
-  }
-
-  // Model cascade: 1. Gemini gemini-2.5-flash (Primary) -> 2. Gemini gemini-1.5-flash (Fallback)
-  const primaryModel = process.env.PRIMARY_MODEL || process.env.GEMINI_MODEL || (isGemini ? 'gemini-2.5-flash' : 'gpt-4o-mini')
-  const fallbackModel = process.env.FALLBACK_MODEL || (isGemini ? 'gemini-1.5-flash' : 'gpt-4o-mini')
-
-  const candidateModels = [
-    { name: primaryModel, label: isGemini ? 'Google Gemini 2.5 Flash' : primaryModel },
-    { name: fallbackModel, label: isGemini ? 'Google Gemini 1.5 Flash' : fallbackModel },
-  ]
+  const isGemini = isGeminiProvider()
+  const candidateModels = modelCascadeForTier(tier)
 
   for (let i = 0; i < candidateModels.length; i++) {
     const { name: currentModel, label } = candidateModels[i]
     try {
+      if (isGemini) {
+        const result = await geminiChat({
+          apiKey,
+          model: currentModel,
+          system,
+          user,
+          temperature,
+          maxTokens,
+        })
+        if (result.ok && result.text.trim()) {
+          console.log(
+            `🔥 [${label}${isGeminiAuthKey(apiKey) ? ' native' : ''}] Success! Prompt tokens: ${result.tokenUsage.promptTokens} | Completion: ${result.tokenUsage.completionTokens} | Total: ${result.tokenUsage.totalTokens}`,
+          )
+          return {
+            text: result.text,
+            tokenUsage: result.tokenUsage,
+            provider: label,
+            model: currentModel,
+          }
+        }
+        console.warn(
+          `[LLM Fallback Trigger] Model "${currentModel}" status ${result.status}. Falling back...`,
+          result.error?.slice(0, 160),
+        )
+        continue
+      }
+
+      const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': 'http://localhost:5173',
+        'X-Title': 'HIRERIGHTTT',
+      }
+      const body = {
+        model: currentModel,
+        temperature,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+      }
+      if (typeof maxTokens === 'number' && maxTokens > 0) {
+        body.max_tokens = maxTokens
+      }
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model: currentModel,
-          temperature,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-        }),
+        body: JSON.stringify(body),
       })
 
       if (res.ok) {
@@ -418,7 +437,7 @@ Return ONLY valid JSON matching this schema:
     candidateProfile: ctx,
   })
 
-  const llmResult = await callLlmApi({ system, user })
+  const llmResult = await callLlmApi({ system, user, temperature: 0.35, tier: 'quality' })
   if (!llmResult || !llmResult.text) return null
 
   try {
@@ -477,7 +496,13 @@ Return ONLY JSON: {"spoken":"..."}`
     progress: `${(input.questionIndex ?? 0) + 1}/${input.totalQuestions ?? '?'}`,
   })
 
-  const llm = await callLlmApi({ system, user })
+  const llm = await callLlmApi({
+    system,
+    user,
+    temperature: 0.4,
+    tier: 'fast',
+    maxTokens: 120,
+  })
   if (llm?.text) {
     try {
       const match = llm.text.match(/\{[\s\S]*\}/)
@@ -485,7 +510,7 @@ Return ONLY JSON: {"spoken":"..."}`
         const parsed = JSON.parse(match[0])
         const spoken = clean(parsed.spoken)
         if (spoken.length > 8) {
-          return { spoken, interactive: true, agent: llm.provider || 'llm' }
+          return { spoken, interactive: true, agent: llm.model || llm.provider || 'llm' }
         }
       }
     } catch {
@@ -598,8 +623,71 @@ function buildClaimedSkillQuestion(first, skill, role, roleTrack) {
   return `${first}, you mentioned ${skill}. Describe a concrete situation where you applied ${skill}${roleBit} — challenge, actions, and outcome.`
 }
 
+function isFresherExperienceLevel(level) {
+  const l = clean(level).toLowerCase().replace(/\s+/g, ' ')
+  return (
+    l.includes('fresher') ||
+    l.includes('0-1') ||
+    l.includes('0–1') ||
+    l.includes('0 to 1') ||
+    l.includes('intern') ||
+    l.includes('student') ||
+    l.includes('campus')
+  )
+}
+
+function buildFirstAdaptiveQuestionLocal(first, role, level, ctx, explicitRoleTrack) {
+  const fresher = isFresherExperienceLevel(level)
+  if (fresher) {
+    return {
+      text: ctx.resumeSnippet
+        ? `${first}, you're interviewing for ${role} as a ${level} candidate. Walk me through yourself — education, projects or internships, and strengths from your résumé that fit this role.`
+        : `${first}, tell me about yourself for ${role} — your background, what you've built or learned, and why this field fits you.`,
+      category: 'Communication',
+      keywords: unique(['education', 'project', 'intern', 'skill', 'learn', role.toLowerCase()]),
+      hint: 'About a minute: who you are, one project, skills for this role.',
+      topic: 'Introduction',
+      focus: 'fresher-intro',
+    }
+  }
+  const job = ctx.jobs?.[0] || ''
+  const jobHead = job.split(':')[0]?.trim() || job
+  return {
+    text: jobHead
+      ? `${first}, for this ${role} interview (${level}), start with your industry experience — especially ${jobHead}. What did you own, and what impact did you create?`
+      : ctx.resumeSnippet
+        ? `${first}, I've reviewed your résumé for ${role} (${level}). Walk me through your professional experience — roles, industry context, and outcomes you're proud of.`
+        : `${first}, describe your industry experience for ${role} (${level}) — responsibilities and measurable results.`,
+    category: 'Experience',
+    keywords: unique(['experience', 'impact', 'role', 'team', role.toLowerCase()]),
+    hint: 'Use real employers, timelines, and results from your résumé.',
+    topic: 'Industry experience',
+    resumeAnchor: jobHead || undefined,
+    focus: 'experienced-intro',
+  }
+}
+
 /**
  * One adaptive question — follows candidate claims (e.g. "good at Java") and never repeats prior questions.
+ * @param {object} input
+ */
+function normalizeAdaptiveQuestion(raw, priorTexts = []) {
+  const text = clean(raw.text)
+  if (text.length < 24) return null
+  if (priorTexts.some((p) => p === text || p.slice(0, 40) === text.slice(0, 40))) return null
+  return {
+    text,
+    category: CATEGORIES.includes(raw.category) ? raw.category : 'Technical',
+    keywords: unique((raw.keywords || []).map((k) => clean(k).toLowerCase())).slice(0, 12),
+    hint: clean(raw.hint) || 'Give a concrete example with tools and outcome.',
+    topic: clean(raw.topic) || clean(raw.category) || 'Interview',
+    resumeAnchor: clean(raw.resumeAnchor) || undefined,
+    focus: 'adaptive-llm',
+  }
+}
+
+/**
+ * One AI-generated question per turn (Gemini / compatible LLM). No static question bank.
  * @param {object} input
  */
 export async function generateAdaptiveQuestion(input) {
@@ -607,134 +695,57 @@ export async function generateAdaptiveQuestion(input) {
   const role = input.role || 'Full Stack Engineer'
   const level = input.level || '1–3 years'
   const jobDescription = clean(input.jobDescription)
-  const explicitRoleTrack =
-    input.explicitRoleTrack === true || jobDescription.length >= 40
-  const questionAnchorMode = explicitRoleTrack ? 'role_track' : 'resume_first'
   const history = Array.isArray(input.history) ? input.history : []
   const lastAnswer = clean(input.lastAnswer)
   const first = firstNameFromFull(ctx.name)
+  const turn = history.length + 1
   const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
-  const claimed = extractClaimedSkills(lastAnswer)
-  const focusSkill = claimed[0] || null
 
-  const system = `You are Ava, a live ADAPTIVE interviewer. Generate exactly ONE new spoken question (JSON only).
+  const system = `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
-ROLE & EXPERIENCE CALIBRATION:
-- Analyze the candidate's exact roleTrack ("${role}") and experienceLevel ("${level}"):
-  * Freshers / Junior (0–2 Years): Ask encouraging, simple questions about fundamentals, college/internship projects, or how they solved an everyday coding issue.
-  * Mid-Level (2–5 Years): Ask practical, concrete questions about feature implementation, debugging, or tools they used.
-  * Senior / Lead (5+ Years): Ask about high-level design decisions, trade-offs, and scaling, while keeping question phrasing clear, straightforward, and conversational.
+Rules:
+- This is question ${turn} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
+- Use the candidate resume, role "${role}", experience "${level}", job description (if any), and their last answer to choose the next realistic topic.
+- One clear idea per question — how a real hiring manager speaks.
+- ${first === 'there' ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".' : `You may use the first name "${first}" once if natural.`}
+- Do not invent employers, degrees, or projects absent from the resume snippet.
+- category must be one of: Communication, Technical, Problem Solving, Experience.
 
-SIMPLICITY & USER-FRIENDLINESS:
-- Keep the question SIMPLE, CONVERSATIONAL, and EASY TO UNDERSTAND.
-- Avoid multi-part, convoluted, or overly academic phrasing.
-- Ask about ONE clear concept or experience at a time so the candidate can answer confidently.
-
-RULES:
-- Do NOT repeat or paraphrase any prior question listed in priorQuestions.
-- If the candidate's last answer mentions a skill or says they are "good at" something, drill into that topic in a friendly, conversational way.
-- Anchor questions on resumeSnippet, resumeJobs, resumeSkills, or achievements when possible.
-- Include a short topic label (e.g. "React Components", "Database Queries", "API Design").
-Return: {"question":{"text":"Simple, clear spoken question text...","category":"Communication|Technical|Problem Solving|Experience","keywords":["..."],"hint":"Helpful guidance hint...","topic":"...","resumeAnchor":"optional"}}`
+Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
 
   const user = JSON.stringify({
-    candidateFirstName: first,
+    turnNumber: turn,
+    totalTurns: INTERVIEW_TURN_COUNT,
     roleTrack: role,
     experienceLevel: level,
-    questionAnchorMode,
     jobDescription: jobDescription || null,
-    resumeSkills: ctx.skills?.slice(0, 16),
-    resumeJobs: ctx.jobs?.slice(0, 6),
-    resumeAchievements: ctx.achievements?.slice(0, 5),
-    resumeSnippet: ctx.resumeSnippet?.slice(0, 2500),
+    candidateSummary: {
+      skills: ctx.skills?.slice(0, 16),
+      jobs: ctx.jobs?.slice(0, 6),
+      achievements: ctx.achievements?.slice(0, 5),
+      resumeSnippet: ctx.resumeSnippet?.slice(0, 2800),
+    },
     priorQuestions: priorTexts,
-    lastAnswer,
-    claimedSkills: claimed,
-    turnNumber: history.length + 1,
-    instruction: focusSkill
-      ? `Candidate claimed strength in "${focusSkill}". Next question MUST test "${focusSkill}" directly (for Full Stack: end-to-end feature design).`
-      : questionAnchorMode === 'role_track'
-        ? `Ask a challenging ${role} (${level}) question aligned with the role track; reference resume when possible.`
-        : 'Pick a new topic from the resume not yet covered in priorQuestions.',
+    lastAnswer: lastAnswer || null,
   })
 
-  const llm = await callLlmApi({ system, user, temperature: 0.72 })
-  if (llm?.text) {
+  for (const temperature of [0.62, 0.42]) {
+    const llm = await callLlmApi({ system, user, temperature, tier: 'quality' })
+    if (!llm?.text) continue
     try {
       const match = llm.text.match(/\{[\s\S]*\}/)
-      if (match) {
-        const parsed = JSON.parse(match[0])
-        const q = parsed.question || parsed
-        const text = clean(q.text)
-        if (text.length > 20) {
-          return {
-            text,
-            category: CATEGORIES.includes(q.category) ? q.category : 'Technical',
-            keywords: unique((q.keywords || []).map((k) => clean(k).toLowerCase())).slice(0, 12),
-            hint: clean(q.hint) || 'Give a concrete example with tools and outcome.',
-            topic: clean(q.topic) || clean(q.category) || 'Technical',
-            resumeAnchor: clean(q.resumeAnchor) || undefined,
-            focus: 'adaptive-llm',
-          }
-        }
-      }
+      if (!match) continue
+      const parsed = JSON.parse(match[0])
+      const q = normalizeAdaptiveQuestion(parsed.question || parsed, priorTexts)
+      if (q) return q
     } catch {
-      // local fallback
+      // try next temperature / model cascade inside callLlmApi
     }
   }
 
-  /** @type {import('./interviewAgent.mjs').Question} */
-  let text
-  let topic
-  let category = 'Technical'
-
-  if (history.length === 0) {
-    topic = 'Introduction'
-    category = 'Communication'
-    if (questionAnchorMode === 'role_track') {
-      text = ctx.resumeSnippet
-        ? `${first}, I'm interviewing you for the ${role} track (${level}). I've read your resume — in 90 seconds, connect your background to this role and what you're strongest in.`
-        : `${first}, welcome to the ${role} interview (${level}). Introduce yourself and the skills that fit this role best.`
-    } else {
-      text = ctx.resumeSnippet
-        ? `${first}, I've reviewed your resume in detail. In 90 seconds, walk me through your background — roles, projects, and tools that stand out on your CV.`
-        : `${first}, welcome. Introduce yourself from your experience and share what you're best at.`
-    }
-  } else if (focusSkill) {
-    topic = focusSkill
-    text = buildClaimedSkillQuestion(first, focusSkill, role, explicitRoleTrack)
-  } else if (questionAnchorMode === 'role_track' && role === 'Full Stack Engineer') {
-    topic = role
-    category = 'Technical'
-    text = `${first}, for ${role} (${level}): describe a feature you owned from UI through API and database — trade-offs, testing, and how you deployed it.`
-  } else {
-    const resumeTopic = pickResumeTopicFromCtx(ctx, history)
-    if (resumeTopic) {
-      topic = resumeTopic.topic
-      category = 'Experience'
-      text = `${first}, on your resume I see ${resumeTopic.label}. Walk me through that work — your responsibility, a hard decision, and the outcome.`
-    } else if (ctx.skills?.length) {
-      const askedTopics = history.map((h) => h.question?.topic).filter(Boolean)
-      const skill =
-        ctx.skills.find((s) => !askedTopics.some((t) => t.toLowerCase() === s.toLowerCase())) ||
-        ctx.skills[history.length % ctx.skills.length]
-      topic = skill
-      text = `${first}, let's go deeper on ${skill} from your background. Describe a production challenge you solved with it and how you validated the fix.`
-    } else {
-      topic = 'Problem Solving'
-      category = 'Problem Solving'
-      text = `${first}, describe a tough problem you owned end-to-end — what broke, how you debugged it, and what shipped.`
-    }
-  }
-
-  return {
-    text,
-    category,
-    keywords: unique([topic.toLowerCase(), 'project', 'built', 'result', role.toLowerCase()]),
-    hint: 'Be specific: stack, your role, and a metric or outcome.',
-    topic,
-    focus: 'adaptive-local',
-  }
+  throw new Error(
+    'AI question generation failed. Set GEMINI_API_KEY (or OPENAI_API_KEY) on the server and restart the API.',
+  )
 }
 
 function analyzeAnswerDetailed(question, answer, ctx) {
@@ -908,7 +919,7 @@ const STRUCTURE_SIGNALS = [
  * @param {string} answer
  * @param {ReturnType<typeof summarizeProfile>} ctx
  */
-function analyzeAnswer(question, answer, ctx) {
+export function analyzeAnswer(question, answer, ctx) {
   const text = clean(answer)
   const lower = text.toLowerCase()
   const words = text.split(/\s+/).filter(Boolean)
@@ -1077,8 +1088,7 @@ export async function scoreInterviewSession(input) {
   if (ctx.skills.length >= 3 && skillsReferenced === 0) overall = Math.max(0, overall - 5)
 
   const integrity = input.integrity || {}
-  if (integrity.singlePersonOk === false) overall = Math.max(0, overall - 8)
-  if ((integrity.faceViolations || 0) > 3) overall = Math.max(0, overall - 5)
+  // Camera telemetry is not evidence of job competence and must not alter scores.
 
   const strengths = []
   const improvements = []
@@ -1101,10 +1111,6 @@ export async function scoreInterviewSession(input) {
   const worst = [...categories].sort((a, b) => a.score - b.score)[0]
   if (best?.score >= 60) strengths.push(`${best.label} stands out (${best.score}/100).`)
   if (worst?.score < 60) improvements.push(`${worst.label} needs more practice (${worst.score}/100).`)
-
-  if (integrity.singlePersonOk === false) {
-    improvements.push('Keep exactly one person in frame — multi-person presence reduced integrity score.')
-  }
 
   const llmRefine = await refineWithLlm({
     role: input.role,
@@ -1163,13 +1169,274 @@ export async function scoreInterviewSession(input) {
   }
 }
 
+const INTERACTIVE_FLOW = {
+  version: 4,
+  voice: { preferredName: 'Jessica', language: 'en-IN', rate: 0.94 },
+  steps: [
+    {
+      id: 'day_check',
+      spokenTemplate: "Hi {firstName}, I'm Ava. How has your day been so far?",
+      minResponseChars: 1,
+      advanceMode: 'response_or_next',
+      nextStep: 'confirm_begin',
+    },
+    {
+      id: 'confirm_begin',
+      spokenTemplate:
+        "Thanks, {firstName}. Let's begin your {role} interview — I'll ask about your background and résumé. Say yes when you're ready for the first question.",
+      minResponseChars: 1,
+      advanceMode: 'affirmative_or_next',
+      nextStep: 'questions',
+      onAdvanceAction: 'start_questions',
+      notReadyTemplate:
+        'No problem, {firstName}. Say yes when you want the first question.',
+    },
+  ],
+  commands: {
+    next_question: [
+      'next question',
+      'next one',
+      'move on',
+      'go ahead',
+      'continue',
+      'skip',
+      'next please',
+      'agla question',
+      'next ques',
+    ],
+    affirmative: [
+      'yes',
+      'yeah',
+      'yep',
+      'sure',
+      'ok',
+      'okay',
+      'ready',
+      "let's go",
+      'lets go',
+      'start',
+      'begin',
+      'absolutely',
+      'please do',
+      'go for it',
+      'haan',
+      'ha',
+      'correct',
+      'clear',
+      'i can hear',
+      'hear you',
+      'fine',
+      'good',
+      'great',
+      'doing well',
+      'i am good',
+      'im good',
+    ],
+    repeat_last: [
+      'repeat',
+      'say again',
+      "can't hear",
+      'cant hear',
+      "didn't hear",
+      'didnt hear',
+      'come again',
+      'pardon',
+      'what did you say',
+      'please repeat',
+    ],
+    speak_slower: ['speak slower', 'slow down', 'too fast', 'speak slowly', 'little slower'],
+    take_moment: [
+      'take a moment',
+      'give me a second',
+      'one moment',
+      'wait',
+      'hold on',
+      'just a minute',
+    ],
+  },
+}
+
+function normalizeInteractiveText(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+function matchesInteractivePatterns(text, patterns) {
+  const n = normalizeInteractiveText(text)
+  if (!n) return false
+  return patterns.some((p) => {
+    const pat = normalizeInteractiveText(p)
+    return n === pat || n.includes(pat)
+  })
+}
+
+export function isNextQuestionCommand(text) {
+  return matchesInteractivePatterns(text, INTERACTIVE_FLOW.commands.next_question)
+}
+
+export function isAffirmativeResponse(text) {
+  return matchesInteractivePatterns(text, INTERACTIVE_FLOW.commands.affirmative)
+}
+
+export function isRepeatLastCommand(text) {
+  return matchesInteractivePatterns(text, INTERACTIVE_FLOW.commands.repeat_last)
+}
+
+export function isSpeakSlowerCommand(text) {
+  return matchesInteractivePatterns(text, INTERACTIVE_FLOW.commands.speak_slower)
+}
+
+export function isTakeMomentCommand(text) {
+  return matchesInteractivePatterns(text, INTERACTIVE_FLOW.commands.take_moment)
+}
+
+function canAdvanceInteractiveStep(step, text) {
+  const minChars = step.minResponseChars ?? 2
+  const wantsNext = isNextQuestionCommand(text)
+  const wantsYes = isAffirmativeResponse(text)
+  const hasResponse = text.length >= minChars
+  const mode = step.advanceMode || 'response_or_next'
+  if (wantsNext) return { advance: true, softWait: false }
+  if (mode === 'auto_after_speak') {
+    if (text.length >= (step.minResponseChars ?? 1)) {
+      return { advance: true, softWait: false }
+    }
+    return { advance: false, softWait: false }
+  }
+  if (mode === 'affirmative_or_next') {
+    if (wantsYes) return { advance: true, softWait: false }
+    if (hasResponse) return { advance: false, softWait: true }
+    return { advance: false, softWait: false }
+  }
+  if (hasResponse) return { advance: true, softWait: false }
+  return { advance: false, softWait: false }
+}
+
+function nextInteractiveStepSpoken(nextId, first, role) {
+  if (nextId === 'questions') {
+    return `Great — let's get started, ${first}. Here's your first question.`
+  }
+  const next = INTERACTIVE_FLOW.steps.find((s) => s.id === nextId)
+  return next?.spokenTemplate ? fillInteractiveTemplate(next.spokenTemplate, first, role) : ''
+}
+
+function interviewTimeOfDayLabel() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    hour: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date())
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 12)
+  if (hour < 12) return 'morning'
+  if (hour < 17) return 'afternoon'
+  return 'evening'
+}
+
+function fillInteractiveTemplate(template, firstName, role) {
+  return String(template || '')
+    .replace(/\{firstName\}/g, firstName)
+    .replace(/\{role\}/g, role)
+    .replace(/\{timeOfDay\}/g, interviewTimeOfDayLabel())
+}
+
+/**
+ * JSON action response for pre-interview small talk and "next question" / "yes" gates.
+ * @param {{ phase: string, userText?: string, role?: string, profile?: ProfileContext, accountName?: string }} input
+ */
+export function processInterviewInteractive(input) {
+  const phase = String(input.phase || 'day_check')
+  const role = clean(input.role) || 'your role'
+  const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
+  const first = firstNameFromFull(ctx.name)
+  const text = clean(input.userText)
+
+  if (phase === 'questions') {
+    return {
+      action: 'listen',
+      nextPhase: 'questions',
+      interactive: false,
+    }
+  }
+
+  const step = INTERACTIVE_FLOW.steps.find((s) => s.id === phase)
+  if (!step) {
+    const welcome = INTERACTIVE_FLOW.steps.find((s) => s.id === 'day_check')
+    return {
+      action: 'listen',
+      nextPhase: 'day_check',
+      spoken: fillInteractiveTemplate(welcome?.spokenTemplate, first, role),
+      interactive: false,
+    }
+  }
+
+  if (isRepeatLastCommand(text)) {
+    return {
+      action: 'replay',
+      nextPhase: phase,
+      spoken: fillInteractiveTemplate(step.spokenTemplate, first, role),
+      replay: true,
+      interactive: true,
+    }
+  }
+
+  if (isSpeakSlowerCommand(text)) {
+    return {
+      action: 'speak_slower',
+      nextPhase: phase,
+      spoken: `Sure ${first}, I'll speak a little slower. ${fillInteractiveTemplate(step.spokenTemplate, first, role)}`,
+      adjustSpeechRate: 0.82,
+      replay: true,
+      interactive: true,
+    }
+  }
+
+  if (isTakeMomentCommand(text)) {
+    return {
+      action: 'wait',
+      nextPhase: phase,
+      spoken: `Of course, ${first}. Take your time. Say yes when you're ready.`,
+      interactive: true,
+    }
+  }
+
+  const { advance, softWait } = canAdvanceInteractiveStep(step, text)
+
+  if (advance && step.nextStep) {
+    const startQuestions = step.onAdvanceAction === 'start_questions'
+    return {
+      action: startQuestions ? 'start_questions' : 'goto',
+      nextPhase: startQuestions ? 'questions' : step.nextStep,
+      spoken: nextInteractiveStepSpoken(step.nextStep, first, role),
+      startQuestions,
+      interactive: true,
+    }
+  }
+
+  if (softWait && step.notReadyTemplate) {
+    return {
+      action: 'wait',
+      nextPhase: phase,
+      spoken: fillInteractiveTemplate(step.notReadyTemplate, first, role),
+      interactive: true,
+    }
+  }
+
+  return {
+    action: 'listen',
+    nextPhase: phase,
+    spoken: fillInteractiveTemplate(step.spokenTemplate, first, role),
+    interactive: false,
+  }
+}
+
+export function getInterviewInteractiveFlowJson() {
+  return INTERACTIVE_FLOW
+}
+
 export function llmConfigured() {
-  return Boolean(
-    process.env.GEMINI_API_KEY ||
-      process.env.OPENROUTER_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.LLM_API_KEY,
-  )
+  return geminiApiConfigured()
 }
 
 /**
@@ -1230,7 +1497,7 @@ JSON Schema:
 Resume Text:
 ${resumeText.slice(0, 12000)}`
 
-  const llmResult = await callLlmApi({ system, user })
+  const llmResult = await callLlmApi({ system, user, temperature: 0.1, tier: 'quality' })
   if (!llmResult?.text) return null
 
   try {

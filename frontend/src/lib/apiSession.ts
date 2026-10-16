@@ -1,6 +1,6 @@
 /**
  * Keeps the Node API Bearer token in sync with the local HireRight session
- * (including Candidate Demo) so interview agent routes always run authenticated.
+ * so interview agent routes always run authenticated (Neon-backed API).
  */
 import {
   DEMO_CANDIDATE,
@@ -11,9 +11,6 @@ import {
   getApiToken,
   setApiToken,
 } from './api'
-import { isSupabaseEnabled } from './supabaseClient'
-import { refreshSupabaseApiToken } from './supabaseAuth'
-import { syncProfileToSupabase } from './supabaseSync'
 import { getUser, isLoggedIn, type SavedProfile } from './store'
 
 let syncInFlight: Promise<boolean> | null = null
@@ -31,16 +28,11 @@ async function validateToken(): Promise<boolean> {
 
 /**
  * Ensures a valid API Bearer token exists for the current browser session.
- * Works for demo@hireright.com and any locally stored user with password.
  */
 export async function ensureApiSession(): Promise<boolean> {
   if (syncInFlight) return syncInFlight
 
   syncInFlight = (async () => {
-    if (isSupabaseEnabled()) {
-      if (await refreshSupabaseApiToken()) return true
-    }
-
     if (await validateToken()) return true
 
     const healthy = await apiHealth()
@@ -59,7 +51,7 @@ export async function ensureApiSession(): Promise<boolean> {
       }
     }
 
-    if (!isSupabaseEnabled() && (!email || email === DEMO_CANDIDATE.email)) {
+    if (!email || email === DEMO_CANDIDATE.email) {
       try {
         await apiLogin(DEMO_CANDIDATE.email, DEMO_CANDIDATE.password)
         return true
@@ -78,15 +70,14 @@ export async function ensureApiSession(): Promise<boolean> {
   }
 }
 
-/** Push latest profile (resume, name, skills) to the API for the logged-in user. */
+/** Push latest profile to Neon via the API for the logged-in user. */
 export async function syncProfileToApi(profile: SavedProfile | null): Promise<void> {
   if (!profile) return
-  void syncProfileToSupabase(profile)
   const ok = await ensureApiSession()
   if (!ok) return
   try {
     await apiSaveProfile(profile)
   } catch {
-    // offline / API error — local + Supabase profile may still be saved
+    // offline — local profile still saved
   }
 }

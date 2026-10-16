@@ -26,10 +26,13 @@ const JOBSEEKER_NAV = [
   { to: '/jobs', label: 'Jobs' },
   { to: '/applications', label: 'Applications' },
   { to: '/interview', label: 'Interview' },
+  { to: '/assessment', label: 'Professional assessment' },
 ]
 
 const EMPLOYER_NAV = [
   { to: '/employer/dashboard', label: 'Dashboard' },
+  { to: '/employer/assessments', label: 'Structured assessments' },
+  { to: '/talent-vault', label: 'Talent search' },
   { to: '/admin', label: 'Candidates' },
 ]
 

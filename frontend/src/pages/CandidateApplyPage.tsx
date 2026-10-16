@@ -12,6 +12,9 @@ import {
   type EmployerJob,
 } from '../lib/store'
 import { parseResumeFile } from '../lib/resumeParser'
+import { applyToPublicJob, fetchPublicJob, type VendorJob } from '../lib/vendorApi'
+import { ensureApiSession } from '../lib/apiSession'
+import { apiSaveProfile } from '../lib/api'
 import { HrIcon } from '../components/HrIcon'
 import styles from './CandidateApplyPage.module.css'
 
@@ -32,11 +35,32 @@ export function CandidateApplyPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    if (code) {
-      const found = getEmployerJobByCode(code)
-      setJob(found)
+  function vendorJobToLocal(v: VendorJob): EmployerJob {
+    return {
+      id: v.id,
+      title: v.title,
+      company: v.company,
+      roleTrack: v.roleTrack || 'Software Engineer',
+      experienceLevel: v.experienceLevel || '2–5 years',
+      location: v.location || 'Remote',
+      jobDescription: v.jobDescription || '',
+      requiredSkills: v.requiredSkills || [],
+      shareableCode: v.shareableCode,
+      createdByEmail: '',
+      createdAt: v.createdAt,
     }
+  }
+
+  useEffect(() => {
+    if (!code) return
+    const local = getEmployerJobByCode(code)
+    if (local) {
+      setJob(local)
+      return
+    }
+    void fetchPublicJob(code)
+      .then(({ job: remote }) => setJob(vendorJobToLocal(remote)))
+      .catch(() => setJob(null))
   }, [code])
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -54,7 +78,7 @@ export function CandidateApplyPage() {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || !email.trim() || !phone.trim()) {
       setError('Please fill in your basic details (Name, Email, Phone).')
@@ -85,6 +109,42 @@ export function CandidateApplyPage() {
         true,
       )
 
+      const resumePayload =
+        resumeText || `${name.trim()} - ${job.title} applicant`
+
+      let applicantId = ''
+      let applicationId = ''
+      let organizationId = ''
+      let primarySkills: string[] = job.requiredSkills || []
+      let atsScore = 0
+      let jdMatchScore = 0
+
+      try {
+        await ensureApiSession()
+        const applied = await applyToPublicJob(code || job.shareableCode, {
+          candidateName: account.name,
+          candidateEmail: account.email,
+          candidatePhone: phone.trim(),
+          experienceYears: experience,
+          resumeText: resumePayload,
+          resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
+        })
+        applicationId = applied.applicationId
+        organizationId = applied.organizationId
+        primarySkills = applied.ats.primarySkills
+        atsScore = applied.ats.atsScore
+        jdMatchScore = applied.ats.jdMatchScore
+        await apiSaveProfile({
+          fullName: account.name,
+          resumeText: resumePayload,
+          currentRole: job.roleTrack,
+          totalExperience: experience,
+          skills: primarySkills,
+        } as never)
+      } catch {
+        // Offline fallback — local applicant only
+      }
+
       const applicant = saveEmployerApplicant({
         jobId: job.id,
         jobTitle: job.title,
@@ -94,8 +154,12 @@ export function CandidateApplyPage() {
         candidatePhone: phone.trim(),
         experienceYears: experience,
         resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
-        resumeText: resumeText || `${name.trim()} - ${job.title} applicant`,
+        resumeText: resumePayload,
+        atsScore,
+        jdMatchScore,
+        primarySkills,
       })
+      applicantId = applicant.id
 
       sessionStorage.setItem(
         'hireright.targetJob',
@@ -105,7 +169,13 @@ export function CandidateApplyPage() {
           role: job.roleTrack,
           level: job.experienceLevel,
           jd: job.jobDescription,
-          applicantId: applicant.id,
+          applicantId,
+          jobId: job.id,
+          applicationId,
+          organizationId,
+          primarySkills,
+          atsScore,
+          jdMatchScore,
         }),
       )
 

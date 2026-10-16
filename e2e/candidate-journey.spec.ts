@@ -9,8 +9,8 @@ test.describe('Candidate End-to-End Loop', () => {
     const demoCandidateBtn = page.getByRole('button', { name: /Candidate Demo/i })
     await demoCandidateBtn.click()
 
-    const submitBtn = page.locator('button[type="submit"]')
-    await submitBtn.click()
+    const loginSubmitBtn = page.locator('button[type="submit"]')
+    await loginSubmitBtn.click()
 
     // 2. Candidate should now be authenticated. Visit onboarding wizard
     await page.goto('/onboarding')

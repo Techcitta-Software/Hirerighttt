@@ -1,0 +1,136 @@
+{
+  "version": 4,
+  "agent": "Ava",
+  "voice": {
+    "preferredName": "Jessica",
+    "language": "en-IN",
+    "fallbackLanguage": "en-GB",
+    "rate": 0.94,
+    "pitch": 1
+  },
+  "steps": [
+    {
+      "id": "day_check",
+      "label": "Hello",
+      "action": "speak_and_listen",
+      "spokenTemplate": "Hi {firstName}, I'm Ava. How has your day been so far?",
+      "hint": "Reply briefly — good, fine, busy — or say \"next question\".",
+      "minResponseChars": 1,
+      "advanceMode": "response_or_next",
+      "nextStep": "confirm_begin"
+    },
+    {
+      "id": "confirm_begin",
+      "label": "Begin interview",
+      "action": "speak_and_listen",
+      "spokenTemplate": "Thanks, {firstName}. Let's begin your {role} interview — I'll ask about your background and résumé. Say yes when you're ready for the first question.",
+      "hint": "Say yes or \"next question\" to start.",
+      "minResponseChars": 1,
+      "advanceMode": "affirmative_or_next",
+      "nextStep": "questions",
+      "onAdvanceAction": "start_questions",
+      "notReadyTemplate": "No problem, {firstName}. Say yes when you want the first question."
+    }
+  ],
+  "commands": [
+    {
+      "id": "next_question",
+      "patterns": [
+        "next question",
+        "next one",
+        "move on",
+        "go ahead",
+        "continue",
+        "skip",
+        "next please",
+        "agla question",
+        "next ques"
+      ],
+      "action": "advance"
+    },
+    {
+      "id": "affirmative",
+      "patterns": [
+        "yes",
+        "yeah",
+        "yep",
+        "sure",
+        "ok",
+        "okay",
+        "ready",
+        "let's go",
+        "lets go",
+        "start",
+        "begin",
+        "absolutely",
+        "please do",
+        "go for it",
+        "haan",
+        "ha",
+        "fine",
+        "good",
+        "great"
+      ],
+      "action": "affirmative"
+    },
+    {
+      "id": "repeat_last",
+      "patterns": [
+        "repeat",
+        "say again",
+        "can't hear",
+        "cant hear",
+        "didn't hear",
+        "didnt hear",
+        "come again",
+        "pardon",
+        "please repeat"
+      ],
+      "action": "replay"
+    },
+    {
+      "id": "repeat_question",
+      "patterns": [
+        "repeat question",
+        "repeat the question",
+        "ask again",
+        "same question again"
+      ],
+      "action": "repeat_question"
+    },
+    {
+      "id": "speak_slower",
+      "patterns": [
+        "speak slower",
+        "slow down",
+        "too fast",
+        "speak slowly",
+        "little slower"
+      ],
+      "action": "speak_slower"
+    },
+    {
+      "id": "take_moment",
+      "patterns": [
+        "take a moment",
+        "give me a second",
+        "one moment",
+        "wait",
+        "hold on"
+      ],
+      "action": "wait"
+    },
+    {
+      "id": "end_interview",
+      "patterns": [
+        "end the interview",
+        "stop the interview",
+        "finish the interview",
+        "i'm done",
+        "thats all",
+        "no more questions"
+      ],
+      "action": "end_interview"
+    }
+  ]
+}

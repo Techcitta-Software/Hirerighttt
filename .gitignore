@@ -1,13 +1,13 @@
-# Secrets — never commit real credentials
+# Secrets — single repo-root .env only (see env/README.md)
 .env
-.env.*
-**/.env
-**/.env.local
-**/.env.*.local
-!**/.env.example
-!**/.env.production.example
+.env.local
+.env.*.local
 !.env.example
 !.env.production.example
+backend/node/.env
+frontend/.env
+backend/python/.env
+backend/.env
 
 
 # Logs
@@ -56,4 +56,8 @@ env/
 # Temporary export dumps
 website_export/
 banner-hireright
+
+# Legacy local JSON store (removed — use DATABASE_URL / Neon only)
+backend/node/data/db.json
+backend/node/data/
 

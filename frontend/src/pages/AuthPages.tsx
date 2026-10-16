@@ -30,10 +30,9 @@ import {
   isDemoEmail,
 } from '../lib/authDemo'
 import { ensureApiSession } from '../lib/apiSession'
-import { isSupabaseEnabled } from '../lib/supabaseClient'
-import { supabaseSignIn, supabaseSignOut, supabaseSignUp } from '../lib/supabaseAuth'
-import { pullProfileFromSupabase } from '../lib/supabaseSync'
+import { pullProfileFromApi } from '../lib/apiSync'
 import { openSignOutModal } from '../lib/signOutModal'
+import { isValidPhone } from '../lib/phone'
 import styles from './AuthPages.module.css'
 
 type StoredUser = NonNullable<ReturnType<typeof getUser>>
@@ -43,24 +42,9 @@ async function authenticateWithEmailPassword(
   password: string,
 ): Promise<{ user: StoredUser | null; error?: string }> {
   let authenticatedUser: StoredUser | null = null
-  let supabaseRejected = false
-
-  if (isSupabaseEnabled()) {
-    const { error: sbErr } = await supabaseSignIn(targetEmail, password)
-    if (!sbErr) {
-      await pullProfileFromSupabase()
-      authenticatedUser = getUser()
-    } else {
-      supabaseRejected = true
-      const demo = getDemoAccount(targetEmail, password)
-      if (!demo) {
-        return { user: null, error: sbErr.message }
-      }
-    }
-  }
 
   try {
-    if (!authenticatedUser && (await apiHealth())) {
+    if (await apiHealth()) {
       const apiRes = await apiLogin(targetEmail, password)
       if (apiRes) {
         const existing = findUserByEmail(targetEmail)
@@ -83,6 +67,7 @@ async function authenticateWithEmailPassword(
           },
           true,
         )
+        await pullProfileFromApi()
       }
     }
   } catch {
@@ -110,7 +95,7 @@ async function authenticateWithEmailPassword(
   }
 
   if (!authenticatedUser) {
-    if (supabaseRejected && isDemoEmail(targetEmail)) {
+    if (isDemoEmail(targetEmail)) {
       return {
         user: null,
         error: 'Demo sign-in failed. Start the API (npm run dev:all) or use Candidate quick login.',
@@ -360,8 +345,12 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
   async function handleSignupSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim()) {
-      setError('Fill in all required fields to create your account.')
+    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim() || !signupPhone.trim()) {
+      setError('Fill in all required fields including mobile number.')
+      return
+    }
+    if (!isValidPhone(signupPhone.trim())) {
+      setError('Enter a valid mobile number (10–15 digits; include country code if needed).')
       return
     }
     if (signupRole === 'employer' && !signupCompanyName.trim()) {
@@ -384,22 +373,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     setLoading(true)
 
     try {
-      if (isSupabaseEnabled()) {
-        const { error: sbErr } = await supabaseSignUp({
-          name: signupName.trim(),
-          email: signupEmail.trim().toLowerCase(),
-          password: signupPassword,
-          role: signupRole,
-          companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-          phone: signupPhone.trim() || undefined,
-        })
-        if (sbErr) {
-          setError(sbErr.message)
-          return
-        }
-        await ensureApiSession()
-        await pullProfileFromSupabase()
-      } else if (await apiHealth()) {
+      if (await apiHealth()) {
         try {
           await apiSignup(
             signupName.trim(),
@@ -411,8 +385,10 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
               phone: signupPhone.trim() || undefined,
             },
           )
-        } catch {
-          // Fallback to local demo
+          await pullProfileFromApi()
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Could not create account on server.')
+          return
         }
       }
       saveUser(
@@ -638,13 +614,14 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
               {/* Phone Number */}
               <label className={styles.splitLabel}>
-                <span className={styles.fieldH4}>Phone Number</span>
+                <span className={styles.fieldH4}>Mobile Number (required, one account per number)</span>
                 <input
                   type="tel"
                   value={signupPhone}
                   placeholder="+91 98765 43210"
                   onChange={(event) => setSignupPhone(event.target.value)}
                   autoComplete="tel"
+                  required
                 />
               </label>
 
@@ -1027,7 +1004,6 @@ export function LogoutPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    void supabaseSignOut()
     void apiLogout()
     logout()
     navigate('/', { replace: true })

@@ -1,6 +1,8 @@
 # HireRighttt — Agent handoff (continue from here)
 
-This document is for **human + AI agents** picking up the repo after the Supabase + Ava interview + production pass (commit `e72a2d0` and later). Read this before making large changes.
+> **2026 update:** Single **repo-root `.env`** only ([env/README.md](../env/README.md)). **Neon Postgres + Node auth** (Supabase removed). Some sections below are historical — prefer [DATABASE.md](./DATABASE.md) and [README.md](../README.md).
+
+This document is for **human + AI agents** picking up the repo. Read this before making large changes.
 
 ## Product goal
 
@@ -39,35 +41,17 @@ Node persistence:
 
 ## Environment
 
-**Co-worker / agent:** copy-paste live local values from **`docs/AGENT_LOCAL_SECRETS.md`** into root `.env` and `frontend/.env` (those paths stay gitignored). That MD file is committed intentionally for private-team handoff.
-
-Templates (placeholders only):
+**One file only:** repo-root `.env` (see [env/README.md](../env/README.md)).
 
 ```bash
 cp .env.example .env
-cp .env.production.example .env   # for Docker prod only
+npm run check:env
+npm run dev:all
 ```
 
-**Root `.env` (Node + shared)** — required for full stack:
+Required: `DATABASE_URL` (Neon), `SESSION_SECRET`, `GEMINI_API_KEY`. Optional `VITE_*` in the **same** file for Vite.
 
-- `VITE_AUTH_PROVIDER=supabase`
-- `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (frontend)
-- `SUPABASE_URL`, `SUPABASE_JWT_SECRET` (**Legacy JWT Secret** from Supabase → Settings → API)
-- `DATABASE_URL` (Postgres URI; URL-encode password; prefer pooler + `sslmode=require` in prod)
-- `SESSION_SECRET` (32+ chars)
-- `GEMINI_API_KEY` (server only — interview + resume + score refine)
-- `CORS_ORIGINS` (prod)
-
-**`frontend/.env`** — mirror `VITE_*` Supabase vars + `VITE_API_URL` if API is not same-origin.
-
-`.gitignore` excludes `.env` / `frontend/.env`. Live dev values: `docs/AGENT_LOCAL_SECRETS.md`.
-
-### Supabase one-time
-
-1. SQL Editor → run `supabase/migrations/001_hireright_schema.sql`.
-2. Then run `supabase/migrations/002_supabase_security_fixes.sql` (RLS on `hireright_*`, policy perf, lock down `handle_new_user`).
-3. Auth → URL config: add local (`http://localhost:5173`) and production URLs.
-3. For dev, consider disabling email confirm if sign-up blocks testing.
+Do **not** use `frontend/.env`, `backend/node/.env`, or Supabase.
 
 ## Run locally
 
@@ -97,7 +81,7 @@ Demo (no Supabase): `demo@hireright.com` / `password123` — disabled in prod wh
 - `POST /api/interview/score` — full result + **`scorecard`**.
 - Logic: `backend/node/interviewAgent.mjs` (`generateAdaptiveQuestion`, `generateInterviewTurn`, `scoreInterviewSession`, `buildCareerScorecard`).
 
-**Auth:** All interview routes need `Bearer` token. Frontend: `apiSession.ts` + `supabaseAuth.ts` refresh Supabase JWT into `localStorage` (`hireright.apiToken`).
+**Auth:** All interview routes need `Bearer` token. Frontend: `apiSession.ts` + `/api/login` → `localStorage` (`hireright.apiToken`).
 
 **Interactive means:** one question at a time; after submit → bridge speech → **new** adaptive question (not a fixed 5-question bank). Max ~15 adaptive turns; voice “end the interview” supported.
 
@@ -105,24 +89,22 @@ Demo (no Supabase): `demo@hireright.com` / `password123` — disabled in prod wh
 
 - Built server-side in `buildCareerScorecard()` inside `scoreInterviewSession()`.
 - UI: `frontend/src/components/CareerIntelligenceDashboard.tsx` uses `result.scorecard` when present.
-- Persist: `store.saveInterviewResult()` → localStorage + `supabaseSync.syncInterviewResultToSupabase()`.
+- Persist: `store.saveInterviewResult()` → localStorage + `apiSync.syncInterviewResultToApi()`.
 - **Full scorecard requires** successful `POST /api/interview/score`. Local-only fallback has thinner UI (synthesized donuts from `overall`).
 
-## Supabase sync
+## Postgres sync (Neon)
 
 | Data | Table | Code |
 |------|--------|------|
-| Profile JSON | `profiles` | `supabaseSync.ts`, trigger on signup |
-| Interview result | `interview_results` | `saveInterviewResult` |
-| Auth | Supabase Auth | `AuthPages.tsx`, `supabaseAuth.ts` |
-
-Node API does **not** replace Supabase Auth for primary login when `VITE_AUTH_PROVIDER=supabase`; it **verifies** Supabase JWTs via `supabaseAuth.mjs`.
+| Profile JSON | `profiles` | `apiSession.syncProfileToApi` |
+| Interview result | `interview_results` | `apiSync.syncInterviewResultToApi` |
+| Auth | `users` + `hireright_sessions` | `AuthPages.tsx`, `/api/login` |
 
 ## Production
 
 ```bash
-npm run prod:supabase
-# or: docker compose -f docker-compose.supabase.prod.yml up -d --build
+npm run prod:neon
+# docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 - `backend/node/config.mjs` — `assertProductionConfig()` on boot.
@@ -135,13 +117,13 @@ CI: `.github/workflows/ci.yml`.
 
 Pick up any of these without re-architecting unless asked:
 
-1. **Employer / admin flows** — test fully under Supabase-only auth (still heavy on Node KV + localStorage).
-2. **Single source of truth** — Node `hireright_kv` blob vs Supabase tables for jobs/applications (MVP debt).
+1. **Employer / admin flows** — wire jobs to Neon `jobs` table (still partly localStorage).
+2. **Single source of truth** — finish API for employer jobs/applications vs localStorage.
 3. **Local score fallback** — optionally call same scorecard builder on client or require API for score (UX when offline).
 4. **Pass `nextQuestion` into `/api/interview/turn`** for richer bridges (InterviewPage currently omits it).
-5. **TLS + domain** — terminate HTTPS in front of `WEB_PORT`; set Supabase redirect URLs.
+5. **TLS + domain** — terminate HTTPS in front of `WEB_PORT`.
 6. **Rotate secrets** if they were ever pasted in chat or committed in old history.
-7. **E2E** — extend `e2e/candidate-journey.spec.ts` for Supabase sign-in path (may need test project).
+7. **E2E** — extend `e2e/candidate-journey.spec.ts` for full interview path via `/api/login`.
 
 ## Key files (quick index)
 
@@ -149,10 +131,11 @@ Pick up any of these without re-architecting unless asked:
 frontend/src/pages/InterviewPage.tsx      # Ava UX
 frontend/src/lib/adaptiveInterview.ts     # next question client
 frontend/src/lib/apiSession.ts            # Bearer sync
-frontend/src/lib/supabase*.ts               # Auth + sync
+frontend/src/lib/apiSync.ts                 # Profile + interview sync
 backend/node/index.mjs                      # HTTP routes
 backend/node/interviewAgent.mjs             # LLM + scorecard
-backend/node/db/store.mjs                   # Postgres KV
+backend/node/db/store.mjs                   # Neon Postgres
+env/loadEnv.mjs                             # Single .env loader
 backend/node/config.mjs                     # prod guards
 supabase/migrations/001_hireright_schema.sql
 docker-compose.supabase.prod.yml
