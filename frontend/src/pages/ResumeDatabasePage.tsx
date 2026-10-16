@@ -212,6 +212,11 @@ export function ResumeDatabasePage() {
             <motion.p className={styles.subtitle} variants={fadeUp}>
               Centralized repository storing every candidate's extracted resume, skills, contact dossier, and proctored AI interview scorecards.
             </motion.p>
+            {loadError ? (
+              <motion.p className={styles.subtitle} variants={fadeUp} role="alert">
+                {loadError}
+              </motion.p>
+            ) : null}
           </div>
 
           <motion.div className={styles.headerActions} variants={fadeUp}>
