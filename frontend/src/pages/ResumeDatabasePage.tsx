@@ -258,7 +258,7 @@ export function ResumeDatabasePage() {
             experienceYears: experienceFilter.trim() || undefined,
             minScore: 0,
           })
-          setPlatformHits(data.results || [])
+          setPlatformHits(data.candidates || [])
           setPlatformTotal(data.total || 0)
         } catch {
           setPlatformHits([])

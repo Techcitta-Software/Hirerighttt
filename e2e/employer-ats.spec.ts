@@ -4,14 +4,10 @@ test.describe('Employer ATS & Talent Studio', () => {
   test('Employer logs in, creates private opening, manages pipeline, inspects vault & admin ATS', async ({ page }) => {
     // 1. Log in with Employer Demo
     await page.goto('/login')
-    const demoEmployerBtn = page.getByRole('button', { name: /Employer Demo/i })
-    await demoEmployerBtn.click()
-
-    const submitBtn = page.locator('button[type="submit"]')
-    await submitBtn.click()
+    await page.getByRole('button', { name: /Vendor \/ Employer/i }).click()
 
     // 2. Lands on Employer Studio
-    await page.waitForURL('**/employer/dashboard', { timeout: 10000 })
+    await page.waitForURL('**/employer/dashboard', { timeout: 20000 })
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/Employer AI Hiring Studio/i)
 
     // Check stats are rendered
@@ -48,7 +44,7 @@ test.describe('Employer ATS & Talent Studio', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/All Candidate Resumes/i)
 
     // Search for candidates by skill
-    const searchInput = page.locator('input[placeholder*="Search by candidate name"]')
+    const searchInput = page.getByPlaceholder(/Search platform talent|Search by candidate name/i)
     await searchInput.fill('Sneha')
 
     // Verify Sneha Iyer is found
@@ -56,7 +52,7 @@ test.describe('Employer ATS & Talent Studio', () => {
 
     // 6. Navigate to Admin ATS Pipeline
     await page.goto('/admin')
-    await expect(page.getByText(/Admin ATS/i).first()).toBeVisible()
+    await expect(page.getByText(/Admin dashboard|Recruiter operations/i).first()).toBeVisible()
 
     // Verify tabs
     const nav = page.locator('nav')

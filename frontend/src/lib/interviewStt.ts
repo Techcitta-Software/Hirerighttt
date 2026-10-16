@@ -105,8 +105,11 @@ export function createInterviewSttController(
         : merged.committed.trim()
 
       if (handlers.isAiSpeaking()) {
-        if (display) handlers.onTranscript(display, merged)
-        if (shouldCaptureSpeechDuringTts(merged)) handlers.onBargeIn?.()
+        // Ignore TTS bleed-through; only react when the candidate clearly speaks (barge-in).
+        if (shouldCaptureSpeechDuringTts(merged)) {
+          handlers.onBargeIn?.()
+          handlers.onTranscript(display, merged)
+        }
         return
       }
 
@@ -123,10 +126,16 @@ export function createInterviewSttController(
         handlers.onError?.(describeRecognitionError(code), code)
       }
       handlers.onListeningChange?.(false)
-      if (code === 'no-speech' || code === 'aborted') {
-        scheduleRestart(200)
+      if (
+        code === 'no-speech' ||
+        code === 'aborted' ||
+        code === 'audio-capture'
+      ) {
+        scheduleRestart(code === 'audio-capture' ? 500 : 200)
       } else if (code === 'language-not-supported' || code === 'network') {
         scheduleRestart(400)
+      } else if (code === 'not-allowed' || code === 'service-not-allowed') {
+        scheduleRestart(800)
       }
     }
 

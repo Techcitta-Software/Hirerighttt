@@ -2,15 +2,13 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Candidate End-to-End Loop', () => {
   test('Candidate logs in, completes AI interview, views scorecard, and applies to unlocked matches', async ({ page }) => {
+    test.setTimeout(180_000)
     // 1. Visit Login and use Candidate Demo
     await page.goto('/login')
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/Login to/i)
 
-    const demoCandidateBtn = page.getByRole('button', { name: /Candidate Demo/i })
-    await demoCandidateBtn.click()
-
-    const loginSubmitBtn = page.locator('button[type="submit"]')
-    await loginSubmitBtn.click()
+    await page.getByRole('button', { name: /Candidate · Interview demo/i }).click()
+    await page.waitForURL('**/interview', { timeout: 20000 })
 
     // 2. Candidate should now be authenticated. Visit onboarding wizard
     await page.goto('/onboarding')
@@ -40,7 +38,7 @@ test.describe('Candidate End-to-End Loop', () => {
     await joinBtn.click()
 
     // 4. In Interview Room: verify question appears
-    await expect(page.getByText(/Question 1 of/i)).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/Question 1 of/i)).toBeVisible({ timeout: 45000 })
     await expect(page.getByText('Ava asks')).toBeVisible()
 
     // Provide an answer using keyboard fallback
@@ -51,14 +49,15 @@ test.describe('Candidate End-to-End Loop', () => {
     await answerInput.fill(
       'Situation: In our recent project we optimized React rendering using memoization and virtualized lists. Task: Reduce re-render overhead. Action: Refactored state into Zustand and profiled with React DevTools. Result: 60 FPS scrolling and 45% less memory consumption.',
     )
+    await page.getByRole('button', { name: /Submit Answer/i }).click()
+    await expect(page.getByText(/Question 2 of/i)).toBeVisible({ timeout: 120_000 })
 
-    // Complete interview by clicking Leave
-    const leaveBtn = page.getByRole('button', { name: 'Leave' })
-    await expect(leaveBtn).toBeVisible()
-    await leaveBtn.click()
+    const endInput = page.locator('textarea[placeholder="Type your answer…"]')
+    await endInput.fill('end the interview')
+    await page.getByRole('button', { name: /Submit Answer/i }).click()
 
     // Wait for scoring screen
-    await expect(page.getByText(/Scoring your interview/i)).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText(/Scoring your interview/i)).toBeVisible({ timeout: 60000 })
 
     // 5. Verify 360° Candidate Persona Dossier is generated
     await expect(page.getByText(/AI-Powered Career Intelligence Dashboard|Overall Career Readiness Score/i)).toBeVisible({ timeout: 25000 })

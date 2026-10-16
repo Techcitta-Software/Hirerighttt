@@ -12,8 +12,8 @@
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 70% 45% at 8% 15%, rgba(229, 57, 53, 0.05), transparent 55%),
-    radial-gradient(ellipse 55% 40% at 92% 85%, rgba(7, 18, 42, 0.04), transparent 50%);
+    radial-gradient(ellipse 70% 45% at 8% 15%, rgba(79, 70, 229, 0.05), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 92% 85%, rgba(15, 23, 42, 0.04), transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
@@ -89,7 +89,7 @@
 }
 
 .asideAccent {
-  color: var(--hr-red, #e53935);
+  color: #4f46e5;
 }
 
 .loginAside {
@@ -152,11 +152,11 @@
   width: 2rem;
   height: 2rem;
   border-radius: 999px;
-  background: #fff;
-  border: 1px solid var(--hr-border, #e2e8f0);
-  color: var(--hr-red, #e53935);
-  font-size: 0.65rem;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  background: #eef2ff;
+  border: 1px solid #dcd7fe;
+  color: #4f46e5;
+  font-size: 0.75rem;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
 }
 
 .asideSocial {
@@ -217,14 +217,14 @@
 
 .kicker {
   display: inline-block;
-  padding: 8px 16px;
+  padding: 6px 14px;
   border-radius: 999px;
-  background: rgba(225, 29, 72, 0.08);
-  border: 1px solid rgba(225, 29, 72, 0.2);
-  color: var(--hr-red, #e53935);
+  background: #eef2ff;
+  border: 1px solid #dcd7fe;
+  color: #4f46e5;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
 }
 
 .card h1 {
@@ -241,7 +241,7 @@
   font-family: inherit;
   font-style: normal;
   font-weight: 800;
-  color: var(--hr-red, #e53935);
+  color: #4f46e5;
 }
 
 .card > p {
@@ -369,14 +369,15 @@
 }
 
 .submit {
-  background: var(--hr-red, #e53935);
+  background: #4f46e5;
   color: #fff;
   border: none;
-  box-shadow: 0 6px 20px -2px rgba(229, 57, 53, 0.42);
+  box-shadow: 0 6px 20px -2px rgba(79, 70, 229, 0.4);
 }
 
 .submit:hover {
-  background: var(--hr-red-hover, #d32f2f);
+  background: #4338ca;
+  box-shadow: 0 8px 24px -2px rgba(79, 70, 229, 0.5);
 }
 
 .ghost {
@@ -391,14 +392,14 @@
 }
 
 .demoBtn {
-  background: rgba(225, 29, 72, 0.06);
-  border: 1px dashed rgba(225, 29, 72, 0.35);
-  color: var(--hr-red, #e53935);
+  background: rgba(79, 70, 229, 0.06);
+  border: 1px dashed rgba(79, 70, 229, 0.35);
+  color: #4f46e5;
 }
 
 .demoBtn:hover {
-  background: rgba(225, 29, 72, 0.1);
-  border-color: var(--hr-red, #e11d48);
+  background: rgba(79, 70, 229, 0.12);
+  border-color: #4f46e5;
 }
 
 .demoSection {
@@ -437,9 +438,9 @@
 }
 
 .demoCard:hover:not(:disabled) {
-  border-color: var(--hr-red, #e11d48);
+  border-color: #4f46e5;
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.12);
 }
 
 .demoCard:disabled {
@@ -484,14 +485,14 @@
   padding: 0;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--hr-red, #e53935);
+  color: #4f46e5;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .demoLinkBtn:hover {
-  color: var(--hr-red-hover, #be123c);
+  color: #4338ca;
 }
 
 .footer {
@@ -502,7 +503,7 @@
 }
 
 .footer a {
-  color: var(--hr-red, #e53935);
+  color: #4f46e5;
   font-weight: 600;
   text-decoration: none;
 }
@@ -533,8 +534,9 @@
 }
 
 .settingsList > button:not(.submit):not(.ghost):hover {
-  border-color: var(--hr-red, #e11d48);
-  color: var(--hr-red, #e53935);
+  border-color: #4f46e5;
+  color: #4f46e5;
+  background: #f5f3ff;
 }
 
 .settingsCard {
@@ -558,7 +560,7 @@
   width: 18px;
   height: 18px;
   margin-top: 2px;
-  accent-color: var(--hr-red, #e11d48);
+  accent-color: #4f46e5;
 }
 
 .success {
@@ -611,180 +613,497 @@
   }
 }
 
-/* ─── Split login (HackerRank-style) ─── */
+/* ─── PDF Page 1 Split Login Layout ─── */
 .splitPage {
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 48% 52%;
   background: #ffffff;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
 }
 
 @media (max-width: 900px) {
   .splitPage {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(220px, 38vh) 1fr;
+    overflow-y: auto;
+  }
+
+  /* Show login form above the marketing panel — avoids a blank-looking first screen */
+  .splitRight {
+    order: -1;
+  }
+
+  .splitLeft {
+    min-height: auto;
   }
 }
 
 .splitLeft {
   position: relative;
-  background: #050505;
-  color: #fff;
-  overflow: hidden;
-  min-height: 280px;
+  background: linear-gradient(168deg, #251e6d 0%, #1f185a 50%, #181248 100%);
+  color: #ffffff;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .splitLeft {
+    min-height: 280px;
+  }
 }
 
 .splitLeftInner {
   position: relative;
   z-index: 2;
   height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 1.75rem 2rem 2.25rem;
-  pointer-events: none;
+  padding: 3.5rem 3.5rem 3rem;
+  box-sizing: border-box;
 }
 
-.splitLeftInner a {
-  pointer-events: auto;
+@media (max-width: 900px) {
+  .splitLeftInner {
+    padding: 2.25rem 1.5rem;
+    gap: 2rem;
+  }
 }
 
-.splitLogo {
+.brandLink {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   text-decoration: none;
-  color: #fff;
-  font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: -0.02em;
+  width: fit-content;
 }
 
-.splitLogoMark {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #22c55e, #16a34a);
+.brandLogoImg {
+  height: 60px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.18s ease;
+}
+
+.brandLogoImg:hover {
+  transform: scale(1.02);
 }
 
 .splitLeftCopy {
-  max-width: 22rem;
+  max-width: 440px;
+  margin: auto 0;
+  padding: 2rem 0;
 }
 
-.splitWelcome {
-  margin: 0;
-  font-size: 1.125rem;
-  color: #e4e4e7;
-}
-
-.splitCommunity {
-  margin: 0.35rem 0 0;
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
+.leftHeadline {
+  margin: 0 0 1.25rem 0;
+  font-size: clamp(2rem, 3.2vw, 2.75rem);
   font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.18;
+  letter-spacing: -0.01em;
   color: #ffffff;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.splitTagline {
-  margin: 0.85rem 0 0;
-  font-size: 0.9375rem;
+.leftSubtitle {
+  margin: 0;
+  font-size: clamp(1rem, 1.25vw, 1.125rem);
   line-height: 1.55;
-  color: #a1a1aa;
+  color: rgba(255, 255, 255, 0.82);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.splitKnowMore {
-  display: inline-block;
-  margin-top: 1rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: #4ade80;
-  text-decoration: none;
+.leftChecklist {
+  list-style: none;
+  margin: 1.5rem 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
 }
 
-.splitKnowMore:hover {
-  text-decoration: underline;
+.leftChecklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  font-size: clamp(1.025rem, 1.2vw, 1.15rem);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.95);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.checkIcon {
+  color: #a5b4fc;
+  font-weight: 700;
+  font-size: 1.2rem;
+  line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.leftFooter {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .splitRight {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2.5rem 2rem;
+  padding: 3rem 2.5rem;
   background: #ffffff;
   overflow-y: auto;
+  max-height: 100vh;
+  box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+  .splitRight {
+    max-height: none;
+    padding: 2.5rem 1.5rem;
+  }
 }
 
 .splitFormWrap {
   width: 100%;
-  max-width: 480px;
+  max-width: 440px;
+  margin: 0 auto;
 }
 
-.authModeToggle {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  background: #f1f5f9;
-  padding: 5px;
-  border-radius: 12px;
+.authContainer {
+  width: 100%;
+}
+
+.formHeader {
   margin-bottom: 1.75rem;
-  border: 1px solid #e2e8f0;
 }
 
-.modeTab {
-  padding: 11px 18px;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  font-size: 1.05rem;
+.welcomeTitle {
+  margin: 0 0 0.35rem 0;
+  font-size: clamp(1.85rem, 2.4vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #111827;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.welcomeSub {
+  margin: 0;
+  font-size: 1.025rem;
+  color: #6b7280;
+  line-height: 1.5;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.loginForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 1.15rem;
+}
+
+.formLabel {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1f2937;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.requiredMark {
   font-weight: 500;
   color: #64748b;
+  font-size: 0.85rem;
+}
+
+.fieldHint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.forgotLink {
+  font-size: 0.925rem;
+  font-weight: 600;
+  color: #4f46e5;
+  text-decoration: none;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.forgotLink:hover {
+  text-decoration: underline;
+}
+
+.formInput {
+  width: 100%;
+  height: 48px;
+  padding: 0 1rem;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 1rem;
+  color: #111827;
+  background: #ffffff;
+  box-sizing: border-box;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.formInput:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.formInput::placeholder {
+  color: #9ca3af;
+}
+
+.loginPillBtn {
+  width: 100%;
+  height: 48px;
+  border-radius: 9999px;
+  background: #5046e5;
+  color: #ffffff;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.2s ease;
+  margin-top: 0.5rem;
+  box-shadow: 0 4px 14px rgba(80, 70, 229, 0.35);
+  transition: background 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.loginPillBtn:hover:not(:disabled) {
+  background: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(80, 70, 229, 0.45);
+}
+
+.loginPillBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.authLinksBelow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 1.25rem;
+  text-align: center;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.subLinkLine {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #374151;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.switchModeLink {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #4f46e5;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.switchModeLink:hover {
+  text-decoration: underline;
+}
+
+.discoveryLink {
+  color: #4f46e5;
+  font-weight: 700;
+  text-decoration: none;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.discoveryLink:hover {
+  text-decoration: underline;
+}
+
+.noResumeText {
+  color: #6b7280;
+}
+
+/* ─── IMAGE 2: QUICK DEMO ACCESS ─── */
+.quickDemoAccessWrap {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.quickDemoLabel {
+  margin: 0 0 0.15rem 0;
+  font-size: 0.825rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  text-transform: uppercase;
+  text-align: left;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.demoCandidateBigBtn {
+  width: 100%;
+  height: 46px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.98rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.demoCandidateBigBtn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.demoTwoBtnRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.demoRoleBtn {
+  height: 46px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.demoRoleBtn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.demoThreeBtnRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.demoFillUnderlineBtn {
+  height: 42px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.925rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.demoFillUnderlineBtn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.demoBottomSignupText {
+  margin: 1rem 0 0 0;
+  text-align: center;
+  font-size: 0.98rem;
+  color: #1e293b;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.demoBottomSignupLink {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  font-weight: 700;
+  font-size: inherit;
+  cursor: pointer;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.demoBottomSignupLink:hover {
+  text-decoration: underline;
+}
+
+.errorBanner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.925rem;
+  margin-bottom: 1rem;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.successBanner {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.925rem;
+  margin-bottom: 1rem;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.modeTabActive {
-  background: #ffffff;
-  color: #07122a;
-  font-weight: 600;
-  box-shadow: 0 2px 10px rgba(7, 18, 42, 0.08);
-}
-
-.splitFormHead {
-  margin-bottom: 1.75rem;
-}
-
-.splitHello {
-  margin: 0;
-  font-size: 1.15rem;
-  color: #475569;
-}
-
-.splitTitle {
-  margin: 0.35rem 0 0;
-  font-size: 1.85rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: #07122a;
-  line-height: 1.25;
-}
-
-.splitSubtitle {
-  margin: 0.65rem 0 0;
-  font-size: 1rem;
-  color: #64748b;
-  line-height: 1.55;
-}
-
+/* Signup Role Grid */
 .splitRoleGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 1.25rem;
 }
 
 .splitRoleBtn {
@@ -792,67 +1111,56 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px 14px;
-  min-height: 52px;
-  border-radius: 10px;
-  border: 1.5px solid #d4d4d8;
+  padding: 10px 14px;
+  height: 46px;
+  border-radius: 8px;
+  border: 1.5px solid #d1d5db;
   background: #ffffff;
-  font-size: 0.98rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
   color: #374151;
   cursor: pointer;
   transition: all 0.15s ease;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .splitRoleBtnActive {
   border-color: #2563eb;
   background: #eff6ff;
   color: #1d4ed8;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.termsRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: 0.35rem 0 1.25rem 0;
+  font-size: 0.925rem;
+  color: #4b5563;
+  line-height: 1.45;
+  cursor: pointer;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.termsRow input {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: #5046e5;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.termsLink {
+  color: #4f46e5;
   font-weight: 600;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  text-decoration: none;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.splitForm {
-  display: flex;
-  flex-direction: column;
-  gap: 1.15rem;
-}
-
-.splitLabel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.fieldH4 {
-  display: block;
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 400;
-  color: #1e293b;
-  line-height: 1.35;
-}
-
-.splitLabel input {
-  min-height: 54px;
-  padding: 0 1.15rem;
-  border: 1.5px solid #d4d4d8;
-  border-radius: 10px;
-  font-size: 1.05rem;
-  color: #0f172a;
-  background: #ffffff;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.splitLabel input::placeholder {
-  color: #94a3b8;
-  font-size: 0.98rem;
-}
-
-.splitLabel input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
+.termsLink:hover {
+  text-decoration: underline;
 }
 
 .splitRow2 {
@@ -865,199 +1173,5 @@
   .splitRow2 {
     grid-template-columns: 1fr;
   }
-}
-
-.splitOptions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-top: -0.25rem;
-}
-
-.rememberRow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  color: #3f3f46;
-  cursor: pointer;
-}
-
-.rememberRow input {
-  width: 18px;
-  height: 18px;
-  accent-color: #07122a;
-}
-
-.forgotLink {
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: #2563eb;
-  text-decoration: none;
-}
-
-.forgotLink:hover {
-  text-decoration: underline;
-}
-
-.splitSubmit {
-  width: 100%;
-  min-height: 54px;
-  margin-top: 0.35rem;
-  border: none;
-  border-radius: 10px;
-  background: #07122a;
-  color: #ffffff;
-  font-weight: 600;
-  font-size: 1.08rem;
-  cursor: pointer;
-  transition: background 0.18s, transform 0.15s, box-shadow 0.18s;
-  box-shadow: 0 4px 12px rgba(7, 18, 42, 0.15);
-}
-
-.splitSubmit:hover:not(:disabled) {
-  background: #142245;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(7, 18, 42, 0.22);
-}
-
-.splitSubmit:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-.splitOr {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 0.5rem 0;
-  color: #94a3b8;
-  font-size: 0.9rem;
-}
-
-.splitOr::before,
-.splitOr::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: #e2e8f0;
-}
-
-.splitSignup {
-  margin-top: 1.75rem;
-  text-align: center;
-  font-size: 1rem;
-  color: #475569;
-}
-
-.inlineSwitchBtn {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: inherit;
-  font-weight: 600;
-  color: #2563eb;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.inlineSwitchBtn:hover {
-  text-decoration: underline;
-}
-
-.splitSignup a {
-  color: #2563eb;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.splitSignup a:hover {
-  text-decoration: underline;
-}
-
-.splitForm .demoSection {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
-}
-
-.splitForm .demoGrid {
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
-}
-
-.socialBtn {
-  width: 100%;
-  min-height: 44px;
-  padding: 0 1rem;
-  border-radius: 8px;
-  border: 1px solid #d4d4d8;
-  background: #fff;
-  color: #18181b;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.socialBtn:hover:not(:disabled) {
-  background: #fafafa;
-  border-color: #a1a1aa;
-}
-
-.demoHalfRow {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
-}
-
-.socialBtnHalf {
-  min-height: 44px;
-  border-radius: 8px;
-  border: 1px solid #d4d4d8;
-  background: #fff;
-  color: #18181b;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.socialBtnHalf:hover:not(:disabled) {
-  background: #fafafa;
-}
-
-.splitForm .error {
-  margin: 0;
-}
-
-.demoFillRow {
-  display: flex;
-  gap: 0.65rem;
-  margin-top: 0.5rem;
-}
-
-.demoLinkBtn {
-  flex: 1;
-  padding: 10px 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.88rem;
-  font-weight: 500;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.demoLinkBtn:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
-  color: #1d4ed8;
 }
 

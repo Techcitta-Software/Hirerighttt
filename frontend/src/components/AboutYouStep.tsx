@@ -80,7 +80,11 @@ export function AboutYouStep({
       <MotionItem>
         <ResumeUpload
           file={data.resumeFile}
-          onFileChange={(file) => onChange('resumeFile', file)}
+          existingFileName={data.resumeName}
+          onFileChange={(file) => {
+            onChange('resumeFile', file)
+            onChange('resumeName', file ? file.name : null)
+          }}
           onParsed={applyExtract}
         />
       </MotionItem>

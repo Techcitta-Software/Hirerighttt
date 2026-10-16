@@ -13,5 +13,6 @@
 .trophy { width:170px; height:144px; background:url('/assets/reference-confirmation.png') -818px -1364px / 1024px 1536px no-repeat; filter:none; mix-blend-mode:multiply; }
 @media(max-width:640px) { .robotAvatarImg { width:100px; height:94px; background-size:666px 998px; background-position:-517px -127px; right:0; bottom:0; } }
 .robotAvatarImg { mask-image:linear-gradient(to right,transparent,#000 15%,#000 92%,transparent); }
+.applyNote{margin-top:12px;font-size:14px;font-weight:600;color:#6036eb}
 .trophy { mask-image:linear-gradient(to right,transparent,#000 17%,#000 80%,transparent); }
 @media(min-width:761px) { .trophyBanner { min-height:152px; padding:20px 32px; z-index:2; } .trophy { position:absolute; right:0; bottom:0; } .trophyBanner>div:nth-child(2) { padding-right:155px; } }

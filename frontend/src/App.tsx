@@ -3,17 +3,21 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { HomePage } from './pages/HomePage'
 import { HowItWorksPage } from './pages/HowItWorksPage'
 import { SolutionsPage } from './pages/SolutionsPage'
-import { JobSeekersPage } from './pages/JobSeekersPage'
+import { WhoItsForPage } from './pages/WhoItsForPage'
 import { WhyPage } from './pages/WhyPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { PricingPage } from './pages/PricingPage'
-import { AboutPage } from './pages/AboutPage'
+import { FaqPage } from './pages/FaqPage'
+import { CareerViewPage } from './pages/CareerViewPage'
 import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
 import { DashboardPage, JobsPage, ProfilePage, ApplicationsPage } from './pages/AppPages'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { InterviewPage } from './pages/InterviewPage'
+import { InterviewNowPage } from './pages/InterviewNowPage'
 import { EmployerDashboard } from './pages/EmployerDashboard'
 import { CandidateApplyPage } from './pages/CandidateApplyPage'
+import { JobInviteEntryPage } from './pages/JobInviteEntryPage'
+import { InterviewInvitePage } from './pages/InterviewInvitePage'
 import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
 import { AssessmentRecruiterPage } from './pages/AssessmentRecruiterPage'
 import { AssessmentCandidatePage } from './pages/AssessmentCandidatePage'
@@ -28,11 +32,11 @@ function AnimatedRoutes() {
   const location = useLocation()
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="wait" initial={false}>
       <motion.div
         key={location.pathname}
         variants={pageTransition}
-        initial="initial"
+        initial={false}
         animate="animate"
         exit="exit"
         style={{ minHeight: '100%' }}
@@ -41,21 +45,38 @@ function AnimatedRoutes() {
           <Route path="/" element={<HomePage />} />
           <Route path="/how-it-works" element={<HowItWorksPage />} />
           <Route path="/solutions" element={<SolutionsPage />} />
-          <Route path="/job-seekers" element={<JobSeekersPage />} />
+          <Route path="/job-seekers" element={<WhoItsForPage />} />
+          <Route path="/who-its-for" element={<WhoItsForPage />} />
+          <Route path="/career-view" element={<CareerViewPage />} />
+          <Route path="/360-career-view" element={<CareerViewPage />} />
+          <Route path="/career" element={<CareerViewPage />} />
           <Route path="/why" element={<WhyPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/about" element={<AboutPage />} />
+          <Route path="/about" element={<FaqPage />} />
+          <Route path="/faqs" element={<FaqPage />} />
+          <Route path="/faq" element={<FaqPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/logout" element={<LogoutPage />} />
+          <Route path="/apply/:companySlug/:code" element={<CandidateApplyPage />} />
           <Route path="/apply/:code" element={<CandidateApplyPage />} />
+          <Route path="/jobs/:companySlug/:code" element={<JobInviteEntryPage />} />
+          <Route path="/interview/invite/:token" element={<InterviewInvitePage />} />
           <Route
             path="/onboarding"
             element={
               <RequireAuth role="jobseeker">
                 <ProfileWizard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/interview/now"
+            element={
+              <RequireAuth role="jobseeker">
+                <InterviewNowPage />
               </RequireAuth>
             }
           />
@@ -77,6 +98,22 @@ function AnimatedRoutes() {
           />
           <Route
             path="/employer/dashboard"
+            element={
+              <RequireAuth role="employer">
+                <EmployerDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/employer/candidates"
+            element={
+              <RequireAuth role="employer">
+                <EmployerDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/candidates"
             element={
               <RequireAuth role="employer">
                 <EmployerDashboard />
@@ -171,7 +208,6 @@ function AnimatedRoutes() {
 }
 
 function App() {
-
   return (
     <BrowserRouter>
       <AnimatedRoutes />

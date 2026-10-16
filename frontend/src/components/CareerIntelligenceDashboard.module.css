@@ -60,7 +60,9 @@
 
 .headerActions {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .printBtn {
@@ -83,6 +85,18 @@
 
 .printBtn:hover {
   background: #e5e5ef;
+}
+
+.printBtn:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+.downloadError {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .candidateProfileRow {
@@ -964,6 +978,7 @@
     background: #ffffff !important;
     color: #000000 !important;
   }
+  [data-download-exclude],
   .printBtn,
   .actionButtonRow,
   header.appBar,

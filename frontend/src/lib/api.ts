@@ -72,13 +72,27 @@ export async function apiSignup(
   return data.user
 }
 
-export async function apiLogin(email: string, password: string) {
+export type ApiUser = {
+  id?: string
+  name?: string
+  email?: string
+  role?: 'employer' | 'jobseeker'
+  companyName?: string
+  phone?: string
+  primaryOrganizationId?: string
+}
+
+export async function apiLogin(
+  email: string,
+  password: string,
+  expectedRole?: 'employer' | 'jobseeker',
+) {
   const data = await request('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, expectedRole }),
   })
   setApiToken(data.token)
-  return data.user
+  return data.user as ApiUser
 }
 
 export async function apiSaveProfile(profile: unknown) {
@@ -93,6 +107,36 @@ export async function apiSaveInterview(interview: unknown) {
     method: 'POST',
     body: JSON.stringify(interview),
   })
+}
+
+export async function sendInterviewConfirmationEmail(payload: {
+  scheduledStart: string
+  durationMinutes?: number
+  jobTitle?: string
+  jobDescription?: string
+  roleTrack?: string
+  experienceLevel?: string
+  primarySkills?: string[]
+}) {
+  return request('/api/interview/confirmation-email', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }) as Promise<{
+    ok: boolean
+    inviteUrl: string
+    emailSent: boolean
+    scheduledStart: string
+    scheduledEnd: string
+    token: string
+  }>
+}
+
+export async function fetchMailStatus() {
+  try {
+    return (await request('/api/mail/status')) as { smtpConfigured: boolean }
+  } catch {
+    return { smtpConfigured: false }
+  }
 }
 
 export async function apiLogout() {

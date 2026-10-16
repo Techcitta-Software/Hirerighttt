@@ -1,0 +1,484 @@
+/* ==========================================================================
+   HireRighttt — Who It's For Page Styles
+   Matching the PDF Specification
+   ========================================================================== */
+
+.page {
+  --primary-purple: #4f46e5;
+  --primary-purple-dark: #4338ca;
+  --primary-purple-light: #6366f1;
+  --primary-purple-border: #dcd7fe;
+  --text-main: #181236;
+  --text-muted: #5c567a;
+  --text-subtle: #736e8e;
+  --bg-page: #fafaff;
+  --bg-card: #ffffff;
+  --bg-footer: #0e0b24;
+
+  min-height: 100vh;
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: clip;
+  display: flex;
+  flex-direction: column;
+}
+
+.page,
+.page * {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.shell {
+  width: 90%;
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   Navbar
+   ========================================================================== */
+
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(220, 215, 254, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding: 1rem 0;
+}
+
+.navInner {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  box-sizing: border-box;
+}
+
+.brandWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.brandLogoImg {
+  height: 42px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.18s ease;
+}
+
+.brandLogoImg:hover {
+  transform: scale(1.02);
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.navLink {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #000000;
+  transition: color 0.18s ease;
+}
+
+.navLink::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 100%;
+  height: 3.5px;
+  background-color: var(--primary-purple);
+  border-radius: 9999px;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease;
+  opacity: 0;
+}
+
+.navLink:hover {
+  color: var(--primary-purple);
+}
+
+.navLink:hover::after,
+.navLinkActive::after {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.navLinkActive {
+  color: var(--primary-purple) !important;
+  font-weight: 800;
+}
+
+.navActions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.navActionLink {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #000000;
+  transition: color 0.18s ease;
+}
+
+.navActionLink::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 100%;
+  height: 3.5px;
+  background-color: var(--primary-purple);
+  border-radius: 9999px;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease;
+  opacity: 0;
+}
+
+.navActionLink:hover {
+  color: var(--primary-purple);
+}
+
+.navActionLink:hover::after {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.navCtaBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-purple);
+  color: #ffffff !important;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.65rem 1.5rem;
+  border-radius: 9999px;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.navCtaBtn:hover {
+  background: var(--primary-purple-dark);
+  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+  transform: translateY(-1px);
+}
+
+.mobileMenuBtn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  color: #181236;
+}
+
+.mobileMenuDrawer {
+  display: none;
+  background: #ffffff;
+  border-bottom: 1px solid #e0e4fa;
+  padding: 1.5rem;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.mobileMenuDrawer.mobileOpen {
+  display: flex;
+}
+
+/* ==========================================================================
+   Page Header & Hero
+   ========================================================================== */
+
+.pageHeader {
+  padding: clamp(3.5rem, 6vw, 5rem) 0 clamp(2.5rem, 4vw, 3.5rem);
+  text-align: center;
+}
+
+.overline {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary-purple);
+  margin: 0 0 1.25rem 0;
+}
+
+.heading {
+  font-size: clamp(2.3rem, 4.8vw, 3.6rem);
+  font-weight: 800;
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+  color: #181236;
+  margin: 0 auto 1.25rem;
+  max-width: 860px;
+}
+
+.gradientText {
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 55%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+}
+
+.subheading {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  font-weight: 400;
+  color: var(--text-muted);
+  margin: 0 auto;
+  max-width: 680px;
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Audience Cards Grid
+   ========================================================================== */
+
+.cardsSection {
+  padding: 1rem 0 clamp(3.5rem, 6vw, 5rem);
+}
+
+.cardsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid #e7e5fa;
+  border-radius: 20px;
+  padding: 2.25rem 2.25rem;
+  box-shadow: 0 4px 18px rgba(79, 70, 229, 0.03);
+  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: #c7d2fe;
+  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.09);
+}
+
+.cardTitle {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #181236;
+  margin: 0 0 0.75rem 0;
+  letter-spacing: -0.015em;
+}
+
+.cardDescription {
+  font-size: 0.96875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ==========================================================================
+   CTA Action Area
+   ========================================================================== */
+
+.ctaArea {
+  text-align: center;
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+}
+
+.ctaBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-purple);
+  color: #ffffff !important;
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.95rem 2.25rem;
+  border-radius: 9999px;
+  box-shadow: 0 6px 22px rgba(79, 70, 229, 0.35);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  border: none;
+  cursor: pointer;
+}
+
+.ctaBtn:hover {
+  background: var(--primary-purple-dark);
+  box-shadow: 0 8px 28px rgba(79, 70, 229, 0.45);
+  transform: translateY(-2px);
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.footer {
+  background: var(--bg-footer);
+  color: #e2e8f0;
+  padding: clamp(3.5rem, 5vw, 4.5rem) 0 clamp(2.5rem, 4vw, 3rem);
+  margin-top: auto;
+}
+
+.footerInner {
+  max-width: 1200px;
+}
+
+.footerTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2.5rem;
+  flex-wrap: wrap;
+  padding-bottom: 2.5rem;
+}
+
+.footerBrandColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.footerBrandWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-decoration: none;
+}
+
+.footerLogoImg {
+  height: 58px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+  transition: transform 0.18s ease;
+}
+
+.footerLogoImg:hover {
+  transform: scale(1.02);
+}
+
+.footerTagline {
+  font-size: 0.875rem;
+  color: #9da3be;
+  margin: 0;
+}
+
+.footerLinksRow {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.footerLink {
+  color: #9da3be;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: color 0.18s ease;
+}
+
+.footerLink:hover {
+  color: #ffffff;
+}
+
+.footerDivider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: 2rem;
+}
+
+.footerBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.footerCopyright {
+  font-size: 0.8125rem;
+  color: #717799;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .navLinks,
+  .navActions {
+    display: none;
+  }
+
+  .mobileMenuBtn {
+    display: block;
+  }
+
+  .cardsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .footerTop {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.75rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 1.75rem 1.5rem;
+  }
+
+  .ctaBtn {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
