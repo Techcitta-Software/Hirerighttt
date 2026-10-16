@@ -928,21 +928,6 @@ export const JOB_MATCHES = [
 
 /* ---------- EMPLOYER ATS STORE ---------- */
 
-const DEFAULT_DEMO_JOB: EmployerJob = {
-  id: 'job-demo-1',
-  title: 'Senior Frontend Developer',
-  company: 'TechCitta Solutions',
-  roleTrack: 'Frontend Developer',
-  experienceLevel: '6+ years',
-  location: 'Hyderabad / Remote',
-  jobDescription:
-    'Looking for a Senior Frontend Developer with 5+ years experience building modern web applications with React, TypeScript, state management, and performance optimization.',
-  requiredSkills: ['React', 'TypeScript', 'Redux', 'CSS Modules', 'GraphQL'],
-  createdByEmail: 'employer@hireright.com',
-  createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-  shareableCode: 'techcitta-sr-frontend',
-}
-
 export const DEFAULT_14_CANDIDATES: EmployerApplicant[] = [
   {
     id: 'cand-1',

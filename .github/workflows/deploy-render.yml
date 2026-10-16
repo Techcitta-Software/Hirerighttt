@@ -1,0 +1,30 @@
+name: Deploy Backend to Render
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+      - develop
+    paths:
+      - 'backend/node/**'
+      - 'render.yaml'
+      - '.github/workflows/deploy-render.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Trigger Render deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Redeploy via Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK secret is not set. Connect the repo in Render or add the hook URL under GitHub Actions secrets."
+            exit 0
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+          echo "Render deploy triggered."

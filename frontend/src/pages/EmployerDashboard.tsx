@@ -142,7 +142,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     job?: string
     keywords?: string
   }) {
-    const { candidates, total } = await fetchOrganizationCandidates(filters)
+    const { candidates } = await fetchOrganizationCandidates(filters)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
     setPortalSyncNote(`${jobSeekers.length} job seeker profile(s) loaded from the database.`)
@@ -150,7 +150,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }
 
   async function loadJobCandidatesFromApi(jobId: string) {
-    const { candidates, total, job } = await fetchJobCandidatesRoster(jobId)
+    const { candidates, job } = await fetchJobCandidatesRoster(jobId)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
     setSelectedJobId(jobId)

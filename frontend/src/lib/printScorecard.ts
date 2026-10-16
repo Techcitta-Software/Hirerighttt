@@ -58,9 +58,8 @@ export async function downloadScorecardPdf(candidateName = 'candidate'): Promise
   })
 
   const saved = await pdf.save()
-  const file = new Blob([saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength)], {
-    type: 'application/pdf',
-  })
+  const pdfBytes = saved.slice()
+  const file = new Blob([pdfBytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(file)
   const link = document.createElement('a')
   link.href = url
