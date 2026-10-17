@@ -24,7 +24,9 @@ import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
 import { ProfileWizard } from './pages/ProfileWizard'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ContactPage } from './pages/ContactPage'
+import { AuthInvalidModal } from './components/AuthInvalidModal'
 import { RequireAuth } from './components/RequireAuth'
+import { RequireOnboardingAccess } from './components/RequireOnboardingAccess'
 import { SignOutModal } from './components/SignOutModal'
 import { pageTransition } from './motion/variants'
 import { applyClientStorageMigration } from './lib/store'
@@ -69,7 +71,9 @@ function AnimatedRoutes() {
             path="/onboarding"
             element={
               <RequireAuth role="jobseeker">
-                <ProfileWizard />
+                <RequireOnboardingAccess>
+                  <ProfileWizard />
+                </RequireOnboardingAccess>
               </RequireAuth>
             }
           />
@@ -202,6 +206,7 @@ function App() {
     <BrowserRouter>
       <AnimatedRoutes />
       <SignOutModal />
+      <AuthInvalidModal />
     </BrowserRouter>
   )
 }

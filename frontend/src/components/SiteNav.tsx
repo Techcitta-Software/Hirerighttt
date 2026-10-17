@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { useEffect, useState, type MouseEvent } from 'react'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { handleLoginNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getUser, isLoggedIn, unreadNotificationCount } from '../lib/store'
 import { openSignOutModal } from '../lib/signOutModal'
@@ -36,12 +37,21 @@ type SiteNavProps = {
 
 export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNavProps = {}) {
   const location = useLocation()
+  const navigate = useNavigate()
   const onLogoutRoute = location.pathname === '/logout'
   const hideSignOut = suppressSignOut || onLogoutRoute
   const [open, setOpen] = useState(false)
   const [loggedIn, setLoggedIn] = useState(false)
   const [unread, setUnread] = useState(0)
   const user = getUser()
+  const isHome = variant === 'home'
+
+  function onLoginClick(event: MouseEvent) {
+    if (!isHome) return
+    event.preventDefault()
+    setOpen(false)
+    void handleLoginNavigation(navigate)
+  }
 
   useEffect(() => {
     function syncAuth() {
@@ -59,7 +69,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   }
 
   const isLanding = variant === 'landing'
-  const isHome = variant === 'home'
   const isHomeRoute = location.pathname === '/'
   const showMarketingOnHome = isHome && isHomeRoute
 
@@ -166,7 +175,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
               </>
             ) : (
               <>
-                <Link to="/login" className={styles.homeSignIn}>
+                <Link to="/login" className={styles.homeSignIn} onClick={onLoginClick}>
                   Sign in
                 </Link>
                 <Link to="/signup" className={styles.homeLoginPill}>

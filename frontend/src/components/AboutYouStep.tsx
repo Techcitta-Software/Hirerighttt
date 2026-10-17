@@ -86,6 +86,9 @@ export function AboutYouStep({
             onChange('resumeName', file ? file.name : null)
           }}
           onParsed={applyExtract}
+          onStored={({ resumeUrl, resumeStoragePath }) => {
+            onPatch({ resumeUrl, resumeStoragePath })
+          }}
         />
       </MotionItem>
 

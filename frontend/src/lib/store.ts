@@ -24,6 +24,8 @@ export type SavedProfile = Omit<ProfileFormData, 'resumeFile'> & {
   resumeName: string | null
   /** Raw extracted resume text for Ava's resume-accurate questions. */
   resumeText?: string
+  resumeUrl?: string | null
+  resumeStoragePath?: string | null
   updatedAt: string
   completedSteps: number
 }
@@ -319,6 +321,7 @@ export function login(email: string, password: string): User | null {
 
 export function logout() {
   localStorage.removeItem(SESSION_KEY)
+  localStorage.removeItem('hireright.apiToken')
   window.dispatchEvent(new Event('hireright-auth'))
 }
 
@@ -510,8 +513,10 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     workMode: data.workMode,
     salaryExpectation: data.salaryExpectation,
     interviewNotes: data.interviewNotes,
-    resumeName: data.resumeFile?.name ?? getProfile()?.resumeName ?? null,
+    resumeName: data.resumeFile?.name ?? data.resumeName ?? getProfile()?.resumeName ?? null,
     resumeText: data.resumeText || getProfile()?.resumeText || '',
+    resumeUrl: data.resumeUrl ?? getProfile()?.resumeUrl ?? null,
+    resumeStoragePath: data.resumeStoragePath ?? getProfile()?.resumeStoragePath ?? null,
     updatedAt: new Date().toISOString(),
     completedSteps: Math.max(completedSteps, getProfile()?.completedSteps ?? 0),
   }

@@ -31,6 +31,12 @@ import {
 } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
+import {
+  reconcileAuthOnAuthPage,
+  resolveAuthenticatedDestination,
+  setAuthInvalidMessage,
+} from '../lib/authSession'
+import { requireApiForAuth } from '../lib/authConfig'
 import { isSupabaseEnabled } from '../lib/supabaseClient'
 import { supabaseSignIn, supabaseSignOut, supabaseSignUp } from '../lib/supabaseAuth'
 import { pullProfileFromSupabase } from '../lib/supabaseSync'
@@ -374,39 +380,30 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   }
 
   function navigateAfterLogin(authenticatedUser: StoredUser, forcedPath?: string) {
-    if (forcedPath) {
-      navigate(forcedPath, { replace: true })
-      return
-    }
-
-    // Direct user to resume upload onboarding if that was their intent
-    const isUploadIntent = sessionStorage.getItem('hireright.intent') === 'upload_resume'
-    if (isUploadIntent) {
-      sessionStorage.removeItem('hireright.intent')
-      if (authenticatedUser.role === 'employer') {
-        navigate('/employer/dashboard', { replace: true })
-      } else {
-        navigate('/onboarding', { replace: true })
-      }
-      return
-    }
-
     const from = (location.state as { from?: string })?.from
-    if (from && from !== '/login' && from !== '/signup') {
-      navigate(from, { replace: true })
-      return
-    }
-    if (authenticatedUser.role === 'employer') {
-      navigate('/employer/dashboard')
-      return
-    }
-    const profile = getProfile()
-    if (!profile || (profile.completedSteps ?? 0) < 3) {
-      navigate('/onboarding')
-      return
-    }
-    navigate('/dashboard')
+    navigate(resolveAuthenticatedDestination(authenticatedUser, from, forcedPath), {
+      replace: true,
+    })
   }
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const result = await reconcileAuthOnAuthPage()
+      if (cancelled) return
+      if (result.action === 'redirect') {
+        navigate(result.path, { replace: true })
+        return
+      }
+      if (result.action === 'invalid') {
+        setAuthInvalidMessage(result.message)
+        setError(result.message)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [location.pathname, navigate])
 
   async function runQuickLogin(
     demo: typeof DEMO_CANDIDATE | typeof DEMO_EMPLOYER | typeof DEMO_ADMIN,
@@ -554,6 +551,9 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           )
           return
         }
+      } else if (requireApiForAuth()) {
+        setError('Cannot reach the server. Check your connection and try again.')
+        return
       }
       saveUser(
         {
@@ -1274,10 +1274,12 @@ export function LogoutPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    void supabaseSignOut()
-    void apiLogout()
-    logout()
-    navigate('/', { replace: true })
+    void (async () => {
+      await supabaseSignOut()
+      await apiLogout()
+      logout()
+      navigate('/', { replace: true })
+    })()
   }, [navigate])
 
   return null

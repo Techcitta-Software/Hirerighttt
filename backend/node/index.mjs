@@ -44,6 +44,7 @@ import {
   parseInviteContext,
 } from './interviewInvites.mjs'
 import { sendMail } from './mail.mjs'
+import { supabaseStorageConfigured, uploadResumeToSupabase } from './resumeStorage.mjs'
 import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { writeFile, unlink } from 'node:fs/promises'
@@ -1681,6 +1682,59 @@ const server = createServer(async (req, res) => {
         ctx,
       })
       return json(res, 200, result)
+    }
+
+    if (req.method === 'POST' && path === '/api/resume/upload') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      if (!supabaseStorageConfigured()) {
+        return json(res, 503, {
+          error: 'Supabase resume storage is not configured.',
+          skipped: true,
+        })
+      }
+      const body = await readBody(req)
+      const filename = String(body.filename || 'resume.pdf').slice(0, 200)
+      const raw = String(body.file_base64 || body.fileBase64 || '')
+      if (!raw || !/\.(pdf|docx)$/i.test(filename)) {
+        return json(res, 400, { error: 'Upload a PDF or DOCX resume (filename + file_base64).' })
+      }
+      const base64 = raw.includes(',') ? raw.split(',')[1] : raw
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
+        return json(res, 400, { error: 'Invalid file_base64 payload.' })
+      }
+      const buffer = Buffer.from(base64, 'base64')
+      if (buffer.length < 1 || buffer.length > 2_000_000) {
+        return json(res, 400, { error: 'Resume must be between 1 byte and 2 MB.' })
+      }
+      try {
+        const uploaded = await uploadResumeToSupabase({
+          candidateEmail: email,
+          filename,
+          buffer,
+          contentType: body.contentType || undefined,
+        })
+        const db = loadDb()
+        const prev = /** @type {Record<string, unknown>} */ (db.profiles[email] || {})
+        db.profiles[email] = {
+          ...prev,
+          resumeStoragePath: uploaded.storagePath,
+          resumeUrl: uploaded.resumeUrl,
+          updatedAt: new Date().toISOString(),
+        }
+        await saveDb(db)
+        const pool = dbPool(config.databaseUrl)
+        await pool.query(
+          `INSERT INTO profiles (email, data, updated_at)
+           VALUES ($1, $2::jsonb, NOW())
+           ON CONFLICT (email) DO UPDATE SET data = profiles.data || EXCLUDED.data, updated_at = NOW()`,
+          [email, JSON.stringify({ resumeStoragePath: uploaded.storagePath, resumeUrl: uploaded.resumeUrl })],
+        )
+        return json(res, 200, { ok: true, ...uploaded })
+      } catch (err) {
+        const status = err.status || 502
+        return json(res, status, { error: err instanceof Error ? err.message : 'Upload failed' })
+      }
     }
 
     /** PaddleOCR Resume Parsing */

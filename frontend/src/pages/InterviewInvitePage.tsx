@@ -8,6 +8,7 @@ import {
   persistInviteInterviewContext,
   persistScheduledInvite,
 } from '../lib/interviewInviteGate'
+import { beginImmediateInterviewTest, isImmediateInterviewTestEnabled } from '../lib/interviewTestMode'
 import styles from './InterviewInvitePage.module.css'
 
 type InvitePayload = {
@@ -230,6 +231,16 @@ export function InterviewInvitePage() {
                   When the countdown hits zero, you will be taken straight into the AI interview.
                 </p>
                 {countdown && <p className={styles.countdown}>Starts in {countdown}</p>}
+                {isImmediateInterviewTestEnabled() && (
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    style={{ marginTop: '12px' }}
+                    onClick={() => beginImmediateInterviewTest(navigate)}
+                  >
+                    Test: start interview now
+                  </button>
+                )}
               </div>
             )}
             {status === 'expired' && (

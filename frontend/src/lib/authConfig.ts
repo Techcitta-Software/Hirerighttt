@@ -5,24 +5,35 @@
  */
 export type AuthProvider = 'local' | 'supabase' | 'custom'
 
+function envFirst(...keys: string[]): string {
+  for (const key of keys) {
+    const v = import.meta.env[key]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
+}
+
 export function authProvider(): AuthProvider {
   const raw = (import.meta.env.VITE_AUTH_PROVIDER || '').toLowerCase()
   if (raw === 'supabase') return 'supabase'
   if (raw === 'local') return 'local'
   if (raw === 'custom') return 'custom'
   const hasSupabase =
-    Boolean(import.meta.env.VITE_SUPABASE_URL?.trim()) &&
-    Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY?.trim())
+    Boolean(envFirst('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')) &&
+    Boolean(envFirst('VITE_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'))
   return hasSupabase ? 'supabase' : 'local'
 }
 
+const supabaseUrl = envFirst('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')
+const supabaseAnonKey = envFirst('VITE_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY')
+
 export const supabaseConfig = {
-  url: (import.meta.env.VITE_SUPABASE_URL || '').trim(),
-  anonKey: (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim(),
-  enabled:
-    authProvider() === 'supabase' &&
-    Boolean(import.meta.env.VITE_SUPABASE_URL?.trim()) &&
-    Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()),
+  url: supabaseUrl,
+  anonKey: supabaseAnonKey,
+  resumeBucket: (import.meta.env.VITE_SUPABASE_RESUME_BUCKET || 'resumes').trim(),
+  enabled: authProvider() === 'supabase' && Boolean(supabaseUrl && supabaseAnonKey),
+  /** Resume CDN (Supabase Storage) — independent of auth provider when keys exist. */
+  storageEnabled: Boolean(supabaseUrl && supabaseAnonKey),
 }
 
 /** Server Postgres (Neon / Supabase DB URL) — used by Python API when deployed. */

@@ -5,6 +5,10 @@ import {
   type ResumeExtract,
 } from '../lib/resumeParser'
 import { getPendingResume, clearPendingResume } from '../lib/pendingResume'
+import { uploadResumeViaApi } from '../lib/resumeUploadApi'
+import { syncProfileToApi } from '../lib/apiSession'
+import { getProfile, saveProfile } from '../lib/store'
+import { initialFormData } from '../data/wizard'
 import { easeOut } from '../motion/variants'
 import styles from './ResumeUpload.module.css'
 
@@ -13,6 +17,7 @@ interface ResumeUploadProps {
   existingFileName?: string | null
   onFileChange: (file: File | null) => void
   onParsed?: (extract: ResumeExtract) => void
+  onStored?: (info: { resumeUrl: string; resumeStoragePath: string }) => void
 }
 
 const ACCEPTED = [
@@ -45,6 +50,7 @@ export function ResumeUpload({
   existingFileName,
   onFileChange,
   onParsed,
+  onStored,
 }: ResumeUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -61,8 +67,7 @@ export function ResumeUpload({
       try {
         const pending = await getPendingResume()
         if (pending && active) {
-          await clearPendingResume()
-          void validateAndSet(pending)
+          void validateAndSet(pending, { fromPending: true })
         }
       } catch (err) {
         console.warn('Could not auto-load pending resume in onboarding', err)
@@ -74,7 +79,10 @@ export function ResumeUpload({
     }
   }, [file])
 
-  async function validateAndSet(next: File | null) {
+  async function validateAndSet(
+    next: File | null,
+    opts?: { fromPending?: boolean },
+  ) {
     setError('')
     setStatus('')
     if (!next) {
@@ -96,6 +104,32 @@ export function ResumeUpload({
     try {
       const extract = await parseResumeFile(next)
       onParsed?.(extract)
+
+      let stored: { resumeUrl: string; resumeStoragePath: string } | null = null
+      const ext = next.name.split('.').pop()?.toLowerCase()
+      if (ext === 'pdf' || ext === 'docx') {
+        stored = await uploadResumeViaApi(next)
+        if (stored) onStored?.(stored)
+      }
+
+      const saved = getProfile()
+      const completed = saved?.completedSteps ?? 0
+      const formData = {
+        ...initialFormData,
+        ...(saved || {}),
+        resumeFile: next,
+        resumeName: next.name,
+        resumeText: extract.resumeText || saved?.resumeText || '',
+        resumeUrl: stored?.resumeUrl ?? saved?.resumeUrl ?? null,
+        resumeStoragePath: stored?.resumeStoragePath ?? saved?.resumeStoragePath ?? null,
+      }
+      const persisted = saveProfile(formData, completed)
+      void syncProfileToApi(persisted)
+
+      if (opts?.fromPending) {
+        await clearPendingResume()
+      }
+
       const filled = Object.keys(extract).filter((key) => key !== 'fullName' && key !== 'resumeText').length
       setStatus(
         extract.fullName

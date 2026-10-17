@@ -159,12 +159,16 @@ export async function fetchMailStatus() {
 }
 
 export async function apiLogout() {
+  const token = getApiToken()
   try {
-    await request('/api/logout', { method: 'POST' })
+    if (token) {
+      await apiFetch('/api/logout', { method: 'POST' })
+    }
   } catch {
-    // ignore
+    // Server may be offline; still clear local session token.
+  } finally {
+    setApiToken(null)
   }
-  setApiToken(null)
 }
 
 export type ApiHealthInfo = {

@@ -53,6 +53,9 @@ export interface ProfileFormData {
   interviewNotes: string
   /** Raw resume text for Ava's resume-accurate AI interview. */
   resumeText: string
+  /** Supabase Storage public URL after CDN upload (optional). */
+  resumeUrl?: string | null
+  resumeStoragePath?: string | null
 }
 
 export const STEPS = [

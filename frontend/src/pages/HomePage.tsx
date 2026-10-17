@@ -1,6 +1,7 @@
-import { useState, useRef, type ChangeEvent } from 'react'
+import { useState, useRef, type ChangeEvent, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { handleLoginNavigation, resolveAuthenticatedDestination } from '../lib/authSession'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
 import styles from './HomePage.module.css'
@@ -31,7 +32,7 @@ export function HomePage() {
       if (user.role === 'employer') {
         navigate('/employer/dashboard')
       } else {
-        navigate('/onboarding')
+        navigate(resolveAuthenticatedDestination(user))
       }
     } else {
       navigate('/signup')
@@ -41,6 +42,12 @@ export function HomePage() {
     if (e.target) {
       e.target.value = ''
     }
+  }
+
+  function handleLoginClick(event: MouseEvent) {
+    event.preventDefault()
+    setMobileMenuOpen(false)
+    void handleLoginNavigation(navigate)
   }
 
   function handleRecruiterClick() {
@@ -108,7 +115,7 @@ export function HomePage() {
           </nav>
 
           <div className={styles.navActions}>
-            <Link to="/login" className={styles.navActionLink}>
+            <Link to="/login" className={styles.navActionLink} onClick={handleLoginClick}>
               LOG IN
             </Link>
             <Link to="/signup" className={styles.navCtaBtn}>
@@ -170,7 +177,13 @@ export function HomePage() {
             FAQS
           </Link>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Link to="/login" className={styles.navActionLink} onClick={() => setMobileMenuOpen(false)}>
+            <Link
+              to="/login"
+              className={styles.navActionLink}
+              onClick={(e) => {
+                handleLoginClick(e)
+              }}
+            >
               LOG IN
             </Link>
             <Link to="/signup" className={styles.navCtaBtn} onClick={() => setMobileMenuOpen(false)}>
