@@ -1179,6 +1179,125 @@
   word-break: break-word;
 }
 
+.ccEngineTag {
+  display: block;
+  margin: 2px 0 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ccLiveTagHot {
+  color: #f87171;
+  animation: stt-pulse 1s ease-in-out infinite;
+}
+
+.webcamCaptionsRecording {
+  border-color: rgba(248, 113, 113, 0.65);
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25), 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.webcamCaptionsTranscribing {
+  border-color: rgba(156, 122, 255, 0.75);
+}
+
+.webcamCaptionsHasText {
+  border-color: rgba(74, 222, 128, 0.55);
+}
+
+.ccLiveMeter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 10px;
+  height: 18px;
+}
+
+.ccLiveMeter span {
+  width: 4px;
+  border-radius: 2px;
+  background: #9c7aff;
+  animation: stt-meter 0.55s ease-in-out infinite alternate;
+}
+
+.ccLiveMeter span:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.ccLiveMeter span:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.ccLiveMeter span:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.ccLiveMeter span:nth-child(5) {
+  animation-delay: 0.32s;
+}
+
+@keyframes stt-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes stt-meter {
+  from {
+    height: 4px;
+    opacity: 0.45;
+  }
+  to {
+    height: 16px;
+    opacity: 1;
+  }
+}
+
+.sttRecEm {
+  color: #f87171 !important;
+}
+
+.liveTranscriptBox {
+  border-radius: 12px;
+  border: 1.5px solid #e8ecf4;
+  background: #f8fafc;
+  padding: 12px 14px;
+  min-height: 7.5em;
+}
+
+.liveTranscriptRecording {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: #fff5f5;
+}
+
+.liveTranscriptTranscribing {
+  border-color: rgba(112, 71, 255, 0.35);
+  background: #f5f3ff;
+}
+
+.liveTranscriptStatus {
+  margin: 0 0 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7047ff;
+}
+
+.liveTranscriptText {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #141638;
+  font-weight: 500;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .qProgress {
   position: absolute;
   top: 16px;

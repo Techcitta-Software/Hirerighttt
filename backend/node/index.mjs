@@ -1,4 +1,4 @@
-import { createServer } from 'node:http'
+import express from 'express'
 import { createAssessmentHandler } from './assessment/routes.mjs'
 import { createPersonalizedHandler } from './assessment/personalizedRoutes.mjs'
 import { randomBytes } from 'node:crypto'
@@ -44,6 +44,10 @@ import {
   parseInviteContext,
 } from './interviewInvites.mjs'
 import { sendMail } from './mail.mjs'
+import {
+  groqWhisperConfigured,
+  transcribeWithGroqWhisper,
+} from './groqWhisper.mjs'
 import { supabaseStorageConfigured, uploadResumeToSupabase } from './resumeStorage.mjs'
 import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, statSync } from 'node:fs'
@@ -369,32 +373,14 @@ function json(res, status, body) {
 
 function readBody(req) {
   if (req.parsedBody) return Promise.resolve(req.parsedBody)
-  req.setEncoding('utf8')
-  return new Promise((resolve, reject) => {
-    let data = ''
-    let bytes = 0
-    let oversized = false
-    req.on('data', (chunk) => {
-      bytes += Buffer.byteLength(chunk)
-      if (bytes > config.maxBodyBytes) {
-        oversized = true
-        data = ''
-        reject(Object.assign(new Error('Body too large'), { status: 413 }))
-        return
-      }
-      if (!oversized) data += chunk
-    })
-    req.on('end', () => {
-      if (oversized) return
-      try {
-        const body = data ? JSON.parse(data) : {}
-        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid JSON object')
-        resolve(body)
-      } catch {
-        reject(Object.assign(new Error('Invalid JSON object'), { status: 400 }))
-      }
-    })
-  })
+  if (req.body !== undefined) {
+    const body = req.body
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return Promise.reject(Object.assign(new Error('Invalid JSON object'), { status: 400 }))
+    }
+    return Promise.resolve(body)
+  }
+  return Promise.resolve({})
 }
 
 /** Simple in-memory rate limit: email|ip → timestamps */
@@ -488,13 +474,62 @@ function mergeTurnIntoInterviewHistory(history, lastQuestion, lastAnswer) {
   return list
 }
 
-const server = createServer(async (req, res) => {
-  res.requestOrigin = req.headers.origin
-  if (req.method === 'OPTIONS') {
-    return json(res, 204, {})
-  }
+const assessmentHandler = createAssessmentHandler({
+  databaseUrl: config.databaseUrl,
+  requireAuth,
+  readBody,
+  json,
+  rateLimit,
+})
+const personalizedHandler = createPersonalizedHandler({
+  databaseUrl: config.databaseUrl,
+  requireAuth,
+  readBody,
+  json,
+  rateLimit,
+  onResult: async (email, result, link, organizationId) => {
+    const db = loadDb()
+    db.interviews[email] = result
+    if (link.application_id) {
+      const app = getOrgApplication(db, organizationId, link.application_id)
+      if (!app || app.candidateEmail !== email) {
+        throw Object.assign(new Error('Application not found'), { status: 404 })
+      }
+      updateApplicationInterview(db, app.id, organizationId, result, {
+        assessmentSessionId: result.sessionId,
+        vendorReport: null,
+      })
+    }
+    await saveDb(db)
+  },
+})
 
-  const url = new URL(req.url || '/', `http://localhost:${PORT}`)
+const app = express()
+app.set('trust proxy', config.trustProxy)
+app.use((req, res, next) => {
+  res.requestOrigin = req.headers.origin
+  next()
+})
+app.options(/.*/, (req, res) => json(res, 204, {}))
+app.use(
+  express.json({
+    limit: config.maxBodyBytes,
+    strict: true,
+    type: ['application/json', 'application/*+json'],
+  }),
+)
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.parse.failed') {
+    return json(res, 400, { error: 'Invalid JSON object' })
+  }
+  if (err?.type === 'entity.too.large') {
+    return json(res, 413, { error: 'Body too large' })
+  }
+  next(err)
+})
+
+app.use(async (req, res) => {
+  const url = new URL(req.originalUrl || req.url || '/', `http://localhost:${PORT}`)
   const path = url.pathname
   const ip = clientIp(req)
 
@@ -542,6 +577,8 @@ const server = createServer(async (req, res) => {
           adaptiveScoring: true,
           faceIntegrityClient: true,
           openrouterActive: Boolean(process.env.OPENROUTER_API_KEY),
+          groqWhisper: groqWhisperConfigured(),
+          sileroVad: groqWhisperConfigured(),
         },
       })
     }
@@ -1633,6 +1670,43 @@ const server = createServer(async (req, res) => {
     }
 
     /** Interactive turn: Ava acknowledges answer before next question */
+    if (req.method === 'POST' && path === '/api/interview/transcribe') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      if (!groqWhisperConfigured()) {
+        return json(res, 503, { error: 'Groq Whisper STT is not configured on the server.' })
+      }
+      if (!rateLimit(`ivstt:${email}`, 45)) {
+        return json(res, 429, { error: 'Transcription rate limited. Slow down and try again.' })
+      }
+      const body = await readBody(req)
+      const audioBase64 = String(body.audioBase64 || body.audio || '').trim()
+      if (!audioBase64) {
+        return json(res, 400, { error: 'audioBase64 is required.' })
+      }
+      let audioBuffer
+      try {
+        audioBuffer = Buffer.from(audioBase64, 'base64')
+      } catch {
+        return json(res, 400, { error: 'Invalid audioBase64.' })
+      }
+      const maxBytes = Math.min(config.maxBodyBytes, 2_500_000)
+      if (!audioBuffer.length || audioBuffer.length > maxBytes) {
+        return json(res, 400, { error: 'Audio clip is empty or too large.' })
+      }
+      try {
+        const result = await transcribeWithGroqWhisper(audioBuffer, {
+          filename: String(body.filename || 'speech.wav'),
+          mimeType: String(body.mimeType || 'audio/wav'),
+        })
+        return json(res, 200, { text: result.text, model: result.model, language: result.language })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Transcription failed.'
+        console.warn('[groq-whisper]', message)
+        return json(res, 502, { error: message })
+      }
+    }
+
     if (req.method === 'POST' && path === '/api/interview/turn') {
       const email = await requireAuth(req, res)
       if (!email) return
@@ -2118,21 +2192,6 @@ const server = createServer(async (req, res) => {
   }
 })
 
-const assessmentHandler = createAssessmentHandler({ databaseUrl: config.databaseUrl, requireAuth, readBody, json, rateLimit })
-const personalizedHandler = createPersonalizedHandler({
-  databaseUrl: config.databaseUrl, requireAuth, readBody, json, rateLimit,
-  onResult: async (email, result, link, organizationId) => {
-    const db = loadDb()
-    db.interviews[email] = result
-    if (link.application_id) {
-      const app = getOrgApplication(db, organizationId, link.application_id)
-      if (!app || app.candidateEmail !== email) throw Object.assign(new Error('Application not found'), { status: 404 })
-      updateApplicationInterview(db, app.id, organizationId, result, { assessmentSessionId: result.sessionId, vendorReport: null })
-    }
-    await saveDb(db)
-  },
-})
-
 try {
   await bootstrapDb()
 } catch (err) {
@@ -2140,8 +2199,8 @@ try {
   process.exit(1)
 }
 
-server.listen(PORT, () => {
-  console.log(`HIRERIGHT API v2 [${config.environment}] on http://localhost:${PORT}`)
+const server = app.listen(PORT, () => {
+  console.log(`HIRERIGHT API v2 [Express] [${config.environment}] on http://localhost:${PORT}`)
   console.log('Storage: PostgreSQL (Neon)')
   if (serveFrontend) {
     console.log(`Frontend SPA: serving ${frontendDistRoot} (unknown routes → index.html)`)

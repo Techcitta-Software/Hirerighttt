@@ -52,7 +52,12 @@ import {
   fetchNextAdaptiveQuestion,
   isEndInterviewCommand,
 } from '../lib/adaptiveInterview'
+import { apiHealthInfo } from '../lib/api'
 import { ensureApiSession, syncProfileToApi } from '../lib/apiSession'
+import {
+  createGroqVadSttController,
+  type GroqVadSttController,
+} from '../lib/groqVadStt'
 import { parseResumeFile } from '../lib/resumeParser'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
@@ -198,6 +203,13 @@ export function InterviewPage() {
   const finishingRef = useRef(false)
   const draftRef = useRef('')
   const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const groqVadRef = useRef<GroqVadSttController | null>(null)
+  const groqWhisperEnabledRef = useRef(false)
+  const [groqWhisperEnabled, setGroqWhisperEnabled] = useState(false)
+  const [groqVadReady, setGroqVadReady] = useState(false)
+  const [groqInitFailed, setGroqInitFailed] = useState(false)
+  /** Groq path: idle | capturing (Silero) | transcribing (Whisper). Web Speech uses capturing when interim text exists. */
+  const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const baseDraftRef = useRef('')
   const transcriptCommittedRef = useRef('')
   const streamRef = useRef<MediaStream | null>(null)
@@ -219,7 +231,11 @@ export function InterviewPage() {
   const bargeCooldownRef = useRef(0)
 
   const question = questions[current]
-  const speechSupported = isSpeechRecognitionSupported()
+  const webSpeechSupported = isSpeechRecognitionSupported()
+  const groqSttPreferred = groqWhisperEnabled && !groqInitFailed
+  const speechSupported =
+    groqVadReady || (webSpeechSupported && !groqSttPreferred) || (groqSttPreferred && groqInitFailed && webSpeechSupported)
+  const groqSttLoading = groqSttPreferred && streamReady && !groqVadReady && !groqInitFailed
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
   const [resumeNote, setResumeNote] = useState('')
@@ -264,6 +280,86 @@ export function InterviewPage() {
   useEffect(() => {
     listeningRef.current = listening
   }, [listening])
+
+  useEffect(() => {
+    groqWhisperEnabledRef.current = groqWhisperEnabled
+  }, [groqWhisperEnabled])
+
+  useEffect(() => {
+    void apiHealthInfo().then((health) => {
+      const enabled = Boolean(health?.features?.groqWhisper)
+      setGroqWhisperEnabled(enabled)
+      groqWhisperEnabledRef.current = enabled
+    })
+  }, [])
+
+  const applyTranscriptSegmentRef = useRef<(text: string) => void>(() => {})
+
+  applyTranscriptSegmentRef.current = (raw: string) => {
+    const segment = raw.trim()
+    if (!segment) return
+
+    if (aiSpeakingRef.current) {
+      const words = segment.split(/\s+/).filter(Boolean)
+      if (words.length >= 2) {
+        handleBargeIn()
+        const base = transcriptCommittedRef.current.trim()
+        const line = base ? `${base} ${segment}` : segment
+        transcriptCommittedRef.current = line
+        setDraft(line)
+        draftRef.current = line
+        lastSpeechAtRef.current = Date.now()
+      }
+      return
+    }
+
+    const base = transcriptCommittedRef.current.trim()
+    const line = base ? `${base} ${segment}` : segment
+    transcriptCommittedRef.current = line
+    setDraft(line)
+    draftRef.current = line
+    lastSpeechAtRef.current = Date.now()
+  }
+
+  useEffect(() => {
+    if (!groqWhisperEnabled || !streamReady) {
+      setGroqVadReady(false)
+      setGroqInitFailed(false)
+      return
+    }
+    let cancelled = false
+    setGroqVadReady(false)
+    setGroqInitFailed(false)
+    void createGroqVadSttController({
+      getStream: () => streamRef.current,
+      isAiSpeaking: () => aiSpeakingRef.current,
+      onBargeIn: () => handleBargeIn(),
+      onSpeechCaptureStart: () => setSttPhase('capturing'),
+      onTranscribing: (active) => setSttPhase(active ? 'transcribing' : 'idle'),
+      onSegmentText: (text) => applyTranscriptSegmentRef.current(text),
+      onError: (message) => {
+        console.warn('[groq-vad-stt]', message)
+        setSttPhase('idle')
+      },
+    }).then((controller) => {
+      if (cancelled) {
+        void controller?.dispose()
+        return
+      }
+      groqVadRef.current = controller
+      const ok = Boolean(controller)
+      setGroqVadReady(ok)
+      setGroqInitFailed(!ok)
+    })
+    return () => {
+      cancelled = true
+      setGroqVadReady(false)
+      setGroqInitFailed(false)
+      void groqVadRef.current?.dispose()
+      groqVadRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groqWhisperEnabled, streamReady])
 
   const lastLogTimeRef = useRef<{ [key: string]: number }>({})
 
@@ -436,6 +532,7 @@ export function InterviewPage() {
   }
 
   function stopListening() {
+    void groqVadRef.current?.stop()
     try {
       recognitionRef.current?.stop()
     } catch {
@@ -443,6 +540,8 @@ export function InterviewPage() {
     }
     recognitionRef.current = null
     setListening(false)
+    listeningRef.current = false
+    setSttPhase('idle')
   }
 
   function stopAllSpeech() {
@@ -547,10 +646,25 @@ export function InterviewPage() {
     if (!speechSupported || !micOnRef.current) return
     if (aiSpeakingRef.current && !options?.duringTts) return
     stopListening()
-    const recognition = getSpeechRecognition()
-    if (!recognition) return
     baseDraftRef.current = draftRef.current.trim()
     transcriptCommittedRef.current = baseDraftRef.current
+
+    if (groqVadRef.current) {
+      void groqVadRef.current
+        .start()
+        .then(() => {
+          setListening(true)
+          listeningRef.current = true
+        })
+        .catch(() => {
+          setListening(false)
+          listeningRef.current = false
+        })
+      return
+    }
+
+    const recognition = getSpeechRecognition()
+    if (!recognition) return
     configureInterviewRecognition(recognition)
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const merged = mergeRecognitionResults(event, transcriptCommittedRef.current)
@@ -576,6 +690,8 @@ export function InterviewPage() {
         setDraft(display)
         draftRef.current = display
       }
+      if (merged.interim?.trim()) setSttPhase('capturing')
+      if (merged.hadFinal) setSttPhase('idle')
       if (merged.hadFinal || (merged.interim && merged.interim.length >= 12)) {
         lastSpeechAtRef.current = Date.now()
       }
@@ -621,6 +737,7 @@ export function InterviewPage() {
     draftRef.current = ''
     baseDraftRef.current = ''
     transcriptCommittedRef.current = ''
+    setSttPhase('idle')
     setAiSpeaking(true)
     aiSpeakingRef.current = true
 
@@ -1085,13 +1202,40 @@ export function InterviewPage() {
     !starting &&
     scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
+  const sttEngineLabel = groqVadReady
+    ? 'Silero VAD · Groq Whisper'
+    : webSpeechSupported
+      ? 'Browser speech'
+      : ''
+
+  const liveCaptionText = (() => {
+    const committed = draft.trim()
+    if (committed) return committed
+    if (sttPhase === 'capturing') {
+      return groqVadReady
+        ? 'Recording your voice… (Silero VAD)'
+        : 'Listening… speak your answer.'
+    }
+    if (sttPhase === 'transcribing') return 'Transcribing with Groq Whisper…'
+    if (listening && groqVadReady) {
+      return 'Speak now — each pause sends a phrase to the live transcript.'
+    }
+    if (listening) return 'Listening… speak your answer out loud.'
+    if (aiSpeaking) return 'Waiting for Ava to finish…'
+    return 'Waiting for Ava to finish the question…'
+  })()
+
   const callStatus = advancing
     ? 'Moving to your next question…'
-    : aiSpeaking
-      ? 'Ava speaking — speak clearly (2+ words) to interrupt'
-      : listening
-        ? 'Listening — pause ~5s when you are done'
-        : 'Live call with Ava'
+    : sttPhase === 'capturing'
+      ? 'Recording your answer — watch the live caption'
+      : sttPhase === 'transcribing'
+        ? 'Updating live transcript…'
+        : aiSpeaking
+          ? 'Ava speaking — speak clearly (2+ words) to interrupt'
+          : listening
+            ? 'Listening — pause ~5s when you are done'
+            : 'Live call with Ava'
 
   const canSubmit =
     Boolean(draft.trim()) && !aiSpeaking && !faceBlocks && !interviewBanned && !advancing
@@ -1195,7 +1339,13 @@ export function InterviewPage() {
                     Camera
                   </span>
                   <span className={streamReady && micOn ? styles.ok : styles.off}>Mic</span>
-                  <span className={speechSupported ? styles.ok : styles.warn}>Speech</span>
+                  <span className={speechSupported || groqSttLoading ? styles.ok : styles.warn}>
+                    {groqVadReady
+                      ? 'Groq STT'
+                      : groqSttLoading
+                        ? 'Loading STT…'
+                        : 'Speech'}
+                  </span>
                   <span className={ttsSupported ? styles.ok : styles.warn}>AI voice</span>
                 </div>
 
@@ -1555,17 +1705,53 @@ export function InterviewPage() {
                   {!aiSpeaking && <small>{question.hint}</small>}
                 </div>
 
-                {/* Candidate Live Speech Captions Overlay */}
-                <div className={styles.webcamCaptionsOverlay}>
-                  <span className={styles.ccLiveTag}>● LIVE CAPTION</span>
+                {/* Candidate live STT — Silero VAD + Groq Whisper or browser speech */}
+                <div
+                  className={`${styles.webcamCaptionsOverlay} ${
+                    sttPhase === 'capturing'
+                      ? styles.webcamCaptionsRecording
+                      : sttPhase === 'transcribing'
+                        ? styles.webcamCaptionsTranscribing
+                        : draft.trim()
+                          ? styles.webcamCaptionsHasText
+                          : ''
+                  }`}
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <span
+                    className={`${styles.ccLiveTag} ${
+                      sttPhase === 'capturing' || draft.trim() ? styles.ccLiveTagHot : ''
+                    }`}
+                  >
+                    {sttPhase === 'capturing'
+                      ? '● RECORDING'
+                      : sttPhase === 'transcribing'
+                        ? '● TRANSCRIBING'
+                        : '● LIVE TRANSCRIPT'}
+                  </span>
+                  {groqVadReady && (
+                    <span className={styles.ccEngineTag}>Silero VAD · Groq Whisper</span>
+                  )}
                   <p className={styles.ccLiveText}>
-                    {draft.trim() ? `"${draft}"` : listening ? 'Listening... Speak your answer out loud.' : 'Waiting for Ava to finish question...'}
+                    {draft.trim() ? `"${draft.trim()}"` : liveCaptionText}
                   </p>
+                  {(sttPhase === 'capturing' || sttPhase === 'transcribing') && (
+                    <div className={styles.ccLiveMeter} aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  )}
                 </div>
 
                 <div className={styles.youLabel}>
                   <span>You · live</span>
-                  {listening && <em>Speaking</em>}
+                  {sttPhase === 'capturing' && <em className={styles.sttRecEm}>Recording</em>}
+                  {sttPhase === 'transcribing' && <em>Transcribing</em>}
+                  {listening && sttPhase === 'idle' && draft.trim() && <em>On mic</em>}
                   {isRecording && <em className={styles.recEm}>REC</em>}
                 </div>
               </div>
@@ -1604,17 +1790,44 @@ export function InterviewPage() {
             <aside className={styles.sidePanel}>
               <div className={styles.panelHead}>
                 <h3>Live transcript</h3>
-                <span>{wordCount} words</span>
+                <span>
+                  {wordCount} words
+                  {sttEngineLabel ? ` · ${sttEngineLabel}` : ''}
+                </span>
               </div>
               <div className={styles.panelBody}>
-                <p>
-                  {draft.trim() ||
-                    (aiSpeaking
-                      ? 'Ava is asking — speak a short phrase to interrupt her, then answer.'
-                      : speechSupported
-                        ? 'Live transcript. Pause ~5 seconds when finished to go to the next question.'
-                        : 'Speech unavailable in this browser. Type your answer.')}
-                </p>
+                <div
+                  className={`${styles.liveTranscriptBox} ${
+                    sttPhase === 'capturing'
+                      ? styles.liveTranscriptRecording
+                      : sttPhase === 'transcribing'
+                        ? styles.liveTranscriptTranscribing
+                        : ''
+                  }`}
+                  aria-live="polite"
+                >
+                  <p className={styles.liveTranscriptStatus}>
+                    {sttPhase === 'capturing'
+                      ? 'Recording…'
+                      : sttPhase === 'transcribing'
+                        ? 'Transcribing…'
+                        : listening
+                          ? 'Listening'
+                          : aiSpeaking
+                            ? 'Ava speaking'
+                            : 'Ready'}
+                  </p>
+                  <p className={styles.liveTranscriptText}>
+                    {draft.trim() ||
+                      (aiSpeaking
+                        ? 'Ava is asking — speak a short phrase to interrupt her, then answer.'
+                        : speechSupported
+                          ? groqVadReady
+                            ? 'Your answer builds here after each phrase. Pause briefly between sentences so Groq can transcribe.'
+                            : 'Pause ~5 seconds when finished to go to the next question.'
+                          : 'Speech unavailable in this browser. Type your answer.')}
+                  </p>
+                </div>
                 {(showTypeFallback || !speechSupported) && (
                   <textarea
                     className={styles.typeFallback}
