@@ -10,7 +10,8 @@
     "db:verify": "node db/verify.mjs",
     "db:purge": "node scripts/purge-all-data.mjs",
     "check:llm": "node scripts/ping-llm.mjs",
-    "check:smoke": "node scripts/smoke-features.mjs"
+    "check:smoke": "node scripts/smoke-features.mjs",
+    "mail:test": "node scripts/test-smtp.mjs"
   },
   "dependencies": {
     "mammoth": "1.12.0",

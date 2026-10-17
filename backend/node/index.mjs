@@ -24,7 +24,12 @@ import {
   emptyDb,
   dbPool,
 } from './db/store.mjs'
-import { smtpConfigured, publicAppOrigin } from './mail.mjs'
+import {
+  smtpConfigured,
+  smtpConfigSummary,
+  verifySmtpConnection,
+  publicAppOrigin,
+} from './mail.mjs'
 import {
   newInviteToken,
   insertInterviewInvite,
@@ -1002,10 +1007,28 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/api/mail/status') {
+      const wantVerify = new URL(req.url || '/', 'http://localhost').searchParams.get('verify') === '1'
+      let verify = null
+      if (wantVerify && smtpConfigured()) {
+        try {
+          await verifySmtpConnection()
+          verify = { ok: true }
+        } catch (err) {
+          verify = { ok: false, error: err instanceof Error ? err.message : String(err) }
+        }
+      } else if (wantVerify && !smtpConfigured()) {
+        verify = { ok: false, error: 'SMTP_PASS or other SMTP vars missing' }
+      }
+      const summary = smtpConfigSummary()
       return json(res, 200, {
         smtpConfigured: smtpConfigured(),
+        smtpHost: summary.host,
+        smtpUser: summary.user,
+        smtpFrom: summary.from,
+        smtpPassSet: summary.passSet,
         publicAppUrl: publicAppOrigin(),
         inviteJoinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
+        verify,
       })
     }
 

@@ -35,17 +35,27 @@ Paste each **Key** / **Value** below. Secrets must be your real values (not plac
 ## After manual deploy
 
 ```bash
-curl https://hireright-backend-ykln.onrender.com/api/mail/status
+curl "https://hireright-backend-ykln.onrender.com/api/mail/status"
+curl "https://hireright-backend-ykln.onrender.com/api/mail/status?verify=1"
 ```
 
-Expected:
+Expected (after latest API deploy):
 
 ```json
 {
   "smtpConfigured": true,
+  "smtpPassSet": true,
+  "smtpFrom": "HireRight <your-verified@email.com>",
   "publicAppUrl": "https://hire-rightt.vercel.app",
-  "inviteJoinWindowMinutes": 5
+  "verify": { "ok": true }
 }
+```
+
+Local test (repo root, after filling `.env`):
+
+```bash
+npm run mail:test
+MAIL_TEST_TO=your@email.com npm run mail:test
 ```
 
 ## SendGrid reminder

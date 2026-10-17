@@ -1,7 +1,33 @@
 import nodemailer from 'nodemailer'
 
 export function smtpConfigured() {
-  return Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim())
+  return Boolean(
+    process.env.SMTP_HOST?.trim() &&
+      process.env.SMTP_USER?.trim() &&
+      process.env.SMTP_PASS?.trim(),
+  )
+}
+
+export function smtpConfigSummary() {
+  return {
+    host: process.env.SMTP_HOST?.trim() || null,
+    port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER?.trim() || null,
+    from: process.env.SMTP_FROM?.trim() || null,
+    passSet: Boolean(process.env.SMTP_PASS?.trim()),
+  }
+}
+
+/** Verify SendGrid/Gmail SMTP credentials (no email sent). */
+export async function verifySmtpConnection() {
+  if (!smtpConfigured()) {
+    const err = new Error('SMTP is not fully configured (need SMTP_HOST, SMTP_USER, SMTP_PASS).')
+    err.status = 503
+    throw err
+  }
+  const transport = createTransport()
+  await transport.verify()
+  return { ok: true }
 }
 
 function createTransport() {
