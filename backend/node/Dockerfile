@@ -10,9 +10,13 @@ RUN npm ci --omit=dev
 
 COPY env /app/env
 COPY backend/node/index.mjs backend/node/interviewAgent.mjs backend/node/loadEnv.mjs backend/node/config.mjs backend/node/llmModels.mjs backend/node/geminiClient.mjs ./
+COPY backend/node/server ./server
+COPY backend/node/routes ./routes
 COPY backend/node/db ./db
 COPY backend/node/assessment ./assessment
-COPY backend/node/authPasswords.mjs ./
+COPY backend/node/vendor ./vendor
+COPY backend/node/authPasswords.mjs backend/node/authRegister.mjs backend/node/authRoles.mjs backend/node/authPhone.mjs ./
+COPY backend/node/mail.mjs backend/node/mailer.mjs backend/node/interviewInvites.mjs backend/node/groqWhisper.mjs backend/node/resumeStorage.mjs ./
 
 USER app
 ENV NODE_ENV=production
