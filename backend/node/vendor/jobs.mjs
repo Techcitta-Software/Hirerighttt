@@ -165,6 +165,24 @@ export function getOrgJob(db, organizationId, jobId) {
 }
 
 /**
+ * Remove a job from the in-memory store (org-scoped). Caller persists to Postgres.
+ * @param {import('../db/store.mjs').DbShape} db
+ */
+export function deleteVendorJob(db, organizationId, jobId) {
+  const id = String(jobId || '').trim()
+  if (!id) {
+    throw Object.assign(new Error('Job id is required.'), { status: 400 })
+  }
+  const job = getOrgJob(db, organizationId, id)
+  if (!job) {
+    throw Object.assign(new Error('Job not found.'), { status: 404 })
+  }
+  db.jobs = (db.jobs || []).filter((j) => j.id !== id)
+  db.employerApplications = (db.employerApplications || []).filter((a) => a.jobId !== id)
+  return { id, title: job.title }
+}
+
+/**
  * @param {import('../db/store.mjs').DbShape} db
  * @param {import('../db/store.mjs').SaasJob} job
  */

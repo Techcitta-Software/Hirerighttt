@@ -296,6 +296,19 @@ export async function findJobByShareableCode(databaseUrl, shareableCode) {
 }
 
 /** Persist one job row immediately so share links work before the next full save. */
+/** Delete one employer job row (applications cascade in Postgres). */
+export async function deleteJobRecord(databaseUrl, jobId, organizationId) {
+  const id = String(jobId || '').trim()
+  const orgId = String(organizationId || '').trim()
+  if (!id || !orgId) return false
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `DELETE FROM jobs WHERE id = $1 AND organization_id = $2`,
+    [id, orgId],
+  )
+  return (res.rowCount ?? 0) > 0
+}
+
 export async function upsertJobRecord(databaseUrl, job) {
   if (!job?.id || !job.shareableCode) return
   await ensurePgSchema(databaseUrl)
