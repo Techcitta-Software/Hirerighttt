@@ -84,26 +84,53 @@ export function buildInterviewInviteEmail({ candidateName, jobTitle, scheduledSt
     minute: '2-digit',
     timeZone: 'Asia/Kolkata',
   })
+  const timeOnly = start.toLocaleString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  })
+  const dateOnly = start.toLocaleString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  })
+  const roleLine = jobTitle ? ` for <strong>${jobTitle}</strong>` : ''
   const subject = jobTitle
-    ? `Your AI interview for ${jobTitle} — ${dateText}`
-    : `Your HireRight AI interview — ${dateText}`
+    ? `Booking confirmed: AI interview for ${jobTitle} on ${dateOnly} at ${timeOnly} IST`
+    : `Booking confirmed: your HireRight AI interview on ${dateOnly} at ${timeOnly} IST`
   const greeting = candidateName ? `Hi ${candidateName},` : 'Hi,'
   const html = `
-    <div style="font-family:system-ui,sans-serif;max-width:560px;color:#0f172a">
+    <div style="font-family:system-ui,sans-serif;max-width:560px;color:#0f172a;line-height:1.5">
       <p>${greeting}</p>
-      <p>You are invited to a <strong>15-minute AI video interview</strong>${jobTitle ? ` for <strong>${jobTitle}</strong>` : ''}.</p>
-      <p><strong>Scheduled start:</strong> ${dateText} (IST)</p>
-      <p>You can join from the <strong>exact start time</strong> for the next <strong>${INVITE_JOIN_WINDOW_MINUTES} minutes</strong> (for example 2:00 AM → join by 2:05 AM).</p>
-      <p>At start time, open the link — you will go straight into your AI interview.</p>
+      <p>Your <strong>AI interview booking</strong> is confirmed. This email is your confirmation for the slot you selected during onboarding.</p>
+      <div style="background:#f1f5f9;border-radius:10px;padding:16px 18px;margin:20px 0;border-left:4px solid #6036eb">
+        <p style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:#64748b">Interview slot (IST)</p>
+        <p style="margin:0;font-size:18px;font-weight:700">${dateText}</p>
+        <p style="margin:8px 0 0;font-size:14px;color:#475569">Duration: ~15 minutes · Join window: ${INVITE_JOIN_WINDOW_MINUTES} minutes after start</p>
+      </div>
+      <p>You are scheduled for a <strong>15-minute AI video interview</strong>${roleLine}.</p>
+      <p>Open the link below at your <strong>scheduled start time</strong> (not before). You may join until <strong>${INVITE_JOIN_WINDOW_MINUTES} minutes</strong> after the start time.</p>
       <p style="margin:24px 0">
         <a href="${inviteUrl}" style="background:#6036eb;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">
-          Join your interview
+          Join your AI interview
         </a>
       </p>
       <p style="font-size:13px;color:#64748b">Or copy this link: ${inviteUrl}</p>
-      <p>— Team HireRight</p>
+      <p style="font-size:13px;color:#64748b">If you did not request this booking, you can ignore this email.</p>
+      <p>— HireRight AI</p>
     </div>`
-  const text = `${greeting}\n\nInterview${jobTitle ? ` for ${jobTitle}` : ''} on ${dateText}.\nJoin: ${inviteUrl}\n\n— Team HireRight`
+  const text = `${greeting}
+
+Your AI interview booking is confirmed.
+
+Slot (IST): ${dateText}
+${jobTitle ? `Role: ${jobTitle}\n` : ''}Duration: ~15 minutes. Join within ${INVITE_JOIN_WINDOW_MINUTES} minutes after start.
+
+Join at your scheduled time: ${inviteUrl}
+
+— HireRight AI`
   return { subject, html, text }
 }
 

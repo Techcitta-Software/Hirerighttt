@@ -1065,7 +1065,7 @@ const server = createServer(async (req, res) => {
           verify = { ok: false, error: err instanceof Error ? err.message : String(err) }
         }
       } else if (wantVerify && !smtpConfigured()) {
-        verify = { ok: false, error: 'SMTP_PASS or other SMTP vars missing' }
+        verify = { ok: false, error: 'SMTP_EMAIL or SMTP_APP_PASSWORD missing' }
       }
       const summary = smtpConfigSummary()
       return json(res, 200, {

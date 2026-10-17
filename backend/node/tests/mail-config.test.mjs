@@ -8,16 +8,18 @@ const nodeDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function evalMail(envPatch) {
   const code = `
-import { smtpPassword, smtpConfigured } from './mail.mjs';
-console.log(JSON.stringify({ pass: smtpPassword(), configured: smtpConfigured() }));
+import { smtpConfigured } from './mail.mjs';
+import { smtpAppPassword, smtpEmail } from './mailer.mjs';
+console.log(JSON.stringify({
+  email: smtpEmail(),
+  pass: smtpAppPassword(),
+  configured: smtpConfigured(),
+}));
 `
   const env = {
     ...process.env,
-    SMTP_PASS: '',
-    SENDGRID_API_KEY: '',
-    SMTP_API_KEY: '',
-    SMTP_HOST: 'smtp.sendgrid.net',
-    SMTP_USER: 'apikey',
+    SMTP_EMAIL: '',
+    SMTP_APP_PASSWORD: '',
     ...envPatch,
   }
   const r = spawnSync('node', ['--input-type=module', '-e', code], {
@@ -29,12 +31,15 @@ console.log(JSON.stringify({ pass: smtpPassword(), configured: smtpConfigured() 
   return JSON.parse(r.stdout.trim())
 }
 
-test('smtpPassword accepts SendGrid API key when SMTP_PASS is unset', () => {
+test('Gmail app password is detected when SMTP_EMAIL and SMTP_APP_PASSWORD are set', () => {
   const without = evalMail({})
-  assert.equal(without.pass, '')
   assert.equal(without.configured, false)
 
-  const withKey = evalMail({ SENDGRID_API_KEY: 'SG.test-key' })
-  assert.equal(withKey.pass, 'SG.test-key')
-  assert.equal(withKey.configured, true)
+  const withGmail = evalMail({
+    SMTP_EMAIL: 'project@gmail.com',
+    SMTP_APP_PASSWORD: 'abcd efgh ijkl mnop',
+  })
+  assert.equal(withGmail.email, 'project@gmail.com')
+  assert.equal(withGmail.pass, 'abcdefghijklmnop')
+  assert.equal(withGmail.configured, true)
 })

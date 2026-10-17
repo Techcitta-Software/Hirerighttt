@@ -108,7 +108,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not send confirmation.'
       if (msg.toLowerCase().includes('smtp')) {
-        setConfirmNote('SMTP is not configured on the server yet. Ask your admin to set SMTP_* in .env.')
+        setConfirmNote('Gmail SMTP is not configured on the server yet. Set SMTP_EMAIL and SMTP_APP_PASSWORD in .env.')
       } else {
         setConfirmNote(msg)
       }
@@ -182,7 +182,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       </button>
       {smtpReady === false && (
         <p className={styles.smtpHint}>
-          Email delivery needs SMTP on the server (SMTP_HOST, SMTP_USER, SMTP_PASS in .env).
+          Email delivery needs Gmail SMTP on the server (SMTP_EMAIL and SMTP_APP_PASSWORD in .env).
         </p>
       )}
       {confirmNote && <p className={styles.confirmNote}>{confirmNote}</p>}
