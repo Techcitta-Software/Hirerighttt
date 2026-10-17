@@ -401,6 +401,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       })
       if (invite.emailSent) {
         setInviteFeedback('Interview invite email sent to the candidate.')
+      } else if (invite.emailError) {
+        setInviteFeedback(
+          `Email failed: ${invite.emailError} Invite link: ${invite.inviteUrl}`,
+        )
       } else if (invite.smtpConfigured) {
         setInviteFeedback(`Invite created. Share link: ${invite.inviteUrl}`)
       } else {

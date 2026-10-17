@@ -125,6 +125,7 @@ export async function sendInterviewConfirmationEmail(payload: {
     ok: boolean
     inviteUrl: string
     emailSent: boolean
+    emailError?: string | null
     scheduledStart: string
     scheduledEnd: string
     token: string

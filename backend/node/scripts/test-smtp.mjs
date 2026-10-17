@@ -58,7 +58,18 @@ try {
   })
   console.log('[mail:test] Test email sent:', info.messageId, '→', info.accepted)
 } catch (err) {
-  console.error('[mail:test] Send failed:', err instanceof Error ? err.message : err)
-  console.error('  Ensure SMTP_FROM uses a SendGrid verified sender (Settings → Sender Authentication).')
+  const msg = err instanceof Error ? err.message : String(err)
+  console.error('[mail:test] Send failed:', msg)
+  if (msg.includes('verified Sender Identity') || msg.includes('550')) {
+    console.error(`
+  SendGrid blocked the From address. Fix in SendGrid dashboard (not in code):
+    1. https://app.sendgrid.com → Settings → Sender Authentication
+    2. Verify Single Sender (fastest) OR authenticate domain hireright.com
+    3. Complete the email SendGrid sends you (click verify link)
+    4. Set SMTP_FROM to that EXACT verified address in .env, e.g.:
+         SMTP_FROM="HireRight <you@email.com>"
+    5. Restart backend and run: MAIL_TEST_TO=you@email.com npm run mail:test
+`)
+  }
   process.exit(1)
 }

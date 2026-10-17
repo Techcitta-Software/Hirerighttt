@@ -993,12 +993,20 @@ const server = createServer(async (req, res) => {
         scheduledStart: start.toISOString(),
         inviteUrl,
       })
-      await sendMail({ to: email, subject, html, text })
-      await pool.query('UPDATE interview_invites SET email_sent_at = NOW() WHERE token = $1', [token])
-      return json(res, 200, {
-        ok: true,
+      let emailSent = false
+      let emailError = null
+      try {
+        await sendMail({ to: email, subject, html, text })
+        await pool.query('UPDATE interview_invites SET email_sent_at = NOW() WHERE token = $1', [token])
+        emailSent = true
+      } catch (err) {
+        emailError = err instanceof Error ? err.message : 'Email failed'
+      }
+      return json(res, emailSent ? 200 : 502, {
+        ok: emailSent,
         inviteUrl,
-        emailSent: true,
+        emailSent,
+        emailError,
         token,
         scheduledStart: start.toISOString(),
         scheduledEnd: end.toISOString(),

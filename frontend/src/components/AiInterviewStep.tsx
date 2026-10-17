@@ -119,6 +119,8 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       localStorage.setItem('hireright.lastInviteUrl', res.inviteUrl)
       if (res.emailSent) {
         setConfirmNote('Confirmation email sent. Use your link at the exact slot time to start.')
+      } else if (res.emailError) {
+        setConfirmNote(`Email failed: ${res.emailError} Use the invite link below.`)
       } else {
         setConfirmNote('Invite created. Copy the link below — email could not be sent.')
       }
