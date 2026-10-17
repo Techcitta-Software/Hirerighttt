@@ -8,6 +8,7 @@ import {
   apiLogin,
   apiMe,
   apiSaveProfile,
+  apiSignup,
   getApiToken,
   setApiToken,
 } from './api'
@@ -18,10 +19,15 @@ import { getUser, isLoggedIn, type SavedProfile } from './store'
 
 let syncInFlight: Promise<boolean> | null = null
 
-async function validateToken(): Promise<boolean> {
+async function validateToken(expectedEmail?: string): Promise<boolean> {
   if (!getApiToken()) return false
   try {
-    await apiMe()
+    const me = (await apiMe()) as { user?: { email?: string } }
+    const tokenEmail = me.user?.email?.trim().toLowerCase()
+    if (expectedEmail && tokenEmail !== expectedEmail) {
+      setApiToken(null)
+      return false
+    }
     return true
   } catch {
     setApiToken(null)
@@ -41,21 +47,33 @@ export async function ensureApiSession(): Promise<boolean> {
       void refreshSupabaseApiToken()
     }
 
-    if (await validateToken()) return true
-
-    const healthy = await apiHealth()
-    if (!healthy) return false
-
     const user = isLoggedIn() ? getUser() : null
     const email = user?.email?.trim().toLowerCase()
     const password = user?.password
+
+    if (await validateToken(isSupabaseEnabled() ? undefined : email)) return true
+
+    const healthy = await apiHealth()
+    if (!healthy) return false
 
     if (email && password) {
       try {
         await apiLogin(email, password)
         return true
       } catch {
-        // fall through to demo bootstrap
+        // account may exist only in this browser — register it on the API
+      }
+      if (user?.name && user.phone) {
+        try {
+          await apiSignup(user.name, email, password, {
+            role: user.role ?? 'jobseeker',
+            companyName: user.companyName,
+            phone: user.phone,
+          })
+          return true
+        } catch {
+          // fall through to demo bootstrap
+        }
       }
     }
 

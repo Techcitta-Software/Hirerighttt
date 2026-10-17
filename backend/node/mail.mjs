@@ -1,11 +1,17 @@
 import nodemailer from 'nodemailer'
 
-export function smtpConfigured() {
-  return Boolean(
-    process.env.SMTP_HOST?.trim() &&
-      process.env.SMTP_USER?.trim() &&
-      process.env.SMTP_PASS?.trim(),
+/** SMTP password / SendGrid API key (several .env aliases). */
+export function smtpPassword() {
+  return (
+    process.env.SMTP_PASS?.trim() ||
+    process.env.SENDGRID_API_KEY?.trim() ||
+    process.env.SMTP_API_KEY?.trim() ||
+    ''
   )
+}
+
+export function smtpConfigured() {
+  return Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && smtpPassword())
 }
 
 export function smtpConfigSummary() {
@@ -14,7 +20,7 @@ export function smtpConfigSummary() {
     port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER?.trim() || null,
     from: process.env.SMTP_FROM?.trim() || null,
-    passSet: Boolean(process.env.SMTP_PASS?.trim()),
+    passSet: Boolean(smtpPassword()),
   }
 }
 
@@ -33,7 +39,7 @@ export async function verifySmtpConnection() {
 function createTransport() {
   const host = process.env.SMTP_HOST?.trim()
   const user = process.env.SMTP_USER?.trim()
-  const pass = process.env.SMTP_PASS || ''
+  const pass = smtpPassword()
   if (!host || !user) {
     const err = new Error('SMTP is not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS in .env')
     err.status = 503

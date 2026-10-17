@@ -19,6 +19,7 @@ import {
 } from '../data/wizard'
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
+import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -135,6 +136,29 @@ export function ProfileWizard() {
 
   async function handleContinue() {
     const isScheduled = data.interviewNotes?.startsWith('Scheduled:')
+    if (step === 4 && isScheduled) {
+      setSaving(true)
+      try {
+        const emailRes = await sendOnboardingConfirmationEmail(data)
+        if (emailRes.skipped) {
+          showToast('Interview slot saved — confirmation was already emailed.')
+        } else if (emailRes.emailSent) {
+          showToast('Confirmation email sent for your interview slot.')
+        } else {
+          showToast(
+            emailRes.emailError
+              ? `Slot saved, but email failed: ${emailRes.emailError}`
+              : 'Slot saved. Email could not be sent — use the invite link on step 4.',
+          )
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Could not send confirmation email.')
+        setSaving(false)
+        return
+      }
+      setSaving(false)
+    }
+
     const nextCompleted = Math.max(completedThrough, step)
     await persist(
       step === 5

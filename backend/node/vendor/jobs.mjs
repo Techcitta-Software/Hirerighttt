@@ -145,11 +145,29 @@ function decodePathSegment(segment) {
   }
 }
 
-/** @param {import('../db/store.mjs').DbShape} db */
+function isOpenJobStatus(job) {
+  const status = String(job?.status || 'published').toLowerCase()
+  return status === 'active' || status === 'published'
+}
+
+/** All active employer postings across every organization (candidate job board). */
 export function listOpenJobs(db) {
   return (db.jobs || [])
-    .filter((j) => j.status === 'active' && j.createdByUserId && j.title)
+    .filter((j) => isOpenJobStatus(j) && String(j.title || '').trim())
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+}
+
+/** @param {import('../db/store.mjs').DbShape} db */
+export function listOpenJobsPage(db, limit, offset) {
+  const all = listOpenJobs(db)
+  const safeLimit = Math.max(1, Math.min(50, Number(limit) || 4))
+  const safeOffset = Math.max(0, Number(offset) || 0)
+  return {
+    jobs: all.slice(safeOffset, safeOffset + safeLimit),
+    total: all.length,
+    limit: safeLimit,
+    offset: safeOffset,
+  }
 }
 
 /** @param {import('../db/store.mjs').DbShape} db */
@@ -296,5 +314,24 @@ export function publicJobPayload(job) {
     requiredSkills: job.requiredSkills || [],
     shareableCode: job.shareableCode,
     createdAt: job.createdAt,
+  }
+}
+
+/** Smaller payload for candidate feeds (omits long JD bodies). */
+export function publicJobListPayload(job) {
+  const base = publicJobPayload(job)
+  const jd = String(job.jobDescription || '')
+  return {
+    id: base.id,
+    organizationId: base.organizationId,
+    title: base.title,
+    company: base.company,
+    companySlug: base.companySlug,
+    roleTrack: base.roleTrack,
+    experienceLevel: base.experienceLevel,
+    location: base.location,
+    shareableCode: base.shareableCode,
+    createdAt: base.createdAt,
+    jobDescription: jd.length > 360 ? `${jd.slice(0, 360)}…` : jd,
   }
 }

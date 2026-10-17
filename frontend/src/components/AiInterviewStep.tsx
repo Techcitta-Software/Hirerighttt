@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
-import { fetchMailStatus, sendInterviewConfirmationEmail } from '../lib/api'
-import { ensureApiSession } from '../lib/apiSession'
-import { persistScheduledInvite } from '../lib/interviewInviteGate'
-import { getPendingJob } from '../lib/pendingJobApply'
+import { fetchMailStatus } from '../lib/api'
+import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
 import { getInterviewResult, getProfile } from '../lib/store'
 import styles from './AiInterviewStep.module.css'
 
@@ -96,28 +94,11 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     setConfirmLoading(true)
     setConfirmNote('')
     try {
-      await ensureApiSession()
-      const pending = getPendingJob()
-      const payload = {
-        scheduledStart: scheduledAt.toISOString(),
-        durationMinutes: 60,
-        jobTitle: pending?.title || 'HireRight AI Interview',
-        jobDescription: pending?.jd || '',
-        roleTrack: pending?.role || data.currentRole || '',
-        experienceLevel: data.totalExperience || pending?.level || '',
-        primarySkills: pending?.primarySkills || data.skills?.slice(0, 12) || [],
-      }
-      const res = await sendInterviewConfirmationEmail(payload)
-      setInviteUrl(res.inviteUrl)
-      persistScheduledInvite({
-        token: res.token,
-        inviteUrl: res.inviteUrl,
-        scheduledStart: res.scheduledStart,
-        scheduledEnd: res.scheduledEnd,
-        jobTitle: payload.jobTitle,
-      })
-      localStorage.setItem('hireright.lastInviteUrl', res.inviteUrl)
-      if (res.emailSent) {
+      const res = await sendOnboardingConfirmationEmail({ ...data, interviewNotes: scheduled })
+      if (res.inviteUrl) setInviteUrl(res.inviteUrl)
+      if (res.skipped) {
+        setConfirmNote('Confirmation already sent for this slot. Check your inbox or use the link below.')
+      } else if (res.emailSent) {
         setConfirmNote('Confirmation email sent. Use your link at the exact slot time to start.')
       } else if (res.emailError) {
         setConfirmNote(`Email failed: ${res.emailError} Use the invite link below.`)

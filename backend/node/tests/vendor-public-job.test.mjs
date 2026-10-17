@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   deleteVendorJob,
   getJobByShareableCode,
+  listOpenJobs,
   parsePublicJobPath,
   slugifyCompanyName,
 } from '../vendor/jobs.mjs'
@@ -62,4 +63,17 @@ test('deleteVendorJob removes org-scoped job and linked applications from memory
   assert.equal(db.employerApplications.length, 1)
   assert.equal(db.employerApplications[0].jobId, 'j2')
   assert.throws(() => deleteVendorJob(db, 'org-a', 'missing'), /Job not found/)
+})
+
+test('listOpenJobs includes active postings from all organizations', () => {
+  const db = {
+    jobs: [
+      { id: 'a', title: 'A', status: 'active', createdAt: '2026-01-02' },
+      { id: 'b', title: 'B', status: 'published', organizationId: 'org-2', createdAt: '2026-01-03' },
+      { id: 'c', title: 'C', status: 'archived', createdAt: '2026-01-01' },
+    ],
+  }
+  const open = listOpenJobs(db)
+  assert.equal(open.length, 2)
+  assert.equal(open[0].id, 'b')
 })

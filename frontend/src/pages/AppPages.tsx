@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
@@ -317,28 +317,118 @@ export function DashboardPage() {
   )
 }
 
+const JOBS_FEED_PAGE_SIZE = 4
+
+const JobsFeedCard = memo(function JobsFeedCard({
+  job,
+  canApply,
+  onApply,
+  onInterviewToApply,
+}: {
+  job: RankedJob
+  canApply: boolean
+  onApply: (job: RankedJob) => void
+  onInterviewToApply: (job: RankedJob) => void
+}) {
+  return (
+    <article
+      className={`${styles.jobFeedCard} ${job.locked ? styles.jobLocked : ''}`}
+    >
+      <div className={styles.jobFeedCardMain}>
+        <h2>{job.title}</h2>
+        <p className={styles.jobFeedMeta}>
+          {job.company} · {job.location}
+          {job.roleTrack ? ` · ${job.roleTrack}` : ''}
+          {job.experienceLevel ? ` · ${job.experienceLevel}` : ''}
+        </p>
+        {job.jobDescription ? (
+          <p className={styles.jobFeedPreview}>{job.jobDescription}</p>
+        ) : null}
+        {job.locked && <span className={styles.lockTag}>Unlock with AI interview</span>}
+      </div>
+      <div className={styles.jobRight}>
+        <b>{job.locked ? '—' : `${job.match}%`} Match</b>
+        {job.locked || !canApply ? (
+          <button type="button" className={styles.primary} onClick={() => onInterviewToApply(job)}>
+            Interview to apply
+          </button>
+        ) : (
+          <button type="button" className={styles.primary} onClick={() => onApply(job)}>
+            Apply now
+          </button>
+        )}
+      </div>
+    </article>
+  )
+})
+
 export function JobsPage() {
   const navigate = useNavigate()
   const [toast, setToast] = useState('')
-  const [ranked, setRanked] = useState<RankedJob[]>([])
+  const [rankedAll, setRankedAll] = useState<RankedJob[]>([])
+  const [displayCount, setDisplayCount] = useState(JOBS_FEED_PAGE_SIZE)
+  const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsError, setJobsError] = useState('')
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const interview = getInterviewResult()
   const unlocked = hasInterviewScore()
   const canApply = canApplyToJobs()
 
   useEffect(() => {
     let cancelled = false
-    fetchOpenJobs()
+    setJobsLoading(true)
+    setJobsError('')
+    setDisplayCount(JOBS_FEED_PAGE_SIZE)
+
+    fetchOpenJobs({ summary: true, limit: JOBS_FEED_PAGE_SIZE, offset: 0 })
       .then(({ jobs }) => {
-        if (!cancelled) setRanked(rankPostedJobs(jobs))
+        if (cancelled) return
+        setRankedAll(rankPostedJobs(jobs))
+        setJobsLoading(false)
+        return fetchOpenJobs({ summary: true })
+      })
+      .then((full) => {
+        if (cancelled || !full) return
+        setRankedAll(rankPostedJobs(full.jobs))
       })
       .catch(() => {
-        if (!cancelled) setJobsError('Employer jobs could not be loaded.')
+        if (!cancelled) {
+          setJobsError('Employer jobs could not be loaded.')
+          setRankedAll([])
+        }
       })
+      .finally(() => {
+        if (!cancelled) setJobsLoading(false)
+      })
+
     return () => {
       cancelled = true
     }
   }, [interview?.overall])
+
+  const visibleJobs = useMemo(
+    () => rankedAll.slice(0, displayCount),
+    [rankedAll, displayCount],
+  )
+  const hasMore = displayCount < rankedAll.length
+
+  const loadMore = useCallback(() => {
+    if (!hasMore) return
+    setDisplayCount((n) => Math.min(n + JOBS_FEED_PAGE_SIZE, rankedAll.length))
+  }, [hasMore, rankedAll.length])
+
+  useEffect(() => {
+    const node = loadMoreRef.current
+    if (!node || !hasMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) loadMore()
+      },
+      { root: null, rootMargin: '240px 0px', threshold: 0 },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMore, loadMore])
 
   async function handleApply(job: RankedJob) {
     try {
@@ -385,91 +475,70 @@ export function JobsPage() {
     <div className={styles.page}>
       <div className={styles.shell}>
         <SiteNav />
-        <motion.main
-          className={styles.main}
-          variants={staggerContainer}
-          initial="hidden"
-          animate="show"
-        >
-          <motion.header className={styles.head} variants={fadeUp}>
+      </div>
+
+      <main className={styles.jobsFeedMain}>
+        <header className={styles.jobsFeedHead}>
+          <div>
+            <h1>Interview-ranked matches</h1>
+            <p>
+              {unlocked
+                ? `Ranked using your ${interview!.overall} AI interview score.`
+                : 'Complete your AI interview to unlock applies and full ranking.'}
+            </p>
+          </div>
+          <Link to="/interview" className={styles.primary}>
+            {unlocked ? 'Improve score' : 'Unlock with interview'}
+          </Link>
+        </header>
+
+        {!unlocked && (
+          <aside className={styles.unlockBanner}>
             <div>
-              <h1>Interview-ranked matches</h1>
+              <strong>Matches locked</strong>
               <p>
-                {unlocked
-                  ? `Ranked using your ${interview!.overall} AI interview score.`
-                  : 'Complete your AI interview to unlock applies and full ranking.'}
+                Roles are visible, but applying requires an AI interview score of at least{' '}
+                {MIN_APPLY_SCORE}.
               </p>
             </div>
             <Link to="/interview" className={styles.primary}>
-              {unlocked ? 'Improve score' : 'Unlock with interview'}
+              Take AI Interview →
             </Link>
-          </motion.header>
+          </aside>
+        )}
 
-          {!unlocked && (
-            <motion.aside className={styles.unlockBanner} variants={fadeUp}>
-              <div>
-                <strong>Matches locked</strong>
-                <p>
-                  Roles are visible, but applying requires an AI interview score of at least{' '}
-                  {MIN_APPLY_SCORE}.
-                </p>
-              </div>
-              <Link to="/interview" className={styles.primary}>
-                Take AI Interview →
-              </Link>
-            </motion.aside>
+        {toast && <p className={styles.toast}>{toast}</p>}
+
+        <div className={styles.jobFeedList}>
+          {jobsLoading && visibleJobs.length === 0 ? (
+            Array.from({ length: JOBS_FEED_PAGE_SIZE }).map((_, i) => (
+              <div key={`sk-${i}`} className={`${styles.jobFeedCard} ${styles.jobFeedSkeleton}`} aria-hidden />
+            ))
+          ) : visibleJobs.length === 0 ? (
+            <p className={styles.muted}>
+              {jobsError || 'No jobs yet. Roles appear after an employer creates them.'}
+            </p>
+          ) : (
+            visibleJobs.map((job) => (
+              <JobsFeedCard
+                key={job.id || `${job.company}-${job.title}`}
+                job={job}
+                canApply={canApply}
+                onApply={handleApply}
+                onInterviewToApply={handleInterviewToApply}
+              />
+            ))
           )}
+        </div>
 
-          {toast && <p className={styles.toast}>{toast}</p>}
+        {hasMore && !jobsLoading ? (
+          <div ref={loadMoreRef} className={styles.jobFeedSentinel} aria-hidden />
+        ) : null}
+        {!hasMore && rankedAll.length > 0 ? (
+          <p className={styles.jobFeedEnd}>You&apos;re all caught up.</p>
+        ) : null}
+      </main>
 
-          <div className={styles.jobList}>
-            {ranked.length === 0 ? (
-              <p className={styles.muted}>
-                {jobsError || 'No jobs yet. Roles appear after an employer creates them.'}
-              </p>
-            ) : (
-              ranked.map((job) => (
-              <motion.article
-                key={`${job.company}-${job.title}`}
-                className={`${styles.jobCard} ${job.locked ? styles.jobLocked : ''}`}
-                variants={fadeUp}
-                whileHover={{ y: -3 }}
-              >
-                <div>
-                  <h2>{job.title}</h2>
-                  <p>
-                    {job.company} · {job.location}
-                  </p>
-                  {job.locked && (
-                    <span className={styles.lockTag}>Unlock with AI interview</span>
-                  )}
-                </div>
-                <div className={styles.jobRight}>
-                  <b>{job.locked ? '—' : `${job.match}%`} Match</b>
-                  {job.locked || !canApply ? (
-                    <button
-                      type="button"
-                      className={styles.primary}
-                      onClick={() => handleInterviewToApply(job)}
-                    >
-                      Interview to apply
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.primary}
-                      onClick={() => handleApply(job)}
-                    >
-                      Apply now
-                    </button>
-                  )}
-                </div>
-              </motion.article>
-              ))
-            )}
-          </div>
-        </motion.main>
-      </div>
       <SiteFooter />
     </div>
   )

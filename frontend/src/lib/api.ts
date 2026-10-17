@@ -118,10 +118,28 @@ export async function sendInterviewConfirmationEmail(payload: {
   experienceLevel?: string
   primarySkills?: string[]
 }) {
-  return request('/api/interview/confirmation-email', {
+  const res = await apiFetch('/api/interview/confirmation-email', {
     method: 'POST',
     body: JSON.stringify(payload),
-  }) as Promise<{
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean
+    error?: string
+    inviteUrl?: string
+    emailSent?: boolean
+    emailError?: string | null
+    scheduledStart?: string
+    scheduledEnd?: string
+    token?: string
+    smtpConfigured?: boolean
+  }
+  if (res.status === 503 && data.smtpConfigured === false) {
+    throw new Error(data.error || 'SMTP not configured on server.')
+  }
+  if (!res.ok && !data.inviteUrl) {
+    throw new Error(data.error || `Request failed (${res.status})`)
+  }
+  return data as {
     ok: boolean
     inviteUrl: string
     emailSent: boolean
@@ -129,7 +147,7 @@ export async function sendInterviewConfirmationEmail(payload: {
     scheduledStart: string
     scheduledEnd: string
     token: string
-  }>
+  }
 }
 
 export async function fetchMailStatus() {

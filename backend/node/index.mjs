@@ -123,6 +123,8 @@ import {
   parsePublicJobPath,
   listOrgJobs,
   listOpenJobs,
+  listOpenJobsPage,
+  publicJobListPayload,
   getOrgJob,
   getOrgApplication,
   createJobApplication,
@@ -554,8 +556,22 @@ const server = createServer(async (req, res) => {
       const email = await requireAuth(req, res)
       if (!email) return
       const db = loadDb()
-      const jobs = listOpenJobs(db).map((job) => publicJobPayload(job))
-      return json(res, 200, { jobs })
+      const summary = url.searchParams.get('summary') === '1'
+      const limitRaw = url.searchParams.get('limit')
+      const offsetRaw = url.searchParams.get('offset')
+      const mapJob = summary
+        ? (job) => publicJobListPayload(job)
+        : (job) => publicJobPayload(job)
+      if (limitRaw != null && limitRaw !== '') {
+        const { jobs, total, limit, offset } = listOpenJobsPage(
+          db,
+          limitRaw,
+          offsetRaw ?? 0,
+        )
+        return json(res, 200, { jobs: jobs.map(mapJob), total, limit, offset })
+      }
+      const jobs = listOpenJobs(db).map(mapJob)
+      return json(res, 200, { jobs, total: jobs.length })
     }
 
     /** Public: resolve shareable job link (no auth) — /api/jobs/public/:code or /api/jobs/public/:companySlug/:code */
@@ -1024,9 +1040,10 @@ const server = createServer(async (req, res) => {
         emailSent = true
       } catch (err) {
         emailError = err instanceof Error ? err.message : 'Email failed'
+        console.warn('[mail] confirmation-email send failed:', emailError)
       }
-      return json(res, emailSent ? 200 : 502, {
-        ok: emailSent,
+      return json(res, 200, {
+        ok: true,
         inviteUrl,
         emailSent,
         emailError,

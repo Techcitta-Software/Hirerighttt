@@ -62,9 +62,25 @@ async function parse<T>(res: Response): Promise<T> {
   return data as T
 }
 
-export async function fetchOpenJobs() {
-  const res = await apiFetch('/api/jobs')
-  return parse<{ jobs: VendorJob[] }>(res)
+export type OpenJobsResponse = {
+  jobs: VendorJob[]
+  total?: number
+  limit?: number
+  offset?: number
+}
+
+export async function fetchOpenJobs(options?: {
+  summary?: boolean
+  limit?: number
+  offset?: number
+}) {
+  const qs = new URLSearchParams()
+  if (options?.summary) qs.set('summary', '1')
+  if (options?.limit != null) qs.set('limit', String(options.limit))
+  if (options?.offset != null) qs.set('offset', String(options.offset))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const res = await apiFetch(`/api/jobs${suffix}`)
+  return parse<OpenJobsResponse>(res)
 }
 
 export async function fetchVendorJobs() {
