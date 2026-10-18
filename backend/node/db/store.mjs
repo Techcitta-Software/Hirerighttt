@@ -280,6 +280,24 @@ function mapJobRow(r) {
   }
 }
 
+/** Merge active/published jobs from Postgres into the in-memory db (candidate job board). */
+export async function syncOpenJobsFromDatabase(databaseUrl, db) {
+  if (!databaseUrl?.trim()) return db
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT * FROM jobs
+     WHERE COALESCE(status, 'published') IN ('active', 'published')
+     ORDER BY created_at DESC`,
+  )
+  const fromPg = res.rows.map((r) => mapJobRow(r))
+  const byId = new Map((db.jobs || []).map((j) => [j.id, j]))
+  for (const job of fromPg) {
+    byId.set(job.id, { ...byId.get(job.id), ...job })
+  }
+  db.jobs = [...byId.values()]
+  return db
+}
+
 /** Direct Postgres lookup for public share links (authoritative when cache is stale). */
 export async function findJobByShareableCode(databaseUrl, shareableCode) {
   const code = String(shareableCode || '').trim().toLowerCase()
@@ -441,7 +459,10 @@ async function saveRelational(client, db) {
     }
 
     // Do not delete/reinsert retained jobs: ON DELETE SET NULL destroys history links.
-    await client.query('DELETE FROM jobs WHERE NOT (id = ANY($1::text[]))', [(db.jobs || []).map(job => job.id)])
+    const jobIds = (db.jobs || []).map((job) => job.id).filter(Boolean)
+    if (jobIds.length) {
+      await client.query('DELETE FROM jobs WHERE NOT (id = ANY($1::text[]))', [jobIds])
+    }
     for (const job of db.jobs || []) {
       const extras = {
         createdByEmail: job.createdByEmail || '',

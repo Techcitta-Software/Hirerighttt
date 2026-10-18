@@ -28,6 +28,7 @@ import {
 } from '../lib/store'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import styles from './AppPages.module.css'
 
@@ -380,26 +381,19 @@ export function JobsPage() {
     setJobsError('')
     setDisplayCount(JOBS_FEED_PAGE_SIZE)
 
-    fetchOpenJobs({ summary: true, limit: JOBS_FEED_PAGE_SIZE, offset: 0 })
-      .then(({ jobs }) => {
+    void (async () => {
+      try {
+        await ensureApiSession()
         if (cancelled) return
-        setRankedAll(rankPostedJobs(jobs))
-        setJobsLoading(false)
-        return fetchOpenJobs({ summary: true })
-      })
-      .then((full) => {
-        if (cancelled || !full) return
-        setRankedAll(rankPostedJobs(full.jobs))
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setJobsError('Employer jobs could not be loaded.')
-          setRankedAll([])
-        }
-      })
-      .finally(() => {
+        const { jobs } = await fetchOpenJobs({ summary: true })
+        if (cancelled) return
+        setRankedAll(rankPostedJobs(jobs ?? []))
+      } catch {
+        if (!cancelled) setJobsError('Employer jobs could not be loaded.')
+      } finally {
         if (!cancelled) setJobsLoading(false)
-      })
+      }
+    })()
 
     return () => {
       cancelled = true

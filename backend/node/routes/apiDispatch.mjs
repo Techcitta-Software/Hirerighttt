@@ -1,6 +1,14 @@
 import { randomBytes } from 'node:crypto'
 import { evaluateResumeAgainstJd, generateVendorAssessmentSheet, vendorReportNeedsRefresh } from '../vendor/aiEvaluation.mjs'
-import { pingDatabase, appendInterviewHistory, upsertJobRecord, deleteJobRecord, dbPool, loadDb as reloadDbFromStore } from '../db/store.mjs'
+import {
+  pingDatabase,
+  appendInterviewHistory,
+  upsertJobRecord,
+  deleteJobRecord,
+  dbPool,
+  loadDb as reloadDbFromStore,
+  syncOpenJobsFromDatabase,
+} from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
 import { sendMail } from '../mail.mjs'
 import { groqWhisperConfigured, transcribeWithGroqWhisper } from '../groqWhisper.mjs'
@@ -116,6 +124,9 @@ export function createApiDispatchMiddleware(ctx) {
       const email = await requireAuth(req, res)
       if (!email) return
       const db = loadDb()
+      if (config.databaseUrl) {
+        await syncOpenJobsFromDatabase(config.databaseUrl, db)
+      }
       const summary = url.searchParams.get('summary') === '1'
       const limitRaw = url.searchParams.get('limit')
       const offsetRaw = url.searchParams.get('offset')
@@ -217,6 +228,9 @@ export function createApiDispatchMiddleware(ctx) {
       const job = createVendorJob(db, ctx.tenant.organization.id, ctx.user.id, body)
       await upsertJobRecord(config.databaseUrl, job)
       await saveDb(db)
+      if (config.databaseUrl) {
+        await syncOpenJobsFromDatabase(config.databaseUrl, db)
+      }
       return json(res, 201, { job: publicJobPayload(job) })
     }
 
