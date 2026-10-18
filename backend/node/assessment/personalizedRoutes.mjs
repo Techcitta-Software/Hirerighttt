@@ -13,6 +13,17 @@ export function createPersonalizedHandler({ databaseUrl, requireAuth, readBody, 
     if (!email) return true
     try {
       const body = recovery ? {} : await readBody(req)
+      // Legacy adaptive start (vendor jobs, practice) — only personalized assessment when opted in.
+      if (!recovery && path === '/api/interview/start') {
+        const consentOk =
+          body.consent === true &&
+          typeof body.requestId === 'string' &&
+          String(body.requestId).trim().length > 0
+        if (!consentOk) {
+          req.parsedBody = body
+          return false
+        }
+      }
       // Keep old saved sessions readable by the legacy handlers without reading the body twice.
       if (!recovery && path !== '/api/interview/start' && !/^[0-9a-f-]{36}$/i.test(body.sessionId || '')) {
         req.parsedBody = body

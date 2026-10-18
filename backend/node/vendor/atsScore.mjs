@@ -3,8 +3,8 @@ const SKILL_STOP = new Set([
   'ability', 'strong', 'good', 'plus', 'including', 'using', 'work', 'team', 'role', 'job',
 ])
 
-const SKILL_PATTERN =
-  /\b(?:React(?:\.js)?|Node(?:\.js)?|TypeScript|JavaScript|Python|Java|Go|Golang|AWS|Azure|GCP|Docker|Kubernetes|SQL|PostgreSQL|MongoDB|Redis|Kafka|GraphQL|REST|API|CI\/CD|Agile|Scrum|Next\.js|Vue|Angular|Tailwind|Redux|Spring|Django|FastAPI|LLM|Gemini|OpenAI|Machine Learning|Data Engineering|DevOps|SRE|Microservices|System Design)\b/gi
+export const SKILL_PATTERN =
+  /\b(?:React(?:\.js)?|Node(?:\.js)?|TypeScript|JavaScript|Python|Java|Go|Golang|AWS|Azure|GCP|Docker|Kubernetes|SQL|PostgreSQL|MongoDB|Redis|Kafka|GraphQL|REST|API|CI\/CD|Agile|Scrum|Next\.js|Vue|Angular|Tailwind|Redux|Spring|Django|FastAPI|LLM|Gemini|OpenAI|Machine Learning|Data Engineering|DevOps|SRE|Microservices|System Design|PyTorch|TensorFlow|Keras|scikit-learn|Pandas|NumPy|Hugging Face|Transformers|LangChain|LlamaIndex|RAG|Embeddings|Vector Database|Pinecone|FAISS|pgvector|Fine-tuning|Prompt Engineering|NLP|Computer Vision|Deep Learning|MLOps|MLflow|Spark|Airflow|Databricks|Snowflake|dbt|Tableau|Power BI|Figma|Salesforce|SEO|Generative AI)\b/gi
 
 /** @param {string} jd */
 export function extractPrimarySkillsFromJd(jd, requiredSkills = []) {

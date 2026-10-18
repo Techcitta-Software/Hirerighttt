@@ -48,6 +48,7 @@ import {
   publicJobPayload,
 } from '../vendor/jobs.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
+import { computeEmployerInterviewComposite } from '../atsScorer.mjs'
 import {
   generateAdaptiveQuestion,
   generateAdaptiveQuestionLocal,
@@ -61,7 +62,54 @@ import {
   parseResumeWithAI,
   summarizeProfile,
   scoreInterviewSession,
+  callLlmApi,
 } from '../interviewAgent.mjs'
+import { buildJdCoveragePlan, generateVendorJobQuestion } from '../prompts/vendorJobInterview.mjs'
+import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
+
+function isOpenVendorJob(job) {
+  const status = String(job?.status || 'published').toLowerCase()
+  return status === 'active' || status === 'published'
+}
+
+/** @param {import('../db/store.mjs').DbShape} db */
+async function resolveVendorJobForInterview(db, body, email, databaseUrl) {
+  if (body.applicationId) {
+    const application = (db.employerApplications || []).find(
+      (a) => a.id === String(body.applicationId),
+    )
+    if (!application) {
+      return { error: { status: 404, message: 'Application not found.' } }
+    }
+    if (
+      String(application.candidateEmail || '').toLowerCase() !==
+      String(email || '').toLowerCase()
+    ) {
+      return { error: { status: 403, message: 'This application does not belong to your account.' } }
+    }
+    let job = getOrgJob(db, application.organizationId, application.jobId)
+    if (!job && databaseUrl) {
+      await syncOpenJobsFromDatabase(databaseUrl, db)
+      job = getOrgJob(db, application.organizationId, application.jobId)
+    }
+    if (!job) {
+      return { error: { status: 404, message: 'Job not found for this application.' } }
+    }
+    return { job, application }
+  }
+  if (body.jobId) {
+    let job = (db.jobs || []).find((j) => j.id === String(body.jobId))
+    if (!job && databaseUrl) {
+      await syncOpenJobsFromDatabase(databaseUrl, db)
+      job = (db.jobs || []).find((j) => j.id === String(body.jobId))
+    }
+    if (!job || !isOpenVendorJob(job)) {
+      return { error: { status: 404, message: 'Job not found or not open.' } }
+    }
+    return { job, application: null }
+  }
+  return { job: null, application: null }
+}
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
 export function createApiDispatchMiddleware(ctx) {
   const {
@@ -681,34 +729,74 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, 429, { error: 'Interview start rate limited. Wait a minute.' })
       }
       const body = await readBody(req)
-      const role = String(body.role || 'Full Stack Engineer')
-      const level = String(body.level || '1–3 years')
-      const jobDescription = String(body.jobDescription || '')
       const db = loadDb()
       const profile = mergeInterviewProfile(db, email, body.profile)
       const account = db.users.find((u) => u.email === email)
 
       const ctx = summarizeProfile(profile, account?.name)
+      const vendorResolved = await resolveVendorJobForInterview(
+        db,
+        body,
+        email,
+        config.databaseUrl,
+      )
+      if (vendorResolved.error) {
+        return json(res, vendorResolved.error.status, { error: vendorResolved.error.message })
+      }
+
+      const vendorJob = vendorResolved.job
+      const vendorApplication = vendorResolved.application
+      let role = String(body.role || 'Full Stack Engineer')
+      let level = String(body.level || '1–3 years')
+      const jobDescription = String(body.jobDescription || '')
       const explicitRoleTrack = body.explicitRoleTrack === true
       const questionModeHint = String(body.questionMode || '').trim()
-      const jobRecord = body.jobId
+      let jobRecord = body.jobId
         ? (db.jobs || []).find((j) => j.id === String(body.jobId))
         : null
-      const requiredSkills =
+      let requiredSkills =
         Array.isArray(body.primarySkills) && body.primarySkills.length
           ? body.primarySkills.map(String)
           : jobRecord?.requiredSkills || []
+      let effectiveJd = jobDescription || jobRecord?.jobDescription || ''
+      let questionMode
+      let jdPlan = null
+      let roleTrack = jobRecord?.roleTrack || role
 
-      const questionMode = resolveInterviewQuestionMode({
-        mode: questionModeHint || undefined,
-        applicationId: body.applicationId,
-        jobId: body.jobId,
-        jobDescription: jobDescription || jobRecord?.jobDescription || '',
-        requiredSkills,
-      })
-      const effectiveJd = jobDescription || jobRecord?.jobDescription || ''
+      if (vendorJob) {
+        role = String(vendorJob.title || role)
+        level = String(vendorJob.experienceLevel || level)
+        effectiveJd = String(vendorJob.jobDescription || '')
+        roleTrack = String(vendorJob.roleTrack || role)
+        jobRecord = vendorJob
+        requiredSkills = vendorJob.requiredSkills?.length
+          ? vendorJob.requiredSkills.map(String)
+          : extractPrimarySkillsFromJd(effectiveJd, [])
+        questionMode = 'vendor_jd'
+        jdPlan = buildJdCoveragePlan({
+          jobDescription: effectiveJd,
+          requiredSkills,
+          resumeText: ctx.resumeSnippet || profile?.resumeText || '',
+        })
+      } else {
+        const effectiveJdEarly = effectiveJd
+        questionMode = resolveInterviewQuestionMode({
+          mode:
+            questionModeHint ||
+            (explicitRoleTrack && effectiveJdEarly.trim().length >= 40 ? 'individual_jd' : undefined),
+          applicationId: body.applicationId,
+          jobId: body.jobId,
+          jobDescription: effectiveJdEarly,
+          requiredSkills,
+        })
+      }
+
       let skillAnalysis = null
-      if (questionMode === 'employer' || questionMode === 'individual_jd') {
+      if (
+        questionMode === 'employer' ||
+        questionMode === 'individual_jd' ||
+        questionMode === 'vendor_jd'
+      ) {
         skillAnalysis = analyzeInterviewSkillMatch({
           jobDescription: effectiveJd,
           requiredSkills,
@@ -717,19 +805,45 @@ export function createApiDispatchMiddleware(ctx) {
         })
       }
 
-      const first = await generateAdaptiveQuestion({
-        ctx,
-        profile,
-        role,
-        level,
-        jobDescription: effectiveJd,
-        explicitRoleTrack,
-        history: [],
-        lastAnswer: '',
-        accountName: account?.name,
-      })
+      const first =
+        questionMode === 'vendor_jd'
+          ? await generateVendorJobQuestion(
+              {
+                ctx,
+                profile,
+                role,
+                jobTitle: role,
+                roleTrack,
+                level,
+                jobDescription: effectiveJd,
+                plan: jdPlan,
+                requiredSkills,
+                history: [],
+                lastAnswer: '',
+                candidateName: account?.name,
+              },
+              { callLlm: callLlmApi },
+            )
+          : await generateAdaptiveQuestion({
+              ctx,
+              profile,
+              role,
+              level,
+              jobDescription: effectiveJd,
+              explicitRoleTrack,
+              history: [],
+              lastAnswer: '',
+              accountName: account?.name,
+            })
       const questions = [first]
-      const agentLabel = first.focus === 'adaptive-llm' ? 'llm-adaptive' : 'adaptive-local'
+      const agentLabel =
+        first.focus === 'vendor-jd-llm'
+          ? 'vendor-jd-llm'
+          : first.focus === 'vendor-jd-local'
+            ? 'vendor-jd-local'
+            : first.focus === 'adaptive-llm'
+              ? 'llm-adaptive'
+              : 'adaptive-local'
       const adaptive = true
 
       const sessionId = randomBytes(12).toString('hex')
@@ -746,9 +860,14 @@ export function createApiDispatchMiddleware(ctx) {
         context: ctx,
         jobDescription: effectiveJd,
         explicitRoleTrack,
-        jobId: body.jobId ? String(body.jobId) : null,
-        applicationId: body.applicationId ? String(body.applicationId) : null,
+        jobId: vendorJob ? String(vendorJob.id) : body.jobId ? String(body.jobId) : null,
+        applicationId: vendorApplication
+          ? String(vendorApplication.id)
+          : body.applicationId
+            ? String(body.applicationId)
+            : null,
         organizationId: (() => {
+          if (vendorApplication?.organizationId) return String(vendorApplication.organizationId)
           const fromBody = body.organizationId ? String(body.organizationId) : ''
           if (fromBody) return fromBody
           if (!body.applicationId) return null
@@ -757,6 +876,8 @@ export function createApiDispatchMiddleware(ctx) {
           )
           return linked?.organizationId ? String(linked.organizationId) : null
         })(),
+        roleTrack,
+        jdPlan,
         primarySkills: skillAnalysis?.jdSkills || requiredSkills,
         questionMode,
         skillAnalysis,
@@ -800,6 +921,9 @@ export function createApiDispatchMiddleware(ctx) {
               jdMatchScore: skillAnalysis.jdMatchScore,
             }
           : null,
+        job: vendorJob
+          ? { id: vendorJob.id, title: vendorJob.title, roleTrack: vendorJob.roleTrack }
+          : null,
       })
     }
 
@@ -827,20 +951,37 @@ export function createApiDispatchMiddleware(ctx) {
       )
       session.history = history
       const lastAnswer = String(body.lastAnswer || '')
-      const nextJobDescription = String(body.jobDescription || session.jobDescription || '')
-      const explicitRoleTrack =
-        body.explicitRoleTrack === true || session.explicitRoleTrack === true
-      const next = await generateAdaptiveQuestion({
-        ctx,
-        profile,
-        role: String(body.role || session.role),
-        level: String(body.level || session.level),
-        jobDescription: nextJobDescription,
-        explicitRoleTrack,
-        history,
-        lastAnswer,
-        accountName: account?.name,
-      })
+      const next =
+        session.questionMode === 'vendor_jd'
+          ? await generateVendorJobQuestion(
+              {
+                ctx,
+                profile,
+                role: session.role,
+                jobTitle: session.role,
+                roleTrack: session.roleTrack || session.role,
+                level: session.level,
+                jobDescription: session.jobDescription,
+                plan: session.jdPlan,
+                requiredSkills: session.primarySkills,
+                history,
+                lastAnswer,
+                candidateName: account?.name,
+              },
+              { callLlm: callLlmApi },
+            )
+          : await generateAdaptiveQuestion({
+              ctx,
+              profile,
+              role: String(body.role || session.role),
+              level: String(body.level || session.level),
+              jobDescription: String(body.jobDescription || session.jobDescription || ''),
+              explicitRoleTrack:
+                body.explicitRoleTrack === true || session.explicitRoleTrack === true,
+              history,
+              lastAnswer,
+              accountName: account?.name,
+            })
       session.questions = [...(session.questions || []), next]
       db.interviewSessions[sessionId] = session
       await saveDb(db)
@@ -1132,6 +1273,53 @@ export function createApiDispatchMiddleware(ctx) {
         accountName: db.users.find((u) => u.email === email)?.name,
         durationMinutes,
       })
+
+      const employerInterviewContext =
+        session?.questionMode === 'employer' ||
+        session?.questionMode === 'individual_jd' ||
+        session?.questionMode === 'vendor_jd' ||
+        Boolean(session?.jobId) ||
+        String(session?.jobDescription || body.jobDescription || '').trim().length >= 40
+
+      let atsForComposite =
+        typeof session?.atsScore === 'number'
+          ? session.atsScore
+          : typeof body.atsScore === 'number'
+            ? body.atsScore
+            : null
+
+      if (employerInterviewContext && atsForComposite == null) {
+        const jdText = String(session?.jobDescription || body.jobDescription || '')
+        const resumeText = String(profile?.resumeText || db.profiles[email]?.resumeText || '')
+        if (jdText.trim().length >= 30 && resumeText.trim().length >= 30) {
+          try {
+            const hybrid = await evaluateResumeAgainstJd({
+              resumeText,
+              jobDescription: jdText,
+              requiredSkills: session?.primarySkills || [],
+              roleTitle: role,
+              skipLlm: true,
+            })
+            atsForComposite = hybrid.atsScore
+            session.atsScore = hybrid.atsScore
+            session.jdMatchScore = hybrid.jdMatchScore
+            session.skillAnalysis = session.skillAnalysis || {}
+            session.skillAnalysis.atsBreakdown = hybrid.atsBreakdown
+          } catch {
+            // keep interview-only overall
+          }
+        }
+      }
+
+      if (employerInterviewContext && typeof atsForComposite === 'number') {
+        const interviewOnly = result.overall
+        const composite = computeEmployerInterviewComposite(interviewOnly, atsForComposite)
+        result.interviewScore = composite.interviewScore
+        result.atsScore = composite.atsScore
+        result.overall = composite.compositeScore
+        result.compositeScore = composite.compositeScore
+        result.resumeFitScore = composite.atsScore
+      }
 
       db.interviews[email] = result
       if (session) {

@@ -32,6 +32,12 @@ import {
   patchApplicantStatus,
   sendApplicantInterviewInvite,
 } from '../lib/vendorApi'
+import {
+  ALL_JOB_ROLES,
+  DEFAULT_JOB_ROLE,
+  JOB_ROLE_GROUPS,
+  suggestRoleFromTitle,
+} from '../data/jobRoles'
 import styles from './EmployerDashboard.module.css'
 
 function getInitials(name: string): string {
@@ -116,7 +122,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
   // New Job Form State
   const [newJobTitle, setNewJobTitle] = useState('')
-  const [newJobRoleTrack, setNewJobRoleTrack] = useState('Frontend Developer')
+  const [newJobRoleTrack, setNewJobRoleTrack] = useState(DEFAULT_JOB_ROLE)
+  const [roleTouched, setRoleTouched] = useState(false)
   const [newJobExp, setNewJobExp] = useState('3-5 years')
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
@@ -382,7 +389,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const company = user?.companyName || 'TechCitta Solutions'
     const createdByEmail = user?.email || 'employer@hireright.com'
     const location = newJobLocation.trim()
-    const roleTrack = newJobRoleTrack
+    const roleTrack =
+      newJobRoleTrack === 'Other (use job title)' ? title : newJobRoleTrack
     const experienceLevel = newJobExp
 
     const optimisticId = `optimistic-${Date.now()}`
@@ -407,6 +415,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setShowCreateJobModal(false)
     setNewJobTitle('')
     setNewJobDescription('')
+    setNewJobRoleTrack(DEFAULT_JOB_ROLE)
+    setRoleTouched(false)
     setNewJobSkills('React, TypeScript, Node.js')
     setPortalError('')
     setPortalSyncNote(`Creating “${title}”…`)
@@ -1094,7 +1104,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     required
                     placeholder="e.g. Senior Frontend Developer"
                     value={newJobTitle}
-                    onChange={(e) => setNewJobTitle(e.target.value)}
+                    onChange={(e) => {
+                      const nextTitle = e.target.value
+                      setNewJobTitle(nextTitle)
+                      if (!roleTouched) {
+                        const suggested = suggestRoleFromTitle(nextTitle)
+                        if (suggested && ALL_JOB_ROLES.includes(suggested)) {
+                          setNewJobRoleTrack(suggested)
+                        }
+                      }
+                    }}
                   />
                 </div>
 
@@ -1103,14 +1122,20 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     <label>Role Track</label>
                     <select
                       value={newJobRoleTrack}
-                      onChange={(e) => setNewJobRoleTrack(e.target.value)}
+                      onChange={(e) => {
+                        setRoleTouched(true)
+                        setNewJobRoleTrack(e.target.value)
+                      }}
                     >
-                      <option value="Frontend Developer">Frontend Developer</option>
-                      <option value="Full Stack Engineer">Full Stack Engineer</option>
-                      <option value="Backend Engineer">Backend Engineer</option>
-                      <option value="QA Engineer">QA Engineer</option>
-                      <option value="DevOps Engineer">DevOps Engineer</option>
-                      <option value="Product Manager">Product Manager</option>
+                      {JOB_ROLE_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.roles.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
 

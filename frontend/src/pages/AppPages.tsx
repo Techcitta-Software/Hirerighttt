@@ -29,6 +29,7 @@ import {
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import { ensureApiSession } from '../lib/apiSession'
+import { writeTargetJob } from '../lib/targetJob'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import styles from './AppPages.module.css'
 
@@ -452,16 +453,15 @@ export function JobsPage() {
   function handleInterviewToApply(job: RankedJob) {
     const targetRole = job.roleTrack || mapProfileRoleToInterviewRole(job.title)
     const targetLevel = job.experienceLevel || mapExperienceToLevel(job.title)
-    sessionStorage.setItem(
-      'hireright.targetJob',
-      JSON.stringify({
-        title: job.title,
-        company: job.company,
-        role: targetRole,
-        level: targetLevel,
-        jd: job.jobDescription || '',
-      }),
-    )
+    writeTargetJob({
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      role: targetRole,
+      level: targetLevel,
+      jd: job.jobDescription || '',
+      primarySkills: job.requiredSkills,
+    })
     navigate('/interview')
   }
 

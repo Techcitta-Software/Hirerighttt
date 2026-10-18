@@ -59,6 +59,7 @@ import {
   type GroqVadSttController,
 } from '../lib/groqVadStt'
 import { parseResumeFile } from '../lib/resumeParser'
+import { readTargetJob } from '../lib/targetJob'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
@@ -102,22 +103,7 @@ export function InterviewPage() {
     [],
   )
 
-  const targetJobRaw = useMemo(() => {
-    const str = sessionStorage.getItem('hireright.targetJob')
-    if (!str) return null
-    try {
-      return JSON.parse(str) as {
-        title: string
-        company: string
-        role: string
-        level: string
-        applicantId?: string
-        jd?: string
-      }
-    } catch {
-      return null
-    }
-  }, [])
+  const targetJobRaw = useMemo(() => readTargetJob(), [])
 
   const [stage, setStage] = useState<Stage>('setup')
   const [role] = useState<string>(() => {
@@ -887,13 +873,17 @@ export function InterviewPage() {
         roleTrackExplicitRef.current ||
         Boolean(targetJobRaw) ||
         effectiveJd.length >= 40
-      const started = await startInterviewSession(
-        role,
-        level,
-        mergedProfile,
-        effectiveJd,
-        explicitTrack,
-      )
+      const started = await startInterviewSession(role, level, mergedProfile, {
+        jobDescription: effectiveJd,
+        explicitRoleTrack: explicitTrack,
+        jobId: targetJobRaw?.jobId,
+        applicationId: targetJobRaw?.applicationId,
+        organizationId: targetJobRaw?.organizationId,
+        questionMode: targetJobRaw?.applicationId || targetJobRaw?.jobId ? undefined : targetJobRaw || effectiveJd.length >= 40 ? 'individual_jd' : undefined,
+        primarySkills: targetJobRaw?.primarySkills,
+        atsScore: targetJobRaw?.atsScore,
+        jdMatchScore: targetJobRaw?.jdMatchScore,
+      })
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
       setAgentLabel(started.agent || 'Ava · adaptive interviewer')
@@ -1125,8 +1115,8 @@ export function InterviewPage() {
           }
         }
         saveInterviewResult(scored)
-        if (targetJobRaw?.applicantId) {
-          attachInterviewToApplicant(targetJobRaw.applicantId, scored)
+        if (targetJobRaw?.applicationId) {
+          attachInterviewToApplicant(targetJobRaw.applicationId, scored)
         }
         if (targetJobRaw && !integrity.banned) {
           try {

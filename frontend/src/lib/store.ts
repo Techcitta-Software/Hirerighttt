@@ -624,6 +624,7 @@ export type RankedJob = {
   jobDescription?: string
   roleTrack?: string
   experienceLevel?: string
+  requiredSkills?: string[]
 }
 
 /** Job match % is derived from your real AI interview overall (1–99), not a static catalog score. */
@@ -703,6 +704,7 @@ export function rankPostedJobs(
         jobDescription: job.jobDescription,
         roleTrack: job.roleTrack,
         experienceLevel: job.experienceLevel,
+        requiredSkills: (job as { requiredSkills?: string[] }).requiredSkills,
       }
     })
     .sort((a, b) => b.match - a.match)

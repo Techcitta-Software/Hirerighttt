@@ -1,4 +1,9 @@
+import {
+  computeFinalAtsScore,
+  parseResumeStructure,
+} from '../atsScorer.mjs'
 import { computeAtsScore, extractPrimarySkillsFromJd } from './atsScore.mjs'
+import { evaluateAtsSemanticSubscores } from './atsSemanticEval.mjs'
 import { callLlmApi } from '../interviewAgent.mjs'
 
 function parseJsonBlock(text) {
@@ -11,61 +16,81 @@ function parseJsonBlock(text) {
   }
 }
 
-/**
- * Strong ATS: heuristic baseline + optional LLM refinement (same provider as interviews).
- */
-export async function evaluateResumeAgainstJd({ resumeText, jobDescription, requiredSkills, roleTitle }) {
-  const baseline = computeAtsScore({ resumeText, jobDescription, requiredSkills })
-  const llm = await callLlmApi({
-    tier: 'quality',
-    temperature: 0.15,
-    maxTokens: 1200,
-    system: `You are HireRight's vendor ATS engine. Score resume fit to the job description.
-Return ONLY valid JSON:
-{
-  "atsScore": 0-100,
-  "jdMatchScore": 0-100,
-  "resumeSkillCoverage": 0-100,
-  "primarySkills": ["..."],
-  "matchedSkills": ["..."],
-  "missingSkills": ["..."],
-  "strengths": ["..."],
-  "gaps": ["..."],
-  "summary": "2-3 sentences for recruiters",
-  "confidence": "high"|"medium"|"low"
+function inferPreferredSkills(jd, requiredSkills) {
+  const primary = extractPrimarySkillsFromJd(jd, requiredSkills || [])
+  const requiredSet = new Set((requiredSkills || []).map((s) => String(s).toLowerCase()))
+  return primary.filter((s) => !requiredSet.has(String(s).toLowerCase())).slice(0, 12)
 }
-Rules: Never invent resume facts. Penalize missing must-have skills. Reward evidenced experience.`,
-    user: JSON.stringify({
-      roleTitle: roleTitle || '',
-      jobDescription: String(jobDescription || '').slice(0, 8000),
-      requiredSkills: requiredSkills || [],
-      resumeText: String(resumeText || '').slice(0, 12000),
-      baseline,
-    }),
+
+/**
+ * Hybrid ATS: deterministic keyword/format math + LLM semantic sub-scores only.
+ */
+export async function evaluateResumeAgainstJd({
+  resumeText,
+  jobDescription,
+  requiredSkills,
+  roleTitle,
+  usedOcrFallback = false,
+  skipLlm = false,
+}) {
+  const jd = String(jobDescription || '')
+  const resume = String(resumeText || '')
+  const baseline = computeAtsScore({ resumeText: resume, jobDescription: jd, requiredSkills })
+  const parsedResume = parseResumeStructure(resume)
+  for (const s of baseline.primarySkills || []) {
+    const n = String(s).toLowerCase()
+    if (!parsedResume.skills.some((x) => x === n || x.includes(n))) {
+      parsedResume.skills.push(n)
+    }
+  }
+
+  const required = (requiredSkills?.length ? requiredSkills : baseline.primarySkills).map(String)
+  const preferred = inferPreferredSkills(jd, required)
+
+  const llmEvaluation = skipLlm
+    ? null
+    : await evaluateAtsSemanticSubscores({
+        resumeText: resume,
+        jobDescription: jd,
+        roleTitle: roleTitle || '',
+      })
+
+  const hybrid = computeFinalAtsScore({
+    rawResumeText: resume,
+    parsedResume,
+    jobDescription: { requiredSkills: required, preferredSkills: preferred, title: roleTitle },
+    llmEvaluation: llmEvaluation || undefined,
+    usedOcrFallback,
   })
 
-  if (!llm?.text) {
-    return { ...baseline, aiEnhanced: false, strengths: [], gaps: [], summary: '', confidence: 'medium' }
+  const strengths = []
+  if (hybrid.matchedKeywords.length >= 3) {
+    strengths.push(`Strong keyword overlap: ${hybrid.matchedKeywords.slice(0, 5).join(', ')}`)
+  }
+  if (hybrid.breakdown.parseabilityAndImpact >= 70) {
+    strengths.push('Resume is ATS-parseable with measurable impact signals.')
   }
 
-  const parsed = parseJsonBlock(llm.text)
-  if (!parsed || typeof parsed.atsScore !== 'number') {
-    return { ...baseline, aiEnhanced: false, strengths: [], gaps: [], summary: '', confidence: 'medium' }
-  }
+  const gaps = [
+    ...hybrid.missingKeywords.slice(0, 6).map((s) => `Missing required skill: ${s}`),
+    ...hybrid.improvementTips.slice(0, 4),
+  ]
 
-  const clamp = (n) => Math.min(100, Math.max(0, Math.round(Number(n) || 0)))
   return {
-    atsScore: clamp(parsed.atsScore),
-    jdMatchScore: clamp(parsed.jdMatchScore ?? baseline.jdMatchScore),
-    resumeSkillCoverage: clamp(parsed.resumeSkillCoverage ?? baseline.resumeSkillCoverage),
-    primarySkills: Array.isArray(parsed.primarySkills) ? parsed.primarySkills.map(String) : baseline.primarySkills,
-    matchedSkills: Array.isArray(parsed.matchedSkills) ? parsed.matchedSkills.map(String) : baseline.matchedSkills,
-    missingSkills: Array.isArray(parsed.missingSkills) ? parsed.missingSkills.map(String) : baseline.missingSkills,
-    strengths: Array.isArray(parsed.strengths) ? parsed.strengths.map(String).slice(0, 8) : [],
-    gaps: Array.isArray(parsed.gaps) ? parsed.gaps.map(String).slice(0, 8) : [],
-    summary: String(parsed.summary || '').slice(0, 2000),
-    confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'medium',
-    aiEnhanced: true,
+    atsScore: hybrid.overallScore,
+    jdMatchScore: hybrid.jdMatchScore,
+    resumeSkillCoverage: hybrid.resumeSkillCoverage,
+    primarySkills: baseline.primarySkills,
+    matchedSkills: hybrid.matchedSkills,
+    missingSkills: hybrid.missingSkills,
+    strengths: strengths.slice(0, 8),
+    gaps: gaps.slice(0, 8),
+    summary: hybrid.summary || '',
+    confidence: llmEvaluation ? 'high' : 'medium',
+    aiEnhanced: Boolean(llmEvaluation),
+    atsBreakdown: hybrid.breakdown,
+    improvementTips: hybrid.improvementTips,
+    niceToHaveMissing: hybrid.niceToHaveMissing,
   }
 }
 

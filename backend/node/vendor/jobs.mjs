@@ -54,6 +54,10 @@ export function createVendorJob(db, organizationId, createdByUserId, body) {
 
   const user = db.users.find((u) => u.id === createdByUserId)
   const company = String(body.company || user?.companyName || 'Organization').trim()
+  const roleTrack = String(body.roleTrack || body.role || title).trim()
+  if (roleTrack.length > 120) {
+    throw Object.assign(new Error('Role track must be 120 characters or less.'), { status: 400 })
+  }
   const job = {
     id: newId(),
     organizationId,
@@ -61,7 +65,7 @@ export function createVendorJob(db, organizationId, createdByUserId, body) {
     title,
     company,
     companySlug: slugifyCompanyName(company),
-    roleTrack: String(body.roleTrack || body.role || title).trim(),
+    roleTrack,
     experienceLevel: String(body.experienceLevel || body.experience || '2–5 years').trim(),
     location: String(body.location || 'Remote').trim(),
     jobDescription,
@@ -255,6 +259,8 @@ export function createJobApplication(db, job, payload) {
       atsSummary: ats.summary || '',
       atsConfidence: ats.confidence || 'medium',
       aiEnhancedAts: Boolean(ats.aiEnhanced),
+      atsBreakdown: ats.atsBreakdown || null,
+      improvementTips: ats.improvementTips || [],
       interviewScore: null,
       interviewResult: null,
       vendorReport: null,
@@ -284,6 +290,9 @@ export function updateApplicationInterview(db, applicationId, organizationId, re
   app.data = {
     ...app.data,
     interviewScore: result.overall,
+    interviewOnlyScore: result.interviewScore ?? null,
+    compositeInterviewAts: result.compositeScore ?? result.overall,
+    interviewAtsScore: result.atsScore ?? extra.atsScore ?? app.data.atsScore ?? null,
     interviewResult: result,
     resumeFitScore: result.resumeFitScore,
     evaluatedAt: new Date().toISOString(),

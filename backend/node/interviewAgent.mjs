@@ -6,12 +6,13 @@
 
 import { geminiApiConfigured, isGeminiProvider, modelCascadeForTier } from './llmModels.mjs'
 import { geminiChat, resolveGeminiApiKey, isGeminiAuthKey } from './geminiClient.mjs'
+import { computeFinalAtsScore, parseResumeStructure } from './atsScorer.mjs'
 import { extractPrimarySkillsFromJd, computeAtsScore } from './vendor/atsScore.mjs'
 
 export const INTERVIEW_TURN_COUNT = 6
 export { publicModelConfig, geminiKeyFormatWarning } from './llmModels.mjs'
 
-const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience']
+export const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience']
 
 /** Session scorecard: three weighted rubrics (0–100 each). Question score = weighted sum. */
 export const INTERVIEW_RUBRICS = [
@@ -322,19 +323,41 @@ export function analyzeInterviewSkillMatch({ jobDescription, requiredSkills, pro
   const resumeText = String(profile?.resumeText || ctx?.resumeSnippet || '')
   const jd = String(jobDescription || '')
   const jdSkills = extractPrimarySkillsFromJd(jd, requiredSkills || [])
-  const ats = computeAtsScore({ jobDescription: jd, resumeText, requiredSkills: jdSkills })
+  const parsedResume = parseResumeStructure(resumeText)
+  for (const s of jdSkills) {
+    const n = String(s).toLowerCase()
+    if (!parsedResume.skills.some((x) => x === n || x.includes(n))) parsedResume.skills.push(n)
+  }
+  const requiredSet = new Set((requiredSkills || []).map((s) => String(s).toLowerCase()))
+  const preferred = jdSkills.filter((s) => !requiredSet.has(String(s).toLowerCase())).slice(0, 12)
+  const hybrid = computeFinalAtsScore({
+    rawResumeText: resumeText,
+    parsedResume,
+    jobDescription: {
+      requiredSkills: requiredSkills?.length ? requiredSkills : jdSkills,
+      preferredSkills: preferred,
+    },
+    llmEvaluation: {
+      semanticProjectScore: 70,
+      experienceScore: 75,
+      educationScore: 85,
+    },
+  })
+  const legacy = computeAtsScore({ jobDescription: jd, resumeText, requiredSkills: jdSkills })
   return {
     jdSkills,
-    matchedSkills: ats.matchedSkills.map((m) => skillDisplayLabel(jdSkills, m)),
-    missingSkills: ats.missingSkills.map((m) => skillDisplayLabel(jdSkills, m)),
-    atsScore: ats.atsScore,
-    jdMatchScore: ats.jdMatchScore,
-    resumeSkillCoverage: ats.resumeSkillCoverage,
+    matchedSkills: hybrid.matchedSkills.map((m) => skillDisplayLabel(jdSkills, m)),
+    missingSkills: hybrid.missingSkills.map((m) => skillDisplayLabel(jdSkills, m)),
+    atsScore: hybrid.overallScore,
+    jdMatchScore: hybrid.jdMatchScore ?? legacy.jdMatchScore,
+    resumeSkillCoverage: hybrid.resumeSkillCoverage ?? legacy.resumeSkillCoverage,
+    atsBreakdown: hybrid.breakdown,
   }
 }
 
 /** @param {{ applicationId?: string, jobId?: string, jobDescription?: string, requiredSkills?: string[], mode?: string }} options */
 export function resolveInterviewQuestionMode(options = {}) {
+  if (options.mode === 'vendor_jd') return 'vendor_jd'
   if (options.mode === 'resume_only') return 'resume_only'
   if (options.mode === 'employer' || options.applicationId || options.jobId) return 'employer'
   if (options.mode === 'individual_jd') return 'individual_jd'
@@ -877,6 +900,10 @@ function buildAdaptiveQuestionSystemPrompt(p) {
     p.first === 'there'
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
       : `You may use the first name "${p.first}" once if natural.`
+  const jdAttached = String(p.jobDescription || '').trim().length >= 40
+  const jdRule = jdAttached
+    ? `- EMPLOYER JOB DESCRIPTION IS ATTACHED: Every question must reference a specific requirement, responsibility, tech stack item, or deliverable from that JD (paraphrase is fine). Do not ask generic trivia unrelated to the JD.`
+    : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
 Rules:
@@ -886,6 +913,7 @@ Rules:
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
 - category must be one of: Communication, Technical, Problem Solving, Experience.
+${jdRule}
 
 Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
 }
@@ -928,6 +956,25 @@ export function generateAdaptiveQuestionLocal(input) {
   /** @type {object[]} */
   const candidates = []
   if (history.length === 0) {
+    if (jobDescription.trim().length >= 40) {
+      const jdSkill =
+        nextResumeSkillInJobDescription(jobDescription, ctx, history) ||
+        extractPrimarySkillsFromJd(jobDescription, [])[0] ||
+        ''
+      if (jdSkill) {
+        candidates.push({
+          text: spokenLead(
+            first,
+            `this role's job description highlights ${jdSkill}. Walk me through a real example where you used ${jdSkill} for ${role} work — situation, what you did, and the outcome.`,
+          ),
+          category: 'Technical',
+          keywords: unique([String(jdSkill).toLowerCase(), 'jd', role.toLowerCase(), 'outcome']),
+          hint: 'Tie your answer to the employer JD requirement.',
+          topic: String(jdSkill),
+          focus: 'jd-first',
+        })
+      }
+    }
     candidates.push(buildFirstAdaptiveQuestionLocal(first, role, level, ctx))
   } else {
     const claimed = extractClaimedSkills(lastAnswer).filter((skill) => !questionMentions(history, skill))
@@ -1027,7 +1074,13 @@ export async function generateAdaptiveQuestion(input) {
 
   if (!llmConfigured()) return generateAdaptiveQuestionLocal(localInput)
 
-  const system = buildAdaptiveQuestionSystemPrompt({ turnNumber, role, level, first })
+  const system = buildAdaptiveQuestionSystemPrompt({
+    turnNumber,
+    role,
+    level,
+    first,
+    jobDescription,
+  })
   const user = buildAdaptiveQuestionUserPayload({
     turnNumber,
     role,

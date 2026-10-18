@@ -154,13 +154,32 @@ export async function checkLlmStatus(): Promise<{
  * Start an interview session with Ava.
  * Tries Google Gemini AI, falling back smoothly to local resume questions.
  */
+export type InterviewStartOptions = {
+  jobDescription?: string
+  explicitRoleTrack?: boolean
+  jobId?: string
+  applicationId?: string
+  organizationId?: string
+  questionMode?: 'employer' | 'individual_jd' | 'resume_only' | 'vendor_jd'
+  primarySkills?: string[]
+  atsScore?: number
+  jdMatchScore?: number
+}
+
 export async function startInterviewSession(
   role: string,
   level: string,
   profile: SavedProfile | null,
-  jobDescription?: string,
-  explicitRoleTrack?: boolean,
+  options?: InterviewStartOptions | string,
+  explicitRoleTrackLegacy?: boolean,
 ): Promise<InterviewStartResponse> {
+  const opts: InterviewStartOptions =
+    typeof options === 'string'
+      ? { jobDescription: options, explicitRoleTrack: explicitRoleTrackLegacy }
+      : options || {}
+  const jobDescription = opts.jobDescription
+  const explicitRoleTrack = opts.explicitRoleTrack
+  const isVendorJob = Boolean(opts.jobId || opts.applicationId)
   const agentProfile = enrichProfileForAgent(profile)
   await ensureApiSession()
 
@@ -175,38 +194,59 @@ export async function startInterviewSession(
         jobDescription,
         adaptive: true,
         explicitRoleTrack: Boolean(explicitRoleTrack),
+        jobId: opts.jobId,
+        applicationId: opts.applicationId,
+        organizationId: opts.organizationId,
+        questionMode: opts.questionMode,
+        primarySkills: opts.primarySkills,
+        atsScore: opts.atsScore,
+        jdMatchScore: opts.jdMatchScore,
       }),
     })
+    const data = await res.json().catch(() => ({} as Record<string, unknown>))
     if (res.ok) {
-      const data = await res.json()
       const adaptive = data.adaptive !== false && Boolean(data.adaptive ?? data.mode === 'adaptive')
-      const questions = data.questions
+      const questions = data.questions as Question[] | undefined
       const hasQuestions =
         Array.isArray(questions) &&
         (adaptive ? questions.length >= 1 : questions.length >= 3)
       if (hasQuestions) {
-        const llmAgent = data.agent === 'llm' || data.llm || data.agent === 'llm-adaptive'
+        const llmAgent =
+          data.agent === 'llm' ||
+          data.llm ||
+          data.agent === 'llm-adaptive' ||
+          data.agent === 'vendor-jd-llm'
         const totalTurns =
           typeof data.total === 'number' && data.total > 0
             ? data.total
             : adaptive
               ? INTERVIEW_TURN_COUNT
-              : questions.length
+              : questions!.length
         return {
-          sessionId: data.sessionId || `session-${Date.now().toString(36)}`,
+          sessionId: (data.sessionId as string) || `session-${Date.now().toString(36)}`,
           agent: llmAgent
             ? 'Ava · Google Gemini · adaptive'
-            : data.agent || 'Ava · adaptive agent',
+            : (data.agent as string) || 'Ava · adaptive agent',
           llm: Boolean(llmAgent),
           total: totalTurns,
-          questions,
-          question: questions[0],
+          questions: questions!,
+          question: questions![0],
           offline: false,
           adaptive,
         }
       }
+      if (isVendorJob) {
+        throw new Error(
+          String((data as { error?: string }).error || 'Interview start returned no questions.'),
+        )
+      }
+    } else if (isVendorJob) {
+      throw new Error(
+        String((data as { error?: string }).error || `Interview start failed (${res.status})`),
+      )
     }
-  } catch {
+  } catch (err) {
+    if (isVendorJob) throw err
     // backend not running, proceed to direct Gemini call
   }
 
