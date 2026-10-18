@@ -20,10 +20,6 @@ import {
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
-import {
-  beginImmediateInterviewTest,
-  isImmediateInterviewTestEnabled,
-} from '../lib/interviewTestMode'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -319,18 +315,6 @@ export function ProfileWizard() {
                 </span>
                 All changes are saved automatically
               </p>
-
-              {step === 4 && isImmediateInterviewTestEnabled() && (
-                <MotionButton
-                  type="button"
-                  className={styles.backBtn}
-                  disabled={saving}
-                  onClick={() => beginImmediateInterviewTest(navigate)}
-                  lift
-                >
-                  Test: interview now
-                </MotionButton>
-              )}
 
               <MotionButton
                 type="button"

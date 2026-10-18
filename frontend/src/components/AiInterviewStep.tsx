@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
 import { fetchMailStatus } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
-import { beginImmediateInterviewTest, isImmediateInterviewTestEnabled } from '../lib/interviewTestMode'
+import { beginImmediateInterviewTest } from '../lib/interviewTestMode'
 import { getInterviewResult, getProfile } from '../lib/store'
 import styles from './AiInterviewStep.module.css'
 
@@ -176,12 +176,10 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       >
         {confirmLoading ? 'Sending…' : 'Confirm slot & email me'}
       </button>
-      {isImmediateInterviewTestEnabled() && (
-        <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
-          <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
-          Test: take interview immediately
-        </button>
-      )}
+      <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
+        <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
+        Take the interview now
+      </button>
       {smtpReady === false && (
         <p className={styles.smtpHint}>
           Email delivery needs Gmail SMTP on the server (SMTP_EMAIL and SMTP_APP_PASSWORD in .env).
