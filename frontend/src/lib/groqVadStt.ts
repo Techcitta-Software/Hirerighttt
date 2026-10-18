@@ -71,13 +71,15 @@ export async function createGroqVadSttController(
       pauseStream: async () => undefined,
       resumeStream: async (stream) => stream,
       onSpeechStart: () => {
-        if (handlers.isAiSpeaking()) handlers.onBargeIn?.()
-        else handlers.onSpeechStart?.()
+        if (handlers.isAiSpeaking()) return
+        handlers.onSpeechStart?.()
       },
       onSpeechRealStart: () => {
-        if (!handlers.isAiSpeaking()) handlers.onSpeechCaptureStart?.()
+        if (handlers.isAiSpeaking()) return
+        handlers.onSpeechCaptureStart?.()
       },
       onSpeechEnd: async (audio: Float32Array) => {
+        if (handlers.isAiSpeaking()) return
         handlers.onSpeechCaptureEnd?.()
         try {
           if (!audio?.length) return

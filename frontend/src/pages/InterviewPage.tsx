@@ -333,7 +333,6 @@ export function InterviewPage() {
     void createGroqVadSttController({
       getStream: () => streamRef.current,
       isAiSpeaking: () => aiSpeakingRef.current,
-      onBargeIn: () => handleBargeIn(),
       onSpeechCaptureStart: () => setSttPhase('capturing'),
       onTranscribing: (active) => setSttPhase(active ? 'transcribing' : 'idle'),
       onSegmentText: (text) => applyTranscriptSegmentRef.current(text),
@@ -642,9 +641,9 @@ export function InterviewPage() {
     listenAfterTtsRef.current = true
   }
 
-  function startListening(options?: { duringTts?: boolean }) {
+  function startListening() {
     if (!speechSupported || !micOnRef.current) return
-    if (aiSpeakingRef.current && !options?.duringTts) return
+    if (aiSpeakingRef.current) return
     stopListening()
     baseDraftRef.current = draftRef.current.trim()
     transcriptCommittedRef.current = baseDraftRef.current
@@ -702,6 +701,7 @@ export function InterviewPage() {
       listeningRef.current = false
       if (
         listenAfterTtsRef.current &&
+        !aiSpeakingRef.current &&
         stageRef.current === 'interview' &&
         micOnRef.current &&
         !finishingRef.current &&
@@ -731,7 +731,8 @@ export function InterviewPage() {
     if (stage !== 'interview' || !question) return
 
     const gen = ++speakGenRef.current
-    listenAfterTtsRef.current = true
+    listenAfterTtsRef.current = false
+    stopListening()
     lastSpeechAtRef.current = 0
     setDraft('')
     draftRef.current = ''
@@ -751,10 +752,6 @@ export function InterviewPage() {
         : '')
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
-
-    if (micOnRef.current && speechSupported) {
-      window.setTimeout(() => startListening({ duringTts: true }), 450)
-    }
 
     speakText(spoken, {
       onStart: () => {
@@ -788,6 +785,7 @@ export function InterviewPage() {
     return () => {
       speakGenRef.current += 1
       cancelSpeech()
+      stopListening()
       setAiSpeaking(false)
       aiSpeakingRef.current = false
     }
@@ -1890,7 +1888,7 @@ export function InterviewPage() {
                   <button
                     type="button"
                     className={`${styles.roundBtn} ${listening ? styles.roundLive : ''}`}
-                    onClick={() => (listening ? stopListening() : startListening({ duringTts: true }))}
+                    onClick={() => (listening ? stopListening() : startListening())}
                     disabled={!micOn}
                   >
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
