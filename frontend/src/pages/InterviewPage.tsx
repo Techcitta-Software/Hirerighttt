@@ -59,6 +59,10 @@ import {
   type GroqVadSttController,
 } from '../lib/groqVadStt'
 import { parseResumeFile } from '../lib/resumeParser'
+import {
+  collectInterviewPairs,
+  hasSubstantiveInterviewProgress,
+} from '../lib/interviewFinish'
 import { readTargetJob } from '../lib/targetJob'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
@@ -918,14 +922,17 @@ export function InterviewPage() {
     if (finishingRef.current || stage !== 'interview') return
     stopAllSpeech()
     const next = [...answersRef.current]
+    while (next.length <= current) next.push('')
     next[current] = draftRef.current.trim()
     answersRef.current = next
-    const answered = next.filter((a) => a?.trim()).length
-    if (answered < 1 && !next[current]?.trim()) {
-      setDeviceError('Answer at least one question, or say "end the interview" after you respond.')
+    finishingRef.current = true
+    setDeviceError('')
+    if (!hasSubstantiveInterviewProgress(next, historyRef.current, draftRef.current, 1)) {
+      setIsRecording(false)
+      void recorderRef.current.stop()
+      navigate('/profile', { replace: true })
       return
     }
-    finishingRef.current = true
     finish(next, false)
   }
 
@@ -1081,19 +1088,38 @@ export function InterviewPage() {
         }
         setRecordingNote(recordingNoteLocal)
 
-        const answerCount = finalAnswers.length
-        const trimmedQuestions = questions.slice(0, answerCount)
-        const trimmedAnswers = finalAnswers.slice(0, trimmedQuestions.length)
+        const paired = collectInterviewPairs(
+          questions,
+          finalAnswers,
+          historyRef.current,
+        )
+        if (!paired.questions.length) {
+          throw new Error('No answered questions to score.')
+        }
 
-        let scored = await scoreInterviewRemote({
-          sessionId: sessionIdRef.current,
-          role,
-          level,
-          questions: trimmedQuestions,
-          answers: trimmedAnswers,
-          profile: getProfile() ?? profile,
-          integrity,
-        })
+        let scored: InterviewResult
+        try {
+          scored = await scoreInterviewRemote({
+            sessionId: sessionIdRef.current,
+            role,
+            level,
+            questions: paired.questions,
+            answers: paired.answers,
+            profile: getProfile() ?? profile,
+            integrity,
+          })
+        } catch (scoreErr) {
+          console.warn('[InterviewPage] score failed, retrying local score', scoreErr)
+          scored = await scoreInterviewRemote({
+            sessionId: null,
+            role,
+            level,
+            questions: paired.questions,
+            answers: paired.answers,
+            profile: getProfile() ?? profile,
+            integrity,
+          })
+        }
         if (integrity.banned) {
           scored = {
             ...scored,
@@ -1118,6 +1144,9 @@ export function InterviewPage() {
         if (targetJobRaw?.applicationId) {
           attachInterviewToApplicant(targetJobRaw.applicationId, scored)
         }
+        const isRecruiterJobInterview = Boolean(
+          targetJobRaw?.applicationId || targetJobRaw?.jobId,
+        )
         if (targetJobRaw && !integrity.banned) {
           try {
             applyToJob({
@@ -1131,9 +1160,20 @@ export function InterviewPage() {
           }
           sessionStorage.removeItem('hireright.targetJob')
         }
-        setResult(scored)
-        setStage('results')
-      })()
+        finishingRef.current = false
+        if (isRecruiterJobInterview) {
+          setResult(scored)
+          setStage('results')
+        } else {
+          navigate('/profile', { replace: true })
+        }
+      })().catch((err) => {
+        finishingRef.current = false
+        setStage('interview')
+        setDeviceError(
+          err instanceof Error ? err.message : 'Could not finish the interview. Try Leave again.',
+        )
+      })
     }, 1200)
   }
 
@@ -1213,7 +1253,9 @@ export function InterviewPage() {
     return 'Waiting for Ava to finish the question…'
   })()
 
-  const callStatus = advancing
+  const callStatus = deviceError
+    ? deviceError
+    : advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
       ? 'Recording your answer — watch the live caption'
