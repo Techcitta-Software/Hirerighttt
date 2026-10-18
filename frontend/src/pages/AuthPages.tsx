@@ -86,7 +86,7 @@ async function authenticateWithEmailPassword(
     } else {
       supabaseRejected = true
       const demo = getDemoAccount(targetEmail, password)
-      if (!demo) {
+      if (!demo && !import.meta.env.DEV) {
         return { user: null, error: sbErr.message }
       }
     }
@@ -497,7 +497,8 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     setLoading(true)
 
     try {
-      if (isSupabaseEnabled()) {
+      // Dev builds skip Supabase sign-up: it sends a confirmation email per signup and hits Supabase's hourly email rate limit.
+      if (isSupabaseEnabled() && !import.meta.env.DEV) {
         const { error: sbErr } = await supabaseSignUp({
           name: signupName.trim(),
           email: signupEmail.trim().toLowerCase(),

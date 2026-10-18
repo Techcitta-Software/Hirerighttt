@@ -8,6 +8,7 @@ export function createAuthRouter(ctx) {
   const router = Router()
   const {
     config,
+    isProdLike,
     json,
     readBody,
     rateLimit,
@@ -38,7 +39,7 @@ export function createAuthRouter(ctx) {
     if (!config.signupEnabled) {
       return json(res, 403, { error: 'Sign-up is disabled on this deployment.' })
     }
-    if (!rateLimit(`signup:${ip}`, 8)) {
+    if (isProdLike && !rateLimit(`signup:${ip}`, 8)) {
       return json(res, 429, { error: 'Too many signup attempts. Try again shortly.' })
     }
     const body = await readBody(req)
