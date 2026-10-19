@@ -220,9 +220,12 @@ export function createJobApplication(db, job, payload) {
     (a) => a.jobId === job.id && a.candidateEmail === email,
   )
   if (dup) {
-    if (dup.candidateUserId && dup.candidateUserId !== payload.candidateUserId) throw Object.assign(new Error('Application belongs to another account.'), { status: 403 })
+    if (dup.candidateUserId && dup.candidateUserId !== payload.candidateUserId) {
+      throw Object.assign(new Error('Application belongs to another account.'), { status: 403 })
+    }
     dup.candidateUserId = payload.candidateUserId || dup.candidateUserId
-    return { application: dup, created: false }
+    mergeApplicationPayload(dup, job, payload)
+    return { application: dup, created: false, ats: dup.data }
   }
 
   const resumeText = String(payload.resumeText || '')
@@ -245,6 +248,7 @@ export function createJobApplication(db, job, payload) {
     data: {
       candidateName: String(payload.candidateName || '').trim(),
       candidatePhone: String(payload.candidatePhone || '').trim(),
+      candidateRole: String(payload.candidateRole || '').trim(),
       experienceYears: String(payload.experienceYears || '').trim(),
       resumeName: String(payload.resumeName || 'resume'),
       resumeText: resumeText.slice(0, 50000),
@@ -271,6 +275,76 @@ export function createJobApplication(db, job, payload) {
   }
   db.employerApplications.push(application)
   return { application, created: true, ats }
+}
+
+/** @param {import('../db/store.mjs').SaasJob} job */
+function mergeApplicationPayload(application, job, payload) {
+  const resumeText = String(payload.resumeText || application.data?.resumeText || '')
+  const ats =
+    payload.atsEvaluation ||
+    (resumeText.trim().length >= 30
+      ? computeAtsScore({
+          resumeText,
+          jobDescription: job.jobDescription || '',
+          requiredSkills: job.requiredSkills || [],
+        })
+      : null)
+  application.data = {
+    ...(application.data || {}),
+    candidateName: String(payload.candidateName || application.data?.candidateName || '').trim(),
+    candidatePhone: String(payload.candidatePhone || application.data?.candidatePhone || '').trim(),
+    candidateRole: String(payload.candidateRole || application.data?.candidateRole || '').trim(),
+    experienceYears: String(payload.experienceYears || application.data?.experienceYears || '').trim(),
+    resumeName: String(payload.resumeName || application.data?.resumeName || 'resume'),
+    resumeText: resumeText.slice(0, 50000),
+    jobTitle: job.title,
+    company: job.company,
+    roleTrack: job.roleTrack,
+    ...(ats
+      ? {
+          atsScore: ats.atsScore,
+          jdMatchScore: ats.jdMatchScore,
+          resumeSkillCoverage: ats.resumeSkillCoverage,
+          primarySkills: ats.primarySkills,
+          matchedSkills: ats.matchedSkills,
+          missingSkills: ats.missingSkills,
+          atsStrengths: ats.strengths || [],
+          atsGaps: ats.gaps || [],
+          atsSummary: ats.summary || '',
+          atsConfidence: ats.confidence || 'medium',
+          aiEnhancedAts: Boolean(ats.aiEnhanced),
+          atsBreakdown: ats.atsBreakdown || null,
+          improvementTips: ats.improvementTips || [],
+        }
+      : {}),
+  }
+  application.appliedAt = new Date().toISOString()
+}
+
+/**
+ * Attach saved profile + AI interview report to an application row.
+ * @param {import('../db/store.mjs').DbShape} db
+ */
+export function attachCandidateReportToApplication(db, application, candidateEmail, options = {}) {
+  const email = String(candidateEmail || '').trim().toLowerCase()
+  if (!email || !application?.data) return application
+  const profile = db.profiles?.[email] || {}
+  if (!application.data.candidateRole) {
+    application.data.candidateRole = String(
+      options.candidateRole || profile.currentRole || '',
+    ).trim()
+  }
+  if (options.attachInterviewReport === false) return application
+  const interview = db.interviews?.[email]
+  if (!interview) return application
+  application.data.interviewResult = interview
+  if (typeof interview.overall === 'number') {
+    application.data.interviewScore = interview.overall
+  }
+  if (!application.data.candidateRole && interview.role) {
+    application.data.candidateRole = interview.role
+  }
+  return application
 }
 
 /** @param {import('../db/store.mjs').DbShape} db */

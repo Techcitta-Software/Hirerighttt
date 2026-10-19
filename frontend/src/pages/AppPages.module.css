@@ -1829,6 +1829,33 @@
   opacity: 0.85;
 }
 
+.skillPillRemove {
+  margin-left: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.skillPillRemove:hover {
+  opacity: 1;
+}
+
+.skillsSavingNotice {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  color: #5b46e5;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .atsCheckList {
   display: flex;
   flex-direction: column;

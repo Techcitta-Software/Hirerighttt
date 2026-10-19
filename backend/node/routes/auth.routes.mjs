@@ -207,12 +207,16 @@ export function createAuthRouter(ctx) {
     await saveDb(db)
     const account = db.users.find((u) => u.email === email)
     if (account && config.databaseUrl) {
-      void upsertCandidateTalent(
-        config.databaseUrl,
-        account,
-        db.profiles[email],
-        db.interviews[email],
-      ).catch((err) => console.warn('[talent] profile index:', err.message))
+      try {
+        await upsertCandidateTalent(
+          config.databaseUrl,
+          account,
+          db.profiles[email],
+          db.interviews[email],
+        )
+      } catch (err) {
+        console.warn('[talent] profile index:', err instanceof Error ? err.message : err)
+      }
     }
     return json(res, 200, { profile: db.profiles[email] })
   })

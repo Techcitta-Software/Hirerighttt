@@ -352,6 +352,49 @@ export async function syncEmployerApplicationsFromDatabase(databaseUrl, db) {
   return db
 }
 
+export async function upsertJobApplicationRecord(databaseUrl, email, record) {
+  if (!databaseUrl?.trim() || !email || !record?.id) return
+  await ensurePgSchema(databaseUrl)
+  const appliedAt = record.appliedAt || new Date().toISOString()
+  await getPool(databaseUrl).query(
+    `INSERT INTO job_applications (id, email, data, created_at)
+     VALUES ($1, $2, $3::jsonb, $4::timestamptz)
+     ON CONFLICT (email, id) DO UPDATE SET
+       data = EXCLUDED.data,
+       created_at = EXCLUDED.created_at`,
+    [record.id, String(email).trim().toLowerCase(), JSON.stringify(record), appliedAt],
+  )
+}
+
+export async function deleteJobApplicationRecord(databaseUrl, email, applicationId) {
+  if (!databaseUrl?.trim() || !email || !applicationId) return
+  await ensurePgSchema(databaseUrl)
+  await getPool(databaseUrl).query(
+    `DELETE FROM job_applications WHERE lower(email) = lower($1) AND id = $2`,
+    [email, applicationId],
+  )
+}
+
+/** @param {string} email */
+export async function loadJobApplicationsForEmail(databaseUrl, email) {
+  if (!databaseUrl?.trim() || !email) return []
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT id, data, created_at FROM job_applications
+     WHERE lower(email) = lower($1)
+     ORDER BY created_at DESC`,
+    [email],
+  )
+  return res.rows.map((row) => {
+    const data = row.data && typeof row.data === 'object' ? row.data : {}
+    return {
+      ...data,
+      id: String(row.id || data.id || ''),
+      appliedAt: data.appliedAt || (row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at),
+    }
+  })
+}
+
 export async function upsertEmployerApplicationRecord(databaseUrl, app) {
   if (!databaseUrl?.trim() || !app?.id) return
   await ensurePgSchema(databaseUrl)

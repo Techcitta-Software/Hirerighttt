@@ -2,6 +2,11 @@
    Pixel-perfect match to Image 2 design specification
 */
 
+.panelCardEmbedded {
+  margin-top: 20px;
+  margin-bottom: 8px;
+}
+
 .panelCard {
   margin-top: 24px;
   background: #ffffff;

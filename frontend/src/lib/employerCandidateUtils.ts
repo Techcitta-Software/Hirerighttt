@@ -56,6 +56,7 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     candidateEmail: a.candidateEmail,
     candidatePhone: a.data.candidatePhone || '',
     role:
+      a.data.candidateRole ||
       a.data.roleTrack ||
       (a.data.interviewResult as EmployerApplicant['interviewResult'])?.role ||
       a.data.jobTitle ||

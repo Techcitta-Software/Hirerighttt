@@ -693,6 +693,67 @@
   color: #64748b;
 }
 
+.rosterCountBtn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #4f46e5;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.rosterCountBtn:hover:not(:disabled) {
+  color: #4338ca;
+}
+
+.rosterCountBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.rosterModalSub {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.rosterTableWrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.rosterTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.rosterTable th {
+  text-align: left;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.rosterTable td {
+  padding: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #0f172a;
+}
+
+.rosterEmpty {
+  text-align: center;
+  color: #64748b;
+  padding: 24px 12px !important;
+}
+
 .jobFooterActions {
   display: flex;
   align-items: center;
