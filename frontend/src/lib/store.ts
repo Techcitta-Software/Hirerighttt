@@ -138,6 +138,9 @@ export type Application = {
   companySlug?: string | null
   atsScore?: number
   interviewScore?: number | null
+  jobStatus?: 'active' | 'deleted'
+  jobDeletedAt?: string
+  jobDeletedMessage?: string
 }
 
 export type EmployerJob = {

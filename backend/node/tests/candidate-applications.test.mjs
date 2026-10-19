@@ -5,6 +5,7 @@ import {
   buildCandidateJobApplicationRecord,
   recordCandidateJobApplication,
   mapEmployerStatusToCandidateStatus,
+  markCandidateJobApplicationsDeleted,
 } from '../vendor/candidateApplications.mjs'
 
 test('mapEmployerStatusToCandidateStatus maps pipeline states', () => {
@@ -55,4 +56,33 @@ test('recordCandidateJobApplication stores job details for candidate', () => {
 
   const built = buildCandidateJobApplicationRecord(job, employerApp, {})
   assert.equal(built.match, 82)
+  assert.equal(built.jobStatus, 'active')
+})
+
+test('markCandidateJobApplicationsDeleted updates jobStatus for matching jobId', () => {
+  const db = emptyDb()
+  db.applications = {
+    'cand@example.test': [
+      {
+        id: 'app-1',
+        jobId: 'job-1',
+        title: 'Role A',
+        jobStatus: 'active',
+      },
+      {
+        id: 'app-2',
+        jobId: 'job-2',
+        title: 'Role B',
+        jobStatus: 'active',
+      },
+    ],
+  }
+  const result = markCandidateJobApplicationsDeleted(db, 'job-1', {
+    title: 'Role A',
+    company: 'Acme',
+  })
+  assert.equal(result.updated, 1)
+  assert.equal(db.applications['cand@example.test'][0].jobStatus, 'deleted')
+  assert.equal(db.applications['cand@example.test'][1].jobStatus, 'active')
+  assert.match(db.applications['cand@example.test'][0].jobDeletedMessage, /employer/i)
 })

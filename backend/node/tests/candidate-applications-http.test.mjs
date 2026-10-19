@@ -137,6 +137,28 @@ test('public apply writes employer_applications and job_applications', { skip: !
     assert.equal(candRow.rowCount, 1)
     assert.equal(candRow.rows[0].data.jobId, job.id)
     assert.equal(candRow.rows[0].data.title, 'Full Stack Engineer')
+
+    const markDeleted = await request(
+      `/api/vendor/jobs/${job.id}/mark-deleted-for-candidates`,
+      'POST',
+      {},
+      empToken,
+    )
+    assert.equal(markDeleted.status, 200)
+    assert.equal(markDeleted.data.candidateApplicationsUpdated, 1)
+
+    const listedAfterDelete = await request('/api/applications', 'GET', undefined, candToken)
+    assert.equal(listedAfterDelete.data.applications[0].jobStatus, 'deleted')
+
+    const candRowAfter = await admin.query(
+      `SELECT data FROM ${schema}.job_applications WHERE lower(email) = lower($1)`,
+      [candEmail],
+    )
+    assert.equal(candRowAfter.rows[0].data.jobStatus, 'deleted')
+
+    const withdraw = await request(`/api/applications/${applied.data.applicationId}`, 'DELETE', undefined, candToken)
+    assert.equal(withdraw.status, 200)
+    assert.equal(withdraw.data.applications.length, 0)
   } finally {
     child.kill('SIGTERM')
     await new Promise((r) => setChildExit(child, r))

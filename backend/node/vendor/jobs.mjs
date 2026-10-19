@@ -174,10 +174,24 @@ export function listOpenJobsPage(db, limit, offset) {
   }
 }
 
-/** @param {import('../db/store.mjs').DbShape} db */
-export function listOrgJobs(db, organizationId) {
+/**
+ * @param {import('../db/store.mjs').DbShape} db
+ * @param {{ createdByUserId?: string, createdByEmail?: string }} [options]
+ */
+export function listOrgJobs(db, organizationId, options = {}) {
+  const orgId = String(organizationId || '')
+  const userId = options.createdByUserId ? String(options.createdByUserId) : ''
+  const userEmail = String(options.createdByEmail || '').trim().toLowerCase()
   return (db.jobs || [])
-    .filter((j) => j.organizationId === organizationId && j.status !== 'archived')
+    .filter((j) => {
+      if (String(j.organizationId) !== orgId) return false
+      if (j.status === 'archived' || j.status === 'deleted') return false
+      if (!userId) return true
+      if (String(j.createdByUserId || '') === userId) return true
+      const creatorEmail = String(j.createdByEmail || '').trim().toLowerCase()
+      if (!j.createdByUserId && userEmail && creatorEmail === userEmail) return true
+      return false
+    })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
 }
 

@@ -125,6 +125,9 @@ export type ApiApplication = {
   companySlug?: string | null
   atsScore?: number
   interviewScore?: number | null
+  jobStatus?: 'active' | 'deleted'
+  jobDeletedAt?: string
+  jobDeletedMessage?: string
 }
 
 export async function apiListApplications(): Promise<ApiApplication[]> {

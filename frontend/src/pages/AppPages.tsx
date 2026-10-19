@@ -2217,6 +2217,7 @@ export function ApplicationsPage() {
   const [apps, setApps] = useState<Application[]>([])
   const [appsLoading, setAppsLoading] = useState(true)
   const [appsError, setAppsError] = useState('')
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null)
   const interview = getInterviewResult()
 
   useEffect(() => {
@@ -2254,6 +2255,7 @@ export function ApplicationsPage() {
   }, [])
 
   async function handleWithdraw(id: string) {
+    setWithdrawingId(id)
     try {
       await ensureApiSession()
       const next = await apiWithdrawApplication(id)
@@ -2263,6 +2265,8 @@ export function ApplicationsPage() {
       const next = getApplications().filter((a) => a.id !== id)
       saveApplications(next)
       setApps(next)
+    } finally {
+      setWithdrawingId(null)
     }
   }
 
@@ -2316,35 +2320,50 @@ export function ApplicationsPage() {
             </motion.aside>
           ) : !appsLoading ? (
             <div className={styles.jobList}>
-              {apps.map((app) => (
-                <motion.article key={app.id} className={styles.jobCard} variants={fadeUp}>
-                  <div>
-                    <h2>{app.title}</h2>
-                    <p>
-                      {app.company} · {app.location}
-                      {app.roleTrack ? ` · ${app.roleTrack}` : ''}
-                    </p>
-                    <span className={styles.lockTag}>
-                      {app.status} · {new Date(app.appliedAt).toLocaleDateString()}
-                      {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
-                    </span>
-                  </div>
-                  <div className={styles.jobRight}>
-                    <b>
-                      {app.interviewScore != null
-                        ? `${app.interviewScore}% Interview`
-                        : `${app.match}% Match`}
-                    </b>
-                    <button
-                      type="button"
-                      className={styles.secondary}
-                      onClick={() => handleWithdraw(app.id)}
-                    >
-                      Withdraw
-                    </button>
-                  </div>
-                </motion.article>
-              ))}
+              {apps.map((app) => {
+                const jobRemoved = app.jobStatus === 'deleted'
+                return (
+                  <motion.article
+                    key={app.id}
+                    className={`${styles.jobCard} ${jobRemoved ? styles.jobCardEmployerDeleted : ''}`}
+                    variants={fadeUp}
+                  >
+                    <div>
+                      <h2>{app.title}</h2>
+                      <p>
+                        {app.company} · {app.location}
+                        {app.roleTrack ? ` · ${app.roleTrack}` : ''}
+                      </p>
+                      {jobRemoved ? (
+                        <p className={styles.jobDeletedBanner} role="status">
+                          {app.jobDeletedMessage ||
+                            'This job was removed by the employer. You can withdraw this application.'}
+                        </p>
+                      ) : null}
+                      <span className={styles.lockTag}>
+                        {jobRemoved ? 'Job deleted' : app.status} ·{' '}
+                        {new Date(app.appliedAt).toLocaleDateString()}
+                        {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
+                      </span>
+                    </div>
+                    <div className={styles.jobRight}>
+                      <b>
+                        {app.interviewScore != null
+                          ? `${app.interviewScore}% Interview`
+                          : `${app.match}% Match`}
+                      </b>
+                      <button
+                        type="button"
+                        className={styles.secondary}
+                        disabled={withdrawingId === app.id}
+                        onClick={() => void handleWithdraw(app.id)}
+                      >
+                        {withdrawingId === app.id ? 'Withdrawing…' : 'Withdraw'}
+                      </button>
+                    </div>
+                  </motion.article>
+                )
+              })}
             </div>
           ) : null}
         </motion.main>

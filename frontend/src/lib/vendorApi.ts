@@ -109,7 +109,17 @@ export async function deleteVendorJob(jobId: string) {
   const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',
   })
-  return parse<{ ok: boolean; id: string; title?: string }>(res)
+  return parse<{ ok: boolean; id: string; title?: string; candidateApplicationsUpdated?: number }>(
+    res,
+  )
+}
+
+export async function markVendorJobDeletedForCandidates(jobId: string) {
+  const res = await apiFetch(
+    `/api/vendor/jobs/${encodeURIComponent(jobId)}/mark-deleted-for-candidates`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+  return parse<{ ok: boolean; jobId: string; candidateApplicationsUpdated: number }>(res)
 }
 
 export async function fetchJobApplicants(jobId: string) {

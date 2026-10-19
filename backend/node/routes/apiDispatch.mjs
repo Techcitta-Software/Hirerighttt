@@ -8,10 +8,12 @@ import {
   upsertJobApplicationRecord,
   deleteJobApplicationRecord,
   loadJobApplicationsForEmail,
+  markJobApplicationsDeletedInPostgres,
   deleteJobRecord,
   dbPool,
   loadDb as reloadDbFromStore,
   syncOpenJobsFromDatabase,
+  syncOrgJobsFromDatabase,
   syncEmployerApplicationsFromDatabase,
 } from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
@@ -54,7 +56,11 @@ import {
   publicJobPayload,
 } from '../vendor/jobs.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
-import { recordCandidateJobApplication } from '../vendor/candidateApplications.mjs'
+import {
+  JOB_DELETED_MESSAGE,
+  markCandidateJobApplicationsDeleted,
+  recordCandidateJobApplication,
+} from '../vendor/candidateApplications.mjs'
 import { computeEmployerInterviewComposite } from '../atsScorer.mjs'
 import {
   generateAdaptiveQuestion,
@@ -317,8 +323,48 @@ export function createApiDispatchMiddleware(ctx) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
-      const jobs = listOrgJobs(db, ctx.tenant.organization.id)
-      return json(res, 200, { jobs })
+      const orgId = ctx.tenant.organization.id
+      if (config.databaseUrl) {
+        await syncOrgJobsFromDatabase(config.databaseUrl, db, orgId)
+      }
+      const jobs = listOrgJobs(db, orgId, {
+        createdByUserId: ctx.user.id,
+        createdByEmail: ctx.user.email,
+      }).map((job) => publicJobPayload(job))
+      return json(res, 200, { jobs, total: jobs.length, organizationId: orgId })
+    }
+
+    if (
+      req.method === 'POST' &&
+      /^\/api\/vendor\/jobs\/[^/]+\/mark-deleted-for-candidates$/.test(path)
+    ) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const jobId = path.split('/')[4]
+      const orgId = ctx.tenant.organization.id
+      const job = getOrgJob(db, orgId, jobId)
+      if (!job) {
+        return json(res, 404, { error: 'Job not found.' })
+      }
+      const marked = markCandidateJobApplicationsDeleted(db, jobId, {
+        title: job.title,
+        company: job.company,
+      })
+      if (config.databaseUrl) {
+        await markJobApplicationsDeletedInPostgres(config.databaseUrl, jobId, {
+          jobDeletedMessage: JOB_DELETED_MESSAGE,
+        })
+        for (const row of marked.records) {
+          await upsertJobApplicationRecord(config.databaseUrl, row.email, row.record)
+        }
+      }
+      await saveDb(db)
+      return json(res, 200, {
+        ok: true,
+        jobId,
+        candidateApplicationsUpdated: marked.updated,
+      })
     }
 
     if (
@@ -329,13 +375,33 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const jobId = path.split('/')[4]
+      const orgId = ctx.tenant.organization.id
       try {
-        const removed = deleteVendorJob(db, ctx.tenant.organization.id, jobId)
+        const job = getOrgJob(db, orgId, jobId)
+        const marked = job
+          ? markCandidateJobApplicationsDeleted(db, jobId, {
+              title: job.title,
+              company: job.company,
+            })
+          : { updated: 0, records: [] }
+        const removed = deleteVendorJob(db, orgId, jobId)
         if (config.databaseUrl) {
-          await deleteJobRecord(config.databaseUrl, jobId, ctx.tenant.organization.id)
+          if (marked.updated > 0) {
+            await markJobApplicationsDeletedInPostgres(config.databaseUrl, jobId, {
+              jobDeletedMessage: JOB_DELETED_MESSAGE,
+            })
+            for (const row of marked.records) {
+              await upsertJobApplicationRecord(config.databaseUrl, row.email, row.record)
+            }
+          }
+          await deleteJobRecord(config.databaseUrl, jobId, orgId)
         }
         await saveDb(db)
-        return json(res, 200, { ok: true, ...removed })
+        return json(res, 200, {
+          ok: true,
+          ...removed,
+          candidateApplicationsUpdated: marked.updated,
+        })
       } catch (err) {
         const status = err.status || 500
         return json(res, status, { error: err.message || 'Could not delete job.' })
@@ -1461,6 +1527,10 @@ export function createApiDispatchMiddleware(ctx) {
         applications = await loadJobApplicationsForEmail(config.databaseUrl, email)
         db.applications[email] = applications
       }
+      applications = (applications || []).map((row) => ({
+        ...row,
+        jobStatus: row.jobStatus === 'deleted' ? 'deleted' : 'active',
+      }))
       return json(res, 200, { applications })
     }
 

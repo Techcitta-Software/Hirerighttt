@@ -280,6 +280,27 @@ function mapJobRow(r) {
   }
 }
 
+/** Merge all jobs for one employer org from Postgres (vendor dashboard). */
+export async function syncOrgJobsFromDatabase(databaseUrl, db, organizationId) {
+  const orgId = String(organizationId || '').trim()
+  if (!databaseUrl?.trim() || !orgId) return db
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT * FROM jobs
+     WHERE organization_id = $1
+       AND COALESCE(status, 'published') NOT IN ('archived', 'deleted')
+     ORDER BY created_at DESC`,
+    [orgId],
+  )
+  const fromPg = res.rows.map((r) => mapJobRow(r))
+  const byId = new Map((db.jobs || []).map((j) => [j.id, j]))
+  for (const job of fromPg) {
+    byId.set(job.id, { ...byId.get(job.id), ...job })
+  }
+  db.jobs = [...byId.values()]
+  return db
+}
+
 /** Merge active/published jobs from Postgres into the in-memory db (candidate job board). */
 export async function syncOpenJobsFromDatabase(databaseUrl, db) {
   if (!databaseUrl?.trim()) return db
@@ -364,6 +385,24 @@ export async function upsertJobApplicationRecord(databaseUrl, email, record) {
        created_at = EXCLUDED.created_at`,
     [record.id, String(email).trim().toLowerCase(), JSON.stringify(record), appliedAt],
   )
+}
+
+export async function markJobApplicationsDeletedInPostgres(databaseUrl, jobId, patch = {}) {
+  const id = String(jobId || '').trim()
+  if (!databaseUrl?.trim() || !id) return 0
+  await ensurePgSchema(databaseUrl)
+  const merged = {
+    jobStatus: 'deleted',
+    jobDeletedAt: patch.jobDeletedAt || new Date().toISOString(),
+    jobDeletedMessage: patch.jobDeletedMessage || 'This job was removed by the employer.',
+  }
+  const res = await getPool(databaseUrl).query(
+    `UPDATE job_applications
+     SET data = COALESCE(data, '{}'::jsonb) || $2::jsonb
+     WHERE data->>'jobId' = $1`,
+    [id, JSON.stringify(merged)],
+  )
+  return res.rowCount || 0
 }
 
 export async function deleteJobApplicationRecord(databaseUrl, email, applicationId) {

@@ -56,8 +56,45 @@ export function buildCandidateJobApplicationRecord(job, employerApp, options = {
     atsScore: data.atsScore,
     jdMatchScore: data.jdMatchScore,
     interviewScore: interviewOverall,
+    jobStatus: 'active',
   }
 }
+
+const JOB_DELETED_MESSAGE = 'This job was removed by the employer.'
+
+/**
+ * Mark every candidate `job_applications` row for a deleted posting.
+ * @param {import('../db/store.mjs').DbShape} db
+ * @param {string} jobId
+ * @param {{ title?: string, company?: string }} [meta]
+ */
+export function markCandidateJobApplicationsDeleted(db, jobId, meta = {}) {
+  const id = String(jobId || '').trim()
+  if (!id) return { updated: 0, records: [] }
+  const deletedAt = new Date().toISOString()
+  const patch = {
+    jobStatus: 'deleted',
+    jobDeletedAt: deletedAt,
+    jobDeletedMessage: JOB_DELETED_MESSAGE,
+    ...(meta.title ? { title: meta.title } : {}),
+    ...(meta.company ? { company: meta.company } : {}),
+  }
+  const updatedRecords = []
+  db.applications = db.applications || {}
+  for (const email of Object.keys(db.applications)) {
+    const list = db.applications[email]
+    if (!Array.isArray(list)) continue
+    for (let i = 0; i < list.length; i++) {
+      if (String(list[i]?.jobId || '') !== id) continue
+      const next = { ...list[i], ...patch }
+      list[i] = next
+      updatedRecords.push({ email, record: next })
+    }
+  }
+  return { updated: updatedRecords.length, records: updatedRecords }
+}
+
+export { JOB_DELETED_MESSAGE }
 
 /**
  * @param {import('../db/store.mjs').DbShape} db

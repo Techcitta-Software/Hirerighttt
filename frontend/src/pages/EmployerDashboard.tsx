@@ -26,6 +26,7 @@ import {
 import {
   createVendorJob,
   deleteVendorJob,
+  markVendorJobDeletedForCandidates,
   fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
@@ -113,6 +114,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     applicant: EmployerApplicant
   } | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
   // New Job Form State
   const [newJobTitle, setNewJobTitle] = useState('')
   const [newJobRoleTrack, setNewJobRoleTrack] = useState('Frontend Developer')
@@ -228,7 +230,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }, [user?.email, user?.role, isCandidatesView])
 
   const showCandidateTable = isCandidatesView
-  const featuredJob = jobs[0] ?? null
 
   function handleClearFilters() {
     setSearchFilter('')
@@ -428,49 +429,43 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }
 
   async function handleDeleteJob(job: EmployerJob) {
-    if (isOptimisticJobId(job.id)) return
+    if (isOptimisticJobId(job.id) || deletingJobId) return
     const ok = window.confirm(
       `Delete “${job.title}”?\n\nThis removes the job posting from your dashboard and the database. Application links for this opening will stop working.`,
     )
     if (!ok) return
 
-    const prevJobs = jobs
-    const prevCounts = jobCounts
-    const prevApplicants = applicants
-    const prevSelectedJobId = selectedJobId
-    const prevSelectedJobTitle = selectedJobTitle
-
-    bumpJobsLoadGeneration()
-    setJobs((prev) => prev.filter((j) => j.id !== job.id))
-    setJobCounts((prev) => {
-      const next = { ...prev }
-      delete next[job.id]
-      return next
-    })
-    if (selectedJobId === job.id) {
-      setSelectedJobId(null)
-      setSelectedJobTitle('')
-      setApplicants([])
-    } else {
-      setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
-    }
+    setDeletingJobId(job.id)
     setPortalError('')
-    setPortalSyncNote(`Job “${job.title}” was deleted.`)
+    setPortalSyncNote('')
 
     try {
       await ensureApiSession()
       if (!(await apiHealth())) {
         throw new Error('API is offline. Start the backend to delete jobs from the database.')
       }
+      await markVendorJobDeletedForCandidates(job.id)
       await deleteVendorJob(job.id)
+
+      bumpJobsLoadGeneration()
+      setJobs((prev) => prev.filter((j) => j.id !== job.id))
+      setJobCounts((prev) => {
+        const next = { ...prev }
+        delete next[job.id]
+        return next
+      })
+      if (selectedJobId === job.id) {
+        setSelectedJobId(null)
+        setSelectedJobTitle('')
+        setApplicants([])
+      } else {
+        setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
+      }
+      setPortalSyncNote(`Job “${job.title}” was deleted.`)
     } catch (err) {
-      setJobs(prevJobs)
-      setJobCounts(prevCounts)
-      setApplicants(prevApplicants)
-      setSelectedJobId(prevSelectedJobId)
-      setSelectedJobTitle(prevSelectedJobTitle)
       setPortalError(err instanceof Error ? err.message : 'Could not delete job.')
-      setPortalSyncNote('')
+    } finally {
+      setDeletingJobId(null)
     }
   }
 
@@ -635,73 +630,88 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
 
               <div className={styles.jobsGrid}>
-                {!featuredJob && !portalLoading && (
+                {jobs.length === 0 && !portalLoading && (
                   <p className={styles.portalSyncNote}>
                     No jobs in the database yet. Create an opening and share the link with candidates.
                   </p>
                 )}
-                {featuredJob ? (
-                  <div
-                    key={featuredJob.id}
-                    className={`${styles.jobCard} ${selectedJobId === featuredJob.id ? styles.jobCardSelected : ''} ${isOptimisticJobId(featuredJob.id) ? styles.jobCardPending : ''}`}
-                  >
-                    <div>
-                      <h4 className={styles.jobCardTitle}>{featuredJob.title}</h4>
-                      <div className={styles.jobCardMeta}>
-                        <span className={styles.metaBadge}>{featuredJob.roleTrack}</span>
-                        <span className={styles.metaBadge}>{featuredJob.experienceLevel}</span>
-                        <span className={styles.metaBadge}>{featuredJob.location}</span>
+                {jobs.map((job) => {
+                  const count = jobCounts[job.id] ?? 0
+                  const isCopied = copiedCode === job.shareableCode
+                  const isSelected = selectedJobId === job.id
+                  const isPending = isOptimisticJobId(job.id)
+                  const isDeleting = deletingJobId === job.id
+
+                  return (
+                    <div
+                      key={job.id}
+                      className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''} ${isPending ? styles.jobCardPending : ''} ${isDeleting ? styles.jobCardDeleting : ''}`}
+                      aria-busy={isDeleting}
+                      data-testid={isDeleting ? 'job-card-deleting' : undefined}
+                    >
+                      <div>
+                        {isDeleting ? (
+                          <p className={styles.jobDeletingNotice} role="status">
+                            Deleting…
+                          </p>
+                        ) : null}
+                        <h4 className={styles.jobCardTitle}>{job.title}</h4>
+                        <div className={styles.jobCardMeta}>
+                          <span className={styles.metaBadge}>{job.roleTrack}</span>
+                          <span className={styles.metaBadge}>{job.experienceLevel}</span>
+                          <span className={styles.metaBadge}>{job.location}</span>
+                        </div>
+
+                        <div className={styles.linkBox}>
+                          <span className={styles.linkUrl}>
+                            {isPending
+                              ? 'Generating shareable link…'
+                              : buildApplyUrl(job.company, job.shareableCode)}
+                          </span>
+                          <button
+                            type="button"
+                            className={styles.copyBtn}
+                            disabled={isPending || isDeleting}
+                            onClick={() => handleCopyLink(job)}
+                          >
+                            {isCopied ? 'Copied!' : 'Copy'}
+                          </button>
+                        </div>
                       </div>
 
-                      <div className={styles.linkBox}>
-                        <span className={styles.linkUrl}>
-                          {isOptimisticJobId(featuredJob.id)
-                            ? 'Generating shareable link…'
-                            : buildApplyUrl(featuredJob.company, featuredJob.shareableCode)}
-                        </span>
+                      <div className={styles.jobFooter}>
                         <button
                           type="button"
-                          className={styles.copyBtn}
-                          disabled={isOptimisticJobId(featuredJob.id)}
-                          onClick={() => handleCopyLink(featuredJob)}
+                          className={styles.rosterCountBtn}
+                          disabled={isPending || isDeleting}
+                          onClick={() => void openJobApplicantsRoster(job)}
+                          aria-label={`View ${count} applicants for ${job.title}`}
                         >
-                          {copiedCode === featuredJob.shareableCode ? 'Copied!' : 'Copy'}
+                          {count} in roster
                         </button>
+                        <div className={styles.jobFooterActions}>
+                          <button
+                            type="button"
+                            className={styles.inspectBtn}
+                            disabled={isPending || isDeleting}
+                            onClick={() => void openJobApplicantsRoster(job)}
+                          >
+                            View applicants →
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.deleteJobBtn}
+                            disabled={isPending || isDeleting}
+                            onClick={() => void handleDeleteJob(job)}
+                            aria-label={`Delete job ${job.title}`}
+                          >
+                            {isDeleting ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className={styles.jobFooter}>
-                      <button
-                        type="button"
-                        className={styles.rosterCountBtn}
-                        disabled={isOptimisticJobId(featuredJob.id)}
-                        onClick={() => void openJobApplicantsRoster(featuredJob)}
-                        aria-label={`View ${jobCounts[featuredJob.id] ?? 0} applicants for ${featuredJob.title}`}
-                      >
-                        {jobCounts[featuredJob.id] ?? 0} in roster
-                      </button>
-                      <div className={styles.jobFooterActions}>
-                        <button
-                          type="button"
-                          className={styles.inspectBtn}
-                          disabled={isOptimisticJobId(featuredJob.id)}
-                          onClick={() => void openJobApplicantsRoster(featuredJob)}
-                        >
-                          View applicants →
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.deleteJobBtn}
-                          disabled={isOptimisticJobId(featuredJob.id)}
-                          onClick={() => void handleDeleteJob(featuredJob)}
-                          aria-label={`Delete job ${featuredJob.title}`}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
+                  )
+                })}
               </div>
             </motion.div>
 
