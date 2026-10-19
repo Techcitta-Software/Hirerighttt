@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AboutYouStep } from '../components/AboutYouStep'
 import { AiInterviewStep } from '../components/AiInterviewStep'
@@ -9,7 +9,6 @@ import { PrivacyBanner } from '../components/PrivacyBanner'
 import { Sidebar } from '../components/Sidebar'
 import { SkillsStep } from '../components/SkillsStep'
 import { Stepper } from '../components/Stepper'
-import { SiteFooter } from '../components/SiteFooter'
 import { TopBar } from '../components/TopBar'
 import {
   initialFormData,
@@ -20,6 +19,10 @@ import {
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
+import {
+  beginImmediateInterviewTest,
+  isImmediateInterviewTestEnabled,
+} from '../lib/interviewTestMode'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -53,8 +56,11 @@ const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
 
 export function ProfileWizard() {
   const navigate = useNavigate()
-  const [step, setStep] = useState<WizardStep>(1)
-  const [completedThrough, setCompletedThrough] = useState(0)
+  const [searchParams] = useSearchParams()
+  const stepParam = Number(searchParams.get('step'))
+  const initialStep = (stepParam >= 1 && stepParam <= 5 ? stepParam : 1) as WizardStep
+  const [step, setStep] = useState<WizardStep>(initialStep)
+  const [completedThrough, setCompletedThrough] = useState(() => (stepParam >= 1 && stepParam <= 5 ? stepParam - 1 : 0))
   const [userName, setUserName] = useState(() => firstName())
   const [data, setData] = useState<ProfileFormData>(() => {
     const saved = getProfile()
@@ -192,7 +198,6 @@ export function ProfileWizard() {
   const isScheduled = Boolean(data.interviewNotes?.startsWith('Scheduled:'))
 
   return (
-    <>
     <motion.div
       className={styles.layout}
       initial={{ opacity: 0 }}
@@ -316,6 +321,18 @@ export function ProfileWizard() {
                 All changes are saved automatically
               </p>
 
+              {step === 4 && isImmediateInterviewTestEnabled() && (
+                <MotionButton
+                  type="button"
+                  className={styles.backBtn}
+                  disabled={saving}
+                  onClick={() => beginImmediateInterviewTest(navigate)}
+                  lift
+                >
+                  Test: interview now
+                </MotionButton>
+              )}
+
               <MotionButton
                 type="button"
                 className={styles.primaryBtn}
@@ -411,7 +428,5 @@ export function ProfileWizard() {
         )}
       </AnimatePresence>
     </motion.div>
-    <SiteFooter showWorkflow={false} />
-    </>
   )
 }

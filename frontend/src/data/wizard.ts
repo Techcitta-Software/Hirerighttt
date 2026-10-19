@@ -84,11 +84,6 @@ export const STEPS = [
     label: 'AI Interview',
     sublabel: 'Prepare for interview',
   },
-  {
-    id: 5 as const,
-    label: 'All Set!',
-    sublabel: 'Interview scheduled',
-  },
 ]
 
 export const ROLE_OPTIONS = [

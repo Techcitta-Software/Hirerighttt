@@ -532,7 +532,28 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: 10px;
   margin: 18px 0 10px 0;
+}
+
+.clearSearchQueryBtn {
+  background: #f1f5f9;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.clearSearchQueryBtn:hover {
+  background: #e0e7ff;
+  border-color: #a5b4fc;
 }
 
 .centerSearchBtn {

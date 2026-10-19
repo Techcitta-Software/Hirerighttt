@@ -69,7 +69,7 @@ export async function createGroqVadSttController(
       },
       /** Shared with interview video — never stop tracks on pause. */
       pauseStream: async () => undefined,
-      resumeStream: async (stream) => stream,
+      resumeStream: async (stream: MediaStream) => stream,
       onSpeechStart: () => {
         if (handlers.isAiSpeaking()) return
         handlers.onSpeechStart?.()

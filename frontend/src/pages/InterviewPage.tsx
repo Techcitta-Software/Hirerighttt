@@ -52,6 +52,10 @@ import {
   fetchNextAdaptiveQuestion,
   isEndInterviewCommand,
 } from '../lib/adaptiveInterview'
+import {
+  collectInterviewPairs,
+  hasSubstantiveInterviewProgress,
+} from '../lib/interviewFinish'
 import { apiHealthInfo } from '../lib/api'
 import { ensureApiSession, syncProfileToApi } from '../lib/apiSession'
 import {
@@ -59,11 +63,6 @@ import {
   type GroqVadSttController,
 } from '../lib/groqVadStt'
 import { parseResumeFile } from '../lib/resumeParser'
-import {
-  collectInterviewPairs,
-  hasSubstantiveInterviewProgress,
-} from '../lib/interviewFinish'
-import { readTargetJob } from '../lib/targetJob'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
@@ -107,7 +106,27 @@ export function InterviewPage() {
     [],
   )
 
-  const targetJobRaw = useMemo(() => readTargetJob(), [])
+  const targetJobRaw = useMemo(() => {
+    const str = sessionStorage.getItem('hireright.targetJob')
+    if (!str) return null
+    try {
+      return JSON.parse(str) as {
+        title: string
+        company: string
+        role: string
+        level: string
+        jd?: string
+        jobId?: string
+        applicationId?: string
+        organizationId?: string
+        primarySkills?: string[]
+        atsScore?: number
+        jdMatchScore?: number
+      }
+    } catch {
+      return null
+    }
+  }, [])
 
   const [stage, setStage] = useState<Stage>('setup')
   const [role] = useState<string>(() => {
@@ -883,7 +902,12 @@ export function InterviewPage() {
         jobId: targetJobRaw?.jobId,
         applicationId: targetJobRaw?.applicationId,
         organizationId: targetJobRaw?.organizationId,
-        questionMode: targetJobRaw?.applicationId || targetJobRaw?.jobId ? undefined : targetJobRaw || effectiveJd.length >= 40 ? 'individual_jd' : undefined,
+        questionMode:
+          targetJobRaw?.applicationId || targetJobRaw?.jobId
+            ? undefined
+            : targetJobRaw || effectiveJd.length >= 40
+              ? 'individual_jd'
+              : undefined,
         primarySkills: targetJobRaw?.primarySkills,
         atsScore: targetJobRaw?.atsScore,
         jdMatchScore: targetJobRaw?.jdMatchScore,
@@ -922,17 +946,21 @@ export function InterviewPage() {
     if (finishingRef.current || stage !== 'interview') return
     stopAllSpeech()
     const next = [...answersRef.current]
-    while (next.length <= current) next.push('')
     next[current] = draftRef.current.trim()
     answersRef.current = next
-    finishingRef.current = true
-    setDeviceError('')
-    if (!hasSubstantiveInterviewProgress(next, historyRef.current, draftRef.current, 1)) {
-      setIsRecording(false)
+    if (
+      !hasSubstantiveInterviewProgress(
+        next,
+        historyRef.current,
+        draftRef.current,
+        MIN_ANSWER_CHARS,
+      )
+    ) {
       void recorderRef.current.stop()
       navigate('/profile', { replace: true })
       return
     }
+    finishingRef.current = true
     finish(next, false)
   }
 
@@ -1253,9 +1281,7 @@ export function InterviewPage() {
     return 'Waiting for Ava to finish the question…'
   })()
 
-  const callStatus = deviceError
-    ? deviceError
-    : advancing
+  const callStatus = advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
       ? 'Recording your answer — watch the live caption'

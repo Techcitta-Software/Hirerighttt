@@ -512,46 +512,6 @@ export function HomePage() {
       </section>
 
       {/* ====================================================================
-          Section 5: Not Just Another Job Portal
-          ==================================================================== */}
-      <section className={styles.portalSection}>
-        <div className={styles.shell}>
-          <motion.h2
-            className={styles.portalHeading}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            Not Just Another Job Portal. A Career Companion That Starts with You.
-          </motion.h2>
-
-          <motion.p
-            className={styles.portalParagraph}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-          >
-            Job portals show openings. Courses teach individual skills. Interview tools focus on
-            practice. HireRighttt starts by understanding your career situation and connects
-            discovery, guidance and improvement in one experience.
-          </motion.p>
-
-          <motion.p
-            className={styles.portalHighlight}
-            initial={{ opacity: 0, scale: 0.98 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            From “What should I do?” to “Here’s my next step.”
-          </motion.p>
-        </div>
-      </section>
-
-
-      {/* ====================================================================
           Section 7: Footer
           ==================================================================== */}
       <footer className={styles.footer}>

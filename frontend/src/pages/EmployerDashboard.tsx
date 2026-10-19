@@ -32,12 +32,6 @@ import {
   patchApplicantStatus,
   sendApplicantInterviewInvite,
 } from '../lib/vendorApi'
-import {
-  ALL_JOB_ROLES,
-  DEFAULT_JOB_ROLE,
-  JOB_ROLE_GROUPS,
-  suggestRoleFromTitle,
-} from '../data/jobRoles'
 import styles from './EmployerDashboard.module.css'
 
 function getInitials(name: string): string {
@@ -122,8 +116,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
   // New Job Form State
   const [newJobTitle, setNewJobTitle] = useState('')
-  const [newJobRoleTrack, setNewJobRoleTrack] = useState(DEFAULT_JOB_ROLE)
-  const [roleTouched, setRoleTouched] = useState(false)
+  const [newJobRoleTrack, setNewJobRoleTrack] = useState('Frontend Developer')
   const [newJobExp, setNewJobExp] = useState('3-5 years')
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
@@ -221,13 +214,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       try {
         await loadJobsFromApi()
         if (cancelled) return
-        if (isCandidatesView) {
-          await loadOrgCandidatesFromApi()
-        } else {
-          setApplicants([])
-          setSelectedJobId(null)
-          setSelectedJobTitle('')
-        }
+        await loadOrgCandidatesFromApi()
       } catch (err) {
         if (!cancelled) {
           setPortalError(err instanceof Error ? err.message : 'Could not load employer data from the API.')
@@ -263,7 +250,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }
 
-  const showCandidateTable = isCandidatesView || Boolean(selectedJobId)
+  const showCandidateTable = true
 
   function handleClearFilters() {
     setSearchFilter('')
@@ -273,7 +260,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setScoreFilter('')
     setIntegrityFilter('')
     setStatusFilter('')
+    if (candidateSearchQuery) {
+      setCandidateSearchQuery(null)
+      setShowSearchPanel(true)
+    }
+  }
+
+  function handleClearSearchCandidate() {
     setCandidateSearchQuery(null)
+    setSearchFilter('')
+    setShowSearchPanel(true)
   }
 
   const filteredApplicants = useMemo(() => {
@@ -389,8 +385,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const company = user?.companyName || 'TechCitta Solutions'
     const createdByEmail = user?.email || 'employer@hireright.com'
     const location = newJobLocation.trim()
-    const roleTrack =
-      newJobRoleTrack === 'Other (use job title)' ? title : newJobRoleTrack
+    const roleTrack = newJobRoleTrack
     const experienceLevel = newJobExp
 
     const optimisticId = `optimistic-${Date.now()}`
@@ -415,8 +410,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setShowCreateJobModal(false)
     setNewJobTitle('')
     setNewJobDescription('')
-    setNewJobRoleTrack(DEFAULT_JOB_ROLE)
-    setRoleTouched(false)
     setNewJobSkills('React, TypeScript, Node.js')
     setPortalError('')
     setPortalSyncNote(`Creating “${title}”…`)
@@ -695,7 +688,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   onClick={() => {
                     setSelectedJobId(null)
                     setSelectedJobTitle('')
-                    setApplicants([])
+                    void loadOrgCandidatesFromApi()
                     setPortalSyncNote('')
                   }}
                 >
@@ -712,21 +705,30 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </>
         )}
 
-        {isCandidatesView && (
-          <div className={styles.centerSearchBtnRow}>
+        <div className={styles.centerSearchBtnRow}>
+          {candidateSearchQuery && (
             <button
               type="button"
-              className={`${styles.centerSearchBtn} ${showSearchPanel ? styles.centerSearchBtnActive : ''}`}
-              onClick={() => setShowSearchPanel((prev) => !prev)}
-              title={showSearchPanel ? 'Hide search candidates panel' : 'Open search candidates panel'}
+              className={styles.clearSearchQueryBtn}
+              onClick={handleClearSearchCandidate}
+              title="Clear candidate search and open search panel"
             >
-              <HrIcon name="search" size={14} /> Search candidates
+              <HrIcon name="close" size={13} /> Clear search candidate
             </button>
-          </div>
-        )}
+          )}
+          <button
+            type="button"
+            className={`${styles.centerSearchBtn} ${showSearchPanel ? styles.centerSearchBtnActive : ''}`}
+            onClick={() => setShowSearchPanel((prev) => !prev)}
+            title={showSearchPanel ? 'Hide search candidates panel' : 'Open search candidates panel'}
+          >
+            <HrIcon name="search" size={14} /> Search candidates
+          </button>
+        </div>
 
-        {isCandidatesView && showSearchPanel && (
+        {showSearchPanel && (
           <SearchCandidatesPanel
+            initialQuery={candidateSearchQuery}
             onClose={() => setShowSearchPanel(false)}
             onSearch={(query) => {
               setCandidateSearchQuery(query)
@@ -861,6 +863,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 onClick={handleClearFilters}
               >
                 Clear filters
+              </button>
+              <button
+                type="button"
+                className={styles.addCandidateBtn}
+                onClick={() => setShowCreateJobModal(true)}
+              >
+                + Add candidate
               </button>
             </div>
           </div>
@@ -1079,6 +1088,83 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         </>
         )}
 
+        {/* Active Job Openings & Shareable Assessment Links (Image 3 - Placed Below Candidates, hidden on candidate view) */}
+        {!isCandidatesView && (
+          <motion.div
+            className={styles.jobsSection}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.05 }}
+            style={{ marginTop: '28px' }}
+          >
+            <div className={styles.jobsHeader}>
+              <h3 className={styles.jobsTitle}>
+                <HrIcon name="briefcase" size={20} /> Active Job Openings &amp; Shareable Assessment Links
+              </h3>
+              <button
+                type="button"
+                className={styles.createJobBtn}
+                onClick={() => setShowCreateJobModal(true)}
+              >
+                <HrIcon name="plus" size={14} /> Create New Job Opening
+              </button>
+            </div>
+
+            <div className={styles.jobsGrid}>
+              {jobs.length === 0 && !portalLoading && (
+                <p className={styles.portalSyncNote}>
+                  No jobs in the database yet. Create an opening and share the link with candidates.
+                </p>
+              )}
+              {jobs.map((job) => {
+                const count = jobCounts[job.id] ?? 0
+                const isCopied = copiedCode === job.shareableCode
+                const isSelected = selectedJobId === job.id
+
+                return (
+                  <div
+                    key={job.id}
+                    className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''}`}
+                  >
+                    <div>
+                      <h4 className={styles.jobCardTitle}>{job.title}</h4>
+                      <div className={styles.jobCardMeta}>
+                        <span className={styles.metaBadge}>{job.roleTrack}</span>
+                        <span className={styles.metaBadge}>{job.experienceLevel}</span>
+                        <span className={styles.metaBadge}>{job.location}</span>
+                      </div>
+
+                      <div className={styles.linkBox}>
+                        <span className={styles.linkUrl}>
+                          {buildApplyUrl(job.company, job.shareableCode)}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.copyBtn}
+                          onClick={() => handleCopyLink(job)}
+                        >
+                          {isCopied ? 'Copied!' : 'Copy'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={styles.jobFooter}>
+                      <span>{count} in roster</span>
+                      <button
+                        type="button"
+                        className={styles.inspectBtn}
+                        onClick={() => void loadJobCandidatesFromApi(job.id)}
+                      >
+                        View interviews →
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+
         {/* Create Job Opening Modal */}
         {showCreateJobModal && (
           <div className={styles.modalOverlay}>
@@ -1104,16 +1190,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     required
                     placeholder="e.g. Senior Frontend Developer"
                     value={newJobTitle}
-                    onChange={(e) => {
-                      const nextTitle = e.target.value
-                      setNewJobTitle(nextTitle)
-                      if (!roleTouched) {
-                        const suggested = suggestRoleFromTitle(nextTitle)
-                        if (suggested && ALL_JOB_ROLES.includes(suggested)) {
-                          setNewJobRoleTrack(suggested)
-                        }
-                      }
-                    }}
+                    onChange={(e) => setNewJobTitle(e.target.value)}
                   />
                 </div>
 
@@ -1122,20 +1199,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     <label>Role Track</label>
                     <select
                       value={newJobRoleTrack}
-                      onChange={(e) => {
-                        setRoleTouched(true)
-                        setNewJobRoleTrack(e.target.value)
-                      }}
+                      onChange={(e) => setNewJobRoleTrack(e.target.value)}
                     >
-                      {JOB_ROLE_GROUPS.map((group) => (
-                        <optgroup key={group.label} label={group.label}>
-                          {group.roles.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
+                      <option value="Frontend Developer">Frontend Developer</option>
+                      <option value="Full Stack Engineer">Full Stack Engineer</option>
+                      <option value="Backend Engineer">Backend Engineer</option>
+                      <option value="QA Engineer">QA Engineer</option>
+                      <option value="DevOps Engineer">DevOps Engineer</option>
+                      <option value="Product Manager">Product Manager</option>
                     </select>
                   </div>
 

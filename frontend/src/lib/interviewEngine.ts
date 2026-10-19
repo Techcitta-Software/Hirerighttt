@@ -187,17 +187,8 @@ export function mapProfileRoleToInterviewRole(profileRole: string): string {
   if (r.includes('back') || r.includes('node') || r.includes('java') || r.includes('api')) {
     return 'Backend Developer'
   }
-  if (r.includes('llm') || r.includes('generative ai')) return 'AI / ML Engineer'
-  if (r.includes('data engineer')) return 'Data Analyst'
   if (r.includes('data') || r.includes('analyst') || r.includes('bi')) return 'Data Analyst'
-  if (
-    r.includes('ml') ||
-    r.includes('machine') ||
-    r.includes('ai ') ||
-    r.startsWith('ai') ||
-    r.includes('nlp') ||
-    r.includes('computer vision')
-  ) {
+  if (r.includes('ml') || r.includes('machine') || r.includes('ai ') || r.startsWith('ai')) {
     return 'AI / ML Engineer'
   }
   if (r.includes('product') || r.includes('pm')) return 'Product Manager'

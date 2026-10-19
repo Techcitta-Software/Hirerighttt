@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { motion } from 'framer-motion'
 import { HrIcon } from './HrIcon'
 import styles from './SearchCandidatesPanel.module.css'
@@ -18,22 +18,40 @@ export interface CandidateSearchQuery {
 }
 
 interface SearchCandidatesPanelProps {
+  initialQuery?: CandidateSearchQuery | null
   onSearch?: (query: CandidateSearchQuery) => void
   onClear?: () => void
   onClose?: () => void
 }
 
 export function SearchCandidatesPanel({
+  initialQuery,
   onSearch,
   onClear,
   onClose,
 }: SearchCandidatesPanelProps) {
-  const [client, setClient] = useState('')
-  const [candidateName, setCandidateName] = useState('')
-  const [keywords, setKeywords] = useState<KeywordItem[]>([])
-  const [allMandatory, setAllMandatory] = useState(false)
-  const [searchScope, setSearchScope] = useState('Entire resume')
+  const [client, setClient] = useState(initialQuery?.client ?? '')
+  const [candidateName, setCandidateName] = useState(initialQuery?.candidateName ?? '')
+  const [keywords, setKeywords] = useState<KeywordItem[]>(initialQuery?.keywords ?? [])
+  const [allMandatory, setAllMandatory] = useState(initialQuery?.allMandatory ?? false)
+  const [searchScope, setSearchScope] = useState(initialQuery?.searchScope ?? 'Entire resume')
   const [inputVal, setInputVal] = useState('')
+
+  useEffect(() => {
+    if (initialQuery) {
+      setClient(initialQuery.client ?? '')
+      setCandidateName(initialQuery.candidateName ?? '')
+      setKeywords(initialQuery.keywords ?? [])
+      setAllMandatory(initialQuery.allMandatory ?? false)
+      setSearchScope(initialQuery.searchScope ?? 'Entire resume')
+    } else {
+      setClient('')
+      setCandidateName('')
+      setKeywords([])
+      setAllMandatory(false)
+      setSearchScope('Entire resume')
+    }
+  }, [initialQuery])
 
   function handleToggleStar(id: string) {
     setKeywords((prev) =>
@@ -70,6 +88,8 @@ export function SearchCandidatesPanel({
 
   function handleClearAll() {
     setKeywords([])
+    setClient('')
+    setCandidateName('')
     onClear?.()
   }
 

@@ -19,7 +19,6 @@ import { ensureApiSession } from '../lib/apiSession'
 import { apiHealth } from '../lib/api'
 import { isValidPhone, normalizePhone } from '../lib/phone'
 import { companySlugMatches } from '../lib/jobLink'
-import { writeTargetJob } from '../lib/targetJob'
 import styles from './CandidateApplyPage.module.css'
 
 type ApplyJob = EmployerJob & { companySlug?: string }
@@ -178,29 +177,35 @@ export function CandidateApplyPage() {
           summary: applied.ats.summary,
         })
 
-        writeTargetJob({
+        sessionStorage.setItem(
+          'hireright.targetJob',
+          JSON.stringify({
+            title: job.title,
+            company: job.company,
+            role: job.roleTrack,
+            level: job.experienceLevel,
+            jd: job.jobDescription,
+            jobId: applied.job.id,
+            applicationId: applied.applicationId,
+            organizationId: applied.organizationId,
+            primarySkills: applied.ats.primarySkills || job.requiredSkills,
+            atsScore: applied.ats.atsScore,
+            jdMatchScore: applied.ats.jdMatchScore,
+          }),
+        )
+        return
+      }
+
+      sessionStorage.setItem(
+        'hireright.targetJob',
+        JSON.stringify({
           title: job.title,
           company: job.company,
           role: job.roleTrack,
           level: job.experienceLevel,
           jd: job.jobDescription,
-          jobId: applied.job.id,
-          applicationId: applied.applicationId,
-          organizationId: applied.organizationId,
-          primarySkills: applied.ats.primarySkills || job.requiredSkills,
-          atsScore: applied.ats.atsScore,
-          jdMatchScore: applied.ats.jdMatchScore,
-        })
-        return
-      }
-
-      writeTargetJob({
-        title: job.title,
-        company: job.company,
-        role: job.roleTrack,
-        level: job.experienceLevel,
-        jd: job.jobDescription,
-      })
+        }),
+      )
       navigate('/interview')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit your application.')

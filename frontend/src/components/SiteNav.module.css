@@ -80,36 +80,120 @@
 }
 
 .navLink {
-  padding: 0.5rem 0.85rem;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #000000;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #475569;
   text-decoration: none;
-  border-radius: 8px;
-  min-height: 40px;
+  border-radius: 9999px;
+  min-height: 36px;
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
+  transition: all 0.15s ease;
 }
 
 .navLink:hover {
-  background: #f5f3fb;
-  color: #000000;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .active {
-  color: var(--hr-accent) !important;
-  background: #f5f2ff !important;
+  color: #4f46e5 !important;
+  background: #ede9fe !important;
   font-weight: 600 !important;
 }
 
 .navActions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   margin-left: 0;
   flex-shrink: 0;
+}
+
+.bellBtn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bellBtn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+.bellBadge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e11d48;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #ffffff;
+}
+
+.avatarCircle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #4f46e5;
+  color: #ffffff;
+  font-size: 0.825rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.avatarCircle:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+}
+
+.signOutBtn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.signOutBtn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
 }
 
 .textBtn {
