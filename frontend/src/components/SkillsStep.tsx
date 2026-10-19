@@ -52,6 +52,11 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
         )
   ).slice(0, 14)
 
+  const experienceOptions =
+    data.totalExperience && !EXPERIENCE_OPTIONS.includes(data.totalExperience)
+      ? [data.totalExperience, ...EXPERIENCE_OPTIONS]
+      : EXPERIENCE_OPTIONS
+
   function addSkill(raw: string) {
     const skill = raw.trim()
     if (!skill) return
@@ -491,17 +496,12 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
       </MotionItem>
 
       <MotionItem as="section" className={styles.card}>
-        <div className={styles.sectionHead}>
-          <h2>3. Total Experience</h2>
-          <h3>Help us know your overall experience.</h3>
-        </div>
-
-        <div className={styles.totalRow}>
+        <div className={styles.totalStack}>
           <div className={styles.totalSelect}>
             <SelectField
               label="Total Experience"
               value={data.totalExperience}
-              options={EXPERIENCE_OPTIONS}
+              options={experienceOptions}
               placeholder="Select experience"
               onChange={(value) => onChange('totalExperience', value)}
             />
@@ -530,6 +530,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
           </motion.aside>
         </div>
       </MotionItem>
+
     </MotionStack>
   )
 }

@@ -1,4 +1,5 @@
 import type { ProfileFormData } from '../data/wizard'
+import { normalizeMetrics } from '../data/wizard'
 import { extractNameFromText } from './resumeParser'
 
 export type UserRole = 'jobseeker' | 'employer'
@@ -37,6 +38,9 @@ export type AnswerAnalysis = {
   wordCount: number
   keywordsHit: string[]
   feedback: string
+  topic?: string
+  performance?: string
+  rubrics?: { id: string; label: string; score: number; weight?: number }[]
 }
 
 export type IntegrityLogEvent = {
@@ -67,10 +71,20 @@ export type CareerScorecard = {
     clarity: number
     understanding: number
     depth: number
+    total30?: number
     total40: number
     stars: string
     feedback: string
+    performance?: string
   }[]
+  bandInterpretation?: string
+  scoreSubHint?: string
+  industryAlignmentCaption?: string
+  positioningRecommendations?: string[]
+  positioningFooter?: string
+  recommendedRoles?: string[]
+  nextRecommendedStep?: string
+  finalCareerStatus?: string
   radarAxes: { label: string; val: number }[]
   careerPaths: { role: string; match: number }[]
   starPatterns: { name: string; stars: string; level: string }[]
@@ -546,7 +560,7 @@ function normalizeProfile(p: SavedProfile): SavedProfile {
       }
       return Boolean(w.jobTitle?.trim() || w.company?.trim())
     }),
-    metrics: Array.isArray(p.metrics) ? p.metrics : [],
+    metrics: normalizeMetrics(Array.isArray(p.metrics) ? p.metrics : undefined),
     awards: Array.isArray(p.awards) ? p.awards : [],
     certifications: Array.isArray(p.certifications) ? p.certifications : [],
     preferredRoles: Array.isArray(p.preferredRoles) ? p.preferredRoles : [],

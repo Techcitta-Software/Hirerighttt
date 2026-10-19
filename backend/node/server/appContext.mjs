@@ -482,6 +482,7 @@ export function createAppContext() {
     rateLimit,
     clientIp,
     requireAuth,
+    authEmail,
     registerSession,
     tenantContextForUser,
     requireEmployerTenant,

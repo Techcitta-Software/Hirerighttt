@@ -24,6 +24,8 @@ import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
 import { ProfileWizard } from './pages/ProfileWizard'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ContactPage } from './pages/ContactPage'
+import { CookiePolicyPage, PrivacyPolicyPage, TermsPage } from './pages/LegalPages'
+import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { AuthInvalidModal } from './components/AuthInvalidModal'
 import { RequireAuth } from './components/RequireAuth'
 import { RequireOnboardingAccess } from './components/RequireOnboardingAccess'
@@ -60,6 +62,12 @@ function AnimatedRoutes() {
           <Route path="/faqs" element={<FaqPage />} />
           <Route path="/faq" element={<FaqPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/terms-of-use" element={<TermsPage />} />
+          <Route path="/cookies" element={<CookiePolicyPage />} />
+          <Route path="/cookie-policy" element={<CookiePolicyPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/logout" element={<LogoutPage />} />
@@ -205,6 +213,7 @@ function App() {
   return (
     <BrowserRouter>
       <AnimatedRoutes />
+      <CookieConsentBanner />
       <SignOutModal />
       <AuthInvalidModal />
     </BrowserRouter>

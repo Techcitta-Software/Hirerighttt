@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { InterviewResult } from '../lib/store'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import { buildQaRowsFromInterview } from '../lib/scorecardQaRows'
 import { HrIcon, type HrIconName } from './HrIcon'
 import { BrandLogo } from './BrandLogo'
 import styles from './CareerIntelligenceDashboard.module.css'
@@ -8,13 +9,7 @@ import styles from './CareerIntelligenceDashboard.module.css'
 
 const HEALTH_METRIC_ICONS: HrIconName[] = ['cpu', 'wrench', 'cloud', 'settings', 'message']
 
-const POSITIONING_ICONS: { name: HrIconName; text: string }[] = [
-  { name: 'book', text: 'Project Storytelling' },
-  { name: 'building', text: 'Architecture Visibility' },
-  { name: 'trending', text: 'Business Impact' },
-  { name: 'rocket', text: 'Deployment Ownership' },
-  { name: 'users', text: 'Technical Leadership' },
-]
+const POSITIONING_ICON_CYCLE: HrIconName[] = ['book', 'building', 'trending', 'rocket', 'users', 'target']
 
 interface Props {
   result: InterviewResult
@@ -38,9 +33,9 @@ function hashString(str: string): number {
 export function CareerIntelligenceDashboard({
   result,
   candidateName,
-  candidateRole = 'Software Engineer',
-  candidateExperience = '5+ Years Experience',
-  skills = ['Node.js', 'Angular', 'React.js', 'MongoDB', 'AWS', 'GCP', 'Docker', 'Microservices', 'REST APIs', 'GraphQL'],
+  candidateRole,
+  candidateExperience,
+  skills = [],
   onRetake,
   onContinue,
 }: Props) {
@@ -56,24 +51,72 @@ export function CareerIntelligenceDashboard({
   const colorFor = (score: number) =>
     score >= 75 ? '#16a34a' : score >= 50 ? '#ea580c' : '#dc2626'
 
+  const roleKey = candidateRole || result.role || 'Candidate'
   const candidateId = useMemo(() => {
-    const num = Math.abs(hashString(candidateName + candidateRole) % 90000) + 10000
+    const num = Math.abs(hashString(candidateName + roleKey) % 90000) + 10000
     return `HRT-AI-IND-${num}`
-  }, [candidateName, candidateRole])
+  }, [candidateName, roleKey])
 
   const interviewDate = useMemo(() => {
     const d = result.date ? new Date(result.date) : new Date()
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   }, [result.date])
 
+  const displayRole = candidateRole || result.role || 'Candidate'
+  const displayExperience = candidateExperience?.trim() || 'Experience on profile'
+
   const statusLabel =
-    careerScore >= 850
+    sc?.finalCareerStatus ??
+    (careerScore >= 850
       ? 'Premium Market-Ready'
       : careerScore >= 700
         ? 'Industry Ready'
         : careerScore >= 550
           ? 'Growth Potential'
-          : 'Skill Enhancement Recommended'
+          : 'Skill Enhancement Recommended')
+
+  const bandInterpretation =
+    sc?.bandInterpretation ??
+    `${candidateName} scored ${overall}/100 for ${result.role || displayRole}. ${result.strengths[0] || ''} ${result.improvements[0] ? `Focus: ${result.improvements[0]}` : ''}`.trim()
+
+  const scoreSubHint =
+    sc?.scoreSubHint ??
+    (result.improvements[0] ? 'AI-identified priorities below' : result.strengths[0] || statusLabel)
+
+  const industryAlignment =
+    sc?.industryAlignment ?? Math.max(1, Math.min(99, result.resumeFitScore ?? overall))
+
+  const industryAlignmentCaption =
+    sc?.industryAlignmentCaption ??
+    (result.resumeFitScore != null
+      ? `Resume fit score ${result.resumeFitScore}% from this interview`
+      : `Overall alignment ${industryAlignment}%`)
+
+  const positioningItems =
+    sc?.positioningRecommendations?.length
+      ? sc.positioningRecommendations
+      : result.improvements.slice(0, 5)
+
+  const recommendedRoles =
+    sc?.recommendedRoles?.length
+      ? sc.recommendedRoles
+      : [
+          result.role || displayRole,
+          ...result.categories.slice(0, 2).map((c) => `${c.label} strength`),
+        ].filter(Boolean)
+
+  const nextRecommendedStep =
+    sc?.nextRecommendedStep ??
+    result.improvements[0] ??
+    'Retake the interview after practicing structured STAR answers tied to your resume.'
+
+  const positioningFooter =
+    sc?.positioningFooter ??
+    (result.improvements[0]
+      ? `Prioritize: ${result.improvements[0]}`
+      : 'Keep anchoring answers in measurable outcomes from your experience.')
+
+  const skillPills = skills.length > 0 ? skills.slice(0, 10) : []
 
   const donuts = result.categories?.length
     ? result.categories.map((c) => ({
@@ -113,35 +156,21 @@ export function CareerIntelligenceDashboard({
       level: a.score >= 75 ? 'Strong' : 'Moderate',
     }))
 
-  const qaRows =
-    sc?.qaRows ??
-    result.answers.map((a, i) => ({
-      index: i + 1,
-      topic: result.categories[i % result.categories.length]?.label ?? 'Technical',
-      question: a.question,
-      accuracy: Math.min(10, Math.round(a.score / 10)),
-      clarity: Math.min(10, Math.round(a.wordCount / 12)),
-      understanding: Math.min(10, Math.round(a.score / 12)),
-      depth: Math.min(10, Math.round(a.score / 11)),
-      total40: Math.min(40, Math.round(a.score * 0.4)),
-      stars: '★'.repeat(Math.max(1, Math.round(a.score / 20))).padEnd(5, '☆'),
-      feedback: a.feedback,
-    }))
+  const qaRows = sc?.qaRows?.length ? sc.qaRows : buildQaRowsFromInterview(result)
 
   const radarAxes = result.categories?.length
     ? result.categories.map((c) => ({ label: c.label, val: c.score }))
     : sc?.radarAxes ?? [{ label: 'Overall', val: overall }]
 
-  const industryAlignment = sc?.industryAlignment ?? Math.max(1, Math.min(99, overall))
   const coachNotes =
     sc?.coachNotes ??
     `${candidateName}, your overall interview score is ${overall}/100. Review strengths and growth areas below to improve your market readiness.`
   const sessionStats = sc?.sessionStats
   const careerPaths =
     sc?.careerPaths ?? [
-      { role: candidateRole, match: Math.max(1, Math.min(99, overall)) },
-      { role: `${candidateRole} (Senior)`, match: Math.max(1, Math.min(99, overall - 3)) },
-      { role: result.role, match: Math.max(1, Math.min(99, Math.round(overall * 0.92))) },
+      { role: displayRole, match: Math.max(1, Math.min(99, overall)) },
+      { role: `${displayRole} (Senior)`, match: Math.max(1, Math.min(99, overall - 3)) },
+      { role: result.role || displayRole, match: Math.max(1, Math.min(99, Math.round(overall * 0.92))) },
     ]
   const priorities =
     sc?.priorities ??
@@ -207,9 +236,9 @@ export function CareerIntelligenceDashboard({
             <div className={styles.candidateInfo}>
               <h1>{candidateName}</h1>
               <p className={styles.candidateSubtitle}>
-                {candidateRole} | {candidateExperience}
+                {displayRole} | {displayExperience}
               </p>
-              <p className={styles.candidateTrack}>{result.role || candidateRole}</p>
+              <p className={styles.candidateTrack}>{result.role || displayRole}</p>
             </div>
           </div>
 
@@ -236,7 +265,7 @@ export function CareerIntelligenceDashboard({
               <span className={styles.metaLabel}>
                 <HrIcon name="briefcase" size={14} /> Career Track:
               </span>
-              <span className={styles.metaValue}>{result.role || candidateRole}</span>
+              <span className={styles.metaValue}>{result.role || displayRole}</span>
             </div>
             <div className={styles.metaItem} style={{ gridColumn: 'span 2' }}>
               <span className={styles.metaLabel}>
@@ -251,11 +280,17 @@ export function CareerIntelligenceDashboard({
         <div className={styles.skillsRibbon}>
           <div className={styles.skillsLeftGroup}>
             <span className={styles.skillsRibbonLabel}>Primary Skills:</span>
-            {skills.slice(0, 10).map((sk) => (
-              <span key={sk} className={styles.skillPill}>
-                {sk}
+            {skillPills.length > 0 ? (
+              skillPills.map((sk) => (
+                <span key={sk} className={styles.skillPill}>
+                  {sk}
+                </span>
+              ))
+            ) : (
+              <span className={styles.skillPill} style={{ opacity: 0.7 }}>
+                Skills from your profile appear here after onboarding
               </span>
-            ))}
+            )}
           </div>
           <div className={styles.industryStatusBadge}>
             Industry Status: {statusLabel}
@@ -314,7 +349,7 @@ export function CareerIntelligenceDashboard({
           <div className={styles.scoreValue}>{careerScore}</div>
           <div className={styles.scoreOutOf}>/ 1000</div>
           <div className={styles.scoreBadgeText}>{statusLabel}</div>
-          <div className={styles.scoreSubHint}>Growth Acceleration Recommended</div>
+          <div className={styles.scoreSubHint}>{scoreSubHint}</div>
         </div>
 
         {/* Score Band Explanation Card */}
@@ -343,8 +378,7 @@ export function CareerIntelligenceDashboard({
             <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <HrIcon name="alert" size={14} /> INTERPRETATION:
             </strong>{' '}
-            {candidateName} is ready for mid-level {candidateRole} roles. Focus on system design, cloud
-            ownership and architecture communication to reach the premium 850+ band.
+            {bandInterpretation}
           </div>
         </div>
 
@@ -453,7 +487,7 @@ export function CareerIntelligenceDashboard({
           </div>
 
           <div className={styles.interviewTypePill}>
-            Interview Type: {sessionStats?.interviewType ?? `${candidateRole} · Adaptive AI Interview`}
+            Interview Type: {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI Interview`}
           </div>
 
           <div style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#475569', marginBottom: '8px' }}>
@@ -480,18 +514,17 @@ export function CareerIntelligenceDashboard({
               <th rowSpan={2} style={{ width: '36px', textAlign: 'center' }}>#</th>
               <th rowSpan={2}>TOPIC</th>
               <th rowSpan={2} style={{ width: '28%' }}>QUESTION ASKED</th>
-              <th colSpan={4} className={styles.scoreBreakdownHeader}>
-                SCORE BREAKDOWN (OUT OF 10)
+              <th colSpan={3} className={styles.scoreBreakdownHeader}>
+                RUBRIC BREAKDOWN (OUT OF 10)
               </th>
-              <th rowSpan={2} style={{ textAlign: 'center' }}>TOTAL (OUT OF 40)</th>
+              <th rowSpan={2} style={{ textAlign: 'center' }}>TOTAL (OUT OF 30)</th>
               <th rowSpan={2}>PERFORMANCE</th>
               <th rowSpan={2}>AI FEEDBACK SUMMARY</th>
             </tr>
             <tr>
-              <th style={{ textAlign: 'center' }}>TECHNICAL ACCURACY</th>
-              <th style={{ textAlign: 'center' }}>CLARITY</th>
-              <th style={{ textAlign: 'center' }}>REAL-TIME UNDERSTANDING</th>
-              <th style={{ textAlign: 'center' }}>ARCHITECTURE / DEPTH</th>
+              <th style={{ textAlign: 'center' }}>CORRECTNESS</th>
+              <th style={{ textAlign: 'center' }}>COMMUNICATION</th>
+              <th style={{ textAlign: 'center' }}>DEPTH</th>
             </tr>
           </thead>
           <tbody>
@@ -504,9 +537,10 @@ export function CareerIntelligenceDashboard({
                 <td className={styles.questionCell}>{q.question}</td>
                 <td className={styles.scoreNumCell}>{q.accuracy}</td>
                 <td className={styles.scoreNumCell}>{q.clarity}</td>
-                <td className={styles.scoreNumCell}>{q.understanding}</td>
                 <td className={styles.scoreNumCell}>{q.depth}</td>
-                <td className={styles.totalScoreCell}><strong>{q.total40}/40</strong></td>
+                <td className={styles.totalScoreCell}>
+                  <strong>{q.total30 ?? q.total40}/30</strong>
+                </td>
                 <td style={{ color: '#f59e0b', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{q.stars}</td>
                 <td className={styles.feedbackCell}>{q.feedback}</td>
               </tr>
@@ -631,17 +665,23 @@ export function CareerIntelligenceDashboard({
 
           </div>
           <div className={styles.positioningIcons}>
-            {POSITIONING_ICONS.map((item) => (
-              <div key={item.text} className={styles.posIconBox}>
-                <div className={styles.posIconSymbol}>
-                  <HrIcon name={item.name} size={20} />
+            {positioningItems.length > 0 ? (
+              positioningItems.map((text, i) => (
+                <div key={`${i}-${text.slice(0, 24)}`} className={styles.posIconBox}>
+                  <div className={styles.posIconSymbol}>
+                    <HrIcon name={POSITIONING_ICON_CYCLE[i % POSITIONING_ICON_CYCLE.length]} size={20} />
+                  </div>
+                  <div className={styles.posIconText}>{text}</div>
                 </div>
-                <div className={styles.posIconText}>{item.text}</div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0 }}>
+                No positioning gaps flagged — your interview feedback is in the strengths list.
+              </p>
+            )}
           </div>
           <div style={{ background: '#f1f5f9', borderRadius: '6px', padding: '6px 10px', fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>
-            These improvements will significantly increase recruiter visibility and interview opportunities.
+            {positioningFooter}
           </div>
         </div>
 
@@ -669,7 +709,7 @@ export function CareerIntelligenceDashboard({
               </text>
             </svg>
             <div style={{ fontSize: '0.76rem', fontWeight: 700, color: '#166534', lineHeight: 1.3 }}>
-              Aligned with current industry expectations
+              {industryAlignmentCaption}
             </div>
           </div>
 
@@ -677,27 +717,25 @@ export function CareerIntelligenceDashboard({
             Top Strengths
           </div>
           <ul className={styles.strengthsList}>
-            {[
-              'Strong backend development skills',
-              'Good API design & integration',
-              'Practical real-time application exposure',
-              'Quick learner & adaptable',
-              'Hands-on with modern technologies',
-            ].map((text) => (
-              <li key={text}>
-                <HrIcon name="check" size={12} /> {text}
-              </li>
-            ))}
+            {(result.strengths.length > 0 ? result.strengths : ['Complete an interview to generate AI strengths.']).map(
+              (text) => (
+                <li key={text}>
+                  <HrIcon name="check" size={12} /> {text}
+                </li>
+              ),
+            )}
           </ul>
 
           <div style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', color: '#dc2626', marginTop: '8px', marginBottom: '3px' }}>
             Top Growth Areas
           </div>
           <ul className={styles.growthAreasList}>
-            <li>⨁ System design &amp; scalability</li>
-            <li>⨁ Cloud deployment expertise</li>
-            <li>⨁ Architecture communication depth</li>
-            <li>⨁ Production debugging skills</li>
+            {(result.improvements.length > 0
+              ? result.improvements
+              : ['AI growth areas appear after your first scored interview.']
+            ).map((text) => (
+              <li key={text}>⨁ {text}</li>
+            ))}
           </ul>
         </div>
 
@@ -727,25 +765,23 @@ export function CareerIntelligenceDashboard({
           <div className={styles.finalStatusGroup}>
             <span>FINAL CAREER STATUS:</span>
             <div className={styles.finalStatusPill}>
-              <HrIcon name="check" size={14} /> Industry Ready
+              <HrIcon name="check" size={14} /> {statusLabel}
             </div>
           </div>
 
           <div className={styles.recommendedRoles}>
             <span>RECOMMENDED FOR:</span>
-            <span className={styles.rolePill}>Full Stack Engineering</span>
-            <span className={styles.rolePill}>Backend Development</span>
-            <span className={styles.rolePill}>Product Engineering</span>
-            <span className={styles.rolePill}>API &amp; Integration Projects</span>
-            <span className={styles.rolePill}>Modern Web Applications</span>
+            {recommendedRoles.map((role) => (
+              <span key={role} className={styles.rolePill}>
+                {role}
+              </span>
+            ))}
           </div>
         </div>
 
         <div className={styles.nextStepBox}>
           <strong>NEXT RECOMMENDED STEP:</strong>
-          <span>
-            Strengthen system design, cloud deployment exposure, architecture communication and production engineering skills to move into the next career band (850+).
-          </span>
+          <span>{nextRecommendedStep}</span>
         </div>
 
         <div className={styles.actionButtonRow} data-download-exclude>

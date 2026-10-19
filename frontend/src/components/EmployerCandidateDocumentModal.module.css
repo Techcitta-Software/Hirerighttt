@@ -94,6 +94,19 @@
   color: #0f172a;
 }
 
+.reportRoot[data-pdf-export] {
+  width: 720px !important;
+  max-width: 720px !important;
+  overflow: visible !important;
+  padding-bottom: 12px;
+}
+
+.reportRoot[data-pdf-export] .qaCard,
+.reportRoot[data-pdf-export] .reportHero {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 .reportHero {
   display: grid;
   grid-template-columns: 1fr auto;

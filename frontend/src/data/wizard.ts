@@ -279,6 +279,24 @@ export function createEmptyMetric(): PerformanceMetric {
   }
 }
 
+/** Legacy onboarding demo rows — treat as empty when loading saved profiles. */
+export function isDemoMetrics(metrics: PerformanceMetric[] | undefined): boolean {
+  if (!metrics?.length || metrics.length !== 2) return false
+  return metrics.every(
+    (m) =>
+      (m.id === 'metric-1' || m.id === 'metric-2') &&
+      (m.metric === 'Increased Application Speed' ||
+        m.metric === 'Reduced Bug Reports'),
+  )
+}
+
+export function normalizeMetrics(
+  metrics: PerformanceMetric[] | undefined,
+): PerformanceMetric[] {
+  if (!metrics?.length || isDemoMetrics(metrics)) return [createEmptyMetric()]
+  return metrics
+}
+
 export function createEmptyCertification(): Certification {
   return {
     id: crypto.randomUUID(),
@@ -303,22 +321,7 @@ export const initialFormData: ProfileFormData = {
   experienceSummary: '',
   workExperiences: [],
   achievements: [''],
-  metrics: [
-    {
-      id: 'metric-1',
-      metric: 'Increased Application Speed',
-      contribution: 'Optimized database queries & caching',
-      impact: 'Improved by 35%',
-      timePeriod: 'Jan 2024 - Dec 2024',
-    },
-    {
-      id: 'metric-2',
-      metric: 'Reduced Bug Reports',
-      contribution: 'Introduced automated testing suite',
-      impact: 'Decreased by 40%',
-      timePeriod: 'Jan 2024 - Dec 2024',
-    },
-  ],
+  metrics: [createEmptyMetric()],
   awards: [''],
   certifications: [createEmptyCertification()],
   selfRating: 0,

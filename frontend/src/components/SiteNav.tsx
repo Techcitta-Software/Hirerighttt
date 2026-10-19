@@ -24,7 +24,6 @@ const LANDING_NAV = [
 
 const JOBSEEKER_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/interview', label: 'Interview' },
   { to: '/jobs', label: 'Matches' },
   { to: '/applications', label: 'Applications' },
   { to: '/profile', label: 'Profile' },

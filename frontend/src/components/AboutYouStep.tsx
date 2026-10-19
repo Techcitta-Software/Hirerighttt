@@ -1,6 +1,6 @@
 import type { ProfileFormData } from '../data/wizard'
 import {
-  EXPERIENCE_OPTIONS,
+  createEmptyMetric,
   LOCATION_OPTIONS,
   NOTICE_OPTIONS,
   ROLE_OPTIONS,
@@ -34,11 +34,6 @@ export function AboutYouStep({
       ? [data.currentRole, ...ROLE_OPTIONS]
       : ROLE_OPTIONS
 
-  const experienceOptions =
-    data.totalExperience && !EXPERIENCE_OPTIONS.includes(data.totalExperience)
-      ? [data.totalExperience, ...EXPERIENCE_OPTIONS]
-      : EXPERIENCE_OPTIONS
-
   const locationOptions =
     data.currentLocation && !LOCATION_OPTIONS.includes(data.currentLocation)
       ? [data.currentLocation, ...LOCATION_OPTIONS]
@@ -47,7 +42,7 @@ export function AboutYouStep({
   function applyExtract(extract: ResumeExtract) {
     const patch: Partial<ProfileFormData> = {}
     if (extract.whoAreYou) patch.whoAreYou = extract.whoAreYou
-    if (extract.whatDrivesYou) patch.whatDrivesYou = extract.whatDrivesYou
+    // "Can you brief me more?" — manual only; resume/AI must not pre-fill this field.
     if (extract.keyStrengths) patch.keyStrengths = extract.keyStrengths
     if (extract.currentRole) patch.currentRole = extract.currentRole
     if (extract.totalExperience) patch.totalExperience = extract.totalExperience
@@ -58,6 +53,11 @@ export function AboutYouStep({
       patch.workExperiences = extract.workExperiences
     }
     if (extract.achievements?.length) patch.achievements = extract.achievements
+    if (extract.metrics !== undefined) {
+      patch.metrics = extract.metrics.length
+        ? extract.metrics
+        : [createEmptyMetric()]
+    }
     if (extract.certifications?.length) patch.certifications = extract.certifications
     if (extract.resumeText) patch.resumeText = extract.resumeText
 
@@ -100,7 +100,7 @@ export function AboutYouStep({
 
         <div className={styles.twoCol}>
           <CharacterTextarea
-            label="Who are you?"
+            label="What I know about you"
             sublabel="Introduce yourself in a few lines."
             value={data.whoAreYou}
             maxLength={300}
@@ -108,11 +108,11 @@ export function AboutYouStep({
             onChange={(value) => onChange('whoAreYou', value)}
           />
           <CharacterTextarea
-            label="What drives you?"
-            sublabel="What motivates you in your career?"
+            label="Can you brief me more?"
+            sublabel="Add a little more detail about your background and goals."
             value={data.whatDrivesYou}
             maxLength={300}
-            placeholder="E.g. I love solving complex problems, learning new technologies and creating impact through my work..."
+            placeholder="Type your answer here…"
             onChange={(value) => onChange('whatDrivesYou', value)}
           />
         </div>
@@ -132,20 +132,13 @@ export function AboutYouStep({
         <div className={styles.sectionHead}>
           <h2>3. Your Current Snapshot</h2>
         </div>
-        <div className={styles.fourCol}>
+        <div className={styles.threeCol}>
           <SelectField
             label="Current Role"
             value={data.currentRole}
             options={roleOptions}
             placeholder="Select your role"
             onChange={(value) => onChange('currentRole', value)}
-          />
-          <SelectField
-            label="Total Experience"
-            value={data.totalExperience}
-            options={experienceOptions}
-            placeholder="Select experience"
-            onChange={(value) => onChange('totalExperience', value)}
           />
           <SelectField
             label="Current Location"

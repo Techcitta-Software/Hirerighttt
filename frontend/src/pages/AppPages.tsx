@@ -23,7 +23,8 @@ import {
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import { ensureApiSession } from '../lib/apiSession'
-import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
+import { fetchOpenJobs } from '../lib/vendorApi'
+import { buildApplyPath } from '../lib/jobLink'
 import styles from './AppPages.module.css'
 
 export function DashboardPage() {
@@ -40,13 +41,15 @@ export function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetchOpenJobs()
-      .then(({ jobs }) => {
+    void (async () => {
+      try {
+        await ensureApiSession()
+        const { jobs } = await fetchOpenJobs({ summary: true })
         if (!cancelled) setRanked(rankPostedJobs(jobs).slice(0, 3))
-      })
-      .catch(() => {
-        if (!cancelled) setJobsError('Employer jobs could not be loaded.')
-      })
+      } catch {
+        if (!cancelled) setJobsError('Employer jobs could not be loaded. Sign in as a candidate and ensure the API is running.')
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -932,19 +935,42 @@ export function JobsPage() {
   const canApply = canApplyToJobs()
 
   const [employerJobs, setEmployerJobs] = useState<JobMatchRole[]>([])
+  const [jobsBoardState, setJobsBoardState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [jobsBoardError, setJobsBoardError] = useState('')
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      setJobsBoardState('loading')
+      setJobsBoardError('')
       try {
-        await ensureApiSession()
+        const sessionOk = await ensureApiSession()
+        if (!sessionOk) {
+          if (!cancelled) {
+            setJobsBoardState('error')
+            setJobsBoardError('Sign in as a candidate to see employer-posted roles.')
+            setEmployerJobs([])
+          }
+          return
+        }
         const { jobs } = await fetchOpenJobs({ summary: true })
-        if (cancelled || !jobs || jobs.length === 0) return
+        if (cancelled) return
         const rawJobs = jobs ?? []
+        if (rawJobs.length === 0) {
+          setEmployerJobs([])
+          setJobsBoardState('ready')
+          return
+        }
         const ranked = rankPostedJobs(rawJobs)
         const mapped: JobMatchRole[] = ranked.map((j, idx) => {
           const raw = rawJobs.find((rj) => rj.id === j.id)
-          const reqSkills = raw?.requiredSkills ?? ['React', 'Node.js']
+          const reqSkills = raw?.requiredSkills?.length ? raw.requiredSkills : ['Skills in job description']
+          const jd = raw?.jobDescription || j.jobDescription || ''
+          const jdBullets = jd
+            .split(/\n/)
+            .map((line) => line.replace(/^[\s•\-*]+/, '').trim())
+            .filter((line) => line.length > 20)
+            .slice(0, 3)
           return {
             id: j.id || `emp-${idx}`,
             logo: j.company.slice(0, 2).toUpperCase(),
@@ -952,40 +978,44 @@ export function JobsPage() {
             logoBg: '#ede9fe',
             title: j.title,
             company: j.company,
-            location: j.location,
-            mode: 'Hybrid',
-            salary: '₹14-20 LPA',
-            experience: j.experienceLevel || '2-4 years',
+            location: j.location || 'Remote',
+            mode: (j.location || '').toLowerCase().includes('remote') ? 'Remote' : 'Hybrid',
+            salary: 'Employer listed',
+            experience: j.experienceLevel || raw?.experienceLevel || 'See job description',
             jobType: 'Full-time',
             badge: idx === 0 ? 'Top pick' : 'New',
             badgeType: idx === 0 ? 'topPick' : 'new',
             matchedSkills: reqSkills.slice(0, 2),
             gapSkills: reqSkills.slice(2, 4),
-            posted: 'Posted recently',
-            applicants: '12 applicants',
+            posted: raw?.createdAt ? 'Posted recently' : 'Open role',
+            applicants: 'Apply with your resume',
             match: j.match || 85,
             minScore: 70,
             breakdown: {
               interviewFit: Math.min(95, (j.match || 85) + 2),
               resumeFit: Math.min(95, (j.match || 85) - 1),
               skillsFit: Math.min(95, (j.match || 85) + 3),
-              experienceFit: 92,
+              experienceFit: Math.min(95, (j.match || 85)),
             },
             youHave: reqSkills.slice(0, 3),
             closeGap: reqSkills.slice(3, 5),
-            about: j.jobDescription || 'Exciting opportunity to build cutting edge software.',
-            bullets: [
-              'Experience in software design and product development',
-              'Strong communication and collaborative mindset',
-              'Knowledge of modern web stacks and APIs',
-            ],
-            shareableCode: j.shareableCode,
-            companySlug: j.companySlug,
+            about: jd.slice(0, 600) || 'Role posted by an employer on HireRight.',
+            bullets:
+              jdBullets.length > 0
+                ? jdBullets
+                : ['Review the full description on the apply form.', 'Submit your resume for ATS scoring.'],
+            shareableCode: j.shareableCode || raw?.shareableCode,
+            companySlug: j.companySlug || raw?.companySlug,
           }
         })
         setEmployerJobs(mapped)
+        setJobsBoardState('ready')
       } catch {
-        // Fall back gracefully to default curated jobs
+        if (!cancelled) {
+          setJobsBoardState('error')
+          setJobsBoardError('Could not load employer jobs. Check that the backend is running.')
+          setEmployerJobs([])
+        }
       }
     })()
 
@@ -994,13 +1024,7 @@ export function JobsPage() {
     }
   }, [interview?.overall])
 
-  // Combine employer jobs with curated jobs
-  const allRoles = useMemo(() => {
-    if (employerJobs.length > 0) {
-      return [...employerJobs, ...DEFAULT_MATCHED_ROLES.slice(employerJobs.length)]
-    }
-    return DEFAULT_MATCHED_ROLES
-  }, [employerJobs])
+  const allRoles = useMemo(() => employerJobs, [employerJobs])
 
   // Filter and sort
   const filteredRoles = useMemo(() => {
@@ -1042,42 +1066,33 @@ export function JobsPage() {
   const visibleRoles = showAllMatches ? sortedRoles : sortedRoles.slice(0, 6)
 
   const selectedJob = useMemo(() => {
-    return sortedRoles.find((j) => j.id === selectedJobId) || sortedRoles[0] || DEFAULT_MATCHED_ROLES[0]
+    return sortedRoles.find((j) => j.id === selectedJobId) || sortedRoles[0] || null
+  }, [sortedRoles, selectedJobId])
+
+  useEffect(() => {
+    if (sortedRoles.length > 0 && !sortedRoles.some((j) => j.id === selectedJobId)) {
+      setSelectedJobId(sortedRoles[0].id)
+    }
   }, [sortedRoles, selectedJobId])
 
   async function handleApply(job: JobMatchRole) {
-    if (!unlocked && !canApply) {
-      setToast('AI interview required to apply with your report.')
-      setTimeout(() => navigate('/interview'), 1200)
+    if (!job.shareableCode) {
+      setToast('This role is missing an apply link. Ask the employer to re-share the job.')
+      window.setTimeout(() => setToast(''), 3000)
       return
     }
-    try {
-      const user = getUser()
-      const profile = getProfile()
-      if (job.shareableCode) {
-        await applyToPublicJob(
-          job.shareableCode,
-          {
-            candidateName: user?.name || profile?.fullName || 'Aarav Reddy',
-            candidateEmail: user?.email || 'aarav@example.com',
-            experienceYears: profile?.totalExperience || '2 - 3 years',
-            resumeText: profile?.resumeText || '',
-            resumeName: profile?.resumeName || undefined,
-          },
-          job.companySlug,
-        )
-      }
-      applyToJob({
-        title: job.title,
-        company: job.company,
-        location: job.location,
-        match: job.match,
-      })
-      setToast(`Applied to ${job.title} at ${job.company}!`)
-    } catch {
-      setToast(`Applied with your report to ${job.title}!`)
+    const sessionOk = await ensureApiSession()
+    if (!sessionOk) {
+      navigate('/login', { state: { from: '/jobs' } })
+      return
     }
-    window.setTimeout(() => setToast(''), 3000)
+    applyToJob({
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      match: job.match,
+    })
+    navigate(buildApplyPath(job.company, job.shareableCode))
   }
 
   function handleSave(job: JobMatchRole) {
@@ -1114,13 +1129,27 @@ export function JobsPage() {
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
               <span className={styles.eyebrow}>RANKED JOB MATCHES</span>
-              <h1>12 roles fit you</h1>
-              <p>Ranked by your interview score, résumé and skills. Updated today.</p>
+              <h1>
+                {jobsBoardState === 'loading'
+                  ? 'Loading employer roles…'
+                  : sortedRoles.length === 0
+                    ? 'No open employer roles yet'
+                    : `${sortedRoles.length} employer role${sortedRoles.length === 1 ? '' : 's'} for you`}
+              </h1>
+              <p>
+                {jobsBoardError ||
+                  'Roles posted by vendors on HireRight. Ranked by your interview score when available.'}
+              </p>
             </div>
             <div className={styles.headerBadgesWrap}>
-              <span className={styles.badgeSubtlePill}>3 new this week</span>
+              {sortedRoles.length > 0 ? (
+                <span className={styles.badgeSubtlePill}>{sortedRoles.length} live posting(s)</span>
+              ) : null}
               <span className={styles.badgeScoreFitPill}>
-                Interview score {candidateScore} · meets 10 of 12
+                Interview score {candidateScore}
+                {unlocked && sortedRoles.length > 0
+                  ? ` · ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
+                  : ''}
               </span>
             </div>
           </motion.header>
@@ -1211,6 +1240,15 @@ export function JobsPage() {
           <motion.div className={styles.matchesLayout} variants={fadeUp}>
             {/* Left Column: Job Cards List */}
             <div className={styles.matchCardList}>
+              {jobsBoardState === 'loading' ? (
+                <p className={styles.muted}>Loading jobs from employers…</p>
+              ) : null}
+              {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
+                <p className={styles.muted}>
+                  When a vendor creates a job in the employer dashboard, it appears here. You can apply with
+                  your resume on the apply form.
+                </p>
+              ) : null}
               {visibleRoles.map((job) => {
                 const isSelected = selectedJob?.id === job.id
                 return (

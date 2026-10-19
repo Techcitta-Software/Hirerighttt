@@ -315,7 +315,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   const [signupCompanyName, setSignupCompanyName] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
-  const [termsAgreed, setTermsAgreed] = useState(true)
+  const [termsAgreed, setTermsAgreed] = useState(false)
 
   // Sync signup role if query parameters change
   useEffect(() => {
@@ -960,11 +960,11 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                   />
                   <span>
                     I agree to the{' '}
-                    <Link to="/about" className={styles.termsLink}>
-                      Terms of Use
+                    <Link to="/terms" className={styles.termsLink}>
+                      Terms &amp; Conditions
                     </Link>{' '}
                     and have read the{' '}
-                    <Link to="/about" className={styles.termsLink}>
+                    <Link to="/privacy" className={styles.termsLink}>
                       Privacy Policy
                     </Link>
                     .

@@ -8,6 +8,7 @@ import {
   type ProfileFormData,
   type WorkExperience,
   type Certification,
+  type PerformanceMetric,
 } from '../data/wizard'
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
@@ -28,6 +29,7 @@ export type ResumeExtract = Partial<
     | 'experienceSummary'
     | 'workExperiences'
     | 'achievements'
+    | 'metrics'
     | 'certifications'
   >
 > & {
@@ -441,6 +443,141 @@ function pickAchievements(text: string): string[] {
     .slice(0, 4)
 }
 
+const METRIC_LINE_RE =
+  /\d+%|\$\d|\d+\s*(?:x|X)\b|(?:increased|reduced|decreased|improved|saved|grew|boosted|cut|lowered|raised|accelerated|optimized|delivered|achieved|generated)/i
+
+const IMPACT_RE =
+  /(?:by|to|up to|down to|from)?\s*(\d+(?:\.\d+)?%|\d+\s*(?:%|percent|pp|x|X)|[$€£]\s*\d[\d,.]*[kKmMbB]?)/i
+
+function metricLinePresentInText(line: string, rawText: string): boolean {
+  const hay = rawText.toLowerCase()
+  const words = line
+    .toLowerCase()
+    .replace(/[^a-z0-9\s%$]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 3)
+  if (!words.length) return false
+  return words.filter((w) => hay.includes(w)).length >= Math.min(2, words.length)
+}
+
+function pickTimePeriodFromLine(line: string): string {
+  const range = line.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[a-z]*\s*[,.'-]?\s*(20\d\d|19\d\d)\s*(?:-|–|—|to)\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[a-z]*\s*[,.'-]?\s*(20\d\d|19\d\d)/i,
+  )
+  if (!range) return ''
+  const m1 = range[1].slice(0, 3)
+  const y1 = range[2]
+  const m2 = range[3].slice(0, 3)
+  const y2 = range[4]
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+  return `${cap(m1)} ${y1} - ${cap(m2)} ${y2}`
+}
+
+function workExperienceTimeLabel(exp: WorkExperience): string {
+  const start = exp.startDate?.trim()
+  const end = exp.currentlyWorking ? 'Present' : exp.endDate?.trim()
+  if (start && end) return `${start} - ${end}`
+  if (start) return start
+  return ''
+}
+
+function parseMetricLine(
+  line: string,
+  fallbackPeriod: string,
+  rawText: string,
+): PerformanceMetric | null {
+  const cleaned = line.replace(/^[•\-*]\s*/, '').trim()
+  if (cleaned.length < 12 || !METRIC_LINE_RE.test(cleaned)) return null
+  if (!metricLinePresentInText(cleaned, rawText)) return null
+
+  const impactMatch = cleaned.match(IMPACT_RE)
+  const impact = impactMatch ? clip(impactMatch[0].replace(/^(by|to)\s+/i, '').trim(), 80) : ''
+
+  let metric = ''
+  let contribution = clip(cleaned, 180)
+  const byIdx = cleaned.toLowerCase().indexOf(' by ')
+  if (byIdx > 0) {
+    metric = clip(cleaned.slice(0, byIdx).trim(), 100)
+    contribution = clip(cleaned.slice(byIdx + 4).trim(), 180)
+  } else {
+    const clause = cleaned.split(/[.;]/)[0]?.trim() || cleaned
+    metric = clip(clause, 100)
+  }
+
+  const timePeriod = pickTimePeriodFromLine(cleaned) || fallbackPeriod
+
+  if (!metric && !impact) return null
+
+  return {
+    id: crypto.randomUUID(),
+    metric,
+    contribution,
+    impact,
+    timePeriod,
+  }
+}
+
+function pickMetrics(text: string, workExperiences: WorkExperience[] = []): PerformanceMetric[] {
+  const fallbackPeriod = workExperiences[0]
+    ? workExperienceTimeLabel(workExperiences[0])
+    : ''
+
+  const fromAchievements = pickAchievements(text).filter((a) => METRIC_LINE_RE.test(a))
+  const fromBullets = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^[•\-*]/.test(line) && METRIC_LINE_RE.test(line))
+    .map((line) => line.replace(/^[•\-*]\s*/, '').trim())
+
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const line of [...fromAchievements, ...fromBullets]) {
+    const key = line.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    lines.push(line)
+    if (lines.length >= 6) break
+  }
+
+  return lines
+    .map((line) => parseMetricLine(line, fallbackPeriod, text))
+    .filter(Boolean) as PerformanceMetric[]
+}
+
+function mapAiMetrics(
+  parsed: Record<string, unknown>,
+  rawText: string,
+  workExperiences: WorkExperience[],
+): PerformanceMetric[] {
+  if (!Array.isArray(parsed.metrics)) return pickMetrics(rawText, workExperiences)
+
+  const fallbackPeriod = workExperiences[0]
+    ? workExperienceTimeLabel(workExperiences[0])
+    : ''
+
+  const mapped = parsed.metrics
+    .map((row: Record<string, unknown>) => {
+      const metric = String(row.metric || row.kpi || '').trim()
+      const contribution = String(row.contribution || row.action || '').trim()
+      const impact = String(row.impact || row.result || '').trim()
+      const timePeriod = String(row.timePeriod || row.period || '').trim()
+      if (!metric && !contribution && !impact) return null
+      const verifyLine = [metric, contribution, impact].filter(Boolean).join(' ')
+      if (verifyLine && !metricLinePresentInText(verifyLine, rawText)) return null
+      return {
+        id: crypto.randomUUID(),
+        metric: clip(metric, 100),
+        contribution: clip(contribution, 180),
+        impact: clip(impact, 80),
+        timePeriod: clip(timePeriod || fallbackPeriod, 40),
+      }
+    })
+    .filter(Boolean) as PerformanceMetric[]
+
+  if (mapped.length) return mapped
+  return pickMetrics(rawText, workExperiences)
+}
+
 const MONTH_MAP: Record<string, string> = {
   jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
@@ -700,6 +837,8 @@ export function parseResumeText(raw: string): ResumeExtract {
   if (experienceSummary) extract.experienceSummary = experienceSummary
   extract.workExperiences = workExperiences
   if (achievements.length) extract.achievements = achievements
+  const metrics = pickMetrics(joined, workExperiences)
+  extract.metrics = metrics
   if (certifications.length) extract.certifications = certifications
   extract.resumeText = clip(joined, 8000)
 
@@ -897,6 +1036,7 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
   }
   if (experiences.length) extract.workExperiences = experiences
   if (achievements.length) extract.achievements = achievements
+  extract.metrics = mapAiMetrics(parsed, rawText, experiences)
   if (certifications.length) extract.certifications = certifications
   extract.resumeText = clip(rawText, 12000)
 
@@ -921,6 +1061,7 @@ STRICT ANTI-HALLUCINATION RULES:
 4. NEVER invent or hallucinate company names or job titles. NEVER output placeholder companies like "TechCitta", "Tech Solutions", "Company", "Acme", etc.
 5. If you cannot find any formal company employment, return "workExperiences": [].
 6. Under "certifications", extract technical certifications, licenses, or courses explicitly stated. If none are present, return "certifications": [].
+7. Under "metrics", extract quantified impact ONLY when the resume explicitly states numbers, percentages, or measurable outcomes (e.g. bullet points with %, revenue, latency, users). Do NOT invent KPIs. If none exist, return "metrics": [].
 
 JSON Schema:
 {
@@ -948,6 +1089,14 @@ JSON Schema:
   "achievements": [
     "Key achievement 1 with metrics",
     "Key achievement 2"
+  ],
+  "metrics": [
+    {
+      "metric": "Short KPI or outcome label from the resume",
+      "contribution": "What the candidate did",
+      "impact": "Quantified result (e.g. 35%, $2M, 2x)",
+      "timePeriod": "Date range if stated, else empty string"
+    }
   ],
   "certifications": [
     {
@@ -1084,6 +1233,10 @@ export async function parseResumeFile(file: File): Promise<ResumeExtract> {
           aiExtract.certifications && aiExtract.certifications.length > 0
             ? aiExtract.certifications
             : regexFallback.certifications,
+        metrics:
+          aiExtract.metrics && aiExtract.metrics.length > 0
+            ? aiExtract.metrics
+            : regexFallback.metrics,
         resumeText: clip(text, 12000),
       }
     }

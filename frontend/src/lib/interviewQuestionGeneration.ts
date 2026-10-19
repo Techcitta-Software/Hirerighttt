@@ -6,6 +6,12 @@ import type { Question } from './interviewEngine'
 import type { SavedProfile } from './store'
 import { candidateFullName } from './store'
 import { clientLlmAllowed } from './clientLlm'
+import {
+  buildStructuredTurnQuestion,
+  recommendTopSkillsForRole,
+  resolveExactInterviewRole,
+  structuredPlanSummary,
+} from './interviewQuestionPlan'
 
 export const INTERVIEW_TURN_COUNT = 6
 
@@ -80,7 +86,9 @@ export type ProfileDigest = {
   skills: string[]
   jobs: string[]
   achievements: string[]
+  certs: string[]
   resumeSnippet: string
+  role?: string
 }
 
 export function summarizeProfileForQuestions(
@@ -99,30 +107,45 @@ export function summarizeProfileForQuestions(
         }`,
     )
   const achievements = (profile?.achievements || []).map(clean).filter(Boolean).slice(0, 5)
+  const certs = (profile?.certifications || []).map((c) => clean(c?.name)).filter(Boolean).slice(0, 5)
   const resumeSnippet = clean(profile?.resumeText).slice(0, 3500)
 
-  return { name: resolvedName, skills, jobs, achievements, resumeSnippet }
+  return {
+    name: resolvedName,
+    skills,
+    jobs,
+    achievements,
+    certs,
+    resumeSnippet,
+    role: clean(profile?.currentRole),
+  }
 }
 
 export function buildAdaptiveQuestionSystemPrompt(options: {
   turnNumber: number
   role: string
+  exactRole?: string
   level: string
   first: string
+  planSummary?: ReturnType<typeof structuredPlanSummary>
 }): string {
   const nameRule =
     options.first === 'there'
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
       : `You may use the first name "${options.first}" once if natural.`
+  const planRule = options.planSummary
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Q1–Q2 = skill depth; Q3–Q4 = work experience from résumé; Q5 = certification OR project; Q6 = closing motivation/strength.`
+    : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
 Rules:
 - This is question ${options.turnNumber} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
-- Use the candidate resume, role "${options.role}", experience "${options.level}", job description (if any), and their last answer to choose the next realistic topic.
+- Use the candidate resume, role "${options.exactRole || options.role}", experience "${options.level}", job description (if any), and their last answer to choose the next realistic topic.
 - One clear idea per question — how a real hiring manager speaks.
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
 - category must be one of: Communication, Technical, Problem Solving, Experience.
+${planRule}
 
 Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
 }
@@ -130,6 +153,9 @@ Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint
 export function buildAdaptiveQuestionUserPayload(options: {
   turnNumber: number
   role: string
+  exactRole?: string
+  recommendedSkills?: string[]
+  planSummary?: ReturnType<typeof structuredPlanSummary>
   level: string
   jobDescription?: string
   ctx: ProfileDigest
@@ -139,13 +165,17 @@ export function buildAdaptiveQuestionUserPayload(options: {
   return JSON.stringify({
     turnNumber: options.turnNumber,
     totalTurns: INTERVIEW_TURN_COUNT,
-    roleTrack: options.role,
+    roleTrack: options.exactRole || options.role,
+    exactRole: options.exactRole || options.role,
+    recommendedSkillsForRole: options.recommendedSkills || [],
+    interviewPlan: options.planSummary?.turnPlan || [],
     experienceLevel: options.level,
     jobDescription: options.jobDescription?.trim() || null,
     candidateSummary: {
       skills: options.ctx.skills.slice(0, 16),
       jobs: options.ctx.jobs.slice(0, 4),
       achievements: options.ctx.achievements.slice(0, 5),
+      certifications: options.ctx.certs.slice(0, 5),
       resumeSnippet: options.ctx.resumeSnippet.slice(0, 2800),
     },
     priorQuestions: options.priorTexts,
@@ -456,6 +486,7 @@ export function generateAdaptiveQuestionLocal(options: {
 }): Question {
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
   const role = options.role || 'Full Stack Engineer'
+  const exactRole = resolveExactInterviewRole(options.profile, role)
   const level = options.level || '1–3 years'
   const history = options.history || []
   const lastAnswer = clean(options.lastAnswer)
@@ -463,6 +494,21 @@ export function generateAdaptiveQuestionLocal(options: {
   const first = firstNameFromFull(ctx.name)
   const turnNumber = history.length + 1
   const candidates: Question[] = []
+
+  const structured = buildStructuredTurnQuestion({
+    turnNumber,
+    first,
+    level,
+    profile: options.profile,
+    ctx,
+    roleOverride: role,
+    history,
+    senior: isSeniorExperienceLevel(level),
+  })
+  if (structured) {
+    const planned = normalizeAdaptiveQuestion(structured, priorTexts)
+    if (planned) return { ...planned, focus: structured.focus || 'structured-plan' }
+  }
 
   if (history.length === 0) {
     candidates.push(buildFirstAdaptiveQuestionLocal(first, role, level, ctx))
@@ -601,6 +647,9 @@ export async function generateAdaptiveQuestionClient(options: {
   lastAnswer: string
 }): Promise<Question> {
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
+  const exactRole = resolveExactInterviewRole(options.profile, options.role)
+  const recommendedSkills = recommendTopSkillsForRole(exactRole, ctx)
+  const planSummary = structuredPlanSummary(exactRole, ctx)
   const turnNumber = options.history.length + 1
   const priorTexts = options.history
     .map((h) => clean(h.question?.text))
@@ -610,12 +659,17 @@ export async function generateAdaptiveQuestionClient(options: {
   const system = buildAdaptiveQuestionSystemPrompt({
     turnNumber,
     role: options.role,
+    exactRole,
     level: options.level,
     first,
+    planSummary,
   })
   const user = buildAdaptiveQuestionUserPayload({
     turnNumber,
     role: options.role,
+    exactRole,
+    recommendedSkills,
+    planSummary,
     level: options.level,
     jobDescription: options.jobDescription,
     ctx,

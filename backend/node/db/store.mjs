@@ -327,6 +327,53 @@ export async function deleteJobRecord(databaseUrl, jobId, organizationId) {
   return (res.rowCount ?? 0) > 0
 }
 
+/** Merge employer applications from Postgres (multi-instance / fresh vendor dashboard). */
+export async function syncEmployerApplicationsFromDatabase(databaseUrl, db) {
+  if (!databaseUrl?.trim()) return db
+  await ensurePgSchema(databaseUrl)
+  const res = await getPool(databaseUrl).query(
+    `SELECT * FROM employer_applications ORDER BY applied_at DESC`,
+  )
+  const fromPg = res.rows.map((r) => ({
+    id: r.id,
+    organizationId: r.organization_id,
+    jobId: r.job_id,
+    candidateEmail: r.candidate_email,
+    candidateUserId: r.candidate_user_id || undefined,
+    status: r.status,
+    data: r.data || {},
+    appliedAt: iso(r.applied_at),
+  }))
+  const byId = new Map((db.employerApplications || []).map((a) => [a.id, a]))
+  for (const app of fromPg) {
+    byId.set(app.id, { ...byId.get(app.id), ...app })
+  }
+  db.employerApplications = [...byId.values()]
+  return db
+}
+
+export async function upsertEmployerApplicationRecord(databaseUrl, app) {
+  if (!databaseUrl?.trim() || !app?.id) return
+  await ensurePgSchema(databaseUrl)
+  await getPool(databaseUrl).query(
+    `INSERT INTO employer_applications
+       (id, organization_id, job_id, candidate_user_id, candidate_email, status, data, applied_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)
+     ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, data=EXCLUDED.data,
+       candidate_user_id=EXCLUDED.candidate_user_id, candidate_email=EXCLUDED.candidate_email`,
+    [
+      app.id,
+      app.organizationId,
+      app.jobId,
+      app.candidateUserId || null,
+      app.candidateEmail,
+      app.status || 'applied',
+      JSON.stringify(app.data || {}),
+      app.appliedAt || new Date().toISOString(),
+    ],
+  )
+}
+
 export async function upsertJobRecord(databaseUrl, job) {
   if (!job?.id || !job.shareableCode) return
   await ensurePgSchema(databaseUrl)

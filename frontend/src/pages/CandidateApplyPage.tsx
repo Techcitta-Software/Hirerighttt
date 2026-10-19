@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -46,6 +46,7 @@ export function CandidateApplyPage() {
   const [resumeText, setResumeText] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [applyConsent, setApplyConsent] = useState(false)
   const [atsSummary, setAtsSummary] = useState<{
     atsScore: number
     jdMatchScore: number
@@ -117,6 +118,10 @@ export function CandidateApplyPage() {
     }
     if (resumeText.trim().length < 30) {
       setError('Upload a resume with enough detail (at least a short summary).')
+      return
+    }
+    if (!applyConsent) {
+      setError('Please confirm consent to share your application data with the employer.')
       return
     }
 
@@ -413,7 +418,21 @@ export function CandidateApplyPage() {
 
                 {error && <div className={styles.error}>{error}</div>}
 
-                <button type="submit" className={styles.submitBtn} disabled={loading}>
+                <label className={styles.consentRow}>
+                  <input
+                    type="checkbox"
+                    checked={applyConsent}
+                    onChange={(e) => setApplyConsent(e.target.checked)}
+                    required
+                  />
+                  <span>
+                    I consent to HireRight sharing my name, contact details, and résumé with the employer for
+                    this job, and processing my data as described in the{' '}
+                    <Link to="/privacy">Privacy Policy</Link>.
+                  </span>
+                </label>
+
+                <button type="submit" className={styles.submitBtn} disabled={loading || !applyConsent}>
                   {loading ? 'Submitting application…' : 'Submit & start AI interview →'}
                 </button>
               </form>

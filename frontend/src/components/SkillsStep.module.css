@@ -571,22 +571,24 @@
   border-color: #d6d7e5;
 }
 
-.totalRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+.totalStack {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  align-items: stretch;
   width: 100%;
 }
 
 .totalSelect {
   min-width: 0;
+  width: 100%;
 }
 
 .motivate {
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
   padding: 16px 18px;
   border-radius: var(--radius-md);
   background: linear-gradient(135deg, #f5f2ff, #e9e1ff);
@@ -624,8 +626,7 @@
 }
 
 @media (max-width: 900px) {
-  .threeCol,
-  .totalRow {
+  .threeCol {
     grid-template-columns: 1fr;
   }
 }

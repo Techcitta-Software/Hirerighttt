@@ -341,6 +341,7 @@ export function publicJobListPayload(job) {
     location: base.location,
     shareableCode: base.shareableCode,
     createdAt: base.createdAt,
+    requiredSkills: (job.requiredSkills || []).slice(0, 12),
     jobDescription: jd.length > 360 ? `${jd.slice(0, 360)}…` : jd,
   }
 }

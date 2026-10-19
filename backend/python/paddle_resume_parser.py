@@ -309,11 +309,16 @@ def heuristic_parse(text):
             if len(certifications) >= 5:
                 break
 
-    # 11. Achievements
-    achievements = [
-        "Delivered production features impacting active users",
-        "Optimized workflow performance and code quality"
-    ]
+    # 11. Achievements (quantified bullets only — no placeholders)
+    achievements = []
+    for line in text.split("\n"):
+        stripped = line.strip().lstrip("•-* ").strip()
+        if len(stripped) < 12:
+            continue
+        if re.search(r"\d+%|\$\d|increased|reduced|improved|decreased|saved|grew", stripped, re.I):
+            achievements.append(stripped[:180])
+        if len(achievements) >= 4:
+            break
 
     return {
         "fullName": full_name or "Candidate",

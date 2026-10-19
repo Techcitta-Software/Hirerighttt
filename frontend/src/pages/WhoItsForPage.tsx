@@ -229,14 +229,14 @@ export function WhoItsForPage() {
               <Link to="/contact" className={styles.footerLink}>
                 Contact
               </Link>
-              <Link to="/about" className={styles.footerLink}>
+              <Link to="/privacy" className={styles.footerLink}>
                 Privacy Policy
               </Link>
-              <Link to="/about" className={styles.footerLink}>
-                Terms of Use
+              <Link to="/terms" className={styles.footerLink}>
+                Terms &amp; Conditions
               </Link>
-              <Link to="/about" className={styles.footerLink}>
-                Cookie Preferences
+              <Link to="/cookies" className={styles.footerLink}>
+                Cookie Policy
               </Link>
             </nav>
           </div>

@@ -27,6 +27,13 @@ export function buildApplyUrl(company: string, shareableCode: string): string {
   return `${origin}/apply/${slug}/${code}`
 }
 
+/** In-app route for the apply form (resume upload + ATS). */
+export function buildApplyPath(company: string, shareableCode: string): string {
+  const slug = slugifyCompany(company)
+  const code = encodeURIComponent(String(shareableCode || '').trim())
+  return `/apply/${slug}/${code}`
+}
+
 export function companySlugMatches(company: string, slug: string | undefined): boolean {
   if (!slug?.trim()) return true
   return slugifyCompany(company) === slug.trim().toLowerCase()

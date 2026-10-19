@@ -3,6 +3,6 @@
 .sectionHead h2, .sectionHead h3 { margin: 0; color: #171b38; font-size: 21px; line-height: 28px; font-weight: 700; letter-spacing: -.2px; }
 .sectionHead h3:nth-child(2), .sectionHead h4, .sectionHead p { margin: 6px 0 0; color: #5f6686; font-size: 15px; font-weight: 400; line-height: 22px; }
 .twoCol { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
-.fourCol { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 18px; }
-@media (max-width: 950px) { .fourCol { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media (max-width: 600px) { .twoCol,.fourCol { grid-template-columns: 1fr; } .card { padding: 20px 16px; gap: 20px; } }
+.threeCol { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; }
+@media (max-width: 950px) { .threeCol { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .twoCol,.threeCol { grid-template-columns: 1fr; } .card { padding: 20px 16px; gap: 20px; } }

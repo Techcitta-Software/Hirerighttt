@@ -39,11 +39,20 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
           <h4>About HireRight</h4>
           <Link to="/about">About us</Link>
           <Link to="/pricing">Pricing</Link>
-          <Link to="/about">Privacy &amp; terms</Link>
+          <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/terms">Terms &amp; Conditions</Link>
+          <Link to="/cookies">Cookie Policy</Link>
         </div>
       </div>
       <div className={styles.bottom}>
         <span>© {new Date().getFullYear()} HireRight. All rights reserved.</span>
+        <span className={styles.legalInline}>
+          <Link to="/privacy">Privacy</Link>
+          <span aria-hidden>·</span>
+          <Link to="/terms">Terms</Link>
+          <span aria-hidden>·</span>
+          <Link to="/cookies">Cookies</Link>
+        </span>
         <div className={styles.social}>
           <a href="https://linkedin.com" aria-label="LinkedIn">
             in

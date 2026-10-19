@@ -8,18 +8,29 @@ import { geminiApiConfigured, isGeminiProvider, modelCascadeForTier } from './ll
 import { geminiChat, resolveGeminiApiKey, isGeminiAuthKey } from './geminiClient.mjs'
 import { computeFinalAtsScore, parseResumeStructure } from './atsScorer.mjs'
 import { extractPrimarySkillsFromJd, computeAtsScore } from './vendor/atsScore.mjs'
+import {
+  buildStructuredTurnQuestion,
+  recommendTopSkillsForRole,
+  resolveExactInterviewRole,
+  structuredPlanSummary,
+} from './interviewQuestionPlan.mjs'
+import {
+  INTERVIEW_RUBRICS,
+  RUBRIC_WEIGHT_BY_PROFILE,
+  buildWeightedRubrics,
+  classifyQuestionScoringProfile,
+  computeHeuristicRubricScores,
+  mergeRubricScores,
+  weightedQuestionScore,
+} from './interviewRubricScoring.mjs'
 
 export const INTERVIEW_TURN_COUNT = 6
 export { publicModelConfig, geminiKeyFormatWarning } from './llmModels.mjs'
 
 export const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience']
 
-/** Session scorecard: three weighted rubrics (0–100 each). Question score = weighted sum. */
-export const INTERVIEW_RUBRICS = [
-  { id: 'evidence', label: 'Evidence & Relevance', weight: 0.4 },
-  { id: 'structure', label: 'Structure & Clarity', weight: 0.35 },
-  { id: 'impact', label: 'Impact & Specificity', weight: 0.25 },
-]
+/** Session scorecard dimensions (per-answer weights vary by question type). */
+export { INTERVIEW_RUBRICS, RUBRIC_WEIGHT_BY_PROFILE }
 
 /**
  * @typedef {{ text: string, category: string, keywords: string[], hint: string, focus?: string }} Question
@@ -904,15 +915,19 @@ function buildAdaptiveQuestionSystemPrompt(p) {
   const jdRule = jdAttached
     ? `- EMPLOYER JOB DESCRIPTION IS ATTACHED: Every question must reference a specific requirement, responsibility, tech stack item, or deliverable from that JD (paraphrase is fine). Do not ask generic trivia unrelated to the JD.`
     : ''
+  const planRule = p.planSummary
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${p.exactRole}". Recommended skills: ${(p.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${p.turnNumber}: ${p.planSummary.turnPlan[p.turnNumber - 1] || 'follow slot'}. Q1–Q2 = skill depth; Q3–Q4 = work experience from résumé; Q5 = certification OR project; Q6 = closing motivation/strength.`
+    : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
 Rules:
 - This is question ${p.turnNumber} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
-- Use the candidate resume, role "${p.role}", experience "${p.level}", job description (if any), and their last answer to choose the next realistic topic.
+- Use the candidate resume, role "${p.exactRole || p.role}", experience "${p.level}", job description (if any), and their last answer to choose the next realistic topic.
 - One clear idea per question — how a real hiring manager speaks.
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
 - category must be one of: Communication, Technical, Problem Solving, Experience.
+${planRule}
 ${jdRule}
 
 Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
@@ -923,13 +938,17 @@ function buildAdaptiveQuestionUserPayload(p) {
   return JSON.stringify({
     turnNumber: p.turnNumber,
     totalTurns: INTERVIEW_TURN_COUNT,
-    roleTrack: p.role,
+    roleTrack: p.exactRole || p.role,
+    exactRole: p.exactRole || p.role,
+    recommendedSkillsForRole: p.recommendedSkills || [],
+    interviewPlan: p.planSummary?.turnPlan || [],
     experienceLevel: p.level,
     jobDescription: p.jobDescription || null,
     candidateSummary: {
       skills: (p.ctx.skills || []).slice(0, 16),
       jobs: (p.ctx.jobs || []).slice(0, 4),
       achievements: (p.ctx.achievements || []).slice(0, 5),
+      certifications: (p.ctx.certs || []).slice(0, 5),
       resumeSnippet: (p.ctx.resumeSnippet || '').slice(0, 2800),
     },
     priorQuestions: p.priorTexts,
@@ -945,6 +964,7 @@ function buildAdaptiveQuestionUserPayload(p) {
 export function generateAdaptiveQuestionLocal(input) {
   const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
   const role = input.role || 'Full Stack Engineer'
+  const exactRole = resolveExactInterviewRole(input.profile || {}, role)
   const level = input.level || '1–3 years'
   const jobDescription = clean(input.jobDescription)
   const history = Array.isArray(input.history) ? input.history : []
@@ -952,6 +972,21 @@ export function generateAdaptiveQuestionLocal(input) {
   const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
   const first = firstNameFromFull(ctx.name)
   const turnNumber = history.length + 1
+
+  const structured = buildStructuredTurnQuestion({
+    turnNumber,
+    first,
+    level,
+    profile: input.profile || {},
+    ctx,
+    roleOverride: role,
+    history,
+    senior: isSeniorExperienceLevel(level),
+  })
+  if (structured) {
+    const planned = normalizeAdaptiveQuestion(structured, priorTexts)
+    if (planned) return { ...planned, focus: structured.focus || 'structured-plan' }
+  }
 
   /** @type {object[]} */
   const candidates = []
@@ -1063,6 +1098,9 @@ export function generateAdaptiveQuestionLocal(input) {
 export async function generateAdaptiveQuestion(input) {
   const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
   const role = input.role || 'Full Stack Engineer'
+  const exactRole = resolveExactInterviewRole(input.profile || {}, role)
+  const recommendedSkills = recommendTopSkillsForRole(exactRole, ctx)
+  const planSummary = structuredPlanSummary(exactRole, ctx)
   const level = input.level || '1–3 years'
   const jobDescription = clean(input.jobDescription)
   const history = Array.isArray(input.history) ? input.history : []
@@ -1077,13 +1115,18 @@ export async function generateAdaptiveQuestion(input) {
   const system = buildAdaptiveQuestionSystemPrompt({
     turnNumber,
     role,
+    exactRole,
     level,
     first,
     jobDescription,
+    planSummary,
   })
   const user = buildAdaptiveQuestionUserPayload({
     turnNumber,
     role,
+    exactRole,
+    recommendedSkills,
+    planSummary,
     level,
     jobDescription,
     ctx,
@@ -1132,91 +1175,187 @@ function median(values) {
 }
 
 /**
- * @param {Question} question
- * @param {string} answer
- * @param {ReturnType<typeof summarizeProfile>} ctx
+ * AI rubric pass — one batched call for all answers (fast tier).
+ * @param {object} input
  */
-function computeRubricScores(question, answer, ctx) {
-  const text = clean(answer)
-  const lower = text.toLowerCase()
-  const words = text.split(/\s+/).filter(Boolean)
-  const wordCount = words.length
+async function evaluateAnswersWithLlm(input) {
+  const { questions, answers, ctx, role, level } = input
+  if (!llmConfigured()) return null
 
-  const keywords = (question.keywords || []).map((k) => String(k).toLowerCase()).filter(Boolean)
-  const keywordsHit = keywords.filter((k) => lower.includes(k))
-  const keywordCoverage =
-    keywords.length > 0
-      ? Math.round((keywordsHit.length / Math.min(keywords.length, 6)) * 100)
-      : wordCount >= 20
-        ? 70
-        : 35
-
-  const skillsHit = ctx.skills.filter((s) => s.length >= 2 && lower.includes(s.toLowerCase()))
-  const companyTokens = ctx.jobs
-    .flatMap((j) => j.split(/[@:]/).map((p) => p.trim().toLowerCase()))
-    .filter((t) => t.length >= 3 && !['role', 'company', 'at'].includes(t))
-  const companiesHit = companyTokens.filter((t) => lower.includes(t))
-  const resumeEvidence = Math.min(
-    100,
-    Math.round(skillsHit.length * 22 + companiesHit.length * 28 + (ctx.resumeSnippet && wordCount > 35 ? 12 : 0)),
-  )
-
-  const evidence = Math.min(100, Math.round(keywordCoverage * 0.55 + resumeEvidence * 0.45))
-
-  const structureHits = STRUCTURE_SIGNALS.filter((s) => lower.includes(s)).length
-  const structureSignals = Math.min(100, Math.round((structureHits / 3) * 100))
-  const clarityBand = wordCountBandScore(wordCount)
-  const fillerPenalty = /\b(um+|uh+|like,|you know)\b/i.test(text) ? 8 : 0
-  const structure = Math.max(0, Math.min(100, Math.round(clarityBand * 0.6 + structureSignals * 0.4 - fillerPenalty)))
-
-  const hasNumbers = /\d/.test(text)
-  const hasMetrics = /\b(\d+\s*%|\$\d|percent|increase|reduce|saved|improved|latency|throughput)\b/i.test(text)
-  const hasTools =
-    /\b(react|node|python|sql|aws|docker|typescript|java|kafka|postgres|kubernetes|api|microservice)\b/i.test(
-      text,
-    )
-  const outcomeWords = (text.match(/\b(built|shipped|led|fixed|designed|implemented|delivered|migrated)\b/gi) || [])
-    .length
-  let impact = 25
-  if (hasNumbers) impact += 28
-  if (hasMetrics) impact += 18
-  if (hasTools) impact += 14
-  impact += Math.min(15, outcomeWords * 5)
-  impact = Math.min(100, impact)
-
-  const rubricMap = { evidence, structure, impact }
-  const rubrics = INTERVIEW_RUBRICS.map((r) => ({
-    id: r.id,
-    label: r.label,
-    weight: r.weight,
-    score: rubricMap[r.id] ?? 0,
+  const items = questions.map((q, i) => ({
+    index: i + 1,
+    scoringProfile: classifyQuestionScoringProfile(q),
+    question: clean(q.text),
+    category: q.category,
+    topic: q.topic,
+    keywords: (q.keywords || []).slice(0, 8),
+    resumeAnchor: q.resumeAnchor,
+    answer: clean(answers[i]),
   }))
-  const questionScore = Math.min(
-    100,
-    Math.round(rubrics.reduce((sum, r) => sum + r.score * r.weight, 0)),
-  )
 
-  return { rubrics, questionScore, wordCount, keywordsHit: unique([...keywordsHit, ...skillsHit]), skillsHit }
+  const system = `You are Ava, HireRight's interview evaluator. Score EACH candidate answer on three dimensions (integers 0–100):
+
+1. correctness — Does the answer address the question accurately? For technical items, is reasoning sound and consistent with standard practice? Penalize claims that contradict the supplied resume or invent employers/projects not in the resume snippet. Empty or off-topic answers score below 25.
+
+2. depth — Specificity: tools, architecture, trade-offs, metrics, ownership, timeline, and completeness. Generic buzzwords without examples score below 40.
+
+3. communication — Clarity and structure for a spoken interview (STAR-style is fine). Do NOT penalize accent or minor grammar. Penalize rambling without a point or answers under ~10 words.
+
+Use the scoringProfile on each item to calibrate expectations (technical vs project vs experience vs behavioral).
+
+Return ONLY valid JSON:
+{"answers":[{"index":1,"correctness":0-100,"depth":0-100,"communication":0-100,"feedback":"one concise sentence"}]}`
+
+  const user = JSON.stringify({
+    role,
+    level,
+    candidate: {
+      skills: (ctx.skills || []).slice(0, 16),
+      jobs: (ctx.jobs || []).slice(0, 4),
+      resumeSnippet: (ctx.resumeSnippet || '').slice(0, 3200),
+    },
+    items,
+  })
+
+  for (const temperature of [0.12, 0.08]) {
+    const llm = await callLlmApi({ system, user, temperature, tier: 'fast', maxTokens: 4096 })
+    if (!llm?.text) continue
+    try {
+      const match = llm.text.match(/\{[\s\S]*\}/)
+      if (!match) continue
+      const parsed = JSON.parse(match[0])
+      if (!Array.isArray(parsed.answers)) continue
+      const byIndex = new Map()
+      for (const row of parsed.answers) {
+        const idx = Number(row.index)
+        if (!idx) continue
+        byIndex.set(idx, {
+          correctness: row.correctness,
+          depth: row.depth,
+          communication: row.communication,
+          feedback: row.feedback,
+        })
+      }
+      if (byIndex.size) return byIndex
+    } catch {
+      // retry temperature
+    }
+  }
+  return null
 }
 
-function analyzeAnswerDetailed(question, answer, ctx) {
+function analyzeAnswerDetailed(question, answer, ctx, llmRow) {
   const base = analyzeAnswer(question, answer, ctx)
-  const { rubrics, questionScore, wordCount, keywordsHit, skillsHit } = computeRubricScores(
-    question,
-    answer,
-    ctx,
-  )
+  const heuristic = computeHeuristicRubricScores(question, answer, ctx)
+  const merged = mergeRubricScores(heuristic, llmRow)
+  const profile = heuristic.scoringProfile || classifyQuestionScoringProfile(question)
+  const rubrics = buildWeightedRubrics(merged, profile)
+  const questionScore = weightedQuestionScore(rubrics)
   const performance =
     questionScore >= 80 ? 'Strong' : questionScore >= 65 ? 'Good' : questionScore >= 45 ? 'Fair' : 'Needs work'
+  const feedback =
+    merged.feedback ||
+    base.feedback ||
+    'Add a concrete example with tools and a measurable outcome.'
   return {
     ...base,
     score: questionScore,
-    wordCount,
-    keywordsHit,
-    resumeSkillsHit: skillsHit,
+    feedback,
+    wordCount: heuristic.wordCount,
+    keywordsHit: heuristic.keywordsHit,
+    resumeSkillsHit: heuristic.skillsHit,
     topic: question.topic || question.category || 'Interview',
+    scoringProfile: profile,
     rubrics,
     performance,
+    rubricSource: merged.source,
+  }
+}
+
+function rubricScoreMap(rubrics) {
+  return Object.fromEntries((rubrics || []).map((r) => [r.id, r.score]))
+}
+
+function qaRowFromAnalysis(a, i, tagFor) {
+  const rub = rubricScoreMap(a.rubrics)
+  const fallback = a.score ?? 0
+  const accuracy = Math.min(10, Math.round((rub.correctness ?? fallback) / 10))
+  const clarity = Math.min(10, Math.round((rub.communication ?? fallback) / 10))
+  const depth = Math.min(10, Math.round((rub.depth ?? fallback) / 10))
+  const understanding = Math.min(10, Math.round(((rub.correctness ?? fallback) + (rub.communication ?? fallback)) / 20))
+  const total30 = Math.min(30, accuracy + clarity + depth)
+  const stars = '★'.repeat(Math.max(1, Math.round((a.score ?? 0) / 20))).padEnd(5, '☆')
+  const performance = a.performance || tagFor(a.score)
+  return {
+    index: i + 1,
+    topic: a.topic || 'Interview',
+    question: a.question,
+    accuracy,
+    clarity,
+    understanding,
+    depth,
+    total30,
+    total40: total30,
+    stars,
+    performance,
+    feedback: a.feedback,
+    score: a.score,
+    rubrics: (a.rubrics || []).map((r) => ({ id: r.id, label: r.label, score: r.score, weight: r.weight })),
+  }
+}
+
+function careerStatusFromScore(careerScore) {
+  if (careerScore >= 850) return 'Premium Market-Ready'
+  if (careerScore >= 700) return 'Industry Ready'
+  if (careerScore >= 550) return 'Growth Potential'
+  return 'Skill Enhancement Recommended'
+}
+
+/** @param {object} params */
+function deriveScorecardNarrative(params) {
+  const {
+    ctx,
+    role,
+    level,
+    overall,
+    careerScore,
+    strengths = [],
+    improvements = [],
+    resumeFitScore = overall,
+  } = params
+  const first = firstNameFromFull(ctx.name)
+  const status = careerStatusFromScore(careerScore)
+  const weakest = improvements[0]
+  const strongest = strengths[0]
+  return {
+    bandInterpretation: `${first} scored ${overall}/100 on the ${role} (${level}) interview, placing them in the ${status} band.${
+      strongest ? ` Standout: ${strongest}` : ''
+    }${weakest ? ` Priority focus: ${weakest}` : ''}`,
+    scoreSubHint: weakest
+      ? 'AI-identified growth areas drive your next band'
+      : strongest
+        ? 'Momentum from your strongest answers'
+        : status,
+    industryAlignmentCaption:
+      resumeFitScore >= 75
+        ? 'Interview answers closely match resume skills and experience'
+        : resumeFitScore >= 55
+          ? 'Partial alignment — cite more resume-backed examples in answers'
+          : 'Strengthen resume-to-answer alignment with named projects and tools',
+    positioningRecommendations: improvements.slice(0, 5),
+    positioningFooter: weakest
+      ? `HireRight recommends prioritizing: ${weakest}`
+      : 'Continue anchoring answers in measurable outcomes from your resume.',
+    recommendedRoles: unique([
+      role,
+      `${role} (Senior)`,
+      ctx.skills?.[0] ? `${ctx.skills[0]} · ${role}` : '',
+      'Adjacent specialist track',
+    ]).slice(0, 5),
+    nextRecommendedStep:
+      weakest ||
+      'Retake the adaptive interview after updating resume highlights and practicing STAR examples.',
+    finalCareerStatus: status,
   }
 }
 
@@ -1231,6 +1370,8 @@ export function buildCareerScorecard(params) {
     categories: categoryRows = [],
     questionCount = analyses.length,
     durationMinutes = Math.max(12, questionCount * 3),
+    narrative: narrativeIn,
+    resumeFitScore = overall,
   } = params
   const first = firstNameFromFull(ctx.name)
 
@@ -1240,15 +1381,7 @@ export function buildCareerScorecard(params) {
   const colorFor = (score) =>
     score >= 75 ? '#16a34a' : score >= 50 ? '#ea580c' : '#dc2626'
 
-  const qaRows = analyses.map((a, i) => ({
-    index: i + 1,
-    topic: a.topic || 'Interview',
-    question: a.question,
-    score: a.score,
-    rubrics: (a.rubrics || []).map((r) => ({ label: r.label, score: r.score, weight: r.weight })),
-    performance: a.performance || tagFor(a.score),
-    feedback: a.feedback,
-  }))
+  const qaRows = analyses.map((a, i) => qaRowFromAnalysis(a, i, tagFor))
 
   const rubricTotals = new Map(INTERVIEW_RUBRICS.map((r) => [r.id, []]))
   for (const a of analyses) {
@@ -1263,7 +1396,7 @@ export function buildCareerScorecard(params) {
     const score = scores.length
       ? Math.round(scores.reduce((x, y) => x + y, 0) / scores.length)
       : 0
-    return { label: def.label, score, weight: def.weight }
+    return { label: def.label, score }
   })
 
   const donuts = rubricSessionScores.map((r) => ({
@@ -1288,33 +1421,62 @@ export function buildCareerScorecard(params) {
     { label: 'Overall', val: overall },
   ]
 
-  const careerPaths = [
-    { role: `${role}`, match: Math.max(1, Math.min(99, overall)) },
-    { role: `${role} (Senior)`, match: Math.max(1, Math.min(99, overall - 3)) },
-    { role: 'Adjacent specialist', match: Math.max(1, Math.min(99, Math.round(overall * 0.92))) },
-  ]
-
   const improvements = params.improvements || []
   const strengths = params.strengths || []
 
-  const coachNotes = `${first}, your HireRight interview score is ${overall}/100 for ${role} (${level}). ${
-    strengths[0] ? `Strength: ${strengths[0]}. ` : ''
-  }${improvements[0] ? `Focus next: ${improvements[0]}. ` : ''}Job match percentages on your dashboard use this same score — retake the interview to improve.`
+  const derivedNarrative = deriveScorecardNarrative({
+    ctx,
+    role,
+    level,
+    overall,
+    careerScore,
+    strengths,
+    improvements,
+    resumeFitScore,
+  })
+  const narrative = { ...derivedNarrative, ...(narrativeIn || {}) }
+
+  const careerPaths =
+    Array.isArray(narrative.careerPaths) && narrative.careerPaths.length >= 2
+      ? narrative.careerPaths.slice(0, 5).map((p) => ({
+          role: String(p.role || role),
+          match: Math.max(1, Math.min(99, Number(p.match) || overall)),
+        }))
+      : [
+          { role: `${role}`, match: Math.max(1, Math.min(99, overall)) },
+          { role: `${role} (Senior)`, match: Math.max(1, Math.min(99, overall - 3)) },
+          { role: 'Adjacent specialist', match: Math.max(1, Math.min(99, Math.round(overall * 0.92))) },
+        ]
+
+  const coachNotes =
+    (typeof narrative.coachNotes === 'string' && narrative.coachNotes.trim()) ||
+    `${first}, your HireRight interview score is ${overall}/100 for ${role} (${level}). ${
+      strengths[0] ? `Strength: ${strengths[0]}. ` : ''
+    }${improvements[0] ? `Focus next: ${improvements[0]}. ` : ''}Job match percentages on your dashboard use this same score — retake the interview to improve.`
 
   return {
     careerScore,
-    industryAlignment: Math.max(1, Math.min(99, overall)),
+    industryAlignment: Math.max(1, Math.min(99, resumeFitScore ?? overall)),
     donuts,
     healthMetrics,
     qaRows,
     radarAxes,
     careerPaths,
+    bandInterpretation: narrative.bandInterpretation,
+    scoreSubHint: narrative.scoreSubHint,
+    industryAlignmentCaption: narrative.industryAlignmentCaption,
+    positioningRecommendations: narrative.positioningRecommendations || [],
+    positioningFooter: narrative.positioningFooter,
+    recommendedRoles: narrative.recommendedRoles || [],
+    nextRecommendedStep: narrative.nextRecommendedStep,
+    finalCareerStatus: narrative.finalCareerStatus,
     starPatterns: qaRows.slice(0, 7).map((r) => ({
-      name: `Q${r.index}`,
-      stars: '★'.repeat(Math.max(1, Math.round(r.score / 20))).padEnd(5, '☆'),
+      name: r.topic.length > 32 ? `${r.topic.slice(0, 32)}…` : r.topic,
+      stars: r.stars,
       level: r.performance,
     })),
-    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, weight: r.weight })),
+    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, id: r.id })),
+    rubricWeightProfiles: RUBRIC_WEIGHT_BY_PROFILE,
     statistics: params.statistics,
     priorities: improvements.slice(0, 4).map((text, i) => ({
       num: i + 1,
@@ -1429,10 +1591,10 @@ function analyzeAnswer(question, answer, ctx) {
 }
 
 /**
- * Optional LLM scoring pass (refines overall feedback).
+ * LLM pass: refine scores and fill Career Intelligence Report narrative (no generic filler).
  * @param {object} payload
  */
-async function refineWithLlm(payload) {
+async function generateScorecardReportWithLlm(payload) {
   const apiKey =
     process.env.OPENROUTER_API_KEY ||
     process.env.OPENAI_API_KEY ||
@@ -1460,6 +1622,25 @@ async function refineWithLlm(payload) {
     headers['X-Title'] = 'HIRERIGHTTT'
   }
 
+  const system = `You are Ava preparing a HireRight Career Intelligence Report.
+Use ONLY evidence from the interview Q&A, rubric category scores, resume skills, and employer role.
+Do NOT use generic placeholder bullets (e.g. "Strong backend skills") unless supported by the answers.
+Return valid JSON only with keys:
+{"overallAdjust": number from -5 to 5,
+ "strengths": string[] max 5,
+ "improvements": string[] max 5,
+ "resumeFitSummary": string,
+ "bandInterpretation": string 2-3 sentences,
+ "scoreSubHint": string short phrase under career score,
+ "industryAlignmentCaption": string one line,
+ "positioningRecommendations": string[] max 5 specific themes,
+ "positioningFooter": string one sentence,
+ "recommendedRoles": string[] max 5,
+ "nextRecommendedStep": string one sentence,
+ "finalCareerStatus": string,
+ "coachNotes": string 2-4 sentences in second person,
+ "careerPaths": [{"role": string, "match": number 1-99}] length 3}`
+
   try {
     const res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
@@ -1468,11 +1649,7 @@ async function refineWithLlm(payload) {
         model,
         temperature: 0.2,
         messages: [
-          {
-            role: 'system',
-            content:
-              'You are Ava scoring a video interview for resume accuracy and communication. Return valid JSON only: {"overallAdjust":-5to5,"strengths":["..."],"improvements":["..."],"resumeFitSummary":"..."}',
-          },
+          { role: 'system', content: system },
           { role: 'user', content: JSON.stringify(payload) },
         ],
       }),
@@ -1499,7 +1676,16 @@ async function refineWithLlm(payload) {
  */
 export async function scoreInterviewSession(input) {
   const ctx = summarizeProfile(input.profile, input.accountName || '')
-  const analyses = input.questions.map((q, i) => analyzeAnswerDetailed(q, input.answers[i] || '', ctx))
+  const llmByIndex = await evaluateAnswersWithLlm({
+    questions: input.questions,
+    answers: input.answers,
+    ctx,
+    role: input.role,
+    level: input.level,
+  })
+  const analyses = input.questions.map((q, i) =>
+    analyzeAnswerDetailed(q, input.answers[i] || '', ctx, llmByIndex?.get(i + 1)),
+  )
 
   const questionScores = analyses.map((a) => a.score)
   let overall = Math.round(questionScores.reduce((a, b) => a + b, 0) / Math.max(questionScores.length, 1))
@@ -1515,7 +1701,7 @@ export async function scoreInterviewSession(input) {
     const score = scores.length
       ? Math.round(scores.reduce((x, y) => x + y, 0) / scores.length)
       : 0
-    return { label: def.label, score, weight: def.weight }
+    return { label: def.label, score }
   })
 
   const statistics = {
@@ -1572,26 +1758,50 @@ export async function scoreInterviewSession(input) {
     improvements.push(`${weakQuestions} answer(s) scored below 50 — add evidence and measurable results.`)
   }
 
-  const llmRefine = await refineWithLlm({
+  const llmReport = await generateScorecardReportWithLlm({
+    candidateName: ctx.name,
     role: input.role,
     level: input.level,
     overall,
     resumeFitScore,
     categories,
-    answers: analyses.map((a) => ({ question: a.question, score: a.score, feedback: a.feedback })),
     skills: ctx.skills,
+    jobs: ctx.jobs,
+    answers: analyses.map((a, i) => ({
+      topic: a.topic,
+      question: a.question,
+      score: a.score,
+      feedback: a.feedback,
+      rubrics: a.rubrics,
+      answerSnippet: String(input.answers[i] || '').slice(0, 400),
+    })),
   })
 
-  if (llmRefine) {
-    if (typeof llmRefine.overallAdjust === 'number') {
-      overall = Math.max(0, Math.min(100, overall + Math.max(-5, Math.min(5, llmRefine.overallAdjust))))
+  if (llmReport) {
+    if (typeof llmReport.overallAdjust === 'number') {
+      overall = Math.max(0, Math.min(100, overall + Math.max(-5, Math.min(5, llmReport.overallAdjust))))
     }
-    if (Array.isArray(llmRefine.strengths)) strengths.push(...llmRefine.strengths.slice(0, 2))
-    if (Array.isArray(llmRefine.improvements)) improvements.push(...llmRefine.improvements.slice(0, 2))
+    if (Array.isArray(llmReport.strengths)) strengths.push(...llmReport.strengths.slice(0, 4))
+    if (Array.isArray(llmReport.improvements)) improvements.push(...llmReport.improvements.slice(0, 4))
   }
 
   const strengthsOut = unique(strengths).slice(0, 6)
   const improvementsOut = unique(improvements).slice(0, 6)
+
+  const narrativeFromLlm = llmReport
+    ? {
+        bandInterpretation: llmReport.bandInterpretation,
+        scoreSubHint: llmReport.scoreSubHint,
+        industryAlignmentCaption: llmReport.industryAlignmentCaption,
+        positioningRecommendations: llmReport.positioningRecommendations,
+        positioningFooter: llmReport.positioningFooter,
+        recommendedRoles: llmReport.recommendedRoles,
+        nextRecommendedStep: llmReport.nextRecommendedStep,
+        finalCareerStatus: llmReport.finalCareerStatus,
+        coachNotes: llmReport.coachNotes,
+        careerPaths: llmReport.careerPaths,
+      }
+    : null
 
   return {
     role: input.role,
@@ -1604,7 +1814,8 @@ export async function scoreInterviewSession(input) {
     improvements: improvementsOut,
     answers: analyses.map(({ resumeSkillsHit: _r, ...rest }) => rest),
     statistics,
-    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, weight: r.weight })),
+    rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, id: r.id })),
+    rubricWeightProfiles: RUBRIC_WEIGHT_BY_PROFILE,
     scorecard: buildCareerScorecard({
       ctx,
       analyses,
@@ -1617,6 +1828,8 @@ export async function scoreInterviewSession(input) {
       strengths: strengthsOut,
       improvements: improvementsOut,
       statistics,
+      resumeFitScore,
+      narrative: narrativeFromLlm,
     }),
     integrity: {
       faceViolations: integrity.faceViolations || 0,
@@ -1919,6 +2132,7 @@ STRICT ANTI-HALLUCINATION RULES:
 4. NEVER invent or hallucinate company names or job titles. NEVER output placeholder companies like "TechCitta", "Tech Solutions", "Company", "Acme", etc.
 5. If no real companies are mentioned in the resume, return "workExperiences": [].
 6. Under "certifications", extract technical certificates, licenses, or courses explicitly stated. If none exist in the resume, return "certifications": [].
+7. Under "metrics", extract quantified KPIs ONLY when explicitly stated in the resume (percentages, counts, revenue, latency, users, etc.). Do NOT invent metrics. If none exist, return "metrics": [].
 
 JSON Schema:
 {

@@ -1,9 +1,24 @@
-/** Mirrors backend INTERVIEW_RUBRICS weights (backend/node/interviewAgent.mjs). */
+/** Mirrors backend/node/interviewRubricScoring.mjs */
+import type { Question } from './interviewEngine'
+
 export const INTERVIEW_RUBRICS = [
-  { id: 'evidence', label: 'Evidence & Relevance', weight: 0.4 },
-  { id: 'structure', label: 'Structure & Clarity', weight: 0.35 },
-  { id: 'impact', label: 'Impact & Specificity', weight: 0.25 },
+  { id: 'correctness', label: 'Answer Correctness' },
+  { id: 'depth', label: 'Depth' },
+  { id: 'communication', label: 'Communication' },
 ] as const
+
+export type ScoringProfile = 'technical' | 'experience' | 'project' | 'behavioral' | 'balanced'
+
+export const RUBRIC_WEIGHT_BY_PROFILE: Record<
+  ScoringProfile,
+  { correctness: number; depth: number; communication: number }
+> = {
+  technical: { correctness: 0.45, depth: 0.35, communication: 0.2 },
+  experience: { correctness: 0.32, depth: 0.33, communication: 0.35 },
+  project: { correctness: 0.22, depth: 0.28, communication: 0.5 },
+  behavioral: { correctness: 0.18, depth: 0.22, communication: 0.6 },
+  balanced: { correctness: 0.34, depth: 0.33, communication: 0.33 },
+}
 
 const STRUCTURE_SIGNALS = [
   'for example',
@@ -27,14 +42,42 @@ function wordCountBandScore(wordCount: number) {
   return 55
 }
 
+export function classifyQuestionScoringProfile(question: Question): ScoringProfile {
+  const focus = (question.focus || '').toLowerCase()
+  const cat = question.category || ''
+  const text = question.text.toLowerCase()
+  const topic = (question.topic || '').toLowerCase()
+
+  if (focus.includes('structured-skill') || cat === 'Technical') return 'technical'
+  if (
+    focus.includes('structured-project') ||
+    focus.includes('structured-cert') ||
+    /project|certification/.test(topic)
+  ) {
+    return 'project'
+  }
+  if (focus.includes('structured-work') || cat === 'Experience') return 'experience'
+  if (focus.includes('structured-closing') || cat === 'Communication') return 'behavioral'
+  if (/\bproject\b|\bcertification\b/.test(text)) return 'project'
+  if (/\btechnical\b|\bskill\b|\barchitect|\bapi\b/.test(text)) return 'technical'
+  return 'balanced'
+}
+
+export function getRubricWeights(profile: ScoringProfile) {
+  return { ...RUBRIC_WEIGHT_BY_PROFILE[profile] }
+}
+
+/** Offline heuristic parity when API scoring is unavailable. */
 export function scoreAnswerRubrics(
-  question: { keywords?: string[] },
+  question: Question,
   answer: string,
   profileSkills: string[] = [],
 ) {
   const text = answer.trim()
   const lower = text.toLowerCase()
   const wordCount = text.split(/\s+/).filter(Boolean).length
+  const profile = classifyQuestionScoringProfile(question)
+  const weights = getRubricWeights(profile)
 
   const keywords = (question.keywords || []).map((k) => k.toLowerCase())
   const keywordsHit = keywords.filter((k) => lower.includes(k))
@@ -42,32 +85,34 @@ export function scoreAnswerRubrics(
     keywords.length > 0
       ? Math.round((keywordsHit.length / Math.min(keywords.length, 6)) * 100)
       : wordCount >= 20
-        ? 70
-        : 35
+        ? 65
+        : 30
 
   const skillsHit = profileSkills.filter((s) => s.length >= 2 && lower.includes(s.toLowerCase()))
-  const resumeEvidence = Math.min(100, skillsHit.length * 25 + (wordCount > 35 ? 15 : 0))
-  const evidence = Math.min(100, Math.round(keywordCoverage * 0.55 + resumeEvidence * 0.45))
-
-  const structureHits = STRUCTURE_SIGNALS.filter((s) => lower.includes(s)).length
-  const structure = Math.min(
-    100,
-    Math.round(wordCountBandScore(wordCount) * 0.6 + Math.min(100, (structureHits / 3) * 100) * 0.4),
-  )
+  let correctness = Math.min(100, Math.round(keywordCoverage * 0.5 + skillsHit.length * 15))
+  if (wordCount < 10) correctness = Math.min(correctness, 25)
 
   const hasNumbers = /\d/.test(text)
   const hasTools = /\b(react|node|python|sql|aws|docker|typescript|java)\b/i.test(text)
-  let impact = 25
-  if (hasNumbers) impact += 30
-  if (hasTools) impact += 20
-  impact = Math.min(100, impact)
+  let depth = 25 + (wordCount >= 50 ? 20 : 0) + (hasNumbers ? 20 : 0) + (hasTools ? 15 : 0)
+  depth = Math.min(100, depth)
 
+  const structureHits = STRUCTURE_SIGNALS.filter((s) => lower.includes(s)).length
+  const communication = Math.min(
+    100,
+    Math.round(wordCountBandScore(wordCount) * 0.6 + (structureHits / 3) * 100 * 0.4),
+  )
+
+  const scores = { correctness, depth, communication }
   const rubrics = INTERVIEW_RUBRICS.map((r) => ({
     id: r.id,
     label: r.label,
-    weight: r.weight,
-    score: r.id === 'evidence' ? evidence : r.id === 'structure' ? structure : impact,
+    weight: weights[r.id as keyof typeof weights],
+    score: scores[r.id as keyof typeof scores],
   }))
-  const score = Math.min(100, Math.round(rubrics.reduce((s, r) => s + r.score * r.weight, 0)))
-  return { rubrics, score }
+  const score = Math.min(
+    100,
+    Math.round(rubrics.reduce((s, r) => s + r.score * r.weight, 0)),
+  )
+  return { rubrics, score, scoringProfile: profile }
 }

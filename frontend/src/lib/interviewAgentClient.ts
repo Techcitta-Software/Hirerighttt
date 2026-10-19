@@ -390,22 +390,20 @@ async function scoreWithGeminiDirect(options: {
   }))
 
   const system = `You are Ava, HireRight's chief AI assessment evaluator powered by Google Gemini.
-Evaluate the candidate's interview responses against their resume, technical depth, STAR structure, clarity, and the target role: ${options.role} (${options.level}).
+Evaluate the candidate for role ${options.role} (${options.level}) using three rubrics (0–100 each):
+- Answer Correctness (AI): accuracy vs question + resume; penalize invented facts
+- Depth: tools, trade-offs, metrics, ownership
+- Communication: clarity and STAR-style structure (not grammar/accent)
 
-Scoring Standards:
-- Score 90-100: Exceptional, concrete metrics, clear architecture/tools, direct resume alignment.
-- Score 75-89: Solid answers with good technical depth and clear examples.
-- Score 50-74: Basic response with limited detail or missing outcomes.
-- Score <50: Incomplete, evasive, or missing answers.
+Per-answer weights vary: technical/skill questions weight correctness+depth ~80% total; project/behavioral questions weight communication higher.
 
 Return ONLY valid JSON matching this schema:
 {
   "overall": 85,
   "categories": [
-    {"label": "Technical", "score": 88},
-    {"label": "Communication", "score": 82},
-    {"label": "Problem Solving", "score": 86},
-    {"label": "Experience", "score": 84}
+    {"label": "Answer Correctness", "score": 88},
+    {"label": "Depth", "score": 82},
+    {"label": "Communication", "score": 86}
   ],
   "strengths": ["...", "...", "..."],
   "improvements": ["...", "..."],
@@ -457,13 +455,12 @@ Return ONLY valid JSON matching this schema:
     const parsed = JSON.parse(match[0])
     const overall = typeof parsed.overall === 'number' ? parsed.overall : 80
 
-    const categories = Array.isArray(parsed.categories) && parsed.categories.length === 4
-      ? parsed.categories
+    const categories = Array.isArray(parsed.categories) && parsed.categories.length >= 3
+      ? parsed.categories.slice(0, 3)
       : [
+          { label: 'Answer Correctness', score: overall },
+          { label: 'Depth', score: overall },
           { label: 'Communication', score: overall },
-          { label: 'Technical', score: overall },
-          { label: 'Problem Solving', score: overall },
-          { label: 'Experience', score: overall },
         ]
 
     const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : []

@@ -12,6 +12,7 @@ import { Stepper } from '../components/Stepper'
 import { TopBar } from '../components/TopBar'
 import {
   initialFormData,
+  normalizeMetrics,
   STEPS,
   type ProfileFormData,
   type WizardStep,
@@ -76,7 +77,7 @@ export function ProfileWizard() {
         return true
       }),
       achievements: saved.achievements ?? initialFormData.achievements,
-      metrics: saved.metrics ?? initialFormData.metrics,
+      metrics: normalizeMetrics(saved.metrics),
       awards: saved.awards ?? initialFormData.awards,
       certifications: saved.certifications ?? initialFormData.certifications,
       preferredRoles: saved.preferredRoles ?? initialFormData.preferredRoles,

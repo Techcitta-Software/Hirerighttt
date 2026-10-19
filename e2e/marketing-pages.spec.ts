@@ -48,8 +48,8 @@ test.describe('Marketing & Informational Pages', () => {
     await expect(page.getByText(/words/i).first()).toBeVisible()
 
     // Check rubrics section
-    await expect(page.getByRole('heading', { name: 'Technical Depth' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Communication Clarity' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Answer Correctness' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Communication' })).toBeVisible()
 
     // Test FAQ expansion
     const firstFaqQuestion = page.getByRole('button', { name: /Can I retake my AI interview/i })
@@ -69,6 +69,18 @@ test.describe('Marketing & Informational Pages', () => {
 
     // Check 4-step path
     await expect(page.getByText('The 4-Step Path from Candidate to Hired')).toBeVisible()
+  })
+
+  test('Legal pages and cookie consent are reachable', async ({ page }) => {
+    await page.goto('/privacy')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/Privacy Policy/i)
+
+    await page.goto('/terms')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/Terms/i)
+
+    await page.goto('/cookies')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/Cookie Policy/i)
+    await expect(page.getByRole('button', { name: /Accept essential only/i })).toBeVisible()
   })
 
   test('Why page provides comparison matrix and recruiter ROI calculator', async ({ page }) => {

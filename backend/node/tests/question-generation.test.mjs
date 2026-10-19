@@ -51,9 +51,9 @@ test('local question generation follows the spec without a Gemini key', async ()
   })
   assert.ok(first.text.length >= 24)
   assert.ok(CATEGORIES.includes(first.category))
-  assert.equal(first.focus, 'experienced-intro')
+  assert.ok(String(first.focus || '').startsWith('structured-skill'))
   assert.match(first.text, /Karthik/)
-  assert.match(first.text, /Acme/)
+  assert.match(first.text, /React|Node/i)
   assert.doesNotMatch(first.text, /\b(Arjun|there|TechCitta|Initech)\b/i)
 
   const javaAnswer =
@@ -65,7 +65,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: javaAnswer }],
     lastAnswer: javaAnswer,
   })
-  assert.match(second.text, /Java/)
+  assert.match(second.text, /Node|React/i)
   assert.notEqual(second.text.slice(0, 40), first.text.slice(0, 40))
   assert.ok(second.text.length >= 24)
 
@@ -76,7 +76,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: 'ok' }],
     lastAnswer: 'ok',
   })
-  assert.match(thin.text, /Acme|React|Node|latency/i)
+  assert.match(thin.text, /Node|React|Full Stack/i)
   assert.doesNotMatch(thin.text, /TechCitta|Initech/)
   assert.notEqual(thin.text.slice(0, 40), first.text.slice(0, 40))
 
@@ -87,8 +87,8 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [],
     lastAnswer: '',
   })
-  assert.match(anon.text, /^(You|I've|Tell|Walk|Describe|Pick|For|Why|Looking|On )\b/)
-  assert.equal(anon.category, 'Communication')
+  assert.match(anon.text, /Python|Backend|concrete|describe/i)
+  assert.equal(anon.category, 'Technical')
   assert.doesNotMatch(anon.text, /\bthere\b|\bArjun\b|\bCandidate\b/)
 
   const history = []

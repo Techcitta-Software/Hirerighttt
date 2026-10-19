@@ -278,7 +278,7 @@ export function ResourcesPage() {
               <div className={styles.sectionKicker}>TRANSPARENT EVALUATION</div>
               <h2 className={styles.sectionTitle}>What Ava Looks For</h2>
               <p className={styles.sectionDesc}>
-                No black-box scoring. Every candidate is evaluated across four core dimensions calibrated to enterprise hiring benchmarks.
+                No black-box scoring. Ava scores Correctness (AI-checked), Depth, and Communication — with higher communication weight on project questions and higher correctness+depth on technical questions.
               </p>
             </div>
 
@@ -288,30 +288,14 @@ export function ResourcesPage() {
                   <span className={styles.rubricIcon} aria-hidden>
                     <HrIcon name="cpu" size={28} />
                   </span>
-                  <span className={styles.rubricWeight}>30% WEIGHT</span>
+                  <span className={styles.rubricWeight}>AI + HEURISTIC</span>
                 </div>
-                <h3>Technical Depth</h3>
-                <p>Knowledge of systems architecture, language nuance, database optimizations, and design patterns.</p>
+                <h3>Answer Correctness</h3>
+                <p>Whether your answer is accurate for the question and consistent with your résumé — technical soundness for skill questions.</p>
                 <ul className={styles.rubricList}>
-                  <li>Concrete architectural trade-offs</li>
-                  <li>Memory, latency & scaling concerns</li>
-                  <li>Industry-standard best practices</li>
-                </ul>
-              </div>
-
-              <div className={styles.rubricCard}>
-                <div className={styles.rubricTop}>
-                  <span className={styles.rubricIcon} aria-hidden>
-                    <HrIcon name="message" size={28} />
-                  </span>
-                  <span className={styles.rubricWeight}>25% WEIGHT</span>
-                </div>
-                <h3>Communication Clarity</h3>
-                <p>Ability to articulate complex engineering concepts concisely and structure thoughts on the spot.</p>
-                <ul className={styles.rubricList}>
-                  <li>Clear STAR structure in narrative</li>
-                  <li>Targeting 60–150 spoken words per answer</li>
-                  <li>Confident pacing and steady gaze</li>
+                  <li>Up to ~45% weight on technical / skill questions</li>
+                  <li>Penalizes invented employers or facts</li>
+                  <li>Scored primarily by Gemini when configured</li>
                 </ul>
               </div>
 
@@ -320,30 +304,30 @@ export function ResourcesPage() {
                   <span className={styles.rubricIcon} aria-hidden>
                     <HrIcon name="puzzle" size={28} />
                   </span>
-                  <span className={styles.rubricWeight}>25% WEIGHT</span>
+                  <span className={styles.rubricWeight}>VARIES BY QUESTION</span>
                 </div>
-                <h3>Problem Solving</h3>
-                <p>How you handle edge cases, navigate ambiguity, isolate root causes, and iterate toward solutions.</p>
+                <h3>Depth</h3>
+                <p>Specificity: tools, trade-offs, metrics, ownership, and completeness of your examples.</p>
                 <ul className={styles.rubricList}>
-                  <li>Systematic troubleshooting process</li>
-                  <li>Acknowledging edge cases and risks</li>
-                  <li>Balancing speed with code quality</li>
+                  <li>Paired with correctness on technical turns (~80% combined)</li>
+                  <li>Concrete outcomes and numbers boost depth</li>
+                  <li>Generic buzzwords score lower</li>
                 </ul>
               </div>
 
               <div className={styles.rubricCard}>
                 <div className={styles.rubricTop}>
                   <span className={styles.rubricIcon} aria-hidden>
-                    <HrIcon name="target" size={28} />
+                    <HrIcon name="message" size={28} />
                   </span>
-                  <span className={styles.rubricWeight}>20% WEIGHT</span>
+                  <span className={styles.rubricWeight}>UP TO 50% ON PROJECTS</span>
                 </div>
-                <h3>Role & Experience Fit</h3>
-                <p>Alignment with real-world seniority expectations, project leadership, and resume track record.</p>
+                <h3>Communication</h3>
+                <p>Clarity and structure for spoken answers — STAR-style narratives without penalizing accent or minor grammar.</p>
                 <ul className={styles.rubricList}>
-                  <li>Authentic project impact stories</li>
-                  <li>Cross-functional team collaboration</li>
-                  <li>Continuous learning mentality</li>
+                  <li>Higher weight on project & certification questions</li>
+                  <li>~20% weight on pure technical skill questions</li>
+                  <li>Ideal length roughly 60–150 words per answer</li>
                 </ul>
               </div>
             </div>

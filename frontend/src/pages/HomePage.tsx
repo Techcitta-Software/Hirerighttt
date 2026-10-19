@@ -304,7 +304,7 @@ export function HomePage() {
               <p>Optional. You can also start without a resume.</p>
               <p>
                 By uploading, you agree to our{' '}
-                <Link to="/about" className={styles.privacyLink}>
+                <Link to="/privacy" className={styles.privacyLink}>
                   Privacy Policy.
                 </Link>
               </p>
@@ -541,14 +541,14 @@ export function HomePage() {
               <Link to="/contact" className={styles.footerLink}>
                 Contact
               </Link>
-              <Link to="/about" className={styles.footerLink}>
+              <Link to="/privacy" className={styles.footerLink}>
                 Privacy Policy
               </Link>
-              <Link to="/about" className={styles.footerLink}>
-                Terms of Use
+              <Link to="/terms" className={styles.footerLink}>
+                Terms &amp; Conditions
               </Link>
-              <Link to="/about" className={styles.footerLink}>
-                Cookie Preferences
+              <Link to="/cookies" className={styles.footerLink}>
+                Cookie Policy
               </Link>
             </nav>
           </div>
@@ -557,8 +557,7 @@ export function HomePage() {
 
           <div className={styles.footerBottom}>
             <p className={styles.footerCopyright}>
-              © 2026 HireRighttt. All rights reserved. [Replace with legal entity / company details
-              before launch]
+              © {new Date().getFullYear()} HireRight. All rights reserved.
             </p>
           </div>
         </div>

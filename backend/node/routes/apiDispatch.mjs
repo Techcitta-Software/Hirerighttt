@@ -4,10 +4,12 @@ import {
   pingDatabase,
   appendInterviewHistory,
   upsertJobRecord,
+  upsertEmployerApplicationRecord,
   deleteJobRecord,
   dbPool,
   loadDb as reloadDbFromStore,
   syncOpenJobsFromDatabase,
+  syncEmployerApplicationsFromDatabase,
 } from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
 import { sendMail } from '../mail.mjs'
@@ -205,26 +207,32 @@ export function createApiDispatchMiddleware(ctx) {
       return json(res, 200, { job: publicJobPayload(job) })
     }
 
-    /** Public apply: ATS score + application row (optional Bearer for logged-in candidate) */
+    /** Public apply: ATS score + application row (candidate must be signed in) */
     if (req.method === 'POST' && path.startsWith('/api/jobs/public/') && path.endsWith('/apply')) {
       const { code, companySlug } = parsePublicJobPath(path)
       const body = await readBody(req)
       const db = loadDb()
+      if (config.databaseUrl) {
+        await syncOpenJobsFromDatabase(config.databaseUrl, db)
+      }
       const job = await resolvePublicJob(db, config.databaseUrl, code, companySlug)
       if (!job) return json(res, 404, { error: 'Job link not found or expired.' })
-      let candidateUserId = null
-      const optionalAuth = await requireAuth(req, res)
-      if (!optionalAuth) return
-      if (optionalAuth) {
-        const u = db.users.find((x) => x.email === optionalAuth)
-        if (u?.role === 'employer') {
-          return json(res, 403, {
-            error:
-              'Employer (vendor) accounts cannot apply to jobs as candidates. Sign out and use a candidate account with its own email and phone.',
-          })
-        }
-        candidateUserId = u?.id || null
+      const sessionEmail = await requireAuth(req, res)
+      if (!sessionEmail) return
+      const bodyEmail = String(body.candidateEmail || '').trim().toLowerCase()
+      if (bodyEmail && bodyEmail !== sessionEmail) {
+        return json(res, 403, {
+          error: 'Application email must match your signed-in candidate account.',
+        })
       }
+      const u = db.users.find((x) => x.email === sessionEmail)
+      if (u?.role === 'employer') {
+        return json(res, 403, {
+          error:
+            'Employer (vendor) accounts cannot apply to jobs as candidates. Sign out and use a candidate account with its own email and phone.',
+        })
+      }
+      const candidateUserId = u?.id || null
       const resumeText = String(body.resumeText || '')
       if (resumeText.trim().length < 30 || resumeText.length > 100000) {
         return json(res, 400, { error: 'Upload a readable resume before applying (30–100,000 characters).' })
@@ -236,11 +244,18 @@ export function createApiDispatchMiddleware(ctx) {
         roleTitle: job.roleTrack,
       })
       const { application, created, ats } = createJobApplication(db, job, {
-        ...body,
-        candidateEmail: optionalAuth,
+        candidateName: body.candidateName,
+        candidatePhone: body.candidatePhone,
+        experienceYears: body.experienceYears,
+        resumeName: body.resumeName,
+        resumeText,
+        candidateEmail: sessionEmail,
         candidateUserId,
         atsEvaluation,
       })
+      if (config.databaseUrl) {
+        await upsertEmployerApplicationRecord(config.databaseUrl, application)
+      }
       await saveDb(db)
       if (candidateUserId && config.databaseUrl) {
         void grantOrganizationTalentAccess(
@@ -315,6 +330,9 @@ export function createApiDispatchMiddleware(ctx) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
+      if (config.databaseUrl) {
+        await syncEmployerApplicationsFromDatabase(config.databaseUrl, db)
+      }
       const jobId = path.split('/')[4]
       const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
       if (!job) return json(res, 404, { error: 'Job not found.' })
@@ -326,6 +344,9 @@ export function createApiDispatchMiddleware(ctx) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
+      if (config.databaseUrl) {
+        await syncEmployerApplicationsFromDatabase(config.databaseUrl, db)
+      }
       const orgId = ctx.tenant.organization.id
       const filters = {
         name: url.searchParams.get('name') || '',
@@ -349,6 +370,9 @@ export function createApiDispatchMiddleware(ctx) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
+      if (config.databaseUrl) {
+        await syncEmployerApplicationsFromDatabase(config.databaseUrl, db)
+      }
       const jobId = path.split('/')[4]
       const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
       if (!job) return json(res, 404, { error: 'Job not found.' })

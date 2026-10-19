@@ -972,6 +972,36 @@
   border-color: #979db5;
 }
 
+/* PDF export capture — fixed width, no clipping */
+.dashboardContainer[data-pdf-export] {
+  width: 900px !important;
+  max-width: 900px !important;
+  overflow: visible !important;
+  max-height: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+}
+
+.dashboardContainer[data-pdf-export] .rowGridTwo {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.dashboardContainer[data-pdf-export] .rowGridThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.dashboardContainer[data-pdf-export] .rowGridFour {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+.dashboardContainer[data-pdf-export] .card,
+.dashboardContainer[data-pdf-export] .headerCard,
+.dashboardContainer[data-pdf-export] .footerRibbon {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 /* Print Invoice / Dossier Mode */
 @media print {
   body {
