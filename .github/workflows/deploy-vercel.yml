@@ -1,12 +1,12 @@
 name: Deploy Frontend to Vercel
 
+# Production deploys from main on bharath-techcitta/HireRighttt-backend only.
+# Vercel Git integration also deploys on push to main when the project is linked.
+
 on:
   push:
     branches:
       - main
-      - master
-      - dev
-      - develop
     paths:
       - 'frontend/**'
       - 'vercel.json'
@@ -15,9 +15,13 @@ on:
       - '.github/workflows/deploy-vercel.yml'
   workflow_dispatch:
 
+concurrency:
+  group: vercel-production
+  cancel-in-progress: true
+
 jobs:
-  deploy:
-    name: Build & Deploy to Vercel
+  build:
+    name: Verify production build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -26,7 +30,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
 
       - name: Install Dependencies
@@ -37,9 +41,18 @@ jobs:
 
       - name: Build Frontend
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_API_URL: ''
           VITE_AUTH_PROVIDER: api
         run: npm run build
+
+  deploy:
+    name: Deploy to Vercel (production)
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25

@@ -25,10 +25,12 @@ git push origin dev
    - **Output Directory:** `frontend/dist`
 4. **Environment variables** (Production):
 
-   | Key | Example |
-   |-----|---------|
-   | `VITE_API_URL` | `https://YOUR-SERVICE.onrender.com` |
-   | `VITE_AUTH_PROVIDER` | `api` or `supabase` |
+   | Key | Value |
+   |-----|--------|
+   | `VITE_API_URL` | **Leave empty** — root `vercel.json` proxies `/api/*` to Render |
+   | `VITE_AUTH_PROVIDER` | `api` |
+
+   If the live site is stale after a Git push: **Deployments → … → Redeploy** (uncheck “Use existing Build Cache”).
 
 5. **Deploy**. Production URL example: `https://hire-rightt.vercel.app`
 6. **Settings → Git** → Production Branch: `main` (optional: Preview for `dev`).
