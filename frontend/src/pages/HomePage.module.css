@@ -648,71 +648,182 @@
 }
 
 /* ==========================================================================
-   Section 4: Explore HireRighttt (4 Cards Grid)
+   Section 4: How It Works Process Pipeline (Clean Light Background)
    ========================================================================== */
 
-.exploreSection {
-  padding: clamp(2.5rem, 4.5vw, 3.75rem) 0;
-  background: var(--bg-page);
+.howItWorksSection {
+  padding: clamp(3.5rem, 6vw, 4.75rem) 0 clamp(4rem, 6.5vw, 5.25rem);
+  background: linear-gradient(180deg, #fdfcff 0%, #f7f6fc 100%);
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid rgba(220, 215, 254, 0.45);
+  border-bottom: 1px solid rgba(220, 215, 254, 0.45);
 }
 
-.exploreHeading {
+.howItWorksHeader {
+  text-align: center;
+  margin-bottom: clamp(3rem, 5vw, 4rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.howItWorksTitle {
   font-size: clamp(2rem, 3.8vw, 2.75rem);
   font-weight: 800;
   letter-spacing: -0.025em;
-  text-align: center;
   color: #181236;
-  margin: 0 auto clamp(1.75rem, 3vw, 2.25rem);
+  margin: 0 0 10px 0;
+  line-height: 1.2;
 }
 
-.exploreGrid {
+.howItWorksRedBar {
+  width: 44px;
+  height: 3.5px;
+  background: #ef4444;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.4);
+}
+
+.howItWorksStepsWrap {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 1.5rem;
+  gap: clamp(1rem, 2vw, 2.5rem);
 }
 
-.exploreCard {
-  background: var(--bg-card);
-  border: 1px solid #e7e5fa;
-  border-radius: 18px;
-  padding: 2rem 1.65rem;
+.howItWorksConnectorLine {
+  position: absolute;
+  top: 44px;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(203, 213, 225, 0.2) 0%,
+    rgba(203, 213, 225, 0.8) 20%,
+    rgba(203, 213, 225, 0.8) 80%,
+    rgba(203, 213, 225, 0.2) 100%
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+.howItWorksStepNode {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.03);
-  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-  text-decoration: none;
-  color: inherit;
+  align-items: center;
+  text-align: center;
+  transition: transform 0.25s ease;
 }
 
-.exploreCard:hover {
+.howItWorksStepNode:hover {
   transform: translateY(-4px);
+}
+
+.stepOuterCircle {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #e7e5fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 18px rgba(79, 70, 229, 0.06);
+  margin-bottom: 1.5rem;
+  transition: all 0.25s ease;
+}
+
+.howItWorksStepNode:hover .stepOuterCircle {
   border-color: #c7d2fe;
-  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.09);
+  box-shadow: 0 10px 24px rgba(79, 70, 229, 0.12);
 }
 
-.cardCategory {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--primary-purple);
-  margin-bottom: 0.85rem;
+.stepInnerCircle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.cardTitle {
-  font-size: 1.15rem;
+.stepInnerRed {
+  background: #fff1f2;
+}
+
+.stepInnerPurple {
+  background: #f5f3ff;
+}
+
+.stepInnerGreen {
+  background: #f0fdf4;
+}
+
+.stepInnerOrange {
+  background: #fffbeb;
+}
+
+.stepTitleText {
+  font-size: 1.1rem;
   font-weight: 700;
-  line-height: 1.35;
   color: #181236;
-  margin: 0 0 0.75rem 0;
+  margin: 0 0 0.5rem 0;
+  line-height: 1.35;
 }
 
-.cardDescription {
-  font-size: 0.925rem;
+.stepNumberRed {
+  color: #ef4444;
+  margin-right: 6px;
+  font-weight: 800;
+}
+
+.stepNumberPurple {
+  color: #8b5cf6;
+  margin-right: 6px;
+  font-weight: 800;
+}
+
+.stepNumberGreen {
+  color: #10b981;
+  margin-right: 6px;
+  font-weight: 800;
+}
+
+.stepNumberOrange {
+  color: #f59e0b;
+  margin-right: 6px;
+  font-weight: 800;
+}
+
+.stepDescText {
+  font-size: 0.9rem;
   line-height: 1.55;
   color: #5c567a;
-  margin: 0;
+  max-width: 240px;
+  margin: 0 auto;
+}
+
+@media (max-width: 880px) {
+  .howItWorksStepsWrap {
+    grid-template-columns: repeat(2, 1fr);
+    row-gap: 2.5rem;
+  }
+  .howItWorksConnectorLine {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .howItWorksStepsWrap {
+    grid-template-columns: 1fr;
+    row-gap: 2rem;
+  }
 }
 
 /* ==========================================================================

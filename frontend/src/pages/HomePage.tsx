@@ -386,127 +386,138 @@ export function HomePage() {
       </section>
 
       {/* ====================================================================
-          Section 4: Explore HireRighttt (4 Cards Grid)
+          Section 4: How It Works (Process Steps Pipeline matching Image 1)
           ==================================================================== */}
-      <section className={styles.exploreSection} id="how-it-works">
+      <section className={styles.howItWorksSection} id="how-it-works">
         <div className={styles.shell}>
-          <motion.h2
-            className={styles.exploreHeading}
+          <motion.div
+            className={styles.howItWorksHeader}
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            Explore HireRighttt
-          </motion.h2>
+            <h2 className={styles.howItWorksTitle}>How It Works</h2>
+            <div className={styles.howItWorksRedBar} />
+          </motion.div>
 
-          <div className={styles.exploreGrid}>
-            {/* Card 1 */}
-            <motion.article
-              className={styles.exploreCard}
+          <div className={styles.howItWorksStepsWrap}>
+            <div className={styles.howItWorksConnectorLine} aria-hidden="true" />
+
+            {/* Step 1 */}
+            <motion.div
+              className={styles.howItWorksStepNode}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.1 }}
             >
-              <Link
-                to="/how-it-works"
-                style={{
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100%',
-                }}
-              >
-                <span className={styles.cardCategory}>HOW IT WORKS</span>
-                <h3 className={styles.cardTitle}>Career clarity starts with a conversation.</h3>
-                <p className={styles.cardDescription}>
-                  Four simple steps from talking to taking action.
-                </p>
-              </Link>
-            </motion.article>
+              <div className={styles.stepOuterCircle}>
+                <div className={`${styles.stepInnerCircle} ${styles.stepInnerRed}`}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="#ef4444" aria-hidden="true">
+                    <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className={styles.stepTitleText}>
+                <span className={styles.stepNumberRed}>1</span> Create Your Profile
+              </h3>
+              <p className={styles.stepDescText}>
+                Upload your résumé, highlight your skills and set your target career roles.
+              </p>
+            </motion.div>
 
-            {/* Card 2 */}
-            <motion.article
-              className={styles.exploreCard}
-              id="career-view"
+            {/* Step 2 */}
+            <motion.div
+              className={styles.howItWorksStepNode}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
-              <Link
-                to="/career-view"
-                style={{
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100%',
-                }}
-              >
-                <span className={styles.cardCategory}>360° CAREER VIEW</span>
-                <h3 className={styles.cardTitle}>More than a score. A clearer view.</h3>
-                <p className={styles.cardDescription}>
-                  See what your Career Intelligence Report includes.
-                </p>
-              </Link>
-            </motion.article>
+              <div className={styles.stepOuterCircle}>
+                <div className={`${styles.stepInnerCircle} ${styles.stepInnerPurple}`}>
+                  <svg
+                    width="26"
+                    height="26"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#8b5cf6"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+                    <line x1="12" y1="18" x2="12" y2="22" />
+                    <line x1="8" y1="22" x2="16" y2="22" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className={styles.stepTitleText}>
+                <span className={styles.stepNumberPurple}>2</span> Take AI Interview
+              </h3>
+              <p className={styles.stepDescText}>
+                Have a live spoken conversation with Ava to evaluate your real-world capabilities.
+              </p>
+            </motion.div>
 
-            {/* Card 3 */}
-            <motion.article
-              className={styles.exploreCard}
-              id="who-its-for"
+            {/* Step 3 */}
+            <motion.div
+              className={styles.howItWorksStepNode}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              <Link
-                to="/who-its-for"
-                style={{
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100%',
-                }}
-              >
-                <span className={styles.cardCategory}>WHO IT’S FOR</span>
-                <h3 className={styles.cardTitle}>Whatever your career stage.</h3>
-                <p className={styles.cardDescription}>
-                  Students, graduates, job seekers, professionals and switchers.
-                </p>
-              </Link>
-            </motion.article>
+              <div className={styles.stepOuterCircle}>
+                <div className={`${styles.stepInnerCircle} ${styles.stepInnerGreen}`}>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="3.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className={styles.stepTitleText}>
+                <span className={styles.stepNumberGreen}>3</span> Get Your 360° Report
+              </h3>
+              <p className={styles.stepDescText}>
+                Receive instant category scores, skill gap insights and verified talent calibration.
+              </p>
+            </motion.div>
 
-            {/* Card 4 (From Page 2 top of PDF) */}
-            <motion.article
-              className={styles.exploreCard}
-              id="faqs"
+            {/* Step 4 */}
+            <motion.div
+              className={styles.howItWorksStepNode}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.4 }}
             >
-              <Link
-                to="/faqs"
-                style={{
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '100%',
-                }}
-              >
-                <span className={styles.cardCategory}>FAQS</span>
-                <h3 className={styles.cardTitle}>Questions, answered simply.</h3>
-                <p className={styles.cardDescription}>
-                  Resume, results, jobs and what to expect.
-                </p>
-              </Link>
-            </motion.article>
+              <div className={styles.stepOuterCircle}>
+                <div className={`${styles.stepInnerCircle} ${styles.stepInnerOrange}`}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="#f59e0b" aria-hidden="true">
+                    <path d="M20 6h-4V4c0-1.11-.89-2-2-2h-4c-1.11 0-2 .89-2 2v2H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-6 0h-4V4h4v2z" />
+                  </svg>
+                </div>
+              </div>
+              <h3 className={styles.stepTitleText}>
+                <span className={styles.stepNumberOrange}>4</span> Unlock Matches &amp; Apply
+              </h3>
+              <p className={styles.stepDescText}>
+                Get matched with hiring employers and apply directly with your verified report.
+              </p>
+            </motion.div>
           </div>
         </div>
       </section>
