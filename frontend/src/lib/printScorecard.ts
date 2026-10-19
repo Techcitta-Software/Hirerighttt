@@ -157,7 +157,7 @@ export async function downloadElementAsPdf(
   try {
     const canvas = await captureElementCanvas(root)
     const pdfBytes = await buildMultiPagePdfFromCanvas(canvas, title)
-    const file = new Blob([pdfBytes], { type: 'application/pdf' })
+    const file = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
     const url = URL.createObjectURL(file)
     const link = document.createElement('a')
     link.href = url

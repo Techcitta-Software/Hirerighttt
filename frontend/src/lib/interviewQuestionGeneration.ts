@@ -501,7 +501,7 @@ export function generateAdaptiveQuestionLocal(options: {
     level,
     profile: options.profile,
     ctx,
-    roleOverride: role,
+    roleOverride: exactRole,
     history,
     senior: isSeniorExperienceLevel(level),
   })

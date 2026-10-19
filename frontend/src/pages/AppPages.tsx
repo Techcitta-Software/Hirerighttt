@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
@@ -7,7 +7,6 @@ import { fadeUp, staggerContainer } from '../motion/variants'
 import {
   applyToJob,
   calcProfileStrength,
-  canApplyToJobs,
   firstName,
   getApplications,
   getInterviewResult,
@@ -94,7 +93,7 @@ export function DashboardPage() {
                         .finally(() => setDownloading(false))
                     }}
                   >
-                    {downloading ? 'Preparing download…' : 'Download report'}
+                    {downloading ? 'Preparing downloadâ€¦' : 'Download report'}
                   </button>
                   {downloadError && (
                     <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>{downloadError}</span>
@@ -157,21 +156,21 @@ export function DashboardPage() {
               </div>
               <p className={styles.kpiDesc}>
                 {interview
-                  ? `${interview.role} · ${interview.level}`
-                  : 'Not completed · takes about 20 minutes'}
+                  ? `${interview.role} Â· ${interview.level}`
+                  : 'Not completed Â· takes about 20 minutes'}
               </p>
             </div>
 
-            {/* Card 3: Résumé strength (ATS) */}
+            {/* Card 3: RÃ©sumÃ© strength (ATS) */}
             <div className={styles.kpiCard}>
-              <h3 className={styles.kpiTitle}>Résumé strength (ATS)</h3>
+              <h3 className={styles.kpiTitle}>RÃ©sumÃ© strength (ATS)</h3>
               <div className={styles.kpiValue}>
                 {profile?.resumeName ? '78' : '--'}
               </div>
               <p className={styles.kpiDesc}>
                 {profile?.resumeName
                   ? `${profile.resumeName} on file`
-                  : 'Upload your résumé to get an ATS score'}
+                  : 'Upload your rÃ©sumÃ© to get an ATS score'}
               </p>
             </div>
 
@@ -284,7 +283,7 @@ export function DashboardPage() {
                       <div>
                         <strong>{job.title}</strong>
                         <span>
-                          {job.company} · {job.location}
+                          {job.company} Â· {job.location}
                         </span>
                       </div>
                       <b>{job.match}%</b>
@@ -299,7 +298,7 @@ export function DashboardPage() {
           <motion.div className={styles.fullWidthSection} variants={fadeUp}>
             <h3 className={styles.panelTitle}>Skills vs target role</h3>
             <p className={styles.panelDesc} style={{ margin: '6px 0 0' }}>
-              Add your target role and upload your résumé to see which skills employers ask for and where the gaps are. You have {profile?.skills?.length ?? 12} skills on file.
+              Add your target role and upload your rÃ©sumÃ© to see which skills employers ask for and where the gaps are. You have {profile?.skills?.length ?? 12} skills on file.
             </p>
 
             <div className={styles.dashedRoleBox}>
@@ -384,9 +383,9 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>RÉSUMÉ</span>
+                  <span className={styles.profilePropKey}>RÃ‰SUMÃ‰</span>
                   <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.resumeName || 'Upload résumé'}
+                    {profile?.resumeName || 'Upload rÃ©sumÃ©'}
                   </Link>
                 </div>
                 <div className={styles.profilePropRow}>
@@ -424,7 +423,7 @@ export function DashboardPage() {
                   Update snapshot
                 </Link>
                 <Link to="/onboarding" className={styles.snapshotOutlineBtn}>
-                  Upload résumé
+                  Upload rÃ©sumÃ©
                 </Link>
               </div>
             </div>
@@ -481,448 +480,13 @@ interface JobMatchRole {
   companySlug?: string
 }
 
-const DEFAULT_MATCHED_ROLES: JobMatchRole[] = [
-  {
-    id: '1',
-    logo: 'NL',
-    logoColor: '#6366f1',
-    logoBg: '#ede9fe',
-    title: 'Software Engineer',
-    company: 'Northwind Labs',
-    location: 'Hyderabad',
-    mode: 'Hybrid',
-    salary: '₹14-18 LPA',
-    experience: '2-4 years',
-    jobType: 'Full-time',
-    badge: 'Top pick',
-    badgeType: 'topPick',
-    matchedSkills: ['React', 'Node.js'],
-    gapSkills: ['SQL'],
-    posted: 'Posted 2 days ago',
-    applicants: '34 applicants',
-    match: 91,
-    minScore: 70,
-    breakdown: {
-      interviewFit: 90,
-      resumeFit: 88,
-      skillsFit: 92,
-      experienceFit: 95,
-    },
-    youHave: ['JavaScript', 'React', 'Node.js', 'Git'],
-    closeGap: ['SQL', 'Docker'],
-    about:
-      'Build and ship customer-facing features across the React front end and Node.js services. You will work in a small product team, review code, and own features from design to release.',
-    bullets: [
-      '2 to 4 years of web development experience',
-      'Strong JavaScript, React and REST APIs',
-      'Comfortable with SQL databases',
-    ],
-  },
-  {
-    id: '2',
-    logo: 'BL',
-    logoColor: '#059669',
-    logoBg: '#ecfdf5',
-    title: 'Backend Developer',
-    company: 'Brightloop',
-    location: 'Bengaluru',
-    mode: 'Remote',
-    salary: '₹12-16 LPA',
-    experience: '2-5 years',
-    jobType: 'Full-time',
-    badge: 'New',
-    badgeType: 'new',
-    matchedSkills: ['Node.js', 'SQL'],
-    gapSkills: ['Docker'],
-    posted: 'Posted today',
-    applicants: '8 applicants',
-    match: 88,
-    minScore: 68,
-    breakdown: {
-      interviewFit: 86,
-      resumeFit: 89,
-      skillsFit: 90,
-      experienceFit: 87,
-    },
-    youHave: ['Node.js', 'SQL', 'REST APIs', 'Git'],
-    closeGap: ['Docker', 'AWS'],
-    about:
-      'Design robust backend microservices, database schemas, and performant API endpoints.',
-    bullets: [
-      '3+ years Node.js backend experience',
-      'PostgreSQL or MySQL expertise',
-      'Familiarity with distributed caching',
-    ],
-  },
-  {
-    id: '3',
-    logo: 'LA',
-    logoColor: '#2563eb',
-    logoBg: '#eff6ff',
-    title: 'Frontend Engineer',
-    company: 'Lumen Apps',
-    location: 'Remote',
-    mode: 'Remote',
-    salary: '₹12-17 LPA',
-    experience: '2-4 years',
-    jobType: 'Full-time',
-    badge: 'New',
-    badgeType: 'new',
-    matchedSkills: ['React', 'JavaScript'],
-    gapSkills: ['Testing'],
-    posted: 'Posted today',
-    applicants: '12 applicants',
-    match: 86,
-    minScore: 65,
-    breakdown: {
-      interviewFit: 85,
-      resumeFit: 87,
-      skillsFit: 88,
-      experienceFit: 84,
-    },
-    youHave: ['React', 'JavaScript', 'HTML and CSS', 'TypeScript'],
-    closeGap: ['Testing', 'Cypress'],
-    about:
-      'Craft responsive and accessible user interfaces for our design system and SaaS platform.',
-    bullets: [
-      'Solid React and TypeScript foundation',
-      'Experience with modern CSS and animation',
-      'Component-driven development',
-    ],
-  },
-  {
-    id: '4',
-    logo: 'KP',
-    logoColor: '#d97706',
-    logoBg: '#fef3c7',
-    title: 'Full-stack Engineer',
-    company: 'Kestrel Pay',
-    location: 'Hyderabad',
-    mode: 'On-site',
-    salary: '₹15-20 LPA',
-    experience: '3-5 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['React', 'JavaScript'],
-    gapSkills: ['System design'],
-    posted: 'Posted 5 days ago',
-    applicants: '61 applicants',
-    match: 84,
-    minScore: 72,
-    breakdown: {
-      interviewFit: 83,
-      resumeFit: 85,
-      skillsFit: 86,
-      experienceFit: 82,
-    },
-    youHave: ['React', 'Node.js', 'Git', 'Agile'],
-    closeGap: ['System design', 'Microservices'],
-    about:
-      'Scale fintech payment pipelines and consumer checkout experiences with modern full-stack tools.',
-    bullets: [
-      'Full-stack JavaScript/TypeScript skills',
-      'Fintech or transaction processing experience',
-      'High standards for test coverage',
-    ],
-  },
-  {
-    id: '5',
-    logo: 'ZS',
-    logoColor: '#7c3aed',
-    logoBg: '#f3e8ff',
-    title: 'Data Engineer',
-    company: 'Zephyr Systems',
-    location: 'Pune',
-    mode: 'Hybrid',
-    salary: '₹14-19 LPA',
-    experience: '2-4 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['SQL', 'Python'],
-    gapSkills: ['Spark'],
-    posted: 'Posted 1 week ago',
-    applicants: '47 applicants',
-    match: 82,
-    minScore: 70,
-    breakdown: {
-      interviewFit: 80,
-      resumeFit: 83,
-      skillsFit: 84,
-      experienceFit: 81,
-    },
-    youHave: ['SQL', 'Python', 'Git'],
-    closeGap: ['Spark', 'Airflow'],
-    about:
-      'Develop ETL pipelines, data warehouses, and automated analytics ingestion frameworks.',
-    bullets: [
-      'Python and SQL data engineering experience',
-      'Data modeling and warehouse architectures',
-      'Comfortable working with large data sets',
-    ],
-  },
-  {
-    id: '6',
-    logo: 'OH',
-    logoColor: '#0284c7',
-    logoBg: '#e0f2fe',
-    title: 'Platform Engineer',
-    company: 'Orbit Health',
-    location: 'Pune',
-    mode: 'Hybrid',
-    salary: '₹16-22 LPA',
-    experience: '3-6 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['Git'],
-    gapSkills: ['Docker', 'CI/CD'],
-    posted: 'Posted 1 week ago',
-    applicants: '29 applicants',
-    match: 79,
-    minScore: 72,
-    breakdown: {
-      interviewFit: 78,
-      resumeFit: 80,
-      skillsFit: 79,
-      experienceFit: 80,
-    },
-    youHave: ['Git', 'Linux', 'Node.js'],
-    closeGap: ['Docker', 'CI/CD', 'Kubernetes'],
-    about:
-      'Empower healthcare software reliability, cloud infrastructure deployments, and observability.',
-    bullets: [
-      'Cloud and container infrastructure experience',
-      'CI/CD automation pipelines',
-      'Observability and uptime monitoring',
-    ],
-  },
-  {
-    id: '7',
-    logo: 'IX',
-    logoColor: '#4338ca',
-    logoBg: '#e0e7ff',
-    title: 'Cloud Architect',
-    company: 'Informatix',
-    location: 'Bengaluru',
-    mode: 'Remote',
-    salary: '₹22-28 LPA',
-    experience: '5+ years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['Node.js', 'System design'],
-    gapSkills: ['Terraform', 'Kubernetes'],
-    posted: 'Posted 3 days ago',
-    applicants: '19 applicants',
-    match: 78,
-    minScore: 75,
-    breakdown: {
-      interviewFit: 76,
-      resumeFit: 80,
-      skillsFit: 78,
-      experienceFit: 81,
-    },
-    youHave: ['JavaScript', 'System design', 'Git'],
-    closeGap: ['Terraform', 'Kubernetes'],
-    about:
-      'Architect distributed microservices and multi-region cloud systems for global enterprise workloads.',
-    bullets: [
-      '5+ years cloud architecture experience',
-      'Deep AWS or GCP knowledge',
-      'High-availability infrastructure design',
-    ],
-  },
-  {
-    id: '8',
-    logo: 'NX',
-    logoColor: '#059669',
-    logoBg: '#ecfdf5',
-    title: 'DevOps Specialist',
-    company: 'Nexis',
-    location: 'Hyderabad',
-    mode: 'Hybrid',
-    salary: '₹15-21 LPA',
-    experience: '3-5 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['Git', 'Docker'],
-    gapSkills: ['Ansible'],
-    posted: 'Posted 4 days ago',
-    applicants: '22 applicants',
-    match: 77,
-    minScore: 70,
-    breakdown: {
-      interviewFit: 75,
-      resumeFit: 78,
-      skillsFit: 79,
-      experienceFit: 77,
-    },
-    youHave: ['Git', 'Docker', 'Linux'],
-    closeGap: ['Ansible', 'Helm'],
-    about:
-      'Automate build, test, and release pipelines to support fast delivery with maximum uptime.',
-    bullets: [
-      'Strong CI/CD scripting experience',
-      'Container orchestration expertise',
-      'Infrastructure automation mindset',
-    ],
-  },
-  {
-    id: '9',
-    logo: 'QX',
-    logoColor: '#9333ea',
-    logoBg: '#f3e8ff',
-    title: 'QA Automation Lead',
-    company: 'Quantix',
-    location: 'Chennai',
-    mode: 'Hybrid',
-    salary: '₹13-18 LPA',
-    experience: '3-5 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['JavaScript'],
-    gapSkills: ['Playwright', 'Selenium'],
-    posted: 'Posted 5 days ago',
-    applicants: '16 applicants',
-    match: 75,
-    minScore: 68,
-    breakdown: {
-      interviewFit: 74,
-      resumeFit: 76,
-      skillsFit: 77,
-      experienceFit: 75,
-    },
-    youHave: ['JavaScript', 'REST APIs', 'Git'],
-    closeGap: ['Playwright', 'Selenium'],
-    about:
-      'Own end-to-end testing frameworks, regression pipelines, and performance benchmark suites.',
-    bullets: [
-      '3+ years automated test development',
-      'End-to-end framework experience',
-      'Deep understanding of QA life cycle',
-    ],
-  },
-  {
-    id: '10',
-    logo: 'SP',
-    logoColor: '#ea580c',
-    logoBg: '#ffedd5',
-    title: 'UI/UX Front-end Dev',
-    company: 'StudioPulse',
-    location: 'Mumbai',
-    mode: 'Remote',
-    salary: '₹12-16 LPA',
-    experience: '2-4 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['React', 'HTML and CSS'],
-    gapSkills: ['Figma', 'Framer Motion'],
-    posted: 'Posted 6 days ago',
-    applicants: '38 applicants',
-    match: 74,
-    minScore: 65,
-    breakdown: {
-      interviewFit: 73,
-      resumeFit: 75,
-      skillsFit: 76,
-      experienceFit: 74,
-    },
-    youHave: ['React', 'HTML and CSS', 'JavaScript'],
-    closeGap: ['Figma', 'Framer Motion'],
-    about:
-      'Translate slick Figma prototypes into responsive, pixel-perfect interactive web interfaces.',
-    bullets: [
-      'Strong eye for design details and micro-interactions',
-      'React and modern CSS expertise',
-      'Cross-browser and accessibility standards',
-    ],
-  },
-  {
-    id: '11',
-    logo: 'CS',
-    logoColor: '#0284c7',
-    logoBg: '#e0f2fe',
-    title: 'Site Reliability Engineer',
-    company: 'CoreScale',
-    location: 'Pune',
-    mode: 'On-site',
-    salary: '₹16-24 LPA',
-    experience: '4-7 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['Node.js', 'Git'],
-    gapSkills: ['Grafana', 'Prometheus'],
-    posted: 'Posted 1 week ago',
-    applicants: '18 applicants',
-    match: 72,
-    minScore: 72,
-    breakdown: {
-      interviewFit: 71,
-      resumeFit: 73,
-      skillsFit: 74,
-      experienceFit: 72,
-    },
-    youHave: ['Linux', 'Git', 'REST APIs'],
-    closeGap: ['Grafana', 'Prometheus'],
-    about:
-      'Ensure 99.99% availability of mission-critical customer systems with telemetry and alerting.',
-    bullets: [
-      'Production system troubleshooting skills',
-      'Observability and SLI/SLO metrics experience',
-      'On-call runbook development',
-    ],
-  },
-  {
-    id: '12',
-    logo: 'AS',
-    logoColor: '#d97706',
-    logoBg: '#fef3c7',
-    title: 'Mobile React Native Dev',
-    company: 'AppSphere',
-    location: 'Delhi NCR',
-    mode: 'Hybrid',
-    salary: '₹14-19 LPA',
-    experience: '2-4 years',
-    jobType: 'Full-time',
-    badge: 'Open',
-    badgeType: 'open',
-    matchedSkills: ['React', 'JavaScript'],
-    gapSkills: ['React Native', 'iOS/Android'],
-    posted: 'Posted 1 week ago',
-    applicants: '24 applicants',
-    match: 71,
-    minScore: 68,
-    breakdown: {
-      interviewFit: 70,
-      resumeFit: 72,
-      skillsFit: 73,
-      experienceFit: 70,
-    },
-    youHave: ['React', 'JavaScript', 'TypeScript'],
-    closeGap: ['React Native', 'Mobile APIs'],
-    about:
-      'Build engaging iOS and Android consumer mobile applications using React Native.',
-    bullets: [
-      'Experience shipping cross-platform mobile apps',
-      'Performance tuning and native bridge knowledge',
-      'Publishing to App Store and Play Store',
-    ],
-  },
-]
-
 export function JobsPage() {
   const navigate = useNavigate()
   const [toast, setToast] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [locationFilter, setLocationFilter] = useState('Hyderabad')
   const [workModeFilter, setWorkModeFilter] = useState('Any')
-  const [minSalaryFilter, setMinSalaryFilter] = useState('₹10 LPA')
+  const [minSalaryFilter, setMinSalaryFilter] = useState('â‚¹10 LPA')
   const [minMatchFilter, setMinMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
   const [selectedJobId, setSelectedJobId] = useState<string>('1')
@@ -932,7 +496,6 @@ export function JobsPage() {
   const interview = getInterviewResult()
   const candidateScore = interview ? interview.overall : 78
   const unlocked = hasInterviewScore()
-  const canApply = canApplyToJobs()
 
   const [employerJobs, setEmployerJobs] = useState<JobMatchRole[]>([])
   const [jobsBoardState, setJobsBoardState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -968,7 +531,7 @@ export function JobsPage() {
           const jd = raw?.jobDescription || j.jobDescription || ''
           const jdBullets = jd
             .split(/\n/)
-            .map((line) => line.replace(/^[\s•\-*]+/, '').trim())
+            .map((line) => line.replace(/^[\sâ€¢\-*]+/, '').trim())
             .filter((line) => line.length > 20)
             .slice(0, 3)
           return {
@@ -1131,7 +694,7 @@ export function JobsPage() {
               <span className={styles.eyebrow}>RANKED JOB MATCHES</span>
               <h1>
                 {jobsBoardState === 'loading'
-                  ? 'Loading employer roles…'
+                  ? 'Loading employer rolesâ€¦'
                   : sortedRoles.length === 0
                     ? 'No open employer roles yet'
                     : `${sortedRoles.length} employer role${sortedRoles.length === 1 ? '' : 's'} for you`}
@@ -1148,7 +711,7 @@ export function JobsPage() {
               <span className={styles.badgeScoreFitPill}>
                 Interview score {candidateScore}
                 {unlocked && sortedRoles.length > 0
-                  ? ` · ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
+                  ? ` Â· ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
                   : ''}
               </span>
             </div>
@@ -1202,10 +765,10 @@ export function JobsPage() {
                 value={minSalaryFilter}
                 onChange={(e) => setMinSalaryFilter(e.target.value)}
               >
-                <option value="₹10 LPA">₹10 LPA</option>
-                <option value="₹12 LPA">₹12 LPA</option>
-                <option value="₹14 LPA">₹14 LPA</option>
-                <option value="₹16 LPA">₹16 LPA</option>
+                <option value="â‚¹10 LPA">â‚¹10 LPA</option>
+                <option value="â‚¹12 LPA">â‚¹12 LPA</option>
+                <option value="â‚¹14 LPA">â‚¹14 LPA</option>
+                <option value="â‚¹16 LPA">â‚¹16 LPA</option>
                 <option value="Any">Any</option>
               </select>
             </div>
@@ -1241,7 +804,7 @@ export function JobsPage() {
             {/* Left Column: Job Cards List */}
             <div className={styles.matchCardList}>
               {jobsBoardState === 'loading' ? (
-                <p className={styles.muted}>Loading jobs from employers…</p>
+                <p className={styles.muted}>Loading jobs from employersâ€¦</p>
               ) : null}
               {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
                 <p className={styles.muted}>
@@ -1282,14 +845,14 @@ export function JobsPage() {
                           )}
                         </div>
                         <div className={styles.matchCardSub}>
-                          {job.company} · {job.location} · {job.mode}
+                          {job.company} Â· {job.location} Â· {job.mode}
                         </div>
                         <div className={styles.matchCardSalary}>{job.salary}</div>
                         <div className={styles.matchCardSkills}>
-                          Matched: {job.matchedSkills.join(', ')} · Gap: {job.gapSkills.join(', ')}
+                          Matched: {job.matchedSkills.join(', ')} Â· Gap: {job.gapSkills.join(', ')}
                         </div>
                         <div className={styles.matchCardFooter}>
-                          {job.posted} · {job.applicants}
+                          {job.posted} Â· {job.applicants}
                         </div>
                       </div>
                     </div>
@@ -1341,10 +904,10 @@ export function JobsPage() {
                         {selectedJob.title}
                       </h2>
                       <div className={styles.matchCardSub} style={{ marginTop: 2 }}>
-                        {selectedJob.company} · {selectedJob.location} · {selectedJob.mode}
+                        {selectedJob.company} Â· {selectedJob.location} Â· {selectedJob.mode}
                       </div>
                       <div className={styles.matchCardSub} style={{ marginTop: 2, fontWeight: 600 }}>
-                        {selectedJob.salary} · {selectedJob.jobType} · {selectedJob.experience}
+                        {selectedJob.salary} Â· {selectedJob.jobType} Â· {selectedJob.experience}
                       </div>
                     </div>
                   </div>
@@ -1385,7 +948,7 @@ export function JobsPage() {
                       </span>
                     </div>
                     <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>Résumé fit</span>
+                      <span style={{ width: 100, color: '#475569' }}>RÃ©sumÃ© fit</span>
                       <div className={styles.fitProgressBarWrap}>
                         <div
                           className={styles.fitProgressBarFill}
@@ -1498,7 +1061,7 @@ export function JobsPage() {
                     className={styles.btnOutline}
                     onClick={() => handleSave(selectedJob)}
                   >
-                    {savedJobIds.has(selectedJob.id) ? 'Saved ✓' : 'Save'}
+                    {savedJobIds.has(selectedJob.id) ? 'Saved âœ“' : 'Save'}
                   </button>
                   <button
                     type="button"
@@ -1713,7 +1276,7 @@ export function ProfilePage() {
                 className={`${styles.profileSideLink} ${activeSection === 'resume' ? styles.profileSideActive : ''}`}
                 onClick={() => scrollToSection('resume')}
               >
-                Résumé
+                RÃ©sumÃ©
               </button>
               <button
                 type="button"
@@ -1840,7 +1403,7 @@ export function ProfilePage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Skills</h2>
                   <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                    12 on file · 9 found in your résumé · 3 added by you
+                    12 on file Â· 9 found in your rÃ©sumÃ© Â· 3 added by you
                   </span>
                 </div>
 
@@ -1892,9 +1455,9 @@ export function ProfilePage() {
                 </div>
               </section>
 
-              {/* Card 4: Résumé */}
+              {/* Card 4: RÃ©sumÃ© */}
               <section id="resume" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Résumé</h2>
+                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>RÃ©sumÃ©</h2>
 
                 <div className={styles.resumeUploadBox}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1904,7 +1467,7 @@ export function ProfilePage() {
                         {profile?.resumeName || 'Aarav_Reddy_Resume.pdf'}
                       </span>
                       <span className={styles.resumeFileMeta}>
-                        Uploaded 12 Oct 2026 · 2 pages · 184 KB
+                        Uploaded 12 Oct 2026 Â· 2 pages Â· 184 KB
                       </span>
                     </div>
                   </div>
@@ -1917,7 +1480,7 @@ export function ProfilePage() {
                       className={styles.btnOutline}
                       style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}
                       onClick={() => {
-                        setToast('Downloading résumé...')
+                        setToast('Downloading rÃ©sumÃ©...')
                         setTimeout(() => setToast(''), 2000)
                       }}
                     >
@@ -2277,7 +1840,7 @@ export function ApplicationsPage() {
                 </p>
               </div>
               <Link to={interview ? '/jobs' : '/interview'} className={styles.primary}>
-                {interview ? 'Browse jobs →' : 'Take interview →'}
+                {interview ? 'Browse jobs â†’' : 'Take interview â†’'}
               </Link>
             </motion.aside>
           ) : (
@@ -2287,10 +1850,10 @@ export function ApplicationsPage() {
                   <div>
                     <h2>{app.title}</h2>
                     <p>
-                      {app.company} · {app.location}
+                      {app.company} Â· {app.location}
                     </p>
                     <span className={styles.lockTag}>
-                      {app.status} · {new Date(app.appliedAt).toLocaleDateString()}
+                      {app.status} Â· {new Date(app.appliedAt).toLocaleDateString()}
                     </span>
                   </div>
                   <div className={styles.jobRight}>
