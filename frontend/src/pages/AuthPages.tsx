@@ -350,6 +350,19 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     setLoginEmail(DEMO_EMPLOYER.email)
     setLoginPassword(DEMO_EMPLOYER.password)
     setError('')
+    const params = new URLSearchParams(location.search)
+    if (
+      params.get('role') === 'jobseeker' ||
+      params.get('role') === 'candidate'
+    ) {
+      params.delete('role')
+      const qs = params.toString()
+      window.history.replaceState(
+        null,
+        '',
+        qs ? `${location.pathname}?${qs}` : location.pathname,
+      )
+    }
   }
 
   function fillLoginAdmin() {
@@ -442,12 +455,14 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
     try {
       const roleParam = new URLSearchParams(location.search).get('role')
+      const demoForLogin = getDemoAccount(targetEmail, loginPassword)
       const loginExpectedRole: RoleType | undefined =
-        roleParam === 'employer' || roleParam === 'recruiter' || roleParam === 'vendor'
+        demoForLogin?.role ??
+        (roleParam === 'employer' || roleParam === 'recruiter' || roleParam === 'vendor'
           ? 'employer'
           : roleParam === 'jobseeker' || roleParam === 'candidate'
             ? 'jobseeker'
-            : undefined
+            : undefined)
       const { user, error: authError } = await authenticateWithEmailPassword(
         targetEmail,
         loginPassword,
