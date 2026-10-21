@@ -3,6 +3,8 @@ import { createAppContext } from './server/appContext.mjs'
 import { createExpressApp } from './server/createApp.mjs'
 import { geminiKeyFormatWarning, llmConfigured } from './interviewAgent.mjs'
 import { resolveGeminiApiKey } from './geminiClient.mjs'
+import { s3Env, s3StorageConfigured } from './storage/s3ObjectStorage.mjs'
+import { supabaseStorageConfigured } from './resumeStorage.mjs'
 
 assertProductionConfig()
 
@@ -21,6 +23,19 @@ const PORT = ctx.PORT
 const server = app.listen(PORT, () => {
   console.log(`HIRERIGHT API v2 [Express] [${ctx.config.environment}] on http://localhost:${PORT}`)
   console.log('Storage: PostgreSQL (Neon)')
+  if (s3StorageConfigured()) {
+    const { bucket, region } = s3Env()
+    console.log(`Object storage: Amazon S3 (bucket=${bucket}, region=${region})`)
+  } else if (supabaseStorageConfigured()) {
+    console.log('Object storage: Supabase (resume files)')
+  } else {
+    console.warn(
+      'Object storage: NOT configured — resume files stay parsed text only (add AWS_REGION + S3_BUCKET to repo-root .env)',
+    )
+  }
+  if (process.env.DISABLE_SUPABASE === 'true') {
+    console.log('Supabase: disabled (Neon + S3/API stack)')
+  }
   if (ctx.serveFrontend) {
     console.log(`Frontend SPA: serving ${ctx.frontendDistRoot} (unknown routes → index.html)`)
   }

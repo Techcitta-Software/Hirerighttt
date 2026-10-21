@@ -3,6 +3,7 @@
  */
 import type { NavigateFunction } from 'react-router-dom'
 import { apiMe, getApiToken, setApiToken } from './api'
+import { isOnboardingComplete, onboardingResumeStep } from './onboardingProgress'
 import { getProfile, getUser, logout, type User } from './store'
 
 export const AUTH_INVALID_MSG_KEY = 'hireright.authInvalidMessage'
@@ -62,16 +63,21 @@ export function resolveAuthenticatedDestination(
   if (isUploadIntent) {
     sessionStorage.removeItem('hireright.intent')
     if (user.role === 'employer') return '/employer/dashboard'
-    return '/onboarding'
+    const profile = getProfile()
+    if (isOnboardingComplete(profile)) return '/profile'
+    return `/onboarding?step=${onboardingResumeStep(profile)}`
   }
 
-  if (fromPath && fromPath !== '/login' && fromPath !== '/signup') {
-    return fromPath
-  }
   if (user.role === 'employer') return '/employer/dashboard'
 
   const profile = getProfile()
-  if (!profile || (profile.completedSteps ?? 0) < 3) return '/onboarding'
+  if (!isOnboardingComplete(profile)) {
+    return `/onboarding?step=${onboardingResumeStep(profile)}`
+  }
+
+  if (fromPath && fromPath !== '/login' && fromPath !== '/signup' && fromPath !== '/onboarding') {
+    return fromPath
+  }
   return '/dashboard'
 }
 

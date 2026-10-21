@@ -1,7 +1,14 @@
 import { useState, useRef, type ChangeEvent, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { handleLoginNavigation, resolveAuthenticatedDestination } from '../lib/authSession'
+import {
+  clearStoredAuth,
+  handleLoginNavigation,
+  isApiSessionValid,
+  resolveAuthenticatedDestination,
+  setAuthInvalidMessage,
+} from '../lib/authSession'
+import { requireApiForAuth } from '../lib/authConfig'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
 import styles from './HomePage.module.css'
@@ -27,7 +34,24 @@ export function HomePage() {
     }
 
     sessionStorage.setItem('hireright.intent', 'upload_resume')
-    const user = getUser()
+
+    let user = getUser()
+    if (requireApiForAuth()) {
+      if (!user || !(await isApiSessionValid())) {
+        if (user) {
+          clearStoredAuth()
+          setAuthInvalidMessage('Sign in to upload your resume and continue your profile.')
+        }
+        navigate(user ? '/login' : '/signup', {
+          replace: false,
+          state: { from: '/onboarding', reason: 'upload_resume' },
+        })
+        if (e.target) e.target.value = ''
+        return
+      }
+      user = getUser()
+    }
+
     if (user) {
       if (user.role === 'employer') {
         navigate('/employer/dashboard')
@@ -35,7 +59,7 @@ export function HomePage() {
         navigate(resolveAuthenticatedDestination(user))
       }
     } else {
-      navigate('/signup')
+      navigate('/signup', { state: { reason: 'upload_resume' } })
     }
 
     // Reset input so re-selecting the same file triggers change

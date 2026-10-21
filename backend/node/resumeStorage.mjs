@@ -19,6 +19,10 @@ export function supabaseEnv() {
 }
 
 export function supabaseStorageConfigured() {
+  if (process.env.DISABLE_SUPABASE === 'true') return false
+  const region = (process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '').trim()
+  const bucket = (process.env.S3_BUCKET || '').trim()
+  if (region && bucket) return false
   const { url, key } = supabaseEnv()
   return Boolean(url && key)
 }

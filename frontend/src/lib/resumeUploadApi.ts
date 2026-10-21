@@ -4,6 +4,9 @@ import { ensureApiSession } from './apiSession'
 export type ResumeUploadResult = {
   resumeStoragePath: string
   resumeUrl: string
+  resumeFileId?: string | null
+  storageProvider?: 's3' | 'supabase' | null
+  bucket?: string | null
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -19,9 +22,23 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-/** Upload resume binary to Supabase (via Node API) after auth. */
-export async function uploadResumeViaApi(file: File): Promise<ResumeUploadResult | null> {
-  if (!(await ensureApiSession())) return null
+export type ResumeUploadOutcome =
+  | { ok: true; result: ResumeUploadResult }
+  | { ok: false; error: string }
+
+const MAX_API_RESUME_BYTES = 2_000_000
+
+/** Upload resume binary to S3 (via Node API) after auth. */
+export async function uploadResumeViaApiWithStatus(file: File): Promise<ResumeUploadOutcome> {
+  if (file.size > MAX_API_RESUME_BYTES) {
+    return {
+      ok: false,
+      error: 'Resume file must be 2 MB or smaller for secure cloud storage (try a shorter PDF).',
+    }
+  }
+  if (!(await ensureApiSession())) {
+    return { ok: false, error: 'Sign in is required to save your resume to secure storage.' }
+  }
   const file_base64 = await fileToBase64(file)
   const res = await apiFetch('/api/resume/upload', {
     method: 'POST',
@@ -34,14 +51,38 @@ export async function uploadResumeViaApi(file: File): Promise<ResumeUploadResult
   const data = (await res.json().catch(() => ({}))) as {
     storagePath?: string
     resumeUrl?: string
+    fileId?: string
+    storageProvider?: 's3' | 'supabase'
+    bucket?: string
     error?: string
     skipped?: boolean
   }
-  if (res.status === 503 && data.skipped) return null
-  if (!res.ok) {
-    console.warn('[resumeUpload]', data.error || res.status)
-    return null
+  if (res.status === 503 && data.skipped) {
+    return { ok: false, error: data.error || 'Cloud storage is not configured on the server.' }
   }
-  if (!data.storagePath || !data.resumeUrl) return null
-  return { resumeStoragePath: data.storagePath, resumeUrl: data.resumeUrl }
+  if (!res.ok) {
+    return { ok: false, error: data.error || `Upload failed (${res.status}).` }
+  }
+  if (!data.storagePath) {
+    return { ok: false, error: 'Upload succeeded but no storage path was returned.' }
+  }
+  if (!data.resumeUrl && data.storageProvider !== 's3') {
+    return { ok: false, error: 'Upload succeeded but download URL is missing.' }
+  }
+  return {
+    ok: true,
+    result: {
+      resumeStoragePath: data.storagePath,
+      resumeUrl: data.resumeUrl || '/api/resume/download',
+      resumeFileId: data.fileId ?? null,
+      storageProvider: data.storageProvider ?? null,
+      bucket: data.bucket ?? null,
+    },
+  }
+}
+
+/** @deprecated Prefer uploadResumeViaApiWithStatus for user-visible errors. */
+export async function uploadResumeViaApi(file: File): Promise<ResumeUploadResult | null> {
+  const out = await uploadResumeViaApiWithStatus(file)
+  return out.ok ? out.result : null
 }

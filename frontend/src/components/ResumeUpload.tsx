@@ -5,7 +5,7 @@ import {
   type ResumeExtract,
 } from '../lib/resumeParser'
 import { getPendingResume, clearPendingResume } from '../lib/pendingResume'
-import { uploadResumeViaApi } from '../lib/resumeUploadApi'
+import { uploadResumeViaApiWithStatus, type ResumeUploadResult } from '../lib/resumeUploadApi'
 import { syncProfileToApi } from '../lib/apiSession'
 import { getProfile, saveProfile } from '../lib/store'
 import { initialFormData } from '../data/wizard'
@@ -17,7 +17,12 @@ interface ResumeUploadProps {
   existingFileName?: string | null
   onFileChange: (file: File | null) => void
   onParsed?: (extract: ResumeExtract) => void
-  onStored?: (info: { resumeUrl: string; resumeStoragePath: string }) => void
+  onStored?: (info: {
+    resumeUrl: string
+    resumeStoragePath: string
+    resumeFileId?: string | null
+    storageProvider?: 's3' | 'supabase' | null
+  }) => void
 }
 
 const ACCEPTED = [
@@ -105,11 +110,21 @@ export function ResumeUpload({
       const extract = await parseResumeFile(next)
       onParsed?.(extract)
 
-      let stored: { resumeUrl: string; resumeStoragePath: string } | null = null
+      let stored: ResumeUploadResult | null = null
+      let storageWarning = ''
       const ext = next.name.split('.').pop()?.toLowerCase()
       if (ext === 'pdf' || ext === 'docx') {
-        stored = await uploadResumeViaApi(next)
-        if (stored) onStored?.(stored)
+        const upload = await uploadResumeViaApiWithStatus(next)
+        if (upload.ok) {
+          stored = upload.result
+          onStored?.(upload.result)
+        } else {
+          storageWarning = upload.error
+          console.warn('[ResumeUpload] S3/API storage:', upload.error)
+        }
+      } else if (ext === 'doc') {
+        storageWarning =
+          'Only PDF and DOCX are saved to secure cloud storage. Convert .doc to .docx or PDF to store the file in S3.'
       }
 
       const saved = getProfile()
@@ -122,6 +137,8 @@ export function ResumeUpload({
         resumeText: extract.resumeText || saved?.resumeText || '',
         resumeUrl: stored?.resumeUrl ?? saved?.resumeUrl ?? null,
         resumeStoragePath: stored?.resumeStoragePath ?? saved?.resumeStoragePath ?? null,
+        resumeFileId: stored?.resumeFileId ?? saved?.resumeFileId ?? null,
+        storageProvider: stored?.storageProvider ?? saved?.storageProvider ?? null,
       }
       const persisted = saveProfile(formData, completed)
       void syncProfileToApi(persisted)
@@ -131,13 +148,22 @@ export function ResumeUpload({
       }
 
       const filled = Object.keys(extract).filter((key) => key !== 'fullName' && key !== 'resumeText').length
-      setStatus(
-        extract.fullName
-          ? `AI successfully parsed profile for ${extract.fullName} (${filled} fields detected).`
-          : filled > 0
-            ? `AI extracted ${filled} fields from your resume.`
-            : 'Resume uploaded. Ready for next step.',
-      )
+      const parseMsg = extract.fullName
+        ? `AI successfully parsed profile for ${extract.fullName} (${filled} fields detected).`
+        : filled > 0
+          ? `AI extracted ${filled} fields from your resume.`
+          : 'Resume uploaded. Ready for next step.'
+      if (stored?.storageProvider === 's3' && stored.resumeStoragePath) {
+        const where = stored.bucket
+          ? `${stored.bucket}/${stored.resumeStoragePath}`
+          : stored.resumeStoragePath
+        setStatus(`${parseMsg} Saved to S3: ${where}`)
+      } else if (storageWarning) {
+        setError(storageWarning)
+        setStatus(parseMsg)
+      } else {
+        setStatus(parseMsg)
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Could not extract resume data.'

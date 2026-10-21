@@ -25,6 +25,7 @@
     "db:verify": "npm --prefix backend/node run db:verify",
     "db:purge": "node backend/node/scripts/purge-all-data.mjs",
     "check:env": "node scripts/check-env.mjs",
+    "s3:test": "node backend/node/scripts/test-s3-resume-storage.mjs",
     "check:llm": "npm --prefix backend/node run check:llm",
     "check:smoke": "npm --prefix backend/node run check:smoke",
     "verify:prod": "node scripts/verify-production.mjs",

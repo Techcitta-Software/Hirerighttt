@@ -2,6 +2,9 @@ import { Router } from 'express'
 import { pingDatabase } from '../db/store.mjs'
 import { llmConfigured, publicModelConfig } from '../interviewAgent.mjs'
 import { groqWhisperConfigured } from '../groqWhisper.mjs'
+import { supabaseStorageConfigured } from '../resumeStorage.mjs'
+import { objectStorageConfigured } from '../storage/resumeObjectStorage.mjs'
+import { s3Env, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
 export function createHealthRouter(ctx) {
@@ -16,6 +19,12 @@ export function createHealthRouter(ctx) {
       process.env.GIT_COMMIT ||
       null
     const apiBuildId = process.env.API_BUILD_ID || 'hireright-neon-2026-10-16'
+    const s3 = s3StorageConfigured() ? s3Env() : null
+    let objectProvider = null
+    if (s3StorageConfigured()) objectProvider = 's3'
+    else if (process.env.DISABLE_SUPABASE !== 'true' && supabaseStorageConfigured()) {
+      objectProvider = 'supabase'
+    }
     return json(res, 200, {
       ok: true,
       service: 'hireright-api',
@@ -38,6 +47,13 @@ export function createHealthRouter(ctx) {
         openrouterActive: Boolean(process.env.OPENROUTER_API_KEY),
         groqWhisper: groqWhisperConfigured(),
         sileroVad: groqWhisperConfigured(),
+      },
+      objectStorage: {
+        configured: objectStorageConfigured(),
+        provider: objectProvider,
+        bucket: s3?.bucket || null,
+        region: s3?.region || null,
+        resumeKeyPrefix: 'resumes/',
       },
     })
   })

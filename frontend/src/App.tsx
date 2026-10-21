@@ -29,6 +29,7 @@ import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { AuthInvalidModal } from './components/AuthInvalidModal'
 import { RequireAuth } from './components/RequireAuth'
 import { RequireOnboardingAccess } from './components/RequireOnboardingAccess'
+import { RequireCandidateOnboardingComplete } from './components/RequireCandidateOnboardingComplete'
 import { SignOutModal } from './components/SignOutModal'
 import { pageTransition } from './motion/variants'
 import { applyClientStorageMigration } from './lib/store'
@@ -104,8 +105,10 @@ function AnimatedRoutes() {
           <Route
             path="/dashboard"
             element={
-              <RequireAuth>
-                <DashboardPage />
+              <RequireAuth role="jobseeker">
+                <RequireCandidateOnboardingComplete>
+                  <DashboardPage />
+                </RequireCandidateOnboardingComplete>
               </RequireAuth>
             }
           />
@@ -161,7 +164,9 @@ function AnimatedRoutes() {
             path="/jobs"
             element={
               <RequireAuth role="jobseeker">
-                <JobsPage />
+                <RequireCandidateOnboardingComplete>
+                  <JobsPage />
+                </RequireCandidateOnboardingComplete>
               </RequireAuth>
             }
           />
@@ -169,7 +174,9 @@ function AnimatedRoutes() {
             path="/applications"
             element={
               <RequireAuth role="jobseeker">
-                <ApplicationsPage />
+                <RequireCandidateOnboardingComplete>
+                  <ApplicationsPage />
+                </RequireCandidateOnboardingComplete>
               </RequireAuth>
             }
           />
@@ -177,7 +184,9 @@ function AnimatedRoutes() {
             path="/profile"
             element={
               <RequireAuth role="jobseeker">
-                <ProfilePage />
+                <RequireCandidateOnboardingComplete>
+                  <ProfilePage />
+                </RequireCandidateOnboardingComplete>
               </RequireAuth>
             }
           />

@@ -27,6 +27,8 @@ export type SavedProfile = Omit<ProfileFormData, 'resumeFile'> & {
   resumeText?: string
   resumeUrl?: string | null
   resumeStoragePath?: string | null
+  resumeFileId?: string | null
+  storageProvider?: 's3' | 'supabase' | null
   updatedAt: string
   completedSteps: number
 }
@@ -542,11 +544,17 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     resumeText: data.resumeText || getProfile()?.resumeText || '',
     resumeUrl: data.resumeUrl ?? getProfile()?.resumeUrl ?? null,
     resumeStoragePath: data.resumeStoragePath ?? getProfile()?.resumeStoragePath ?? null,
+    resumeFileId: data.resumeFileId ?? getProfile()?.resumeFileId ?? null,
+    storageProvider: data.storageProvider ?? getProfile()?.storageProvider ?? null,
     updatedAt: new Date().toISOString(),
     completedSteps: Math.max(completedSteps, getProfile()?.completedSteps ?? 0),
   }
   localStorage.setItem(profileKey(user?.email), JSON.stringify(saved))
-  void import('./supabaseSync').then((m) => m.syncProfileToSupabase(saved))
+  void import('./authConfig').then(({ requireApiForAuth }) => {
+    if (!requireApiForAuth()) {
+      void import('./supabaseSync').then((m) => m.syncProfileToSupabase(saved))
+    }
+  })
   return saved
 }
 

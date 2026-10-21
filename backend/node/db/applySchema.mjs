@@ -10,6 +10,7 @@ export const SCHEMA_FILES = [
   'schema-talent-search.sql',
   'schema-assessment.sql',
   'schema-interview-invites.sql',
+  'schema-files.sql',
 ]
 
 export function readAllSchemaSql() {
@@ -46,4 +47,5 @@ export const EXPECTED_TABLES = [
   'assessment_sessions', 'interview_answers', 'answer_evaluations', 'recruiter_reviews',
   'interview_reports', 'assessment_events', 'assessment_usage',
   'personalized_interview_links',
+  'stored_files',
 ]

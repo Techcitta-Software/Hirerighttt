@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { randomBytes } from 'node:crypto'
-import { loadDb as reloadDbFromStore } from '../db/store.mjs'
+import { dbPool, loadDb as reloadDbFromStore } from '../db/store.mjs'
 import { upsertCandidateTalent } from '../db/talentIndex.mjs'
 
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
@@ -96,6 +96,13 @@ export function createAuthRouter(ctx) {
     }
     if (role !== 'employer' && config.databaseUrl) {
       await upsertCandidateTalent(config.databaseUrl, user, {}, null)
+      const pool = dbPool(config.databaseUrl)
+      await pool.query(
+        `INSERT INTO profiles (email, user_id, data, updated_at)
+         VALUES ($1, $2, '{"completedSteps":0}'::jsonb, NOW())
+         ON CONFLICT (email) DO NOTHING`,
+        [email, user.id],
+      )
     }
     const token = randomBytes(16).toString('hex')
     await registerSession(token, email)

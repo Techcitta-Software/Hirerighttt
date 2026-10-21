@@ -91,17 +91,16 @@ const upload = await req('/api/resume/upload', {
   token: login.data.token,
   body: { filename: 'resume.pdf', file_base64: tinyPdf },
 })
-if (upload.res.status === 200 && upload.data.resumeUrl) {
-  console.log('[auth-workflow] Supabase resume upload OK', upload.data.storagePath)
-} else if (upload.res.status === 503 && upload.data.skipped) {
-  console.log('[auth-workflow] Supabase not configured (skipped) — OK for local without keys')
-} else {
-  console.warn(
-    '[auth-workflow] resume upload:',
-    upload.res.status,
-    upload.data.error || upload.data,
-    '(create public bucket "resumes" in Supabase if you expect 200)',
+if (upload.res.status === 200 && upload.data.storagePath) {
+  console.log(
+    '[auth-workflow] resume upload OK',
+    upload.data.storageProvider || 'unknown',
+    upload.data.storagePath,
   )
+} else if (upload.res.status === 503 && upload.data.skipped) {
+  console.log('[auth-workflow] storage skipped — set S3_BUCKET + AWS_REGION or Supabase in .env')
+} else {
+  console.warn('[auth-workflow] resume upload:', upload.res.status, upload.data.error || upload.data)
 }
 
 console.log('[auth-workflow] All required checks passed.')

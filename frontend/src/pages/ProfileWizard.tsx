@@ -17,6 +17,11 @@ import {
   type ProfileFormData,
   type WizardStep,
 } from '../data/wizard'
+import {
+  isOnboardingComplete,
+  onboardingResumeStep,
+  ONBOARDING_STEP_COUNT,
+} from '../lib/onboardingProgress'
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
@@ -92,8 +97,18 @@ export function ProfileWizard() {
 
   useEffect(() => {
     const saved = getProfile()
+    if (isOnboardingComplete(saved)) {
+      navigate('/dashboard', { replace: true })
+      return
+    }
     if (saved?.completedSteps) {
       setCompletedThrough(saved.completedSteps)
+    }
+    const hasStepParam = stepParam >= 1 && stepParam <= ONBOARDING_STEP_COUNT
+    if (!hasStepParam && saved) {
+      const resume = onboardingResumeStep(saved) as WizardStep
+      setStep(resume)
+      setCompletedThrough(saved.completedSteps ?? 0)
     }
     // After AI interview, land on All Set (step 5).
     if (sessionStorage.getItem('hireright.wizardStep') === '5') {
@@ -101,7 +116,7 @@ export function ProfileWizard() {
       setStep(5)
       setCompletedThrough((prev) => Math.max(prev, 4))
     }
-  }, [])
+  }, [navigate, stepParam])
 
   useEffect(() => {
     if (!toast) return
@@ -166,10 +181,13 @@ export function ProfileWizard() {
       setSaving(false)
     }
 
-    const nextCompleted = Math.max(completedThrough, step)
+    const nextCompleted =
+      step === ONBOARDING_STEP_COUNT
+        ? ONBOARDING_STEP_COUNT
+        : Math.max(completedThrough, step)
     await persist(
-      step === 5
-        ? 'Profile complete — explore your matches!'
+      step === ONBOARDING_STEP_COUNT
+        ? 'Onboarding complete — you can update your profile anytime from the dashboard.'
         : step === 4
           ? isScheduled
             ? 'Interview scheduled! Moving to matched roles…'
@@ -186,11 +204,11 @@ export function ProfileWizard() {
       return
     }
 
-    if (step < 5) {
+    if (step < ONBOARDING_STEP_COUNT) {
       setStep((prev) => (prev + 1) as WizardStep)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      navigate('/jobs')
+      navigate('/dashboard', { replace: true })
     }
   }
 

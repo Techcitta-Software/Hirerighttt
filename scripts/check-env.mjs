@@ -1,9 +1,11 @@
 /**
  * Warn if legacy .env files exist (use repo-root .env only).
+ * Validates S3 resume storage vars when present (see s3.md).
  */
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { REPO_ROOT } from '../env/loadEnv.mjs'
+import { loadEnv, REPO_ROOT } from '../env/loadEnv.mjs'
+import { s3Env, s3StorageConfigured } from '../backend/node/storage/s3ObjectStorage.mjs'
 
 const deprecated = [
   'backend/node/.env',
@@ -27,4 +29,22 @@ if (!existsSync(rootEnv)) {
   process.exitCode = 1
 } else if (!found) {
   console.log('[check-env] OK — single repo-root .env')
+}
+
+loadEnv()
+if (s3StorageConfigured()) {
+  const { bucket, region } = s3Env()
+  const hasKey = Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+  console.log(`[check-env] S3 resume storage: bucket=${bucket} region=${region}`)
+  if (!hasKey) {
+    console.warn(
+      '[check-env] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set — OK only if API uses an IAM role',
+    )
+  }
+  console.log('[check-env] Verify uploads: npm run s3:test  (objects under resumes/ prefix)')
+} else {
+  console.warn(
+    '[check-env] S3 not configured — set AWS_REGION + S3_BUCKET in repo-root .env (see s3.md)',
+  )
+  process.exitCode = process.exitCode || 1
 }

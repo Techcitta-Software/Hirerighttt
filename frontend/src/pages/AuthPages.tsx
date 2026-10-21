@@ -21,6 +21,7 @@ import {
 } from '../lib/store'
 import { apiHealth, apiLogin, apiLogout, apiSignup } from '../lib/api'
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
+import { ensureNewJobseekerProfileOnServer } from '../lib/initCandidateProfile'
 import { isValidPhone, normalizePhone } from '../lib/phone'
 import {
   DEMO_ADMIN,
@@ -182,6 +183,9 @@ async function authenticateWithEmailPassword(
   if (await apiHealth()) {
     await syncSessionFromApi()
     await pullProfileFromApi()
+    if (authenticatedUser?.role !== 'employer') {
+      await ensureNewJobseekerProfileOnServer()
+    }
     authenticatedUser = getUser()
   }
   return { user: authenticatedUser }
@@ -547,10 +551,12 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
         await pullProfileFromSupabase()
       } else if (await apiHealth()) {
         const phoneNorm = normalizePhone(signupPhone) || signupPhone.trim()
+        const createdEmail = signupEmail.trim().toLowerCase()
+        let apiUser: Awaited<ReturnType<typeof apiSignup>> | null = null
         try {
-          await apiSignup(
+          apiUser = await apiSignup(
             signupName.trim(),
-            signupEmail.trim().toLowerCase(),
+            createdEmail,
             signupPassword,
             {
               role: signupRole,
@@ -564,6 +570,37 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
               ? apiErr.message
               : 'Could not create your account on the server.',
           )
+          return
+        }
+        persistLoggedInUser({
+          id: apiUser?.id || createdEmail,
+          name: apiUser?.name || signupName.trim(),
+          email: createdEmail,
+          role: apiUser?.role === 'employer' ? 'employer' : signupRole,
+          companyName: apiUser?.companyName || signupCompanyName.trim() || undefined,
+          phone: apiUser?.phone || phoneNorm,
+          primaryOrganizationId: apiUser?.primaryOrganizationId,
+        })
+        saveUser(
+          {
+            name: signupName.trim(),
+            email: createdEmail,
+            password: signupPassword,
+            role: signupRole,
+            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
+            phone: phoneNorm,
+          },
+          true,
+          true,
+        )
+        await syncSessionFromApi()
+        if (signupRole === 'jobseeker') {
+          await ensureNewJobseekerProfileOnServer()
+          await pullProfileFromApi()
+        }
+        const signedIn = getUser()
+        if (signedIn) {
+          navigateAfterLogin(signedIn)
           return
         }
       } else if (requireApiForAuth()) {
@@ -580,34 +617,15 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           phone: normalizePhone(signupPhone) || signupPhone.trim(),
         },
         true,
-        false,
+        true,
       )
-
-      const createdEmail = signupEmail.trim().toLowerCase()
-      const createdPassword = signupPassword
-      setLoginEmail(createdEmail)
-      setLoginPassword(createdPassword)
-      setError('')
-
-      const successMsg =
-        sessionStorage.getItem('hireright.intent') === 'upload_resume'
-          ? 'Account created! Please log in to upload your resume.'
-          : 'Account created successfully! Please log in to continue.'
-
-      setSuccessMessage(successMsg)
-
-      // Direct to Login page as requested: "WHEN SIGN UP THEN GO TO LOGIN"
-      if (location.pathname === '/signup') {
-        navigate('/login', {
-          replace: true,
-          state: {
-            successMsg,
-            prefillEmail: createdEmail,
-            prefillPassword: createdPassword,
-          },
-        })
-      } else {
-        switchMode('login')
+      const signedInUser = getUser()
+      if (signedInUser) {
+        if (signedInUser.role === 'jobseeker') {
+          await ensureNewJobseekerProfileOnServer()
+        }
+        navigateAfterLogin(signedInUser)
+        return
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account.')

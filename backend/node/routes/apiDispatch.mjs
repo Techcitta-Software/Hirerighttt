@@ -19,7 +19,12 @@ import {
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
 import { sendMail } from '../mail.mjs'
 import { groqWhisperConfigured, transcribeWithGroqWhisper } from '../groqWhisper.mjs'
-import { supabaseStorageConfigured, uploadResumeToSupabase } from '../resumeStorage.mjs'
+import { parseResumeUploadBody } from '../storage/resumeUploadValidation.mjs'
+import {
+  objectStorageConfigured,
+  resolveResumeDownloadForUser,
+  uploadResumeToObjectStorage,
+} from '../storage/resumeObjectStorage.mjs'
 import {
   newInviteToken,
   insertInterviewInvite,
@@ -1190,53 +1195,102 @@ export function createApiDispatchMiddleware(ctx) {
     if (req.method === 'POST' && path === '/api/resume/upload') {
       const email = await requireAuth(req, res)
       if (!email) return
-      if (!supabaseStorageConfigured()) {
+      if (!objectStorageConfigured()) {
         return json(res, 503, {
-          error: 'Supabase resume storage is not configured.',
+          error: 'Resume object storage is not configured (S3 or Supabase).',
           skipped: true,
         })
       }
       const body = await readBody(req)
-      const filename = String(body.filename || 'resume.pdf').slice(0, 200)
-      const raw = String(body.file_base64 || body.fileBase64 || '')
-      if (!raw || !/\.(pdf|docx)$/i.test(filename)) {
-        return json(res, 400, { error: 'Upload a PDF or DOCX resume (filename + file_base64).' })
-      }
-      const base64 = raw.includes(',') ? raw.split(',')[1] : raw
-      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) {
-        return json(res, 400, { error: 'Invalid file_base64 payload.' })
-      }
-      const buffer = Buffer.from(base64, 'base64')
-      if (buffer.length < 1 || buffer.length > 2_000_000) {
-        return json(res, 400, { error: 'Resume must be between 1 byte and 2 MB.' })
+      let parsed
+      try {
+        parsed = parseResumeUploadBody(body)
+      } catch (err) {
+        return json(res, err.status || 400, { error: err.message })
       }
       try {
-        const uploaded = await uploadResumeToSupabase({
-          candidateEmail: email,
-          filename,
-          buffer,
-          contentType: body.contentType || undefined,
-        })
         const db = loadDb()
+        const account = db.users.find((u) => u.email === email)
+        const pool = dbPool(config.databaseUrl)
+        const uploaded = await uploadResumeToObjectStorage({
+          pool,
+          candidateEmail: email,
+          ownerUserId: account?.id,
+          filename: parsed.filename,
+          buffer: parsed.buffer,
+          contentType: parsed.contentType,
+        })
+        const profilePatch = {
+          resumeStoragePath: uploaded.storagePath,
+          resumeUrl: uploaded.resumeUrl,
+          resumeFileId: uploaded.fileId,
+          storageProvider: uploaded.storageProvider,
+        }
         const prev = /** @type {Record<string, unknown>} */ (db.profiles[email] || {})
         db.profiles[email] = {
           ...prev,
-          resumeStoragePath: uploaded.storagePath,
-          resumeUrl: uploaded.resumeUrl,
+          ...profilePatch,
           updatedAt: new Date().toISOString(),
         }
         await saveDb(db)
-        const pool = dbPool(config.databaseUrl)
         await pool.query(
           `INSERT INTO profiles (email, data, updated_at)
            VALUES ($1, $2::jsonb, NOW())
            ON CONFLICT (email) DO UPDATE SET data = profiles.data || EXCLUDED.data, updated_at = NOW()`,
-          [email, JSON.stringify({ resumeStoragePath: uploaded.storagePath, resumeUrl: uploaded.resumeUrl })],
+          [email, JSON.stringify(profilePatch)],
         )
-        return json(res, 200, { ok: true, ...uploaded })
+        console.log(
+          `[resume-upload] ${uploaded.storageProvider} email=${email} key=${uploaded.storagePath} bytes=${parsed.buffer.length}`,
+        )
+        return json(res, 200, {
+          ok: true,
+          storagePath: uploaded.storagePath,
+          resumeUrl: uploaded.resumeUrl,
+          bucket: uploaded.bucket,
+          fileId: uploaded.fileId,
+          storageProvider: uploaded.storageProvider,
+        })
       } catch (err) {
         const status = err.status || 502
+        console.warn(
+          '[resume-upload] failed',
+          email,
+          err instanceof Error ? err.message : err,
+        )
+        if (err.skipped) {
+          return json(res, status, { error: err.message, skipped: true })
+        }
         return json(res, status, { error: err instanceof Error ? err.message : 'Upload failed' })
+      }
+    }
+
+    if (req.method === 'GET' && path === '/api/resume/download') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      try {
+        const db = loadDb()
+        const profile = /** @type {Record<string, unknown>} */ (db.profiles[email] || {})
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveResumeDownloadForUser({
+          requesterEmail: email,
+          profile,
+          pool,
+        })
+        const accept = String(req.headers.accept || '')
+        if (accept.includes('application/json') || req.url?.includes('format=json')) {
+          return json(res, 200, {
+            downloadUrl: signed.url,
+            expiresInSeconds: signed.expiresInSeconds,
+            legacyPublic: Boolean(signed.legacyPublic),
+          })
+        }
+        res.writeHead(302, { Location: signed.url })
+        res.end()
+        return
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not generate download link.',
+        })
       }
     }
 
