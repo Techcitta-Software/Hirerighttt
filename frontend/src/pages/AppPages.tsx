@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
@@ -8,6 +8,7 @@ import {
   addNotification,
   calcProfileStrength,
   canApplyToJobs,
+  getCareerDisplayScore,
   firstName,
   getApplications,
   getInterviewResult,
@@ -35,6 +36,7 @@ export function DashboardPage() {
   const profile = getProfile()
   const name = firstName()
   const strength = interview ? interview.overall : calcProfileStrength(profile)
+  const careerScore = getCareerDisplayScore(interview)
   const snapshotReadiness = calcProfileStrength(profile)
   const [ranked, setRanked] = useState<RankedJob[]>([])
   const [jobsError, setJobsError] = useState('')
@@ -76,8 +78,8 @@ export function DashboardPage() {
               <span className={styles.eyebrow}>JOB SEEKER DASHBOARD</span>
               <h1>Welcome back, {name}</h1>
               <p>
-                {interview
-                  ? `Your AI interview score is ${interview.overall}. Matches are unlocked.`
+                {interview && careerScore != null
+                  ? `Your AI interview score is ${careerScore}. Matches are unlocked.`
                   : 'Take your AI video interview with Ava to unlock ranked job matches.'}
               </p>
             </div>
@@ -96,7 +98,7 @@ export function DashboardPage() {
                         .finally(() => setDownloading(false))
                     }}
                   >
-                    {downloading ? 'Preparing downloadâ€¦' : 'Download report'}
+                    {downloading ? 'Preparing download…' : 'Download report'}
                   </button>
                   {downloadError && (
                     <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>{downloadError}</span>
@@ -155,25 +157,25 @@ export function DashboardPage() {
             <div className={styles.kpiCard}>
               <h3 className={styles.kpiTitle}>AI interview score</h3>
               <div className={styles.kpiValue}>
-                {interview ? `${interview.overall}` : '--'}
+                {careerScore != null ? `${careerScore}` : '--'}
               </div>
               <p className={styles.kpiDesc}>
                 {interview
-                  ? `${interview.role} Â· ${interview.level}`
-                  : 'Not completed Â· takes about 20 minutes'}
+                  ? `${interview.role} · ${interview.level}`
+                  : 'Not completed · takes about 20 minutes'}
               </p>
             </div>
 
-            {/* Card 3: RÃ©sumÃ© strength (ATS) */}
+            {/* Card 3: Résumé strength (ATS) */}
             <div className={styles.kpiCard}>
-              <h3 className={styles.kpiTitle}>RÃ©sumÃ© strength (ATS)</h3>
+              <h3 className={styles.kpiTitle}>Résumé strength (ATS)</h3>
               <div className={styles.kpiValue}>
                 {profile?.resumeName ? '78' : '--'}
               </div>
               <p className={styles.kpiDesc}>
                 {profile?.resumeName
                   ? `${profile.resumeName} on file`
-                  : 'Upload your rÃ©sumÃ© to get an ATS score'}
+                  : 'Upload your résumé to get an ATS score'}
               </p>
             </div>
 
@@ -286,7 +288,7 @@ export function DashboardPage() {
                       <div>
                         <strong>{job.title}</strong>
                         <span>
-                          {job.company} Â· {job.location}
+                          {job.company} · {job.location}
                         </span>
                       </div>
                       <b>{job.match}%</b>
@@ -297,58 +299,8 @@ export function DashboardPage() {
             </div>
           </motion.div>
 
-          {/* Full-width Card: Skills vs target role */}
+          {/* Profile snapshot */}
           <motion.div className={styles.fullWidthSection} variants={fadeUp}>
-            <h3 className={styles.panelTitle}>Skills vs target role</h3>
-            <p className={styles.panelDesc} style={{ margin: '6px 0 0' }}>
-              Add your target role and upload your rÃ©sumÃ© to see which skills employers ask for and where the gaps are. You have {profile?.skills?.length ?? 12} skills on file.
-            </p>
-
-            <div className={styles.dashedRoleBox}>
-              <span className={styles.dashedRoleText}>
-                {profile?.currentRole || 'No target role yet'}
-              </span>
-              <Link to="/onboarding" className={styles.dashedRoleBtn}>
-                {profile?.currentRole ? 'Edit role' : 'Add your role'}
-              </Link>
-            </div>
-          </motion.div>
-
-          {/* Bottom 2-Column Section */}
-          <motion.div className={styles.twoColSection} variants={fadeUp}>
-            {/* Left: My applications */}
-            <div className={styles.panelCard}>
-              <h3 className={styles.panelTitle}>My applications</h3>
-              <div className={styles.appsQuadGrid}>
-                <div className={styles.appStatBox}>
-                  <div className={styles.appStatNum}>--</div>
-                  <div className={styles.appStatLabel}>Applied</div>
-                </div>
-                <div className={styles.appStatBox}>
-                  <div className={styles.appStatNum}>--</div>
-                  <div className={styles.appStatLabel}>Shortlisted</div>
-                </div>
-                <div className={styles.appStatBox}>
-                  <div className={styles.appStatNum}>--</div>
-                  <div className={styles.appStatLabel}>Interviewing</div>
-                </div>
-                <div className={styles.appStatBox}>
-                  <div className={styles.appStatNum}>--</div>
-                  <div className={styles.appStatLabel}>Offers</div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 'auto' }}>
-                <div className={styles.appsNoteTitle}>
-                  Applications unlock with your interview score
-                </div>
-                <div className={styles.appsNoteDesc}>
-                  Employers see your AI interview score first, so apply once your report is ready.
-                </div>
-              </div>
-            </div>
-
-            {/* Right: Profile snapshot */}
             <div className={styles.panelCard}>
               <div className={styles.panelHeader} style={{ marginBottom: 4 }}>
                 <h3 className={styles.panelTitle}>Profile snapshot</h3>
@@ -386,15 +338,15 @@ export function DashboardPage() {
                   </span>
                 </div>
                 <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>RÃ‰SUMÃ‰</span>
+                  <span className={styles.profilePropKey}>RÉSUMÉ</span>
                   <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.resumeName || 'Upload rÃ©sumÃ©'}
+                    {profile?.resumeName || 'Upload résumé'}
                   </Link>
                 </div>
                 <div className={styles.profilePropRow}>
                   <span className={styles.profilePropKey}>AI INTERVIEW</span>
                   <span className={interview ? styles.profilePropVal : styles.profilePropValWarning}>
-                    {interview ? `Score ${interview.overall}` : 'Not completed'}
+                    {careerScore != null ? `Score ${careerScore}` : 'Not completed'}
                   </span>
                 </div>
                 <div className={styles.profilePropRow}>
@@ -426,7 +378,7 @@ export function DashboardPage() {
                   Update snapshot
                 </Link>
                 <Link to="/onboarding" className={styles.snapshotOutlineBtn}>
-                  Upload rÃ©sumÃ©
+                  Upload résumé
                 </Link>
               </div>
             </div>
@@ -489,7 +441,7 @@ export function JobsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [locationFilter, setLocationFilter] = useState('Hyderabad')
   const [workModeFilter, setWorkModeFilter] = useState('Any')
-  const [minSalaryFilter, setMinSalaryFilter] = useState('â‚¹10 LPA')
+  const [minSalaryFilter, setMinSalaryFilter] = useState('₹10 LPA')
   const [minMatchFilter, setMinMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
   const [selectedJobId, setSelectedJobId] = useState<string>('1')
@@ -535,7 +487,7 @@ export function JobsPage() {
           const jd = raw?.jobDescription || j.jobDescription || ''
           const jdBullets = jd
             .split(/\n/)
-            .map((line) => line.replace(/^[\sâ€¢\-*]+/, '').trim())
+            .map((line) => line.replace(/^[\s•\-*]+/, '').trim())
             .filter((line) => line.length > 20)
             .slice(0, 3)
           return {
@@ -754,7 +706,7 @@ export function JobsPage() {
               <span className={styles.eyebrow}>RANKED JOB MATCHES</span>
               <h1>
                 {jobsBoardState === 'loading'
-                  ? 'Loading employer rolesâ€¦'
+                  ? 'Loading employer roles…'
                   : sortedRoles.length === 0
                     ? 'No open employer roles yet'
                     : `${sortedRoles.length} employer role${sortedRoles.length === 1 ? '' : 's'} for you`}
@@ -771,7 +723,7 @@ export function JobsPage() {
               <span className={styles.badgeScoreFitPill}>
                 Interview score {candidateScore}
                 {unlocked && sortedRoles.length > 0
-                  ? ` Â· ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
+                  ? ` · ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
                   : ''}
               </span>
             </div>
@@ -825,10 +777,10 @@ export function JobsPage() {
                 value={minSalaryFilter}
                 onChange={(e) => setMinSalaryFilter(e.target.value)}
               >
-                <option value="â‚¹10 LPA">â‚¹10 LPA</option>
-                <option value="â‚¹12 LPA">â‚¹12 LPA</option>
-                <option value="â‚¹14 LPA">â‚¹14 LPA</option>
-                <option value="â‚¹16 LPA">â‚¹16 LPA</option>
+                <option value="₹10 LPA">₹10 LPA</option>
+                <option value="₹12 LPA">₹12 LPA</option>
+                <option value="₹14 LPA">₹14 LPA</option>
+                <option value="₹16 LPA">₹16 LPA</option>
                 <option value="Any">Any</option>
               </select>
             </div>
@@ -864,7 +816,7 @@ export function JobsPage() {
             {/* Left Column: Job Cards List */}
             <div className={styles.matchCardList}>
               {jobsBoardState === 'loading' ? (
-                <p className={styles.muted}>Loading jobs from employersâ€¦</p>
+                <p className={styles.muted}>Loading jobs from employers…</p>
               ) : null}
               {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
                 <p className={styles.muted}>
@@ -905,14 +857,14 @@ export function JobsPage() {
                           )}
                         </div>
                         <div className={styles.matchCardSub}>
-                          {job.company} Â· {job.location} Â· {job.mode}
+                          {job.company} · {job.location} · {job.mode}
                         </div>
                         <div className={styles.matchCardSalary}>{job.salary}</div>
                         <div className={styles.matchCardSkills}>
-                          Matched: {job.matchedSkills.join(', ')} Â· Gap: {job.gapSkills.join(', ')}
+                          Matched: {job.matchedSkills.join(', ')} · Gap: {job.gapSkills.join(', ')}
                         </div>
                         <div className={styles.matchCardFooter}>
-                          {job.posted} Â· {job.applicants}
+                          {job.posted} · {job.applicants}
                         </div>
                       </div>
                     </div>
@@ -964,10 +916,10 @@ export function JobsPage() {
                         {selectedJob.title}
                       </h2>
                       <div className={styles.matchCardSub} style={{ marginTop: 2 }}>
-                        {selectedJob.company} Â· {selectedJob.location} Â· {selectedJob.mode}
+                        {selectedJob.company} · {selectedJob.location} · {selectedJob.mode}
                       </div>
                       <div className={styles.matchCardSub} style={{ marginTop: 2, fontWeight: 600 }}>
-                        {selectedJob.salary} Â· {selectedJob.jobType} Â· {selectedJob.experience}
+                        {selectedJob.salary} · {selectedJob.jobType} · {selectedJob.experience}
                       </div>
                     </div>
                   </div>
@@ -1008,7 +960,7 @@ export function JobsPage() {
                       </span>
                     </div>
                     <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>RÃ©sumÃ© fit</span>
+                      <span style={{ width: 100, color: '#475569' }}>Résumé fit</span>
                       <div className={styles.fitProgressBarWrap}>
                         <div
                           className={styles.fitProgressBarFill}
@@ -1124,7 +1076,7 @@ export function JobsPage() {
                     className={styles.btnOutline}
                     onClick={() => handleSave(selectedJob)}
                   >
-                    {savedJobIds.has(selectedJob.id) ? 'Saved âœ“' : 'Save'}
+                    {savedJobIds.has(selectedJob.id) ? 'Saved ✓' : 'Save'}
                   </button>
                   <button
                     type="button"
@@ -1253,13 +1205,33 @@ function ProfileSectionHeader({
   )
 }
 
+const PROFILE_NAV_SECTIONS = [
+  { id: 'basics', label: 'Basics' },
+  { id: 'role', label: 'Role and experience' },
+  { id: 'skills', label: 'Skills' },
+  { id: 'resume', label: 'Résumé' },
+  { id: 'preferences', label: 'Job preferences' },
+  { id: 'links', label: 'Links' },
+  { id: 'privacy', label: 'Privacy and consent' },
+] as const
+
 export function ProfilePage() {
   const user = getUser()
   const profile = getProfile()
   const interview = getInterviewResult()
 
   const [activeSection, setActiveSection] = useState('basics')
+  const [profileNavOpen, setProfileNavOpen] = useState(false)
   const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    if (!profileNavOpen) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setProfileNavOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [profileNavOpen])
 
   // Form State initialized with stored values or screenshot defaults
   const profileExtras = profile as
@@ -1563,93 +1535,84 @@ export function ProfilePage() {
       <div className={styles.shell}>
         <SiteNav />
         <motion.main
-          className={styles.main}
+          className={`${styles.main} ${styles.profileMainShell}`}
           variants={staggerContainer}
           initial="hidden"
           animate="show"
         >
-          {/* Header */}
-          <motion.header className={styles.head} variants={fadeUp}>
-            <div>
-              <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
-              <h1>Keep your profile sharp</h1>
-              <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
-            </div>
-            <div className={styles.profileGaugeWrap}>
-              <div
-                className={styles.profileGaugeCircle}
-                style={{
-                  background: 'conic-gradient(#5b46e5 0 89%, #ede9fe 89% 100%)',
-                }}
+          <div className={styles.profilePageFrame}>
+            <aside className={styles.profileNavRail} aria-label="Profile section navigation">
+              <button
+                type="button"
+                className={styles.profileMenuBtn}
+                aria-expanded={profileNavOpen}
+                aria-controls="profile-section-nav"
+                aria-label={profileNavOpen ? 'Hide profile sections' : 'Show profile sections'}
+                onClick={() => setProfileNavOpen((open) => !open)}
               >
-                <div className={styles.profileGaugeInner} />
-              </div>
-              <div className={styles.profileGaugeText}>
-                <span className={styles.profileGaugePercent}>89% complete</span>
-                <span className={styles.profileGaugeSub}>Add projects to reach 100%</span>
-              </div>
-            </div>
-          </motion.header>
+                <span className={styles.profileMenuIcon} aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className={styles.profileMenuLabel}>
+                  {profileNavOpen ? 'Hide sections' : 'Sections'}
+                </span>
+              </button>
 
-          {toast && <div className={styles.toast}>{toast}</div>}
+              <AnimatePresence initial={false}>
+                {profileNavOpen ? (
+                  <motion.nav
+                    id="profile-section-nav"
+                    className={styles.profileSidebar}
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+                  >
+                    {PROFILE_NAV_SECTIONS.map((section) => (
+                      <button
+                        key={section.id}
+                        type="button"
+                        className={`${styles.profileSideLink} ${activeSection === section.id ? styles.profileSideActive : ''}`}
+                        onClick={() => scrollToSection(section.id)}
+                      >
+                        {section.label}
+                      </button>
+                    ))}
+                  </motion.nav>
+                ) : null}
+              </AnimatePresence>
+            </aside>
 
-          {/* Split Layout */}
-          <div className={styles.profileSplitLayout}>
-            {/* Sidebar Navigation */}
-            <nav className={styles.profileSidebar}>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'basics' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('basics')}
-              >
-                Basics
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'role' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('role')}
-              >
-                Role and experience
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'skills' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('skills')}
-              >
-                Skills
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'resume' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('resume')}
-              >
-                RÃ©sumÃ©
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'preferences' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('preferences')}
-              >
-                Job preferences
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'links' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('links')}
-              >
-                Links
-              </button>
-              <button
-                type="button"
-                className={`${styles.profileSideLink} ${activeSection === 'privacy' ? styles.profileSideActive : ''}`}
-                onClick={() => scrollToSection('privacy')}
-              >
-                Privacy and consent
-              </button>
-            </nav>
+            <div className={styles.profileContentCenterSlot}>
+            <div className={styles.profileContentColumn}>
+              {/* Header */}
+              <motion.header className={styles.head} variants={fadeUp}>
+                <div>
+                  <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
+                  <h1>Keep your profile sharp</h1>
+                  <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
+                </div>
+                <div className={styles.profileGaugeWrap}>
+                  <div
+                    className={styles.profileGaugeCircle}
+                    style={{
+                      background: 'conic-gradient(#5b46e5 0 89%, #ede9fe 89% 100%)',
+                    }}
+                  >
+                    <div className={styles.profileGaugeInner} />
+                  </div>
+                  <div className={styles.profileGaugeText}>
+                    <span className={styles.profileGaugePercent}>89% complete</span>
+                    <span className={styles.profileGaugeSub}>Add projects to reach 100%</span>
+                  </div>
+                </div>
+              </motion.header>
 
-            {/* Main Sections Stack */}
-            <div className={styles.profileSectionStack}>
+              {toast && <div className={styles.toast}>{toast}</div>}
+
+              <div className={styles.profileSectionStack}>
               {/* Card 1: Basics */}
               <section id="basics" className={styles.card} aria-busy={basicsSaving}>
                 <ProfileSectionHeader
@@ -1875,9 +1838,9 @@ export function ProfilePage() {
                 )}
               </section>
 
-              {/* Card 4: RÃ©sumÃ© */}
+              {/* Card 4: Résumé */}
               <section id="resume" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>RÃ©sumÃ©</h2>
+                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Résumé</h2>
 
                 <div className={styles.resumeUploadBox}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1887,7 +1850,7 @@ export function ProfilePage() {
                         {profile?.resumeName || 'Aarav_Reddy_Resume.pdf'}
                       </span>
                       <span className={styles.resumeFileMeta}>
-                        Uploaded 12 Oct 2026 Â· 2 pages Â· 184 KB
+                        Uploaded 12 Oct 2026 · 2 pages · 184 KB
                       </span>
                     </div>
                   </div>
@@ -1900,7 +1863,7 @@ export function ProfilePage() {
                       className={styles.btnOutline}
                       style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}
                       onClick={() => {
-                        setToast('Downloading rÃ©sumÃ©...')
+                        setToast('Downloading résumé...')
                         setTimeout(() => setToast(''), 2000)
                       }}
                     >
@@ -2204,6 +2167,8 @@ export function ProfilePage() {
                   />
                 </div>
               )}
+              </div>
+            </div>
             </div>
           </div>
         </motion.main>
@@ -2315,7 +2280,7 @@ export function ApplicationsPage() {
                 </p>
               </div>
               <Link to={interview ? '/jobs' : '/interview'} className={styles.primary}>
-                {interview ? 'Browse jobs â†’' : 'Take interview â†’'}
+                {interview ? 'Browse jobs →' : 'Take interview →'}
               </Link>
             </motion.aside>
           ) : !appsLoading ? (

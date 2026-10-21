@@ -1,6 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { motion } from 'framer-motion'
-import { HrIcon } from './HrIcon'
 import styles from './SearchCandidatesPanel.module.css'
 
 export interface KeywordItem {
@@ -11,7 +10,7 @@ export interface KeywordItem {
 
 export interface CandidateSearchQuery {
   client: string
-  candidateName: string
+  candidateName?: string
   keywords: KeywordItem[]
   allMandatory: boolean
   searchScope: string
@@ -34,7 +33,6 @@ export function SearchCandidatesPanel({
   embedded = false,
 }: SearchCandidatesPanelProps) {
   const [client, setClient] = useState(initialQuery?.client ?? '')
-  const [candidateName, setCandidateName] = useState(initialQuery?.candidateName ?? '')
   const [keywords, setKeywords] = useState<KeywordItem[]>(initialQuery?.keywords ?? [])
   const [allMandatory, setAllMandatory] = useState(initialQuery?.allMandatory ?? false)
   const [searchScope, setSearchScope] = useState(initialQuery?.searchScope ?? 'Entire resume')
@@ -43,13 +41,11 @@ export function SearchCandidatesPanel({
   useEffect(() => {
     if (initialQuery) {
       setClient(initialQuery.client ?? '')
-      setCandidateName(initialQuery.candidateName ?? '')
       setKeywords(initialQuery.keywords ?? [])
       setAllMandatory(initialQuery.allMandatory ?? false)
       setSearchScope(initialQuery.searchScope ?? 'Entire resume')
     } else {
       setClient('')
-      setCandidateName('')
       setKeywords([])
       setAllMandatory(false)
       setSearchScope('Entire resume')
@@ -92,7 +88,6 @@ export function SearchCandidatesPanel({
   function handleClearAll() {
     setKeywords([])
     setClient('')
-    setCandidateName('')
     onClear?.()
   }
 
@@ -106,7 +101,7 @@ export function SearchCandidatesPanel({
   function triggerSearch() {
     onSearch?.({
       client,
-      candidateName,
+      candidateName: '',
       keywords,
       allMandatory,
       searchScope,
@@ -145,13 +140,12 @@ export function SearchCandidatesPanel({
         )}
       </div>
 
-      {/* Top 2 Inputs Grid */}
+      {/* Top Input Row (Full Width end-to-end with card padding) */}
       <div className={styles.topInputsGrid}>
-        {/* Client Hiring For */}
         <div className={styles.inputGroup}>
           <div className={styles.labelRow}>
             <label className={styles.label} htmlFor="client-input">
-              Client you&apos;re hiring for
+              What are we looking for today
             </label>
             <span className={styles.newBadge}>New</span>
           </div>
@@ -159,38 +153,16 @@ export function SearchCandidatesPanel({
             id="client-input"
             type="text"
             className={styles.textInput}
-            placeholder="Add the client or company you're hiring for"
+            placeholder="Add the role, skills, client, or company you're hiring for"
             value={client}
             onChange={(e) => setClient(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') triggerSearch()
+            }}
           />
           <div className={styles.aiHint}>
             <span className={styles.aiSparkle}>✦</span>
-            <span>Get AI-powered results tailored to your client&apos;s hiring needs</span>
-          </div>
-        </div>
-
-        {/* Candidate Name */}
-        <div className={styles.inputGroup}>
-          <div className={styles.labelRow}>
-            <label className={styles.label} htmlFor="candidate-name-input">
-              Candidate name
-            </label>
-          </div>
-          <div className={styles.searchIconWrap}>
-            <span className={styles.searchIcon}>
-              <HrIcon name="search" size={16} />
-            </span>
-            <input
-              id="candidate-name-input"
-              type="text"
-              className={`${styles.textInput} ${styles.textInputWithIcon}`}
-              placeholder="Search by candidate name"
-              value={candidateName}
-              onChange={(e) => setCandidateName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') triggerSearch()
-              }}
-            />
+            <span>Get AI-powered results tailored to what you&apos;re looking for</span>
           </div>
         </div>
       </div>

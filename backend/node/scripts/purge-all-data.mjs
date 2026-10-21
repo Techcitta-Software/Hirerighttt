@@ -73,6 +73,14 @@ async function run() {
     await client.query(`DELETE FROM organizations WHERE id <> 'org-platform'`)
     await client.query(`DELETE FROM users`)
 
+    for (const legacy of ['candidate_interview_results', 'candidates']) {
+      try {
+        await client.query(`TRUNCATE TABLE ${legacy} RESTART IDENTITY CASCADE`)
+      } catch (err) {
+        if (err?.code !== '42P01') throw err
+      }
+    }
+
     await client.query(`
       INSERT INTO organizations (id, name, slug, status, settings)
       VALUES ('org-platform', 'HireRight Platform', 'hireright-platform', 'active', '{"is_platform":true}'::jsonb)

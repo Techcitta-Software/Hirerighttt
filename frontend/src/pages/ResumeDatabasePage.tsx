@@ -43,7 +43,7 @@ function orgRecordToVault(c: OrgCandidateRecord): StoredResumeCandidate {
     phone: c.candidatePhone || '',
     currentRole: c.candidateRole || c.jobTitle || '',
     experienceYears: c.experienceYears || '',
-    location: c.company || 'â€”',
+    location: c.company || '—',
     skills: c.primarySkills || [],
     resumeName: c.resumeName || 'resume',
     resumeText: c.resumeText || '',
@@ -308,7 +308,7 @@ export function ResumeDatabasePage() {
                 onClick={() => setViewMode('grid')}
                 title="Grid view"
               >
-                âŠž Grid
+                ⊞ Grid
               </button>
               <button
                 type="button"
@@ -398,7 +398,7 @@ export function ResumeDatabasePage() {
                         setSelectedCandidate(c)
                       }}
                     >
-                      View Dossier â†’
+                      View Dossier →
                     </button>
                   </div>
                 </div>
@@ -446,7 +446,7 @@ export function ResumeDatabasePage() {
                           {c.interviewScore}%
                         </span>
                       ) : (
-                        <span style={{ color: '#64748b' }}>â€”</span>
+                        <span style={{ color: '#64748b' }}>—</span>
                       )}
                     </td>
                     <td>
@@ -498,11 +498,11 @@ export function ResumeDatabasePage() {
               <div className={styles.modalHeader}>
                 <div>
                   <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <HrIcon name="document" size={22} /> {selectedCandidate.name} â€” Full Resume &
+                    <HrIcon name="document" size={22} /> {selectedCandidate.name} — Full Resume &
                     Profile Dossier
                   </h2>
                   <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                    {selectedCandidate.currentRole} Â· {selectedCandidate.location} Â· Source: {selectedCandidate.source}
+                    {selectedCandidate.currentRole} · {selectedCandidate.location} · Source: {selectedCandidate.source}
                   </span>
                 </div>
                 <button

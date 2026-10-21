@@ -17,7 +17,8 @@ export function authProvider(): AuthProvider {
   const raw = (import.meta.env.VITE_AUTH_PROVIDER || '').toLowerCase()
   if (raw === 'supabase') return 'supabase'
   if (raw === 'local') return 'local'
-  if (raw === 'custom') return 'custom'
+  // Node API + Neon accounts (see .env.example VITE_AUTH_PROVIDER=api)
+  if (raw === 'custom' || raw === 'api' || raw === 'neon') return 'custom'
   const hasSupabase =
     Boolean(envFirst('VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')) &&
     Boolean(envFirst('VITE_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY'))
