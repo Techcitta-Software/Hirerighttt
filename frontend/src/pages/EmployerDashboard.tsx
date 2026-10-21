@@ -244,11 +244,32 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }
 
+  const hasActiveFilters = Boolean(
+    searchFilter || roleFilter || jobFilter || expFilter || scoreFilter || integrityFilter || statusFilter
+  )
+
+  const activeFilterCount = [
+    searchFilter,
+    roleFilter,
+    jobFilter,
+    expFilter,
+    scoreFilter,
+    integrityFilter,
+    statusFilter,
+  ].filter(Boolean).length
+
+  function handleSearchCandidatesClick() {
+    const el = document.getElementById('candidates-section')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
   const filteredApplicants = useMemo(() => {
     return applicants.filter((app) => {
       // Image 2 Search Candidates Panel filters
       if (candidateSearchQuery) {
-        if (candidateSearchQuery.candidateName.trim()) {
+        if (candidateSearchQuery.candidateName?.trim()) {
           const q = candidateSearchQuery.candidateName.trim().toLowerCase()
           const match =
             app.candidateName.toLowerCase().includes(q) ||
@@ -256,9 +277,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           if (!match) return false
         }
 
-        if (candidateSearchQuery.client.trim()) {
+        if (candidateSearchQuery.client?.trim()) {
           const q = candidateSearchQuery.client.trim().toLowerCase()
-          if (!String(app.company ?? '').toLowerCase().includes(q)) return false
+          const targetStr = [app.company, app.jobTitle, app.role, ...(app.primarySkills || [])].filter(Boolean).join(' ').toLowerCase()
+          if (!targetStr.includes(q)) return false
         }
 
         const activeKeywords = candidateSearchQuery.keywords.filter((k) =>
@@ -578,7 +600,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               initialQuery={candidateSearchQuery}
               onSearch={(query) => {
                 setCandidateSearchQuery(query)
-                if (query.candidateName.trim()) {
+                if (query.candidateName?.trim()) {
                   setSearchFilter(query.candidateName.trim())
                 }
               }}
@@ -725,92 +747,204 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {showCandidateTable && (
         <>
-        {/* IN BETWEEN: All-Column Search & Filter Row */}
+        {/* Refined Candidate Filters Card (matches SearchCandidatesPanel design) */}
         <motion.div
           className={styles.filterBarCard}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.04 }}
         >
-          {/* Candidate Search (Name, Email, Phone) */}
-          <div className={styles.searchWrap}>
-            <span className={styles.searchIcon}>
-              <HrIcon name="search" size={15} />
-            </span>
-            <input
-              type="text"
-              className={styles.filterSearchInput}
-              placeholder="Search name, email or phone..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-            />
+          {/* Header */}
+          <div className={styles.filterCardHeader}>
+            <div>
+              <h3 className={styles.filterCardTitle}>Filter Candidates</h3>
+              <p className={styles.filterCardSubtitle}>
+                Filter applicants and AI-interviewed talent across contact info, role, experience, evaluation scores, or status.
+              </p>
+            </div>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className={styles.filterTopClearBtn}
+                onClick={handleClearFilters}
+                title="Clear all filters"
+              >
+                <HrIcon name="close" size={13} /> Reset filters
+              </button>
+            )}
           </div>
 
-          {/* Role Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search role..."
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-          />
+          {/* Structured Fields Grid */}
+          <div className={styles.filterGrid}>
+            {/* Candidate Search (Name, Email, Phone) */}
+            <div className={`${styles.filterFieldGroup} ${styles.filterSpan2}`}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-candidate">
+                Candidate contact or name
+              </label>
+              <div className={styles.filterInputWrap}>
+                <span className={styles.filterInputIcon}>
+                  <HrIcon name="search" size={16} />
+                </span>
+                <input
+                  id="filter-candidate"
+                  type="text"
+                  className={`${styles.filterInputField} ${styles.filterInputFieldWithIcon}`}
+                  placeholder="Search name, email, or phone..."
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearchCandidatesClick()
+                  }}
+                />
+              </div>
+            </div>
 
-          {/* Target Job Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search job..."
-            value={jobFilter}
-            onChange={(e) => setJobFilter(e.target.value)}
-          />
+            {/* Target Job Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-job">
+                Job opening
+              </label>
+              <input
+                id="filter-job"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="Search job title..."
+                value={jobFilter}
+                onChange={(e) => setJobFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
 
-          {/* Experience Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search experience..."
-            value={expFilter}
-            onChange={(e) => setExpFilter(e.target.value)}
-          />
+            {/* Role Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-role">
+                Role track
+              </label>
+              <input
+                id="filter-role"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="Search role..."
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
 
-          {/* AI Score Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search score..."
-            value={scoreFilter}
-            onChange={(e) => setScoreFilter(e.target.value)}
-          />
+            {/* Experience Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-exp">
+                Experience level
+              </label>
+              <input
+                id="filter-exp"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="e.g. Senior, Mid, 3+ yrs..."
+                value={expFilter}
+                onChange={(e) => setExpFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
 
-          {/* Integrity Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search integrity..."
-            value={integrityFilter}
-            onChange={(e) => setIntegrityFilter(e.target.value)}
-          />
+            {/* AI Score Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-score">
+                AI interview score
+              </label>
+              <input
+                id="filter-score"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="e.g. 80, 90%..."
+                value={scoreFilter}
+                onChange={(e) => setScoreFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
 
-          {/* Status Search */}
-          <input
-            type="text"
-            className={styles.filterColInput}
-            placeholder="Search status..."
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          />
+            {/* Integrity Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-integrity">
+                Proctor integrity
+              </label>
+              <input
+                id="filter-integrity"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="e.g. Clean, High..."
+                value={integrityFilter}
+                onChange={(e) => setIntegrityFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
 
-          {/* Clear Filters Button if any active */}
-          {(searchFilter || roleFilter || jobFilter || expFilter || scoreFilter || integrityFilter || statusFilter) && (
-            <button
-              type="button"
-              className={styles.filterClearBtn}
-              onClick={handleClearFilters}
-              title="Clear all filters"
-            >
-              <HrIcon name="close" size={13} /> Clear
-            </button>
-          )}
+            {/* Status Search */}
+            <div className={styles.filterFieldGroup}>
+              <label className={styles.filterFieldLabel} htmlFor="filter-status">
+                Application status
+              </label>
+              <input
+                id="filter-status"
+                type="text"
+                className={styles.filterInputField}
+                placeholder="e.g. Shortlisted, Screened..."
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSearchCandidatesClick()
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Action Footer with Search candidates button at bottom right */}
+          <div className={styles.filterCardFooter}>
+            <div className={styles.filterFooterLeft}>
+              {hasActiveFilters ? (
+                <span className={styles.filterStatusText}>
+                  <span className={styles.filterCountPill}>
+                    {activeFilterCount} active filter{activeFilterCount > 1 ? 's' : ''}
+                  </span>
+                  Showing matching candidates
+                </span>
+              ) : (
+                <span className={styles.filterHintText}>
+                  Type criteria above or click Search Candidates to view matching records
+                </span>
+              )}
+            </div>
+
+            <div className={styles.filterFooterRight}>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  className={styles.filterClearBtn}
+                  onClick={handleClearFilters}
+                  title="Clear all filters"
+                >
+                  <HrIcon name="close" size={14} /> Clear filters
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.filterSearchBtn}
+                onClick={handleSearchCandidatesClick}
+              >
+                <HrIcon name="search" size={16} /> Search candidates
+              </button>
+            </div>
+          </div>
         </motion.div>
 
         {/* Candidates Section Card (Image 2) */}

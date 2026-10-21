@@ -632,6 +632,13 @@ export function hasInterviewScore(): boolean {
   return Boolean(getInterviewResult())
 }
 
+/** Scorecard career score (e.g. 530 on a ~980 scale), not the 0–100 interview overall. */
+export function getCareerDisplayScore(interview?: InterviewResult | null): number | null {
+  if (!interview) return null
+  const sc = interview.scorecard
+  return sc?.careerScore ?? Math.min(980, Math.max(50, Math.round(interview.overall * 10)))
+}
+
 export function canApplyToJobs(): boolean {
   const interview = getInterviewResult()
   return Boolean(interview && interview.overall >= MIN_APPLY_SCORE)

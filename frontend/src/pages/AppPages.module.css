@@ -1513,39 +1513,152 @@
 }
 
 /* ─── Profile & Preferences Spec ─── */
-.profileSplitLayout {
+.profileMainShell {
+  width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+  box-sizing: border-box;
+}
+
+.profilePageFrame {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 28px;
+  grid-template-columns: 1fr minmax(0, 960px) 1fr;
+  width: 100%;
+  min-width: 0;
   align-items: start;
 }
 
-@media (max-width: 860px) {
-  .profileSplitLayout {
-    grid-template-columns: 1fr;
+.profileNavRail {
+  grid-column: 1;
+  justify-self: end;
+  align-self: start;
+  position: sticky;
+  top: 72px;
+  z-index: 5;
+  width: min(220px, 100%);
+  max-height: calc(100vh - 88px);
+  max-height: calc(100dvh - 88px);
+  padding-right: clamp(10px, 1.5vw, 18px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.profileContentCenterSlot {
+  grid-column: 2;
+  min-width: 0;
+  width: 100%;
+}
+
+.profileContentColumn {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  .profilePageFrame {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .profileNavRail {
+    grid-column: 1;
+    width: min(168px, 38vw);
+    padding-right: 8px;
+  }
+
+  .profileContentCenterSlot {
+    grid-column: 2;
+  }
+}
+
+.profileMenuBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.profileMenuBtn:hover {
+  border-color: #c7d2fe;
+  background: #f8fafc;
+}
+
+.profileMenuBtn[aria-expanded='true'] {
+  border-color: #818cf8;
+  background: #eef2ff;
+}
+
+.profileMenuIcon {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 18px;
+}
+
+.profileMenuIcon span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  border-radius: 2px;
+  background: #334155;
+  transition: transform 0.25s ease;
+}
+
+.profileMenuLabel {
+  line-height: 1.2;
+}
+
+@media (max-width: 520px) {
+  .profileMenuLabel {
+    display: none;
+  }
+
+  .profileMenuBtn {
+    padding: 10px 12px;
   }
 }
 
 .profileSidebar {
-  position: sticky;
-  top: 80px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow: hidden;
+  width: 100%;
 }
 
 .profileSideLink {
-  padding: 8px 14px;
+  padding: 8px 12px;
   border-radius: 8px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
   color: #64748b;
   text-decoration: none;
-  transition: all 0.15s ease;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
   cursor: pointer;
   background: transparent;
   border: none;
   text-align: left;
+  width: 100%;
+  line-height: 1.35;
 }
 
 .profileSideLink:hover {
@@ -1563,6 +1676,17 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.profileSectionStack .card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .formGridTwo {
@@ -1574,12 +1698,12 @@
 
 .formGridThree {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-top: 12px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .formGridTwo,
   .formGridThree {
     grid-template-columns: 1fr;
@@ -1610,6 +1734,10 @@
   background: #ffffff;
   outline: none;
   transition: border-color 0.15s ease;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .formInputText:focus {

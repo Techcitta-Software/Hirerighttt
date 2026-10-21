@@ -53,118 +53,272 @@
   max-width: 720px;
 }
 
-/* In-Between All-Column Search & Filter Bar in a Single Row */
+/* Filter Candidates Card - same size, border-radius, padding & shadow as SearchCandidatesPanel */
 .filterBarCard {
-  margin-top: 18px;
+  margin-top: 24px;
+  margin-bottom: 24px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 12px 18px;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.03);
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.filterCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 16px;
+}
+
+.filterCardBadgeRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.filterCardBadge {
+  background: #ede9fe;
+  color: #4f46e5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.filterCardTitle {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.filterCardSubtitle {
+  font-size: 0.92rem;
+  color: #64748b;
+  margin: 6px 0 0 0;
+  line-height: 1.5;
+}
+
+.filterTopClearBtn {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 600;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.filterTopClearBtn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+/* Grid layout for all fields */
+.filterGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px 20px;
+  width: 100%;
+}
+
+.filterFieldGroup {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.filterSpan2 {
+  grid-column: span 2;
+}
+
+.filterFieldLabel {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.filterInputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.filterInputIcon {
+  position: absolute;
+  left: 14px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.filterInputField {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  color: #1e293b;
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.filterInputField:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.filterInputField::placeholder {
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+
+.filterInputFieldWithIcon {
+  padding-left: 42px;
+}
+
+/* Action Footer */
+.filterCardFooter {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.searchWrap {
-  position: relative;
-  flex: 1.6;
-  min-width: 220px;
+.filterFooterLeft {
   display: flex;
   align-items: center;
+  gap: 10px;
 }
 
-.searchIcon {
-  position: absolute;
-  left: 11px;
-  color: #94a3b8;
-  pointer-events: none;
+.filterStatusText {
+  font-size: 0.88rem;
+  color: #475569;
   display: flex;
   align-items: center;
-}
-
-.filterSearchInput {
-  width: 100%;
-  height: 36px;
-  padding: 0 12px 0 34px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 0.84rem;
-  color: #0f172a;
-  background: #ffffff;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
-}
-
-.filterSearchInput:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
-}
-
-.filterColInput {
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 0.82rem;
+  gap: 8px;
   font-weight: 500;
-  color: #0f172a;
-  background-color: #ffffff;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  flex: 1;
-  min-width: 110px;
-  box-sizing: border-box;
 }
 
-.filterColInput:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+.filterCountPill {
+  background: #ede9fe;
+  color: #4f46e5;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
-.filterSelectBox {
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: #334155;
-  background-color: #ffffff;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s ease;
-  flex: 1;
-  min-width: 125px;
-  box-sizing: border-box;
+.filterHintText {
+  font-size: 0.86rem;
+  color: #64748b;
 }
 
-.filterSelectBox:focus {
-  border-color: #4f46e5;
+.filterFooterRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
 }
 
 .filterClearBtn {
-  height: 36px;
-  padding: 0 14px;
-  background: #f1f5f9;
+  height: 46px;
+  padding: 0 20px;
+  background: #f8fafc;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 0.82rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
   font-weight: 600;
   color: #475569;
   cursor: pointer;
-  white-space: nowrap;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   transition: all 0.15s ease;
 }
 
 .filterClearBtn:hover {
-  background: #e2e8f0;
+  background: #f1f5f9;
+  border-color: #94a3b8;
   color: #0f172a;
+}
+
+.filterSearchBtn {
+  background: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  height: 46px;
+  padding: 0 28px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.filterSearchBtn:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.4);
+}
+
+@media (max-width: 1024px) {
+  .filterGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .filterSpan2 {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .filterBarCard {
+    padding: 20px 18px;
+  }
+  .filterGrid {
+    grid-template-columns: 1fr;
+  }
+  .filterSpan2 {
+    grid-column: span 1;
+  }
+  .filterFooterRight {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .filterSearchBtn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* Candidates Card */
