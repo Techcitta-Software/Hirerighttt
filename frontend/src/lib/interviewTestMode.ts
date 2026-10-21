@@ -10,8 +10,18 @@ export function isImmediateInterviewTestEnabled(): boolean {
 }
 
 /** Skip scheduled-slot gate and open the live interview studio. */
-export function beginImmediateInterviewTest(navigate: NavigateFunction) {
+export function beginImmediateInterview(
+  navigate: NavigateFunction,
+  options?: { returnToWizard?: boolean; replace?: boolean },
+) {
   markImmediateInterview()
-  sessionStorage.setItem('hireright.returnToWizard', '1')
-  navigate('/interview', { replace: false })
+  if (options?.returnToWizard !== false) {
+    sessionStorage.setItem('hireright.returnToWizard', '1')
+  }
+  navigate('/interview', { replace: options?.replace ?? false })
+}
+
+/** @deprecated Use beginImmediateInterview */
+export function beginImmediateInterviewTest(navigate: NavigateFunction) {
+  beginImmediateInterview(navigate)
 }

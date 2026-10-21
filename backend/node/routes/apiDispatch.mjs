@@ -26,6 +26,17 @@ import {
   uploadResumeToObjectStorage,
 } from '../storage/resumeObjectStorage.mjs'
 import {
+  authorizeInterviewRecordingUpload,
+  completeInterviewRecordingUpload,
+  resolveInterviewRecordingDownload,
+} from '../storage/interviewRecordingStorage.mjs'
+import {
+  persistInterviewReportPdfToS3,
+  persistInterviewTranscriptToS3,
+  resolveInterviewArtifactDownload,
+} from '../storage/interviewArtifactStorage.mjs'
+import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
+import {
   newInviteToken,
   insertInterviewInvite,
   getInterviewInviteByToken,
@@ -1216,6 +1227,7 @@ export function createApiDispatchMiddleware(ctx) {
           pool,
           candidateEmail: email,
           ownerUserId: account?.id,
+          primaryOrganizationId: account?.primaryOrganizationId,
           filename: parsed.filename,
           buffer: parsed.buffer,
           contentType: parsed.contentType,
@@ -1282,6 +1294,155 @@ export function createApiDispatchMiddleware(ctx) {
             downloadUrl: signed.url,
             expiresInSeconds: signed.expiresInSeconds,
             legacyPublic: Boolean(signed.legacyPublic),
+          })
+        }
+        res.writeHead(302, { Location: signed.url })
+        res.end()
+        return
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not generate download link.',
+        })
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/interview/recordings/upload-url') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      if (!objectStorageConfigured()) {
+        return json(res, 503, {
+          error: 'Recording storage is not configured (S3).',
+          skipped: true,
+        })
+      }
+      const body = await readBody(req)
+      try {
+        const db = loadDb()
+        const account = db.users.find((u) => u.email === email)
+        const pool = dbPool(config.databaseUrl)
+        const out = await authorizeInterviewRecordingUpload({
+          pool,
+          db,
+          requesterEmail: email,
+          account,
+          sessionId: String(body.sessionId || ''),
+          filename: String(body.filename || 'interview_recording.webm'),
+          contentType: String(body.contentType || ''),
+          fileSize: Number(body.fileSize || 0),
+        })
+        return json(res, 200, { ok: true, ...out })
+      } catch (err) {
+        const status = err.status || 502
+        if (err.skipped) {
+          return json(res, status, { error: err.message, skipped: true })
+        }
+        return json(res, status, { error: err instanceof Error ? err.message : 'Upload URL failed' })
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/interview/recordings/complete') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const body = await readBody(req)
+      try {
+        const pool = dbPool(config.databaseUrl)
+        const out = await completeInterviewRecordingUpload({
+          pool,
+          requesterEmail: email,
+          recordingId: String(body.recordingId || ''),
+          sessionId: String(body.sessionId || ''),
+          durationSeconds:
+            typeof body.durationSeconds === 'number' ? body.durationSeconds : undefined,
+        })
+        return json(res, 200, { ok: true, ...out })
+      } catch (err) {
+        return json(res, err.status || 502, {
+          error: err instanceof Error ? err.message : 'Could not finalize recording upload.',
+        })
+      }
+    }
+
+    if (req.method === 'GET' && path.startsWith('/api/interview/recordings/') && path.endsWith('/download')) {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const recordingId = path
+        .replace('/api/interview/recordings/', '')
+        .replace(/\/download$/, '')
+        .trim()
+      try {
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveInterviewRecordingDownload({
+          pool,
+          requesterEmail: email,
+          recordingId,
+        })
+        const accept = String(req.headers.accept || '')
+        if (accept.includes('application/json') || req.url?.includes('format=json')) {
+          return json(res, 200, {
+            downloadUrl: signed.url,
+            expiresInSeconds: signed.expiresInSeconds,
+          })
+        }
+        res.writeHead(302, { Location: signed.url })
+        res.end()
+        return
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not generate playback URL.',
+        })
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/interview/artifacts/report') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const body = await readBody(req)
+      try {
+        const db = loadDb()
+        const account = db.users.find((u) => u.email === email)
+        const pool = dbPool(config.databaseUrl)
+        const out = await persistInterviewReportPdfToS3({
+          pool,
+          db,
+          requesterEmail: email,
+          account,
+          sessionId: String(body.sessionId || ''),
+          fileBase64: String(body.file_base64 || ''),
+        })
+        console.log(`[interview-artifact] report session=${body.sessionId} key=${out.objectKey}`)
+        return json(res, 200, { ok: true, ...out })
+      } catch (err) {
+        const status = err.status || 502
+        if (err.skipped) return json(res, status, { error: err.message, skipped: true })
+        return json(res, status, { error: err instanceof Error ? err.message : 'Report upload failed' })
+      }
+    }
+
+    if (req.method === 'GET' && path.startsWith('/api/interview/artifacts/')) {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const parts = path.replace('/api/interview/artifacts/', '').split('/')
+      const sessionId = parts[0]
+      const artifactType = parts[1]
+      if (!sessionId || (artifactType !== 'transcript' && artifactType !== 'report')) {
+        return json(res, 400, { error: 'Use /api/interview/artifacts/{sessionId}/transcript|report/download' })
+      }
+      if (parts[2] !== 'download') {
+        return json(res, 404, { error: 'Not found' })
+      }
+      try {
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveInterviewArtifactDownload({
+          pool,
+          requesterEmail: email,
+          sessionId,
+          artifactType,
+        })
+        const accept = String(req.headers.accept || '')
+        if (accept.includes('application/json') || req.url?.includes('format=json')) {
+          return json(res, 200, {
+            downloadUrl: signed.url,
+            expiresInSeconds: signed.expiresInSeconds,
           })
         }
         res.writeHead(302, { Location: signed.url })
@@ -1559,7 +1720,30 @@ export function createApiDispatchMiddleware(ctx) {
       }).catch((err) => {
         console.warn('[db] interview history append failed:', err.message)
       })
-      return json(res, 200, { interview: result })
+      if (config.databaseUrl && s3StorageConfigured()) {
+        try {
+          const pool = dbPool(config.databaseUrl)
+          const artifact = await persistInterviewTranscriptToS3({
+            pool,
+            db,
+            requesterEmail: email,
+            account: scoredUser,
+            sessionId,
+            questions: scoredQuestions,
+            answers: scoredAnswers,
+            result,
+          })
+          if (artifact?.objectKey) {
+            console.log(`[interview-artifact] transcript session=${sessionId} key=${artifact.objectKey}`)
+          }
+        } catch (artifactErr) {
+          console.warn(
+            '[interview-artifact] transcript upload failed',
+            artifactErr instanceof Error ? artifactErr.message : artifactErr,
+          )
+        }
+      }
+      return json(res, 200, { interview: result, sessionId })
     }
 
     if (req.method === 'POST' && path === '/api/interview') {

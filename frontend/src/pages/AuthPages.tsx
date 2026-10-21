@@ -19,7 +19,7 @@ import {
   updateUserEmail,
   updateUserPassword,
 } from '../lib/store'
-import { apiHealth, apiLogin, apiLogout, apiSignup } from '../lib/api'
+import { apiConnectionHint, apiHealth, apiLogin, apiLogout, apiSignup } from '../lib/api'
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
 import { ensureNewJobseekerProfileOnServer } from '../lib/initCandidateProfile'
 import { isValidPhone, normalizePhone } from '../lib/phone'
@@ -572,7 +572,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           )
           return
         }
-        persistLoggedInUser({
+        const sessionUser = persistLoggedInUser({
           id: apiUser?.id || createdEmail,
           name: apiUser?.name || signupName.trim(),
           email: createdEmail,
@@ -598,13 +598,11 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           await ensureNewJobseekerProfileOnServer()
           await pullProfileFromApi()
         }
-        const signedIn = getUser()
-        if (signedIn) {
-          navigateAfterLogin(signedIn)
-          return
-        }
+        const signedIn = getUser() ?? sessionUser
+        navigateAfterLogin(signedIn)
+        return
       } else if (requireApiForAuth()) {
-        setError('Cannot reach the server. Check your connection and try again.')
+        setError(apiConnectionHint())
         return
       }
       saveUser(

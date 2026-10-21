@@ -177,3 +177,19 @@ export async function downloadScorecardPdf(candidateName = 'candidate'): Promise
 
   await downloadElementAsPdf(REPORT_ID, safeFileName(candidateName), 'HireRight career report')
 }
+
+/** PDF bytes for S3 upload (s3.md §4 F). */
+export async function buildScorecardPdfBase64(): Promise<string> {
+  const root = document.getElementById(REPORT_ID)
+  if (!root) throw new Error('Report is not on the page.')
+  const restoreScroll = unlockScrollAncestors(root)
+  try {
+    const canvas = await captureElementCanvas(root)
+    const pdfBytes = await buildMultiPagePdfFromCanvas(canvas, 'HireRight career report')
+    let binary = ''
+    for (let i = 0; i < pdfBytes.length; i++) binary += String.fromCharCode(pdfBytes[i]!)
+    return btoa(binary)
+  } finally {
+    restoreScroll()
+  }
+}

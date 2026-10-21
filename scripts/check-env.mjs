@@ -41,7 +41,7 @@ if (s3StorageConfigured()) {
       '[check-env] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set — OK only if API uses an IAM role',
     )
   }
-  console.log('[check-env] Verify uploads: npm run s3:test  (objects under resumes/ prefix)')
+  console.log('[check-env] Verify uploads: npm run s3:test  (new keys under tenants/ prefix)')
 } else {
   console.warn(
     '[check-env] S3 not configured — set AWS_REGION + S3_BUCKET in repo-root .env (see s3.md)',

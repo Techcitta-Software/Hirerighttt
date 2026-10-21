@@ -12,6 +12,10 @@ import { randomUUID } from 'node:crypto'
  *   originalFilename: string,
  *   contentType: string,
  *   byteSize: number,
+ *   tenantId?: string | null,
+ *   entityId?: string | null,
+ *   fileCategory?: string | null,
+ *   versionNumber?: number | null,
  * }} row
  */
 export async function insertStoredFile(pool, row) {
@@ -19,8 +23,9 @@ export async function insertStoredFile(pool, row) {
   await pool.query(
     `INSERT INTO stored_files (
       id, owner_email, owner_user_id, purpose, storage_provider,
-      bucket, object_key, original_filename, content_type, byte_size, status
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ready')`,
+      bucket, object_key, original_filename, content_type, byte_size, status,
+      tenant_id, entity_id, file_category, version_number
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ready',$11,$12,$13,$14)`,
     [
       id,
       row.ownerEmail.toLowerCase(),
@@ -32,9 +37,27 @@ export async function insertStoredFile(pool, row) {
       row.originalFilename,
       row.contentType,
       row.byteSize,
+      row.tenantId || null,
+      row.entityId || null,
+      row.fileCategory || row.purpose || 'resume',
+      row.versionNumber ?? null,
     ],
   )
   return id
+}
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {{ tenantId: string, entityId: string, fileCategory?: string }} opts
+ */
+export async function countStoredFileVersions(pool, opts) {
+  const res = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM stored_files
+     WHERE tenant_id = $1 AND entity_id = $2 AND file_category = $3
+       AND deleted_at IS NULL AND status = 'ready'`,
+    [opts.tenantId, opts.entityId, opts.fileCategory || 'resume'],
+  )
+  return res.rows[0]?.c ?? 0
 }
 
 /**

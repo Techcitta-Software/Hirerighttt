@@ -59,6 +59,11 @@ import {
 import { apiHealthInfo } from '../lib/api'
 import { ensureApiSession, syncProfileToApi } from '../lib/apiSession'
 import {
+  goToCandidateDashboardAfterInterview,
+  goToInterviewReportAfterCompletion,
+  markCandidateOnboardingCompleteAfterInterview,
+} from '../lib/completeOnboardingAfterInterview'
+import {
   createGroqVadSttController,
   type GroqVadSttController,
 } from '../lib/groqVadStt'
@@ -101,10 +106,6 @@ export function InterviewPage() {
   const navigate = useNavigate()
   const profile = useMemo(() => getProfile(), [])
   const profileSkills = profile?.skills ?? []
-  const fromWizard = useMemo(
-    () => sessionStorage.getItem('hireright.returnToWizard') === '1',
-    [],
-  )
 
   const targetJobRaw = useMemo(() => {
     const str = sessionStorage.getItem('hireright.targetJob')
@@ -301,6 +302,22 @@ export function InterviewPage() {
       groqWhisperEnabledRef.current = enabled
     })
   }, [])
+
+  useEffect(() => {
+    if (stage !== 'results' || !result || !sessionIdRef.current) return
+    const sessionId = sessionIdRef.current
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const { uploadInterviewReportPdfToS3 } = await import('../lib/interviewReportUpload')
+        if (!cancelled) await uploadInterviewReportPdfToS3(sessionId)
+      })()
+    }, 1200)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [stage, result])
 
   const applyTranscriptSegmentRef = useRef<(text: string) => void>(() => {})
 
@@ -1107,7 +1124,22 @@ export function InterviewPage() {
             }
             recordingBlobUrlRef.current = URL.createObjectURL(clip.blob)
             setRecordingUrl(recordingBlobUrlRef.current)
-            recordingNoteLocal = `Video recording saved securely to local storage (${Math.round(clip.blob.size / 1024)} KB)`
+            recordingNoteLocal = `Video recording saved locally (${Math.round(clip.blob.size / 1024)} KB)`
+            if (sessionIdRef.current) {
+              const { uploadInterviewRecordingToS3 } = await import(
+                '../lib/interviewRecordingUpload'
+              )
+              const cloud = await uploadInterviewRecordingToS3({
+                sessionId: sessionIdRef.current,
+                blob: clip.blob,
+                durationMs: clip.durationMs,
+              })
+              if (cloud.ok) {
+                recordingNoteLocal = `Recording saved to secure cloud storage (S3).`
+              } else if (!cloud.skipped) {
+                recordingNoteLocal += ` Cloud upload: ${cloud.error}`
+              }
+            }
           } else {
             recordingNoteLocal = 'Recording not captured — answers were still scored locally.'
           }
@@ -1169,12 +1201,10 @@ export function InterviewPage() {
           }
         }
         saveInterviewResult(scored)
+        await markCandidateOnboardingCompleteAfterInterview()
         if (targetJobRaw?.applicationId) {
           attachInterviewToApplicant(targetJobRaw.applicationId, scored)
         }
-        const isRecruiterJobInterview = Boolean(
-          targetJobRaw?.applicationId || targetJobRaw?.jobId,
-        )
         if (targetJobRaw && !integrity.banned) {
           try {
             applyToJob({
@@ -1189,12 +1219,11 @@ export function InterviewPage() {
           sessionStorage.removeItem('hireright.targetJob')
         }
         finishingRef.current = false
-        if (isRecruiterJobInterview) {
-          setResult(scored)
-          setStage('results')
-        } else {
-          navigate('/profile', { replace: true })
+        if (sessionIdRef.current) {
+          sessionStorage.setItem('hireright.lastInterviewSessionId', sessionIdRef.current)
         }
+        setResult(scored)
+        goToInterviewReportAfterCompletion(navigate, { uploadReport: true })
       })().catch((err) => {
         finishingRef.current = false
         setStage('interview')
@@ -2043,15 +2072,7 @@ export function InterviewPage() {
               candidateExperience={level}
               skills={profileSkills.length > 0 ? profileSkills : ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'Docker', 'AWS', 'REST APIs', 'System Design']}
               onRetake={retake}
-              onContinue={() => {
-                sessionStorage.removeItem('hireright.returnToWizard')
-                if (fromWizard) {
-                  sessionStorage.setItem('hireright.wizardStep', '5')
-                  navigate('/onboarding')
-                } else {
-                  navigate('/jobs')
-                }
-              }}
+              onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
             />
 
             {/* Verification & Proctoring Audit Logs */}

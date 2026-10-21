@@ -1,12 +1,21 @@
 import { uploadResumeToSupabase, supabaseStorageConfigured } from '../resumeStorage.mjs'
 import { inferResumeContentType } from './resumeUploadValidation.mjs'
 import {
-  buildObjectKey,
   createS3ObjectStorage,
   defaultS3ObjectStorage,
   s3StorageConfigured,
 } from './s3ObjectStorage.mjs'
-import { canAccessStoredFile, getStoredFileById, insertStoredFile } from './storedFilesRepo.mjs'
+import {
+  buildCandidateResumeObjectKey,
+  isLegacyResumeObjectKey,
+  resolveTenantId,
+} from './s3KeyLayout.mjs'
+import {
+  canAccessStoredFile,
+  countStoredFileVersions,
+  getStoredFileById,
+  insertStoredFile,
+} from './storedFilesRepo.mjs'
 
 /** Authenticated API path — never a public object URL for S3. */
 export const RESUME_DOWNLOAD_API_PATH = '/api/resume/download'
@@ -24,6 +33,7 @@ export function objectStorageConfigured() {
  * @param {{
  *   candidateEmail: string,
  *   ownerUserId?: string | null,
+ *   primaryOrganizationId?: string | null,
  *   filename: string,
  *   buffer: Buffer,
  *   contentType?: string,
@@ -36,7 +46,30 @@ export async function uploadResumeToObjectStorage(opts) {
 
   if (s3StorageConfigured()) {
     const s3 = opts.s3 || defaultS3ObjectStorage
-    const objectKey = buildObjectKey(email, 'resumes', opts.filename)
+    const candidateId = opts.ownerUserId || email.replace(/[^a-z0-9._-]+/g, '_')
+    const tenantId = resolveTenantId({
+      user: {
+        id: opts.ownerUserId,
+        primaryOrganizationId: opts.primaryOrganizationId,
+      },
+    })
+    let versionNumber = 1
+    try {
+      const existing = await countStoredFileVersions(opts.pool, {
+        tenantId,
+        entityId: candidateId,
+        fileCategory: 'resume',
+      })
+      versionNumber = existing + 1
+    } catch {
+      versionNumber = 1
+    }
+    const objectKey = buildCandidateResumeObjectKey({
+      tenantId,
+      candidateId,
+      originalFilename: opts.filename,
+      versionNumber,
+    })
     const { bucket } = await s3.uploadObject({
       key: objectKey,
       buffer: opts.buffer,
@@ -58,6 +91,10 @@ export async function uploadResumeToObjectStorage(opts) {
         originalFilename: opts.filename,
         contentType,
         byteSize: opts.buffer.length,
+        tenantId,
+        entityId: candidateId,
+        fileCategory: 'resume',
+        versionNumber,
       })
     } catch (dbErr) {
       console.warn(
@@ -156,6 +193,11 @@ export async function resolveResumeDownloadForUser(opts) {
   if (provider === 's3' && profile.resumeStoragePath) {
     const s3 = opts.s3 || defaultS3ObjectStorage
     const key = String(profile.resumeStoragePath)
+    if (!isLegacyResumeObjectKey(key) && !key.startsWith('tenants/')) {
+      const err = new Error('Resume file not found.')
+      err.status = 404
+      throw err
+    }
     const head = await s3.headObject({ key })
     if (!head) {
       const err = new Error('Resume file is missing from storage.')

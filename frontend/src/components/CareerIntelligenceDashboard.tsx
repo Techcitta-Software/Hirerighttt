@@ -792,7 +792,7 @@ export function CareerIntelligenceDashboard({
           )}
           {onContinue && (
             <button type="button" className={styles.primaryBtn} onClick={onContinue}>
-              Unlock Matched Roles →
+              Go to dashboard →
             </button>
           )}
         </div>

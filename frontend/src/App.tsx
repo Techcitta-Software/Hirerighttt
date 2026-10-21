@@ -12,7 +12,13 @@ import { PricingPage } from './pages/PricingPage'
 import { FaqPage } from './pages/FaqPage'
 import { CareerViewPage } from './pages/CareerViewPage'
 import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
-import { DashboardPage, JobsPage, ProfilePage, ApplicationsPage } from './pages/AppPages'
+import {
+  DashboardPage,
+  InterviewReportPage,
+  JobsPage,
+  ProfilePage,
+  ApplicationsPage,
+} from './pages/AppPages'
 import { AdminDashboard } from './pages/AdminDashboard'
 import { InterviewPage } from './pages/InterviewPage'
 import { InterviewNowPage } from './pages/InterviewNowPage'
@@ -108,6 +114,16 @@ function AnimatedRoutes() {
               <RequireAuth role="jobseeker">
                 <RequireCandidateOnboardingComplete>
                   <DashboardPage />
+                </RequireCandidateOnboardingComplete>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboard/report"
+            element={
+              <RequireAuth role="jobseeker">
+                <RequireCandidateOnboardingComplete>
+                  <InterviewReportPage />
                 </RequireCandidateOnboardingComplete>
               </RequireAuth>
             }

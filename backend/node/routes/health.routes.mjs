@@ -53,7 +53,7 @@ export function createHealthRouter(ctx) {
         provider: objectProvider,
         bucket: s3?.bucket || null,
         region: s3?.region || null,
-        resumeKeyPrefix: 'resumes/',
+        resumeKeyPrefix: 'tenants/',
       },
     })
   })

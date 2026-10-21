@@ -26,6 +26,8 @@
     "db:purge": "node backend/node/scripts/purge-all-data.mjs",
     "check:env": "node scripts/check-env.mjs",
     "s3:test": "node backend/node/scripts/test-s3-resume-storage.mjs",
+    "s3:cleanup-legacy": "node backend/node/scripts/s3-cleanup-legacy.mjs",
+    "s3:cleanup-legacy:delete": "node backend/node/scripts/s3-cleanup-legacy.mjs --delete",
     "check:llm": "npm --prefix backend/node run check:llm",
     "check:smoke": "npm --prefix backend/node run check:smoke",
     "verify:prod": "node scripts/verify-production.mjs",

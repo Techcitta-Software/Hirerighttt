@@ -1,7 +1,60 @@
 /** Thin client for the optional Node API. Falls back silently when offline. */
-const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+const ENV_API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+/** When Vite proxy is down, dev builds may talk to the API directly (CORS must allow the page origin). */
+const DEV_API_FALLBACK = (
+  import.meta.env.VITE_DEV_API_FALLBACK || 'http://127.0.0.1:8787'
+).replace(/\/$/, '')
+
+let runtimeApiBase = ENV_API_BASE
+let resolveApiBasePromise: Promise<string> | null = null
 
 const TOKEN_KEY = 'hireright.apiToken'
+
+export const API_OFFLINE_HINT =
+  'Cannot reach the API. From the project folder run: npm run dev:all (Vite :5173 + API :8787), then reload this page.'
+
+export function apiConnectionHint(): string {
+  if (import.meta.env.DEV) return API_OFFLINE_HINT
+  if (ENV_API_BASE) {
+    return `Cannot reach the API at ${ENV_API_BASE}. Check VITE_API_URL and that the backend is running.`
+  }
+  return 'Cannot reach the server. Check your connection and try again.'
+}
+
+async function pingHealth(base: string): Promise<boolean> {
+  const root = base.replace(/\/$/, '')
+  const url = root ? `${root}/api/health` : '/api/health'
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) })
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean }
+    return Boolean(res.ok && data.ok)
+  } catch {
+    return false
+  }
+}
+
+/** Picks same-origin /api (Vite proxy) or direct :8787 in local dev. */
+export async function resolveApiBase(): Promise<string> {
+  if (ENV_API_BASE) {
+    runtimeApiBase = ENV_API_BASE
+    return runtimeApiBase
+  }
+  if (runtimeApiBase) return runtimeApiBase
+  if (resolveApiBasePromise) return resolveApiBasePromise
+  resolveApiBasePromise = (async () => {
+    if (await pingHealth('')) {
+      runtimeApiBase = ''
+      return runtimeApiBase
+    }
+    if (import.meta.env.DEV && (await pingHealth(DEV_API_FALLBACK))) {
+      runtimeApiBase = DEV_API_FALLBACK
+      return runtimeApiBase
+    }
+    runtimeApiBase = ''
+    return runtimeApiBase
+  })()
+  return resolveApiBasePromise
+}
 
 /** Re-export for API callers; canonical definitions live in authDemo.ts */
 export { DEMO_CANDIDATE } from './authDemo'
@@ -15,13 +68,15 @@ export function setApiToken(token: string | null) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
-/** Same-origin `/api` in Vite dev; absolute URL when `VITE_API_URL` is set. */
+/** Same-origin `/api` in Vite dev; absolute URL when `VITE_API_URL` or dev fallback is set. */
 export function apiUrl(path: string) {
   const p = path.startsWith('/') ? path : `/${path}`
-  return API_BASE ? `${API_BASE}${p}` : p
+  const base = runtimeApiBase || ENV_API_BASE
+  return base ? `${base}${p}` : p
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
+  await resolveApiBase()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
@@ -43,12 +98,22 @@ export async function apiMe() {
 }
 
 export async function apiHealth() {
-  try {
-    const data = await request('/api/health')
-    return Boolean(data.ok)
-  } catch {
-    return false
+  await resolveApiBase()
+  if (ENV_API_BASE) {
+    try {
+      const data = await request('/api/health')
+      return Boolean(data.ok)
+    } catch {
+      return false
+    }
   }
+  if (await pingHealth(runtimeApiBase)) return true
+  if (import.meta.env.DEV && !runtimeApiBase && (await pingHealth(DEV_API_FALLBACK))) {
+    runtimeApiBase = DEV_API_FALLBACK
+    resolveApiBasePromise = Promise.resolve(DEV_API_FALLBACK)
+    return true
+  }
+  return false
 }
 
 export async function apiSignup(

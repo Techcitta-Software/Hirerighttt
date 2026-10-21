@@ -1,13 +1,12 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { markImmediateInterview } from '../lib/interviewInviteGate'
+import { beginImmediateInterview } from '../lib/interviewTestMode'
 
 /** Sets immediate-interview flag and opens the live studio (skips scheduled invite gate). */
 export function InterviewNowPage() {
   const navigate = useNavigate()
   useEffect(() => {
-    markImmediateInterview()
-    navigate('/interview', { replace: true })
+    beginImmediateInterview(navigate, { returnToWizard: false, replace: true })
   }, [navigate])
   return null
 }

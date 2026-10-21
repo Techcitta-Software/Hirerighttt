@@ -75,7 +75,20 @@ export function resolveAuthenticatedDestination(
     return `/onboarding?step=${onboardingResumeStep(profile)}`
   }
 
-  if (fromPath && fromPath !== '/login' && fromPath !== '/signup' && fromPath !== '/onboarding') {
+  // Returning jobseekers: workspace home (not interview room or one-time report view).
+  const interviewEntry =
+    fromPath === '/interview' ||
+    fromPath === '/interview/now' ||
+    (fromPath?.startsWith('/interview/') && !fromPath.startsWith('/interview/invite'))
+  const oneTimeReport = fromPath === '/dashboard/report'
+  if (
+    fromPath &&
+    fromPath !== '/login' &&
+    fromPath !== '/signup' &&
+    fromPath !== '/onboarding' &&
+    !interviewEntry &&
+    !oneTimeReport
+  ) {
     return fromPath
   }
   return '/dashboard'

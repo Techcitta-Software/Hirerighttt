@@ -7,6 +7,9 @@ import {
   HeadObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { buildCandidateResumeObjectKey, sanitizePathSegment } from './s3KeyLayout.mjs'
+
+export { buildCandidateResumeObjectKey, sanitizePathSegment }
 
 export function s3Env() {
   const region = (process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '').trim()
@@ -25,20 +28,20 @@ export function s3StorageConfigured() {
 }
 
 /**
- * @param {string} ownerEmail
- * @param {string} purpose
- * @param {string} originalFilename
+ * Legacy key layout (pre-tenant). New uploads use buildCandidateResumeObjectKey.
+ * @deprecated
  */
 export function buildObjectKey(ownerEmail, purpose, originalFilename) {
-  const safeEmail = String(ownerEmail || 'user')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '_')
-  const baseName = String(originalFilename || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  const extMatch = baseName.match(/(\.[a-z0-9]{1,8})$/i)
-  const ext = extMatch ? extMatch[1].toLowerCase() : ''
+  const safeEmail = sanitizePathSegment(String(ownerEmail || 'user').toLowerCase())
+  const ext = extensionFromLegacyFilename(originalFilename)
   const id = randomUUID()
   return `${purpose}/${safeEmail}/${id}${ext}`
+}
+
+function extensionFromLegacyFilename(filename) {
+  const baseName = String(filename || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const extMatch = baseName.match(/(\.[a-z0-9]{1,8})$/i)
+  return extMatch ? extMatch[1].toLowerCase() : ''
 }
 
 /**
@@ -67,9 +70,29 @@ export function createS3ObjectStorage(options = {}) {
         Body: buffer,
         ContentType: contentType,
         Metadata: metadata,
+        ServerSideEncryption: 'AES256',
       }),
     )
     return { bucket, key }
+  }
+
+  async function presignUpload({ key, contentType, contentLength }) {
+    const { bucket, presignSeconds } = s3Env()
+    if (!bucket) {
+      const err = new Error('S3_BUCKET is not configured.')
+      err.status = 503
+      throw err
+    }
+    const client = getClient()
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      ContentLength: contentLength,
+      ServerSideEncryption: 'AES256',
+    })
+    const url = await getSignedUrl(client, command, { expiresIn: presignSeconds })
+    return { url, expiresInSeconds: presignSeconds, method: 'PUT' }
   }
 
   async function presignDownload({ key, responseContentDisposition }) {
@@ -109,7 +132,7 @@ export function createS3ObjectStorage(options = {}) {
     }
   }
 
-  return { uploadObject, presignDownload, deleteObject, headObject }
+  return { uploadObject, presignUpload, presignDownload, deleteObject, headObject }
 }
 
 export const defaultS3ObjectStorage = createS3ObjectStorage()

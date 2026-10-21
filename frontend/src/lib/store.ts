@@ -597,8 +597,7 @@ function normalizeProfile(p: SavedProfile): SavedProfile {
 export function getProfile(): SavedProfile | null {
   const user = getUser()
   const raw =
-    localStorage.getItem(profileKey(user?.email)) ??
-    localStorage.getItem(PROFILE_KEY)
+    localStorage.getItem(profileKey(user?.email))
   if (!raw) return null
   try {
     return normalizeProfile(JSON.parse(raw) as SavedProfile)
@@ -774,8 +773,7 @@ export function saveInterviewResult(result: InterviewResult) {
 export function getInterviewResult(): InterviewResult | null {
   const user = getUser()
   const raw =
-    (user && localStorage.getItem(`${RESULT_KEY}.${user.email}`)) ||
-    localStorage.getItem(RESULT_KEY)
+    user ? localStorage.getItem(`${RESULT_KEY}.${user.email}`) : localStorage.getItem(RESULT_KEY)
   if (!raw) return null
   try {
     return JSON.parse(raw) as InterviewResult

@@ -25,10 +25,7 @@ import {
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
-import {
-  beginImmediateInterviewTest,
-  isImmediateInterviewTestEnabled,
-} from '../lib/interviewTestMode'
+import { beginImmediateInterview, isImmediateInterviewTestEnabled } from '../lib/interviewTestMode'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -199,8 +196,7 @@ export function ProfileWizard() {
 
     // If starting now on step 4, navigate to live AI interview; if scheduled for later, proceed to Step 5 (matched roles)
     if (step === 4 && !isScheduled) {
-      sessionStorage.setItem('hireright.returnToWizard', '1')
-      navigate('/interview')
+      beginImmediateInterview(navigate)
       return
     }
 

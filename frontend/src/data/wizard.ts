@@ -29,6 +29,8 @@ export interface Certification {
 }
 
 export interface ProfileFormData {
+  resumeFileId?: string | null
+  storageProvider?: 's3' | 'supabase' | null
   resumeFile: File | null
   resumeName?: string | null
   whoAreYou: string

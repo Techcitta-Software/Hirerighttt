@@ -48,4 +48,6 @@ export const EXPECTED_TABLES = [
   'interview_reports', 'assessment_events', 'assessment_usage',
   'personalized_interview_links',
   'stored_files',
+  'interview_recordings',
+  'interview_artifacts',
 ]

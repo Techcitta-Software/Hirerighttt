@@ -1,14 +1,13 @@
-﻿import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import {
   addNotification,
-  calcProfileStrength,
+
   canApplyToJobs,
-  getCareerDisplayScore,
   firstName,
   getApplications,
   getInterviewResult,
@@ -19,382 +18,145 @@ import {
   markNotificationsRead,
   rankPostedJobs,
   saveApplications,
-  saveProfile,
-  type RankedJob,
+  profileKey,
+
 } from '../lib/store'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import {
+  goToCandidateDashboardAfterInterview,
+  PENDING_REPORT_UPLOAD_KEY,
+  type PostInterviewReportState,
+} from '../lib/completeOnboardingAfterInterview'
+import { uploadInterviewReportPdfToS3 } from '../lib/interviewReportUpload'
 import { apiListApplications, apiSaveProfile, apiWithdrawApplication } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import { slugifyCompany } from '../lib/jobLink'
 import styles from './AppPages.module.css'
 
-export function DashboardPage() {
+export { DashboardPage } from './CandidateDashboard'
+
+/** Full scorecard + PDF download (`/dashboard/report`). */
+export function InterviewReportPage() {
   const user = getUser()
   const interview = getInterviewResult()
   const profile = getProfile()
   const name = firstName()
-  const strength = interview ? interview.overall : calcProfileStrength(profile)
-  const careerScore = getCareerDisplayScore(interview)
-  const snapshotReadiness = calcProfileStrength(profile)
-  const [ranked, setRanked] = useState<RankedJob[]>([])
-  const [jobsError, setJobsError] = useState('')
-  const [downloading, setDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState('')
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const reportState = (location.state as PostInterviewReportState | null) ?? null
+  const fromInterview = Boolean(reportState?.fromInterview)
+  const autoContinueDashboard = Boolean(reportState?.autoContinueDashboard)
+  const [autoDownloadDone, setAutoDownloadDone] = useState(false)
+  const [dashboardCountdown, setDashboardCountdown] = useState<number | null>(null)
 
   useEffect(() => {
+    if (!interview || autoDownloadDone) return
+    if (searchParams.get('download') !== '1') return
+    setAutoDownloadDone(true)
+    void downloadScorecardPdf(user?.name || profile?.fullName || name).catch(() => {
+      /* user can click Download report on the page */
+    })
+  }, [interview, autoDownloadDone, searchParams, user?.name, profile?.fullName, name])
+
+  useEffect(() => {
+    if (sessionStorage.getItem(PENDING_REPORT_UPLOAD_KEY) !== '1') return
+    const sessionId = sessionStorage.getItem('hireright.lastInterviewSessionId')
+    if (!sessionId || !getInterviewResult()) return
     let cancelled = false
-    void (async () => {
-      try {
-        await ensureApiSession()
-        const { jobs } = await fetchOpenJobs({ summary: true })
-        if (!cancelled) setRanked(rankPostedJobs(jobs).slice(0, 3))
-      } catch {
-        if (!cancelled) setJobsError('Employer jobs could not be loaded. Sign in as a candidate and ensure the API is running.')
-      }
-    })()
+    const timer = window.setTimeout(() => {
+      void uploadInterviewReportPdfToS3(sessionId).finally(() => {
+        if (!cancelled) sessionStorage.removeItem(PENDING_REPORT_UPLOAD_KEY)
+      })
+    }, 900)
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
     }
-  }, [interview?.overall])
+  }, [])
+
+  useEffect(() => {
+    if (!fromInterview || !autoContinueDashboard || !interview) return
+    let seconds = 6
+    setDashboardCountdown(seconds)
+    const tick = window.setInterval(() => {
+      seconds -= 1
+      setDashboardCountdown(seconds)
+      if (seconds <= 0) {
+        window.clearInterval(tick)
+        goToCandidateDashboardAfterInterview(navigate)
+      }
+    }, 1000)
+    return () => window.clearInterval(tick)
+  }, [fromInterview, autoContinueDashboard, interview, navigate])
 
   if (user?.role === 'employer') {
     return <Navigate to="/employer/dashboard" replace />
+  }
+
+  if (!interview) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.shell}>
+          <SiteNav />
+          <main className={styles.main}>
+            <h1>Interview report</h1>
+            <p className={styles.muted}>Complete your AI interview first to generate a career report.</p>
+            <Link to="/interview" className={styles.bannerBtn}>
+              Start AI interview
+            </Link>
+          </main>
+        </div>
+        <SiteFooter />
+      </div>
+    )
   }
 
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
         <SiteNav />
-        <motion.main
-          className={styles.main}
-          variants={staggerContainer}
-          initial="hidden"
-          animate="show"
-        >
-          <motion.header className={styles.head} variants={fadeUp}>
-            <div>
-              <span className={styles.eyebrow}>JOB SEEKER DASHBOARD</span>
-              <h1>Welcome back, {name}</h1>
-              <p>
-                {interview && careerScore != null
-                  ? `Your AI interview score is ${careerScore}. Matches are unlocked.`
-                  : 'Take your AI video interview with Ava to unlock ranked job matches.'}
+        <main className={styles.main} style={{ paddingTop: 24 }}>
+          {fromInterview ? (
+            <div style={{ marginBottom: 16 }} role="status">
+              <p className={styles.muted}>
+                {autoContinueDashboard
+                  ? 'Your immediate interview is complete. Review your report — we’ll open your dashboard shortly.'
+                  : 'Your interview is complete. Review your report below, then continue to your dashboard.'}
               </p>
-            </div>
-            <div className={styles.headActions}>
-              {interview && (
-                <>
+              {autoContinueDashboard && dashboardCountdown != null && dashboardCountdown > 0 && (
+                <p className={styles.muted} style={{ marginTop: 8 }}>
+                  Opening your dashboard in {dashboardCountdown}s…{' '}
                   <button
                     type="button"
                     className={styles.secondary}
-                    disabled={downloading}
-                    onClick={() => {
-                      setDownloadError('')
-                      setDownloading(true)
-                      void downloadScorecardPdf(user?.name || profile?.fullName || name)
-                        .catch(() => setDownloadError('Could not download the report. Try again.'))
-                        .finally(() => setDownloading(false))
-                    }}
+                    style={{ marginLeft: 8 }}
+                    onClick={() => goToCandidateDashboardAfterInterview(navigate)}
                   >
-                    {downloading ? 'Preparing download…' : 'Download report'}
+                    Go now
                   </button>
-                  {downloadError && (
-                    <span style={{ color: '#ef4444', fontSize: '0.8rem' }}>{downloadError}</span>
-                  )}
-                </>
-              )}
-              <Link to="/jobs" className={styles.secondary}>
-                View matches
-              </Link>
-              <Link to="/interview" className={styles.bannerBtn}>
-                {interview ? 'Retake interview' : 'Enter interview studio'}
-              </Link>
-            </div>
-          </motion.header>
-
-          {!interview && (
-            <motion.aside className={styles.bannerRequired} variants={fadeUp}>
-              <div>
-                <strong>Interview required</strong>
-                <p>
-                  Join the video room, answer Ava out loud, and unlock applications with your score.
                 </p>
-              </div>
-              <Link to="/interview" className={styles.bannerBtn}>
-                Start AI interview
+              )}
+            </div>
+          ) : (
+            <p style={{ marginBottom: 16 }}>
+              <Link to="/dashboard" className={styles.secondary}>
+                ← Back to dashboard
               </Link>
-            </motion.aside>
+            </p>
           )}
-
-          {/* 4 KPI Cards in a row */}
-          <motion.div className={styles.kpiRow} variants={fadeUp}>
-            {/* Card 1: Talent readiness */}
-            <div className={styles.kpiCard}>
-              <div className={styles.kpiDonutRow}>
-                <div
-                  className={styles.miniDonut}
-                  style={{
-                    background: `conic-gradient(#5b46e5 0 ${strength}%, #ede9fe ${strength}% 100%)`,
-                  }}
-                >
-                  <div className={styles.miniDonutInner}>{strength}%</div>
-                </div>
-                <div>
-                  <h3 className={styles.kpiTitle}>Talent readiness</h3>
-                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e1b4b', marginTop: 2 }}>
-                    {interview ? 'Profile calibrated' : 'Complete interview to climb'}
-                  </div>
-                </div>
-              </div>
-              <p className={styles.kpiDesc} style={{ marginTop: 10 }}>
-                The interview is the biggest part of this score
-              </p>
-            </div>
-
-            {/* Card 2: AI interview score */}
-            <div className={styles.kpiCard}>
-              <h3 className={styles.kpiTitle}>AI interview score</h3>
-              <div className={styles.kpiValue}>
-                {careerScore != null ? `${careerScore}` : '--'}
-              </div>
-              <p className={styles.kpiDesc}>
-                {interview
-                  ? `${interview.role} · ${interview.level}`
-                  : 'Not completed · takes about 20 minutes'}
-              </p>
-            </div>
-
-            {/* Card 3: Résumé strength (ATS) */}
-            <div className={styles.kpiCard}>
-              <h3 className={styles.kpiTitle}>Résumé strength (ATS)</h3>
-              <div className={styles.kpiValue}>
-                {profile?.resumeName ? '78' : '--'}
-              </div>
-              <p className={styles.kpiDesc}>
-                {profile?.resumeName
-                  ? `${profile.resumeName} on file`
-                  : 'Upload your résumé to get an ATS score'}
-              </p>
-            </div>
-
-            {/* Card 4: Ranked job matches */}
-            <div className={styles.kpiCard}>
-              <h3 className={styles.kpiTitle}>Ranked job matches</h3>
-              <div className={hasInterviewScore() && ranked.length > 0 ? styles.kpiValue : styles.kpiValueLocked}>
-                {hasInterviewScore() && ranked.length > 0 ? `${ranked.length}` : 'Locked'}
-              </div>
-              <p className={styles.kpiDesc}>
-                {hasInterviewScore()
-                  ? 'Matched roles ready for review'
-                  : 'Finish your interview to unlock ranked roles'}
-              </p>
-            </div>
-          </motion.div>
-
-          {/* Middle 2-Column Section */}
-          <motion.div className={styles.twoColSection} variants={fadeUp}>
-            {/* Left Panel: AI interview score */}
-            <div className={styles.panelCard}>
-              <div className={styles.panelHeader}>
-                <h3 className={styles.panelTitle}>AI interview score</h3>
-                <span className={interview ? styles.badgeLocked : styles.badgeNotCompleted}>
-                  {interview ? 'Completed' : 'Not completed'}
-                </span>
-              </div>
-              <p className={styles.panelDesc}>
-                A live video interview with Ava. You answer out loud, and your answers are scored instantly across four dimensions. Required to unlock matches.
-              </p>
-
-              <div className={styles.dimensionTable}>
-                <div className={styles.dimensionRow}>
-                  <span>Communication</span>
-                  <span className={styles.dimensionScore}>
-                    {interview?.categories?.find(c => c.label.toLowerCase().includes('comm'))?.score ?? '--'}
-                  </span>
-                </div>
-                <div className={styles.dimensionRow}>
-                  <span>Technical knowledge</span>
-                  <span className={styles.dimensionScore}>
-                    {interview?.categories?.find(c => c.label.toLowerCase().includes('tech'))?.score ?? '--'}
-                  </span>
-                </div>
-                <div className={styles.dimensionRow}>
-                  <span>Problem solving</span>
-                  <span className={styles.dimensionScore}>
-                    {interview?.categories?.find(c => c.label.toLowerCase().includes('problem'))?.score ?? '--'}
-                  </span>
-                </div>
-                <div className={styles.dimensionRow}>
-                  <span>Confidence and presence</span>
-                  <span className={styles.dimensionScore}>
-                    {interview?.categories?.find(c => c.label.toLowerCase().includes('confid') || c.label.toLowerCase().includes('presence'))?.score ?? '--'}
-                  </span>
-                </div>
-              </div>
-
-              <div className={styles.metaTagsRow}>
-                <span>About 20 min</span>
-                <span>Camera and mic needed</span>
-                <span>Spoken answers</span>
-                <span>3 attempts</span>
-              </div>
-
-              <Link to="/interview" className={styles.panelBtnPrimary}>
-                {interview ? 'Retake interview' : 'Enter interview studio'}
-              </Link>
-            </div>
-
-            {/* Right Panel: Top matches */}
-            <div className={styles.panelCard}>
-              <div className={styles.panelHeader}>
-                <h3 className={styles.panelTitle}>Top matches</h3>
-                <span className={styles.badgeLocked}>
-                  {hasInterviewScore() ? `${ranked.length} active` : 'Locked'}
-                </span>
-              </div>
-
-              {!hasInterviewScore() ? (
-                <div className={styles.lockedCenterBox}>
-                  {/* Subtle placeholder rows */}
-                  <div style={{ width: '100%', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 10, opacity: 0.4 }}>
-                    <div style={{ height: 14, background: '#f1f5f9', borderRadius: 4, width: '70%' }} />
-                    <div style={{ height: 10, background: '#f8fafc', borderRadius: 4, width: '45%' }} />
-                    <div style={{ height: 14, background: '#f1f5f9', borderRadius: 4, width: '85%' }} />
-                  </div>
-
-                  <div className={styles.lockCircle}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                  </div>
-                  <div className={styles.lockedMessage}>
-                    Matches stay locked until you finish your AI interview
-                  </div>
-                  <Link to="/interview" className={styles.panelBtnPrimary}>
-                    Start AI interview
-                  </Link>
-                </div>
-              ) : ranked.length === 0 ? (
-                <p className={styles.muted} style={{ marginTop: 12 }}>
-                  {jobsError || 'No jobs yet. Roles show up here after an employer posts them.'}
-                </p>
-              ) : (
-                <ul className={styles.matchList}>
-                  {ranked.map((job) => (
-                    <li key={job.id || `${job.company}-${job.title}`}>
-                      <div>
-                        <strong>{job.title}</strong>
-                        <span>
-                          {job.company} · {job.location}
-                        </span>
-                      </div>
-                      <b>{job.match}%</b>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </motion.div>
-
-          {/* Profile snapshot */}
-          <motion.div className={styles.fullWidthSection} variants={fadeUp}>
-            <div className={styles.panelCard}>
-              <div className={styles.panelHeader} style={{ marginBottom: 4 }}>
-                <h3 className={styles.panelTitle}>Profile snapshot</h3>
-                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>
-                  {snapshotReadiness}%
-                </span>
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Profile completeness</div>
-              <div className={styles.completenessBarWrap}>
-                <div className={styles.completenessBarTrack}>
-                  <div
-                    className={styles.completenessBarFill}
-                    style={{ width: `${Math.min(100, Math.max(15, snapshotReadiness))}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className={styles.profilePropsList}>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>TARGET ROLE</span>
-                  <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.currentRole || 'Add your role'}
-                  </Link>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>EXPERIENCE</span>
-                  <span className={styles.profilePropValMuted}>
-                    {profile?.totalExperience || '2 - 3 years'}
-                  </span>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>SKILLS ON FILE</span>
-                  <span className={styles.profilePropValMuted}>
-                    {profile?.skills?.length ?? 12}
-                  </span>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>RÉSUMÉ</span>
-                  <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.resumeName || 'Upload résumé'}
-                  </Link>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>AI INTERVIEW</span>
-                  <span className={interview ? styles.profilePropVal : styles.profilePropValWarning}>
-                    {careerScore != null ? `Score ${careerScore}` : 'Not completed'}
-                  </span>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>LOCATION</span>
-                  <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.currentLocation || 'Add location'}
-                  </Link>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>EXPECTED CTC</span>
-                  <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.salaryExpectation || 'Add expected CTC'}
-                  </Link>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>NOTICE PERIOD</span>
-                  <Link to="/onboarding" className={styles.profilePropVal}>
-                    {profile?.noticePeriod || 'Add notice period'}
-                  </Link>
-                </div>
-                <div className={styles.profilePropRow}>
-                  <span className={styles.profilePropKey}>VISIBILITY</span>
-                  <span className={styles.profilePropValMuted}>Hidden until interview</span>
-                </div>
-              </div>
-
-              <div className={styles.snapshotButtonsRow}>
-                <Link to="/onboarding" className={styles.snapshotPrimaryBtn}>
-                  Update snapshot
-                </Link>
-                <Link to="/onboarding" className={styles.snapshotOutlineBtn}>
-                  Upload résumé
-                </Link>
-              </div>
-            </div>
-          </motion.div>
-        </motion.main>
-        {interview && (
-          <div className={styles.reportCapture} aria-hidden="true" inert>
-            <CareerIntelligenceDashboard
-              result={interview}
-              candidateName={user?.name || profile?.fullName || name}
-              candidateRole={profile?.currentRole || interview.role}
-              candidateExperience={profile?.totalExperience || interview.level}
-              skills={profile?.skills ?? []}
-            />
-          </div>
-        )}
+          <CareerIntelligenceDashboard
+            result={interview}
+            candidateName={user?.name || profile?.fullName || name}
+            candidateRole={profile?.currentRole || interview.role}
+            candidateExperience={profile?.totalExperience || interview.level}
+            skills={profile?.skills ?? []}
+            onRetake={() => navigate('/interview')}
+            onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
+          />
+        </main>
       </div>
       <SiteFooter />
     </div>
@@ -1233,23 +995,23 @@ export function ProfilePage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [profileNavOpen])
 
-  // Form State initialized with stored values or screenshot defaults
+  // Form state initialized from the candidate profile
   const profileExtras = profile as
-    | (typeof profile & { currentCompanyTitle?: string; highestEducation?: string; contactPhone?: string })
+    | (typeof profile & { currentCompanyTitle?: string; highestEducation?: string; contactPhone?: string; linkedin?: string; github?: string; portfolio?: string; jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean } })
     | null
 
-  const [fullName, setFullName] = useState(profile?.fullName || user?.name || 'Aarav Reddy')
-  const [email] = useState(user?.email || 'aarav@example.com')
-  const [phone, setPhone] = useState(user?.phone || profileExtras?.contactPhone || '+91 98765 43210')
-  const [city, setCity] = useState(profile?.currentLocation || 'Hyderabad')
+  const [fullName, setFullName] = useState(profile?.fullName || user?.name || '')
+  const [email] = useState(user?.email || '')
+  const [phone, setPhone] = useState(user?.phone || profileExtras?.contactPhone || '')
+  const [city, setCity] = useState(profile?.currentLocation || '')
 
-  const [targetRole, setTargetRole] = useState(profile?.currentRole || 'Software Engineer')
-  const [experience, setExperience] = useState(profile?.totalExperience || '2 - 3 years')
+  const [targetRole, setTargetRole] = useState(profile?.currentRole || '')
+  const [experience, setExperience] = useState(profile?.totalExperience || '')
   const [companyTitle, setCompanyTitle] = useState(
-    profileExtras?.currentCompanyTitle || 'Junior Developer, Cloudwave',
+    profileExtras?.currentCompanyTitle || '',
   )
   const [highestEducation, setHighestEducation] = useState(
-    profileExtras?.highestEducation || 'B.Tech, Computer Science',
+    profileExtras?.highestEducation || '',
   )
 
   const [basicsEditing, setBasicsEditing] = useState(false)
@@ -1279,20 +1041,20 @@ export function ProfilePage() {
     Array<{ name: string; level: 'Strong' | 'Good' | 'Basic' }>
   >([])
 
-  const [expectedCtc, setExpectedCtc] = useState(profile?.salaryExpectation || '14 - 18')
-  const [noticePeriod, setNoticePeriod] = useState(profile?.noticePeriod || '30 days')
+  const [expectedCtc, setExpectedCtc] = useState(profile?.salaryExpectation || '')
+  const [noticePeriod, setNoticePeriod] = useState(profile?.noticePeriod || '')
   const [prefLocations, setPrefLocations] = useState(
     profile?.preferredLocations && profile.preferredLocations.length > 0
       ? profile.preferredLocations.join(', ')
-      : 'Hyderabad, Bengaluru, Remote'
+      : ''
   )
 
-  const [workModes, setWorkModes] = useState({ remote: true, hybrid: true, onsite: false })
-  const [jobTypes, setJobTypes] = useState({ fullTime: true, contract: false, internship: false })
+  const [workModes, setWorkModes] = useState({ remote: profile?.workMode?.includes('Remote') ?? false, hybrid: profile?.workMode?.includes('Hybrid') ?? false, onsite: profile?.workMode?.includes('On-site') ?? false })
+  const [jobTypes, setJobTypes] = useState(profileExtras?.jobTypes ?? { fullTime: false, contract: false, internship: false })
 
-  const [linkedin, setLinkedin] = useState('linkedin.com/in/aarav-reddy')
-  const [github, setGithub] = useState('github.com/username')
-  const [portfolio, setPortfolio] = useState('yourname.dev')
+  const [linkedin, setLinkedin] = useState(profileExtras?.linkedin || '')
+  const [github, setGithub] = useState(profileExtras?.github || '')
+  const [portfolio, setPortfolio] = useState(profileExtras?.portfolio || '')
 
   const [visibleToEmployers, setVisibleToEmployers] = useState(true)
   const [shareRecording, setShareRecording] = useState(false)
@@ -1371,7 +1133,8 @@ export function ProfilePage() {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      workMode: profile?.workMode || '',
+      workMode: [workModes.remote && 'Remote', workModes.hybrid && 'Hybrid', workModes.onsite && 'On-site'].filter(Boolean).join(', '),
+      linkedin: linkedin.trim(), github: github.trim(), portfolio: portfolio.trim(), jobTypes,
       salaryExpectation: expectedCtc,
       interviewNotes: profile?.interviewNotes || '',
       resumeFile: null,
@@ -1396,8 +1159,8 @@ export function ProfilePage() {
         throw new Error('Sign in again to save your profile.')
       }
       const mergedProfile = buildMergedProfile(options.skillNames)
-      saveProfile(mergedProfile, profile?.completedSteps ?? 5)
-      await apiSaveProfile(mergedProfile)
+      const saved = await apiSaveProfile({ ...mergedProfile, completedSteps: profile?.completedSteps ?? 5 })
+      localStorage.setItem(profileKey(user?.email), JSON.stringify(saved.profile))
       options.onSuccess()
       setToast(options.successMessage)
       setTimeout(() => setToast(''), 3000)
@@ -1487,49 +1250,16 @@ export function ProfilePage() {
     })
   }
 
-  function handleSaveProfile() {
-    const updated = {
-      whoAreYou: profile?.whoAreYou || '',
-      whatDrivesYou: profile?.whatDrivesYou || '',
-      keyStrengths: profile?.keyStrengths || '',
-      currentRole: targetRole,
-      totalExperience: experience,
-      currentLocation: city,
-      noticePeriod: noticePeriod,
-      skills: skillsList.map((s) => s.name),
-      experienceSummary: profile?.experienceSummary || '',
-      workExperiences: profile?.workExperiences || [],
-      achievements: profile?.achievements || [],
-      metrics: profile?.metrics || [],
-      awards: profile?.awards || [],
-      certifications: profile?.certifications || [],
-      selfRating: profile?.selfRating || 4,
-      preferredRoles: [targetRole],
-      preferredLocations: prefLocations
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-      workMode: [
-        workModes.remote && 'Remote',
-        workModes.hybrid && 'Hybrid',
-        workModes.onsite && 'On-site',
-      ]
-        .filter(Boolean)
-        .join(', '),
-      salaryExpectation: expectedCtc,
-      interviewNotes: profile?.interviewNotes || '',
-      resumeFile: null,
-      resumeText: profile?.resumeText || '',
-      resumeName: profile?.resumeName || 'Aarav_Reddy_Resume.pdf',
-      resumeUrl: profile?.resumeUrl || null,
-      resumeStoragePath: profile?.resumeStoragePath || null,
-    }
-
-    saveProfile(updated, 5)
-    setToast('Profile and preferences saved successfully!')
-    setTimeout(() => setToast(''), 3000)
+  async function handleSaveProfile() {
+    if (basicsSaving) return
+    await persistProfileToNeon({
+      setSaving: setBasicsSaving,
+      skillNames: currentSkillNames(),
+      successMessage: 'Profile and preferences saved successfully.',
+      errorMessage: 'Could not save your profile. Please try again.',
+      onSuccess: () => {},
+    })
   }
-
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
@@ -1847,7 +1577,7 @@ export function ProfilePage() {
                     <div className={styles.pdfBadge}>PDF</div>
                     <div className={styles.resumeFileDetails}>
                       <span className={styles.resumeFileName}>
-                        {profile?.resumeName || 'Aarav_Reddy_Resume.pdf'}
+                        {profile?.resumeName || ''}
                       </span>
                       <span className={styles.resumeFileMeta}>
                         Uploaded 12 Oct 2026 · 2 pages · 184 KB
@@ -2146,7 +1876,7 @@ export function ProfilePage() {
                 <button
                   type="button"
                   className={styles.primary}
-                  onClick={handleSaveProfile}
+                  onClick={() => void handleSaveProfile()} disabled={basicsSaving}
                 >
                   Save changes
                 </button>
