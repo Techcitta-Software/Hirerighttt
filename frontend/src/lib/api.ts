@@ -109,6 +109,39 @@ export async function apiSaveInterview(interview: unknown) {
   })
 }
 
+export type ApiApplication = {
+  id: string
+  title: string
+  company: string
+  location: string
+  match: number
+  status: 'Applied' | 'In Review' | 'Interview' | 'Offer'
+  appliedAt: string
+  jobId?: string
+  employerApplicationId?: string
+  roleTrack?: string
+  experienceLevel?: string
+  shareableCode?: string
+  companySlug?: string | null
+  atsScore?: number
+  interviewScore?: number | null
+  jobStatus?: 'active' | 'deleted'
+  jobDeletedAt?: string
+  jobDeletedMessage?: string
+}
+
+export async function apiListApplications(): Promise<ApiApplication[]> {
+  const data = await request('/api/applications')
+  return Array.isArray(data.applications) ? data.applications : []
+}
+
+export async function apiWithdrawApplication(applicationId: string): Promise<ApiApplication[]> {
+  const data = await request(`/api/applications/${encodeURIComponent(applicationId)}`, {
+    method: 'DELETE',
+  })
+  return Array.isArray(data.applications) ? data.applications : []
+}
+
 export async function sendInterviewConfirmationEmail(payload: {
   scheduledStart: string
   durationMinutes?: number

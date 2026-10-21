@@ -12,6 +12,7 @@ import { normalizePhone, isValidPhoneInput, findUserByPhone } from '../authPhone
 import { createAssessmentHandler } from '../assessment/routes.mjs'
 import { createPersonalizedHandler } from '../assessment/personalizedRoutes.mjs'
 import { config, isProdLike } from '../config.mjs'
+import { ensureDemoUsersInDb } from '../demoAccounts.mjs'
 import { provisionEmployerTenant } from '../db/saasHelpers.mjs'
 import {
   loadDb as loadDbFromStore,
@@ -64,59 +65,9 @@ export function createAppContext() {
 
   async function seedDemoUsers(db) {
     if (!config.allowDemoAccounts) return db
-    const demos = [
-      {
-        name: 'Arjun Sharma',
-        email: 'demo@hireright.com',
-        password: 'password123',
-        phone: '+919000000001',
-        role: 'jobseeker',
-      },
-      {
-        name: 'Sarah Jenkins (Recruiter)',
-        email: 'employer@hireright.com',
-        password: 'password123',
-        phone: '+919000000002',
-        role: 'employer',
-        companyName: 'TechCitta Solutions',
-      },
-      {
-        name: 'Alex Morgan (Admin)',
-        email: 'admin@hireright.com',
-        password: 'password123',
-        phone: '+919000000003',
-        role: 'employer',
-        companyName: 'HIRERIGHT Recruiting',
-      },
-    ]
-    let changed = false
-    for (const demo of demos) {
-      if (!db.users.some((u) => u.email === demo.email)) {
-        db.users.push({
-          id: randomBytes(8).toString('hex'),
-          name: demo.name,
-          email: demo.email,
-          phone: demo.phone,
-          passwordHash: await hashPassword(demo.password),
-          role: demo.role,
-          companyName: demo.companyName,
-          status: 'active',
-          createdAt: new Date().toISOString(),
-        })
-        changed = true
-      }
-    }
-    for (const demo of demos) {
-      if (demo.role !== 'employer') continue
-      const account = db.users.find((u) => u.email === demo.email)
-      if (account) {
-        const before = db.organizations?.length || 0
-        provisionEmployerTenant(db, account, { planId: 'plan-pro' })
-        if ((db.organizations?.length || 0) > before) changed = true
-      }
-    }
-    if (changed) await saveDb(db)
-    return db
+    const { db: next, changed } = await ensureDemoUsersInDb(db)
+    if (changed) await saveDb(next)
+    return next
   }
 
   function tenantContextForUser(db, user) {

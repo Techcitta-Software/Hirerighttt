@@ -5,25 +5,28 @@ import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import {
-  applyToJob,
+  addNotification,
   calcProfileStrength,
+  canApplyToJobs,
   firstName,
   getApplications,
   getInterviewResult,
+  type Application,
   getProfile,
   getUser,
   hasInterviewScore,
   markNotificationsRead,
   rankPostedJobs,
+  saveApplications,
   saveProfile,
-  withdrawApplication,
   type RankedJob,
 } from '../lib/store'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import { apiListApplications, apiSaveProfile, apiWithdrawApplication } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
-import { fetchOpenJobs } from '../lib/vendorApi'
-import { buildApplyPath } from '../lib/jobLink'
+import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
+import { slugifyCompany } from '../lib/jobLink'
 import styles from './AppPages.module.css'
 
 export function DashboardPage() {
@@ -492,6 +495,7 @@ export function JobsPage() {
   const [selectedJobId, setSelectedJobId] = useState<string>('1')
   const [showAllMatches, setShowAllMatches] = useState(false)
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
+  const [applyingJobId, setApplyingJobId] = useState<string | null>(null)
 
   const interview = getInterviewResult()
   const candidateScore = interview ? interview.overall : 78
@@ -638,6 +642,25 @@ export function JobsPage() {
     }
   }, [sortedRoles, selectedJobId])
 
+  function buildResumeTextForApply() {
+    const user = getUser()
+    const profile = getProfile()
+    const fromResume = profile?.resumeText?.trim() || ''
+    if (fromResume.length >= 30) return fromResume.slice(0, 100_000)
+    const parts = [
+      profile?.fullName || user?.name ? `Candidate: ${profile?.fullName || user?.name}` : '',
+      profile?.currentRole ? `Role: ${profile.currentRole}` : '',
+      profile?.totalExperience ? `Experience: ${profile.totalExperience}` : '',
+      profile?.experienceSummary || profile?.whoAreYou || '',
+      profile?.keyStrengths ? `Strengths: ${profile.keyStrengths}` : '',
+      profile?.skills?.length ? `Skills: ${profile.skills.join(', ')}` : '',
+      interview
+        ? `AI interview score: ${interview.overall}% (${interview.role || 'Interview'})`
+        : '',
+    ].filter(Boolean)
+    return parts.join('\n').slice(0, 100_000)
+  }
+
   async function handleApply(job: JobMatchRole) {
     if (!job.shareableCode) {
       setToast('This role is missing an apply link. Ask the employer to re-share the job.')
@@ -649,13 +672,50 @@ export function JobsPage() {
       navigate('/login', { state: { from: '/jobs' } })
       return
     }
-    applyToJob({
-      title: job.title,
-      company: job.company,
-      location: job.location,
-      match: job.match,
-    })
-    navigate(buildApplyPath(job.company, job.shareableCode))
+    const user = getUser()
+    const profile = getProfile()
+    const resumeText = buildResumeTextForApply()
+    if (!canApplyToJobs()) {
+      setToast('Complete an AI interview before applying with your report.')
+      window.setTimeout(() => setToast(''), 3500)
+      return
+    }
+    if (resumeText.trim().length < 30) {
+      setToast('Complete your profile or upload a resume before applying with your report.')
+      window.setTimeout(() => setToast(''), 3500)
+      return
+    }
+    setApplyingJobId(job.id)
+    try {
+      await applyToPublicJob(
+        job.shareableCode,
+        {
+          candidateName: profile?.fullName || user?.name || '',
+          candidateEmail: user?.email || '',
+          candidatePhone: user?.phone || '',
+          candidateRole: profile?.currentRole || interview?.role || '',
+          experienceYears: profile?.totalExperience || interview?.level || '',
+          resumeText,
+          resumeName: profile?.resumeName || 'HireRight profile',
+          attachInterviewReport: true,
+          match: job.match,
+        },
+        job.companySlug || slugifyCompany(job.company),
+      )
+      const synced = await apiListApplications()
+      saveApplications(synced)
+      addNotification({
+        title: `Applied to ${job.title}`,
+        body: `${job.company} received your application and AI score.`,
+        href: '/applications',
+      })
+      setToast(`Applied to ${job.title}. Your report was sent to the employer.`)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Could not submit your application.')
+    } finally {
+      setApplyingJobId(null)
+      window.setTimeout(() => setToast(''), 4000)
+    }
   }
 
   function handleSave(job: JobMatchRole) {
@@ -1052,9 +1112,12 @@ export function JobsPage() {
                   <button
                     type="button"
                     className={styles.primary}
-                    onClick={() => void handleApply(selectedJob)}
+                    disabled={!selectedJob || applyingJobId === selectedJob.id}
+                    onClick={() => selectedJob && void handleApply(selectedJob)}
                   >
-                    Apply with my report
+                    {selectedJob && applyingJobId === selectedJob.id
+                      ? 'Submitting application…'
+                      : 'Apply with my report'}
                   </button>
                   <button
                     type="button"
@@ -1092,6 +1155,104 @@ export function JobsPage() {
   )
 }
 
+function profileSkillsToList(skills: string[] | undefined) {
+  const names = (skills ?? []).map((s) => s.trim()).filter(Boolean)
+  if (!names.length) {
+    return [{ name: 'Add your skills', level: 'Basic' as const }]
+  }
+  return names.map((name) => ({ name, level: 'Good' as const }))
+}
+
+type ProfileSectionHeaderProps = {
+  title: string
+  subtitle?: string
+  editing: boolean
+  saving: boolean
+  editLabel: string
+  editTestId: string
+  doneTestId: string
+  cancelTestId: string
+  savingTestId: string
+  onEdit: () => void
+  onDone: () => void
+  onCancel: () => void
+}
+
+function ProfileSectionHeader({
+  title,
+  subtitle,
+  editing,
+  saving,
+  editLabel,
+  editTestId,
+  doneTestId,
+  cancelTestId,
+  savingTestId,
+  onEdit,
+  onDone,
+  onCancel,
+}: ProfileSectionHeaderProps) {
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{title}</h2>
+          {subtitle ? (
+            <span style={{ fontSize: '0.78rem', color: '#64748b' }}>{subtitle}</span>
+          ) : null}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!editing ? (
+            <button
+              type="button"
+              className={styles.btnOutline}
+              data-testid={editTestId}
+              onClick={onEdit}
+              disabled={saving}
+            >
+              {editLabel}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={styles.primary}
+                data-testid={doneTestId}
+                onClick={() => void onDone()}
+                disabled={saving}
+              >
+                Done
+              </button>
+              <button
+                type="button"
+                className={styles.btnOutline}
+                data-testid={cancelTestId}
+                onClick={onCancel}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {saving ? (
+        <p className={styles.skillsSavingNotice} data-testid={savingTestId} role="status">
+          Updating, please wait…
+        </p>
+      ) : null}
+    </>
+  )
+}
+
 export function ProfilePage() {
   const user = getUser()
   const profile = getProfile()
@@ -1101,31 +1262,50 @@ export function ProfilePage() {
   const [toast, setToast] = useState('')
 
   // Form State initialized with stored values or screenshot defaults
+  const profileExtras = profile as
+    | (typeof profile & { currentCompanyTitle?: string; highestEducation?: string; contactPhone?: string })
+    | null
+
   const [fullName, setFullName] = useState(profile?.fullName || user?.name || 'Aarav Reddy')
-  const [email, setEmail] = useState(user?.email || 'aarav@example.com')
-  const [phone, setPhone] = useState(user?.phone || '+91 98765 43210')
+  const [email] = useState(user?.email || 'aarav@example.com')
+  const [phone, setPhone] = useState(user?.phone || profileExtras?.contactPhone || '+91 98765 43210')
   const [city, setCity] = useState(profile?.currentLocation || 'Hyderabad')
 
   const [targetRole, setTargetRole] = useState(profile?.currentRole || 'Software Engineer')
   const [experience, setExperience] = useState(profile?.totalExperience || '2 - 3 years')
-  const [companyTitle, setCompanyTitle] = useState('Junior Developer, Cloudwave')
-  const [highestEducation, setHighestEducation] = useState('B.Tech, Computer Science')
+  const [companyTitle, setCompanyTitle] = useState(
+    profileExtras?.currentCompanyTitle || 'Junior Developer, Cloudwave',
+  )
+  const [highestEducation, setHighestEducation] = useState(
+    profileExtras?.highestEducation || 'B.Tech, Computer Science',
+  )
+
+  const [basicsEditing, setBasicsEditing] = useState(false)
+  const [basicsSaving, setBasicsSaving] = useState(false)
+  const [basicsDraftBackup, setBasicsDraftBackup] = useState({
+    fullName: profile?.fullName || user?.name || '',
+    phone: user?.phone || profileExtras?.contactPhone || '',
+    city: profile?.currentLocation || '',
+  })
+
+  const [roleEditing, setRoleEditing] = useState(false)
+  const [roleSaving, setRoleSaving] = useState(false)
+  const [roleDraftBackup, setRoleDraftBackup] = useState({
+    targetRole: profile?.currentRole || '',
+    experience: profile?.totalExperience || '',
+    companyTitle: profileExtras?.currentCompanyTitle || '',
+    highestEducation: profileExtras?.highestEducation || '',
+  })
 
   const [newSkillInput, setNewSkillInput] = useState('')
-  const [skillsList, setSkillsList] = useState<Array<{ name: string; level: 'Strong' | 'Good' | 'Basic' }>>([
-    { name: 'JavaScript', level: 'Strong' },
-    { name: 'React', level: 'Strong' },
-    { name: 'Node.js', level: 'Good' },
-    { name: 'Git', level: 'Good' },
-    { name: 'HTML and CSS', level: 'Good' },
-    { name: 'REST APIs', level: 'Good' },
-    { name: 'TypeScript', level: 'Good' },
-    { name: 'SQL', level: 'Basic' },
-    { name: 'Python', level: 'Basic' },
-    { name: 'MongoDB', level: 'Basic' },
-    { name: 'Agile', level: 'Good' },
-    { name: 'Problem solving', level: 'Good' },
-  ])
+  const [skillsList, setSkillsList] = useState<Array<{ name: string; level: 'Strong' | 'Good' | 'Basic' }>>(
+    () => profileSkillsToList(profile?.skills),
+  )
+  const [skillsEditing, setSkillsEditing] = useState(false)
+  const [skillsSaving, setSkillsSaving] = useState(false)
+  const [skillsDraftBackup, setSkillsDraftBackup] = useState<
+    Array<{ name: string; level: 'Strong' | 'Good' | 'Basic' }>
+  >([])
 
   const [expectedCtc, setExpectedCtc] = useState(profile?.salaryExpectation || '14 - 18')
   const [noticePeriod, setNoticePeriod] = useState(profile?.noticePeriod || '30 days')
@@ -1156,16 +1336,183 @@ export function ProfilePage() {
 
   function handleAddSkill() {
     const trimmed = newSkillInput.trim()
-    if (!trimmed) return
+    if (!trimmed || skillsSaving) return
     if (skillsList.some((s) => s.name.toLowerCase() === trimmed.toLowerCase())) {
       setToast('Skill already in your list')
       setTimeout(() => setToast(''), 2000)
       return
     }
-    setSkillsList((prev) => [...prev, { name: trimmed, level: 'Good' }])
+    setSkillsList((prev) => prev.filter((s) => s.name !== 'Add your skills').concat([{ name: trimmed, level: 'Good' }]))
     setNewSkillInput('')
     setToast(`Added skill "${trimmed}"`)
     setTimeout(() => setToast(''), 2000)
+  }
+
+  function handleRemoveSkill(name: string) {
+    if (skillsSaving) return
+    setSkillsList((prev) => prev.filter((s) => s.name !== name))
+  }
+
+  function startSkillsEdit() {
+    setSkillsDraftBackup(skillsList)
+    setSkillsEditing(true)
+  }
+
+  function cancelSkillsEdit() {
+    setSkillsList(skillsDraftBackup)
+    setSkillsEditing(false)
+    setNewSkillInput('')
+  }
+
+  function currentSkillNames() {
+    return skillsList
+      .map((s) => s.name.trim())
+      .filter((n) => n && n !== 'Add your skills')
+  }
+
+  function buildMergedProfile(skillNames: string[]) {
+    const trimmedName = fullName.trim()
+    return {
+      ...(profile || {}),
+      fullName: trimmedName,
+      name: trimmedName,
+      contactPhone: phone.trim(),
+      whoAreYou: profile?.whoAreYou || '',
+      whatDrivesYou: profile?.whatDrivesYou || '',
+      keyStrengths: profile?.keyStrengths || '',
+      currentRole: targetRole.trim(),
+      totalExperience: experience,
+      currentLocation: city.trim(),
+      currentCompanyTitle: companyTitle.trim(),
+      highestEducation: highestEducation.trim(),
+      noticePeriod: noticePeriod,
+      skills: skillNames,
+      experienceSummary: profile?.experienceSummary || '',
+      workExperiences: profile?.workExperiences || [],
+      achievements: profile?.achievements || [],
+      metrics: profile?.metrics || [],
+      awards: profile?.awards || [],
+      certifications: profile?.certifications || [],
+      selfRating: profile?.selfRating || 4,
+      preferredRoles: profile?.preferredRoles?.length ? profile.preferredRoles : [targetRole.trim()],
+      preferredLocations: prefLocations
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      workMode: profile?.workMode || '',
+      salaryExpectation: expectedCtc,
+      interviewNotes: profile?.interviewNotes || '',
+      resumeFile: null,
+      resumeText: profile?.resumeText || '',
+      resumeName: profile?.resumeName ?? null,
+      resumeUrl: profile?.resumeUrl ?? null,
+      resumeStoragePath: profile?.resumeStoragePath ?? null,
+    }
+  }
+
+  async function persistProfileToNeon(options: {
+    setSaving: (value: boolean) => void
+    skillNames: string[]
+    successMessage: string
+    errorMessage: string
+    onSuccess: () => void
+  }) {
+    options.setSaving(true)
+    try {
+      const sessionOk = await ensureApiSession()
+      if (!sessionOk) {
+        throw new Error('Sign in again to save your profile.')
+      }
+      const mergedProfile = buildMergedProfile(options.skillNames)
+      saveProfile(mergedProfile, profile?.completedSteps ?? 5)
+      await apiSaveProfile(mergedProfile)
+      options.onSuccess()
+      setToast(options.successMessage)
+      setTimeout(() => setToast(''), 3000)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : options.errorMessage)
+      setTimeout(() => setToast(''), 4000)
+    } finally {
+      options.setSaving(false)
+    }
+  }
+
+  function startBasicsEdit() {
+    setBasicsDraftBackup({ fullName, phone, city })
+    setBasicsEditing(true)
+  }
+
+  function cancelBasicsEdit() {
+    setFullName(basicsDraftBackup.fullName)
+    setPhone(basicsDraftBackup.phone)
+    setCity(basicsDraftBackup.city)
+    setBasicsEditing(false)
+  }
+
+  async function handleDoneBasicsEdit() {
+    if (basicsSaving) return
+    if (!fullName.trim() || !city.trim()) {
+      setToast('Full name and city are required.')
+      setTimeout(() => setToast(''), 2500)
+      return
+    }
+    await persistProfileToNeon({
+      setSaving: setBasicsSaving,
+      skillNames: currentSkillNames(),
+      successMessage: 'Basics updated successfully.',
+      errorMessage: 'Could not update basics. Try again.',
+      onSuccess: () => setBasicsEditing(false),
+    })
+  }
+
+  function startRoleEdit() {
+    setRoleDraftBackup({ targetRole, experience, companyTitle, highestEducation })
+    setRoleEditing(true)
+  }
+
+  function cancelRoleEdit() {
+    setTargetRole(roleDraftBackup.targetRole)
+    setExperience(roleDraftBackup.experience)
+    setCompanyTitle(roleDraftBackup.companyTitle)
+    setHighestEducation(roleDraftBackup.highestEducation)
+    setRoleEditing(false)
+  }
+
+  async function handleDoneRoleEdit() {
+    if (roleSaving) return
+    if (!targetRole.trim()) {
+      setToast('Target role is required.')
+      setTimeout(() => setToast(''), 2500)
+      return
+    }
+    await persistProfileToNeon({
+      setSaving: setRoleSaving,
+      skillNames: currentSkillNames(),
+      successMessage: 'Role and experience updated successfully.',
+      errorMessage: 'Could not update role and experience. Try again.',
+      onSuccess: () => setRoleEditing(false),
+    })
+  }
+
+  async function handleDoneSkillsEdit() {
+    if (skillsSaving) return
+    const skillNames = currentSkillNames()
+    if (!skillNames.length) {
+      setToast('Add at least one skill before saving.')
+      setTimeout(() => setToast(''), 2500)
+      return
+    }
+    await persistProfileToNeon({
+      setSaving: setSkillsSaving,
+      skillNames,
+      successMessage: 'Skills updated successfully.',
+      errorMessage: 'Could not update skills. Try again.',
+      onSuccess: () => {
+        setSkillsList(skillNames.map((name) => ({ name, level: 'Good' as const })))
+        setSkillsEditing(false)
+        setNewSkillInput('')
+      },
+    })
   }
 
   function handleSaveProfile() {
@@ -1304,9 +1651,24 @@ export function ProfilePage() {
             {/* Main Sections Stack */}
             <div className={styles.profileSectionStack}>
               {/* Card 1: Basics */}
-              <section id="basics" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Basics</h2>
-                <div className={styles.formGridThree}>
+              <section id="basics" className={styles.card} aria-busy={basicsSaving}>
+                <ProfileSectionHeader
+                  title="Basics"
+                  editing={basicsEditing}
+                  saving={basicsSaving}
+                  editLabel="Edit basics"
+                  editTestId="basics-edit-btn"
+                  doneTestId="basics-done-btn"
+                  cancelTestId="basics-cancel-btn"
+                  savingTestId="basics-saving-notice"
+                  onEdit={startBasicsEdit}
+                  onDone={handleDoneBasicsEdit}
+                  onCancel={cancelBasicsEdit}
+                />
+                <div
+                  className={styles.formGridThree}
+                  style={{ marginTop: 12, opacity: basicsSaving ? 0.65 : 1 }}
+                >
                   <div className={styles.formFieldBlock}>
                     <label>FULL NAME</label>
                     <input
@@ -1314,6 +1676,9 @@ export function ProfilePage() {
                       className={styles.formInputText}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
+                      readOnly={!basicsEditing}
+                      disabled={basicsSaving}
+                      data-testid="basics-full-name"
                     />
                   </div>
                   <div className={styles.formFieldBlock}>
@@ -1322,7 +1687,9 @@ export function ProfilePage() {
                       type="email"
                       className={styles.formInputText}
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      readOnly
+                      tabIndex={-1}
+                      data-testid="basics-email"
                     />
                   </div>
                   <div className={styles.formFieldBlock}>
@@ -1332,27 +1699,46 @@ export function ProfilePage() {
                       className={styles.formInputText}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      readOnly={!basicsEditing}
+                      disabled={basicsSaving}
+                      data-testid="basics-phone"
                     />
                   </div>
                 </div>
 
-                <div className={styles.formFieldBlock} style={{ marginTop: 14 }}>
+                <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: basicsSaving ? 0.65 : 1 }}>
                   <label>CURRENT CITY</label>
                   <input
                     type="text"
                     className={styles.formInputText}
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
+                    readOnly={!basicsEditing}
+                    disabled={basicsSaving}
+                    data-testid="basics-city"
                   />
                 </div>
               </section>
 
               {/* Card 2: Role and experience */}
-              <section id="role" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>
-                  Role and experience
-                </h2>
-                <div className={styles.formGridThree}>
+              <section id="role" className={styles.card} aria-busy={roleSaving}>
+                <ProfileSectionHeader
+                  title="Role and experience"
+                  editing={roleEditing}
+                  saving={roleSaving}
+                  editLabel="Edit role and experience"
+                  editTestId="role-edit-btn"
+                  doneTestId="role-done-btn"
+                  cancelTestId="role-cancel-btn"
+                  savingTestId="role-saving-notice"
+                  onEdit={startRoleEdit}
+                  onDone={handleDoneRoleEdit}
+                  onCancel={cancelRoleEdit}
+                />
+                <div
+                  className={styles.formGridThree}
+                  style={{ marginTop: 12, opacity: roleSaving ? 0.65 : 1 }}
+                >
                   <div className={styles.formFieldBlock}>
                     <label>TARGET ROLE</label>
                     <input
@@ -1360,6 +1746,9 @@ export function ProfilePage() {
                       className={styles.formInputText}
                       value={targetRole}
                       onChange={(e) => setTargetRole(e.target.value)}
+                      readOnly={!roleEditing}
+                      disabled={roleSaving}
+                      data-testid="role-target"
                     />
                   </div>
                   <div className={styles.formFieldBlock}>
@@ -1368,6 +1757,8 @@ export function ProfilePage() {
                       className={styles.formInputText}
                       value={experience}
                       onChange={(e) => setExperience(e.target.value)}
+                      disabled={!roleEditing || roleSaving}
+                      data-testid="role-experience"
                     >
                       <option value="0 - 1 years">0 - 1 years</option>
                       <option value="1 - 2 years">1 - 2 years</option>
@@ -1383,31 +1774,45 @@ export function ProfilePage() {
                       className={styles.formInputText}
                       value={companyTitle}
                       onChange={(e) => setCompanyTitle(e.target.value)}
+                      readOnly={!roleEditing}
+                      disabled={roleSaving}
+                      data-testid="role-company-title"
                     />
                   </div>
                 </div>
 
-                <div className={styles.formFieldBlock} style={{ marginTop: 14 }}>
+                <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: roleSaving ? 0.65 : 1 }}>
                   <label>HIGHEST EDUCATION</label>
                   <input
                     type="text"
                     className={styles.formInputText}
                     value={highestEducation}
                     onChange={(e) => setHighestEducation(e.target.value)}
+                    readOnly={!roleEditing}
+                    disabled={roleSaving}
+                    data-testid="role-education"
                   />
                 </div>
               </section>
 
               {/* Card 3: Skills */}
-              <section id="skills" className={styles.card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Skills</h2>
-                  <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                    12 on file Â· 9 found in your rÃ©sumÃ© Â· 3 added by you
-                  </span>
-                </div>
+              <section id="skills" className={styles.card} aria-busy={skillsSaving}>
+                <ProfileSectionHeader
+                  title="Skills"
+                  subtitle={`${skillsList.filter((s) => s.name !== 'Add your skills').length} on file`}
+                  editing={skillsEditing}
+                  saving={skillsSaving}
+                  editLabel="Edit skills"
+                  editTestId="skills-edit-btn"
+                  doneTestId="skills-done-btn"
+                  cancelTestId="skills-cancel-btn"
+                  savingTestId="skills-saving-notice"
+                  onEdit={startSkillsEdit}
+                  onDone={handleDoneSkillsEdit}
+                  onCancel={cancelSkillsEdit}
+                />
 
-                <div style={{ marginTop: 16 }}>
+                <div style={{ marginTop: 16, opacity: skillsSaving ? 0.65 : 1 }}>
                   {skillsList.map((skill) => (
                     <span
                       key={skill.name}
@@ -1418,41 +1823,56 @@ export function ProfilePage() {
                           ? styles.skillPillGood
                           : styles.skillPillBasic
                       }`}
+                      data-testid={`skill-pill-${skill.name.replace(/\s+/g, '-')}`}
                     >
                       {skill.name}
                       <span className={styles.skillTagLevel}>{skill.level}</span>
+                      {skillsEditing && skill.name !== 'Add your skills' && !skillsSaving && (
+                        <button
+                          type="button"
+                          className={styles.skillPillRemove}
+                          aria-label={`Remove ${skill.name}`}
+                          onClick={() => handleRemoveSkill(skill.name)}
+                        >
+                          ×
+                        </button>
+                      )}
                     </span>
                   ))}
                 </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <label className={styles.filterLabel} style={{ marginBottom: 6, display: 'block' }}>
-                    ADD A SKILL
-                  </label>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <input
-                      type="text"
-                      className={styles.formInputText}
-                      placeholder="For example: Docker"
-                      value={newSkillInput}
-                      onChange={(e) => setNewSkillInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          handleAddSkill()
-                        }
-                      }}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      type="button"
-                      className={styles.btnOutline}
-                      onClick={handleAddSkill}
-                    >
-                      Add skill
-                    </button>
+                {skillsEditing && !skillsSaving && (
+                  <div style={{ marginTop: 16 }}>
+                    <label className={styles.filterLabel} style={{ marginBottom: 6, display: 'block' }}>
+                      ADD A SKILL
+                    </label>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <input
+                        type="text"
+                        className={styles.formInputText}
+                        placeholder="For example: Docker"
+                        value={newSkillInput}
+                        onChange={(e) => setNewSkillInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            handleAddSkill()
+                          }
+                        }}
+                        style={{ flex: 1 }}
+                        data-testid="skills-add-input"
+                      />
+                      <button
+                        type="button"
+                        className={styles.btnOutline}
+                        onClick={handleAddSkill}
+                        data-testid="skills-add-btn"
+                      >
+                        Add skill
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </section>
 
               {/* Card 4: RÃ©sumÃ© */}
@@ -1794,16 +2214,60 @@ export function ProfilePage() {
 }
 
 export function ApplicationsPage() {
-  const [apps, setApps] = useState(() => getApplications())
+  const [apps, setApps] = useState<Application[]>([])
+  const [appsLoading, setAppsLoading] = useState(true)
+  const [appsError, setAppsError] = useState('')
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null)
   const interview = getInterviewResult()
 
   useEffect(() => {
     markNotificationsRead()
+    let cancelled = false
+    void (async () => {
+      setAppsLoading(true)
+      setAppsError('')
+      try {
+        const sessionOk = await ensureApiSession()
+        if (!sessionOk) {
+          if (!cancelled) {
+            setApps(getApplications())
+            setAppsError('Sign in to load applications from your account.')
+          }
+          return
+        }
+        const remote = await apiListApplications()
+        if (!cancelled) {
+          setApps(remote)
+          saveApplications(remote)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setApps(getApplications())
+          setAppsError(err instanceof Error ? err.message : 'Could not load applications.')
+        }
+      } finally {
+        if (!cancelled) setAppsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  function handleWithdraw(id: string) {
-    withdrawApplication(id)
-    setApps(getApplications())
+  async function handleWithdraw(id: string) {
+    setWithdrawingId(id)
+    try {
+      await ensureApiSession()
+      const next = await apiWithdrawApplication(id)
+      setApps(next)
+      saveApplications(next)
+    } catch {
+      const next = getApplications().filter((a) => a.id !== id)
+      saveApplications(next)
+      setApps(next)
+    } finally {
+      setWithdrawingId(null)
+    }
   }
 
   return (
@@ -1829,7 +2293,18 @@ export function ApplicationsPage() {
             </Link>
           </motion.header>
 
-          {apps.length === 0 ? (
+          {appsLoading ? (
+            <p className={styles.toast} role="status">
+              Loading your applications…
+            </p>
+          ) : null}
+          {appsError ? (
+            <p className={styles.toast} role="alert">
+              {appsError}
+            </p>
+          ) : null}
+
+          {!appsLoading && apps.length === 0 ? (
             <motion.aside className={styles.unlockBanner} variants={fadeUp}>
               <div>
                 <strong>No applications yet</strong>
@@ -1843,33 +2318,54 @@ export function ApplicationsPage() {
                 {interview ? 'Browse jobs â†’' : 'Take interview â†’'}
               </Link>
             </motion.aside>
-          ) : (
+          ) : !appsLoading ? (
             <div className={styles.jobList}>
-              {apps.map((app) => (
-                <motion.article key={app.id} className={styles.jobCard} variants={fadeUp}>
-                  <div>
-                    <h2>{app.title}</h2>
-                    <p>
-                      {app.company} Â· {app.location}
-                    </p>
-                    <span className={styles.lockTag}>
-                      {app.status} Â· {new Date(app.appliedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className={styles.jobRight}>
-                    <b>{app.match}% Match</b>
-                    <button
-                      type="button"
-                      className={styles.secondary}
-                      onClick={() => handleWithdraw(app.id)}
-                    >
-                      Withdraw
-                    </button>
-                  </div>
-                </motion.article>
-              ))}
+              {apps.map((app) => {
+                const jobRemoved = app.jobStatus === 'deleted'
+                return (
+                  <motion.article
+                    key={app.id}
+                    className={`${styles.jobCard} ${jobRemoved ? styles.jobCardEmployerDeleted : ''}`}
+                    variants={fadeUp}
+                  >
+                    <div>
+                      <h2>{app.title}</h2>
+                      <p>
+                        {app.company} · {app.location}
+                        {app.roleTrack ? ` · ${app.roleTrack}` : ''}
+                      </p>
+                      {jobRemoved ? (
+                        <p className={styles.jobDeletedBanner} role="status">
+                          {app.jobDeletedMessage ||
+                            'This job was removed by the employer. You can withdraw this application.'}
+                        </p>
+                      ) : null}
+                      <span className={styles.lockTag}>
+                        {jobRemoved ? 'Job deleted' : app.status} ·{' '}
+                        {new Date(app.appliedAt).toLocaleDateString()}
+                        {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
+                      </span>
+                    </div>
+                    <div className={styles.jobRight}>
+                      <b>
+                        {app.interviewScore != null
+                          ? `${app.interviewScore}% Interview`
+                          : `${app.match}% Match`}
+                      </b>
+                      <button
+                        type="button"
+                        className={styles.secondary}
+                        disabled={withdrawingId === app.id}
+                        onClick={() => void handleWithdraw(app.id)}
+                      >
+                        {withdrawingId === app.id ? 'Withdrawing…' : 'Withdraw'}
+                      </button>
+                    </div>
+                  </motion.article>
+                )
+              })}
             </div>
-          )}
+          ) : null}
         </motion.main>
       </div>
       <SiteFooter />

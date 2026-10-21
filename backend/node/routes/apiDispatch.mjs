@@ -5,10 +5,15 @@ import {
   appendInterviewHistory,
   upsertJobRecord,
   upsertEmployerApplicationRecord,
+  upsertJobApplicationRecord,
+  deleteJobApplicationRecord,
+  loadJobApplicationsForEmail,
+  markJobApplicationsDeletedInPostgres,
   deleteJobRecord,
   dbPool,
   loadDb as reloadDbFromStore,
   syncOpenJobsFromDatabase,
+  syncOrgJobsFromDatabase,
   syncEmployerApplicationsFromDatabase,
 } from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
@@ -45,11 +50,17 @@ import {
   getOrgJob,
   getOrgApplication,
   createJobApplication,
+  attachCandidateReportToApplication,
   listJobApplications,
   updateApplicationInterview,
   publicJobPayload,
 } from '../vendor/jobs.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
+import {
+  JOB_DELETED_MESSAGE,
+  markCandidateJobApplicationsDeleted,
+  recordCandidateJobApplication,
+} from '../vendor/candidateApplications.mjs'
 import { computeEmployerInterviewComposite } from '../atsScorer.mjs'
 import {
   generateAdaptiveQuestion,
@@ -243,18 +254,28 @@ export function createApiDispatchMiddleware(ctx) {
         requiredSkills: job.requiredSkills || [],
         roleTitle: job.roleTrack,
       })
+      const profile = db.profiles[sessionEmail] || {}
       const { application, created, ats } = createJobApplication(db, job, {
-        candidateName: body.candidateName,
-        candidatePhone: body.candidatePhone,
-        experienceYears: body.experienceYears,
-        resumeName: body.resumeName,
+        candidateName: body.candidateName || profile.fullName || profile.name || u?.name,
+        candidatePhone: body.candidatePhone || profile.contactPhone || u?.phone,
+        candidateRole: body.candidateRole || profile.currentRole || '',
+        experienceYears: body.experienceYears || profile.totalExperience || '',
+        resumeName: body.resumeName || profile.resumeName || 'HireRight profile',
         resumeText,
         candidateEmail: sessionEmail,
         candidateUserId,
         atsEvaluation,
       })
+      attachCandidateReportToApplication(db, application, sessionEmail, {
+        candidateRole: body.candidateRole || profile.currentRole || '',
+        attachInterviewReport: body.attachInterviewReport !== false,
+      })
+      const candidateApplication = recordCandidateJobApplication(db, sessionEmail, job, application, {
+        match: typeof body.match === 'number' ? body.match : Number(body.match) || null,
+      })
       if (config.databaseUrl) {
         await upsertEmployerApplicationRecord(config.databaseUrl, application)
+        await upsertJobApplicationRecord(config.databaseUrl, sessionEmail, candidateApplication)
       }
       await saveDb(db)
       if (candidateUserId && config.databaseUrl) {
@@ -267,6 +288,7 @@ export function createApiDispatchMiddleware(ctx) {
       }
       return json(res, created ? 201 : 200, {
         applicationId: application.id,
+        candidateApplication,
         job: publicJobPayload(job),
         ats: ats || {
           atsScore: application.data.atsScore,
@@ -301,8 +323,48 @@ export function createApiDispatchMiddleware(ctx) {
       const db = loadDb()
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
-      const jobs = listOrgJobs(db, ctx.tenant.organization.id)
-      return json(res, 200, { jobs })
+      const orgId = ctx.tenant.organization.id
+      if (config.databaseUrl) {
+        await syncOrgJobsFromDatabase(config.databaseUrl, db, orgId)
+      }
+      const jobs = listOrgJobs(db, orgId, {
+        createdByUserId: ctx.user.id,
+        createdByEmail: ctx.user.email,
+      }).map((job) => publicJobPayload(job))
+      return json(res, 200, { jobs, total: jobs.length, organizationId: orgId })
+    }
+
+    if (
+      req.method === 'POST' &&
+      /^\/api\/vendor\/jobs\/[^/]+\/mark-deleted-for-candidates$/.test(path)
+    ) {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const jobId = path.split('/')[4]
+      const orgId = ctx.tenant.organization.id
+      const job = getOrgJob(db, orgId, jobId)
+      if (!job) {
+        return json(res, 404, { error: 'Job not found.' })
+      }
+      const marked = markCandidateJobApplicationsDeleted(db, jobId, {
+        title: job.title,
+        company: job.company,
+      })
+      if (config.databaseUrl) {
+        await markJobApplicationsDeletedInPostgres(config.databaseUrl, jobId, {
+          jobDeletedMessage: JOB_DELETED_MESSAGE,
+        })
+        for (const row of marked.records) {
+          await upsertJobApplicationRecord(config.databaseUrl, row.email, row.record)
+        }
+      }
+      await saveDb(db)
+      return json(res, 200, {
+        ok: true,
+        jobId,
+        candidateApplicationsUpdated: marked.updated,
+      })
     }
 
     if (
@@ -313,13 +375,33 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const jobId = path.split('/')[4]
+      const orgId = ctx.tenant.organization.id
       try {
-        const removed = deleteVendorJob(db, ctx.tenant.organization.id, jobId)
+        const job = getOrgJob(db, orgId, jobId)
+        const marked = job
+          ? markCandidateJobApplicationsDeleted(db, jobId, {
+              title: job.title,
+              company: job.company,
+            })
+          : { updated: 0, records: [] }
+        const removed = deleteVendorJob(db, orgId, jobId)
         if (config.databaseUrl) {
-          await deleteJobRecord(config.databaseUrl, jobId, ctx.tenant.organization.id)
+          if (marked.updated > 0) {
+            await markJobApplicationsDeletedInPostgres(config.databaseUrl, jobId, {
+              jobDeletedMessage: JOB_DELETED_MESSAGE,
+            })
+            for (const row of marked.records) {
+              await upsertJobApplicationRecord(config.databaseUrl, row.email, row.record)
+            }
+          }
+          await deleteJobRecord(config.databaseUrl, jobId, orgId)
         }
         await saveDb(db)
-        return json(res, 200, { ok: true, ...removed })
+        return json(res, 200, {
+          ok: true,
+          ...removed,
+          candidateApplicationsUpdated: marked.updated,
+        })
       } catch (err) {
         const status = err.status || 500
         return json(res, status, { error: err.message || 'Could not delete job.' })
@@ -336,8 +418,12 @@ export function createApiDispatchMiddleware(ctx) {
       const jobId = path.split('/')[4]
       const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
       if (!job) return json(res, 404, { error: 'Job not found.' })
-      const applicants = listJobApplications(db, ctx.tenant.organization.id, jobId)
-      return json(res, 200, { job, applicants })
+      const applicants = listJobApplications(db, ctx.tenant.organization.id, jobId).map((app) =>
+        attachCandidateReportToApplication(db, app, app.candidateEmail, {
+          attachInterviewReport: true,
+        }),
+      )
+      return json(res, 200, { job, applicants, total: applicants.length })
     }
 
     if (req.method === 'GET' && path === '/api/vendor/candidates') {
@@ -1432,20 +1518,57 @@ export function createApiDispatchMiddleware(ctx) {
       return json(res, 200, { interview: body })
     }
 
+    if (req.method === 'GET' && path === '/api/applications') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const db = loadDb()
+      let applications = db.applications[email] || []
+      if (config.databaseUrl) {
+        applications = await loadJobApplicationsForEmail(config.databaseUrl, email)
+        db.applications[email] = applications
+      }
+      applications = (applications || []).map((row) => ({
+        ...row,
+        jobStatus: row.jobStatus === 'deleted' ? 'deleted' : 'active',
+      }))
+      return json(res, 200, { applications })
+    }
+
+    if (req.method === 'DELETE' && path.startsWith('/api/applications/')) {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const appId = path.replace('/api/applications/', '').split('/')[0]
+      if (!appId) return json(res, 400, { error: 'Application id required.' })
+      const db = loadDb()
+      const list = (db.applications[email] || []).filter((a) => String(a.id) !== appId)
+      db.applications[email] = list
+      if (config.databaseUrl) {
+        await deleteJobApplicationRecord(config.databaseUrl, email, appId)
+      }
+      await saveDb(db)
+      return json(res, 200, { applications: list })
+    }
+
     if (req.method === 'POST' && path === '/api/applications') {
       const email = await requireAuth(req, res)
       if (!email) return
       const body = await readBody(req)
       const db = loadDb()
-      const list = db.applications[email] || []
-      list.unshift({
+      const record = {
         ...body,
-        id: randomBytes(6).toString('hex'),
-        appliedAt: new Date().toISOString(),
-      })
-      db.applications[email] = list
+        id: body.id || randomBytes(6).toString('hex'),
+        appliedAt: body.appliedAt || new Date().toISOString(),
+        status: body.status || 'Applied',
+      }
+      db.applications[email] = db.applications[email] || []
+      const idx = db.applications[email].findIndex((a) => a.id === record.id)
+      if (idx >= 0) db.applications[email][idx] = { ...db.applications[email][idx], ...record }
+      else db.applications[email].unshift(record)
+      if (config.databaseUrl) {
+        await upsertJobApplicationRecord(config.databaseUrl, email, record)
+      }
       await saveDb(db)
-      return json(res, 201, { applications: list })
+      return json(res, 201, { applications: db.applications[email], application: record })
     }
 
     /* -------------------------------------------------------------

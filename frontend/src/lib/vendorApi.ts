@@ -40,6 +40,7 @@ export type VendorApplicant = {
     resumeName?: string
     resumeText?: string
     candidatePhone?: string
+    candidateRole?: string
   }
 }
 
@@ -108,12 +109,22 @@ export async function deleteVendorJob(jobId: string) {
   const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',
   })
-  return parse<{ ok: boolean; id: string; title?: string }>(res)
+  return parse<{ ok: boolean; id: string; title?: string; candidateApplicationsUpdated?: number }>(
+    res,
+  )
+}
+
+export async function markVendorJobDeletedForCandidates(jobId: string) {
+  const res = await apiFetch(
+    `/api/vendor/jobs/${encodeURIComponent(jobId)}/mark-deleted-for-candidates`,
+    { method: 'POST', body: JSON.stringify({}) },
+  )
+  return parse<{ ok: boolean; jobId: string; candidateApplicationsUpdated: number }>(res)
 }
 
 export async function fetchJobApplicants(jobId: string) {
-  const res = await apiFetch(`/api/vendor/jobs/${jobId}/applicants`)
-  return parse<{ job: VendorJob; applicants: VendorApplicant[] }>(res)
+  const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}/applicants`)
+  return parse<{ job: VendorJob; applicants: VendorApplicant[]; total: number }>(res)
 }
 
 export type OrgCandidateRecord = {
@@ -242,9 +253,12 @@ export async function applyToPublicJob(
     candidateName: string
     candidateEmail: string
     candidatePhone?: string
+    candidateRole?: string
     experienceYears?: string
     resumeText: string
     resumeName?: string
+    attachInterviewReport?: boolean
+    match?: number
   },
   companySlug?: string,
 ) {

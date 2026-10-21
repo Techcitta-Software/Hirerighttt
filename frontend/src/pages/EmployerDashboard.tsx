@@ -26,9 +26,11 @@ import {
 import {
   createVendorJob,
   deleteVendorJob,
-  fetchJobCandidatesRoster,
+  markVendorJobDeletedForCandidates,
+  fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
+  type VendorApplicant,
   patchApplicantStatus,
   sendApplicantInterviewInvite,
 } from '../lib/vendorApi'
@@ -112,8 +114,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     applicant: EmployerApplicant
   } | null>(null)
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
-  const [showSearchPanel, setShowSearchPanel] = useState(false)
-
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
   // New Job Form State
   const [newJobTitle, setNewJobTitle] = useState('')
   const [newJobRoleTrack, setNewJobRoleTrack] = useState('Frontend Developer')
@@ -123,6 +124,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobSkills, setNewJobSkills] = useState('React, TypeScript, Node.js')
   const [jobFormError, setJobFormError] = useState('')
   const [portalSyncNote, setPortalSyncNote] = useState('')
+
+  const [jobRosterOpen, setJobRosterOpen] = useState<{ jobId: string; title: string } | null>(
+    null,
+  )
+  const [jobRosterLoading, setJobRosterLoading] = useState(false)
+  const [jobRosterError, setJobRosterError] = useState('')
+  const [jobRosterRows, setJobRosterRows] = useState<VendorApplicant[]>([])
 
   const [inviteStart, setInviteStart] = useState('')
   const [inviteDuration, setInviteDuration] = useState(60)
@@ -148,8 +156,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         continue
       }
       try {
-        const { total } = await fetchJobCandidatesRoster(job.id)
-        counts[job.id] = total
+        const { total, applicants } = await fetchJobApplicants(job.id)
+        counts[job.id] = total ?? applicants.length
       } catch {
         counts[job.id] = 0
       }
@@ -194,17 +202,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setPortalError('')
   }
 
-  async function loadJobCandidatesFromApi(jobId: string) {
-    const { candidates, job } = await fetchJobCandidatesRoster(jobId)
-    const jobSeekers = filterJobSeekerCandidates(candidates)
-    setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
-    setSelectedJobId(jobId)
-    setSelectedJobTitle(job.title)
-    setPortalSyncNote(`${jobSeekers.length} job seeker(s) for “${job.title}” from the database.`)
-    setPortalError('')
-    setJobCounts((prev) => ({ ...prev, [jobId]: jobSeekers.length }))
-  }
-
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -214,7 +211,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       try {
         await loadJobsFromApi()
         if (cancelled) return
-        await loadOrgCandidatesFromApi()
+        if (isCandidatesView) {
+          await loadOrgCandidatesFromApi()
+        }
       } catch (err) {
         if (!cancelled) {
           setPortalError(err instanceof Error ? err.message : 'Could not load employer data from the API.')
@@ -230,27 +229,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }, [user?.email, user?.role, isCandidatesView])
 
-  async function runServerCandidateSearch(query: CandidateSearchQuery) {
-    const keywords = query.keywords
-      .filter((k) => query.allMandatory || k.isMandatory)
-      .map((k) => k.text)
-      .join(', ')
-    try {
-      setPortalLoading(true)
-      await ensureApiSession()
-      await loadOrgCandidatesFromApi({
-        name: query.candidateName.trim() || undefined,
-        job: query.client.trim() || undefined,
-        keywords: keywords || undefined,
-      })
-    } catch (err) {
-      setPortalError(err instanceof Error ? err.message : 'Candidate search failed.')
-    } finally {
-      setPortalLoading(false)
-    }
-  }
-
-  const showCandidateTable = true
+  const showCandidateTable = isCandidatesView
 
   function handleClearFilters() {
     setSearchFilter('')
@@ -262,14 +241,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setStatusFilter('')
     if (candidateSearchQuery) {
       setCandidateSearchQuery(null)
-      setShowSearchPanel(true)
     }
-  }
-
-  function handleClearSearchCandidate() {
-    setCandidateSearchQuery(null)
-    setSearchFilter('')
-    setShowSearchPanel(true)
   }
 
   const filteredApplicants = useMemo(() => {
@@ -457,50 +429,81 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }
 
   async function handleDeleteJob(job: EmployerJob) {
-    if (isOptimisticJobId(job.id)) return
+    if (isOptimisticJobId(job.id) || deletingJobId) return
     const ok = window.confirm(
       `Delete “${job.title}”?\n\nThis removes the job posting from your dashboard and the database. Application links for this opening will stop working.`,
     )
     if (!ok) return
 
-    const prevJobs = jobs
-    const prevCounts = jobCounts
-    const prevApplicants = applicants
-    const prevSelectedJobId = selectedJobId
-    const prevSelectedJobTitle = selectedJobTitle
-
-    bumpJobsLoadGeneration()
-    setJobs((prev) => prev.filter((j) => j.id !== job.id))
-    setJobCounts((prev) => {
-      const next = { ...prev }
-      delete next[job.id]
-      return next
-    })
-    if (selectedJobId === job.id) {
-      setSelectedJobId(null)
-      setSelectedJobTitle('')
-      setApplicants([])
-    } else {
-      setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
-    }
+    setDeletingJobId(job.id)
     setPortalError('')
-    setPortalSyncNote(`Job “${job.title}” was deleted.`)
+    setPortalSyncNote('')
 
     try {
       await ensureApiSession()
       if (!(await apiHealth())) {
         throw new Error('API is offline. Start the backend to delete jobs from the database.')
       }
+      await markVendorJobDeletedForCandidates(job.id)
       await deleteVendorJob(job.id)
+
+      bumpJobsLoadGeneration()
+      setJobs((prev) => prev.filter((j) => j.id !== job.id))
+      setJobCounts((prev) => {
+        const next = { ...prev }
+        delete next[job.id]
+        return next
+      })
+      if (selectedJobId === job.id) {
+        setSelectedJobId(null)
+        setSelectedJobTitle('')
+        setApplicants([])
+      } else {
+        setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
+      }
+      setPortalSyncNote(`Job “${job.title}” was deleted.`)
     } catch (err) {
-      setJobs(prevJobs)
-      setJobCounts(prevCounts)
-      setApplicants(prevApplicants)
-      setSelectedJobId(prevSelectedJobId)
-      setSelectedJobTitle(prevSelectedJobTitle)
       setPortalError(err instanceof Error ? err.message : 'Could not delete job.')
-      setPortalSyncNote('')
+    } finally {
+      setDeletingJobId(null)
     }
+  }
+
+  function applicantDisplayScore(app: VendorApplicant): string {
+    const data = app.data || {}
+    const fromInterview =
+      typeof data.interviewScore === 'number'
+        ? data.interviewScore
+        : typeof (data.interviewResult as { overall?: number } | undefined)?.overall === 'number'
+          ? (data.interviewResult as { overall: number }).overall
+          : null
+    if (fromInterview != null) return `${fromInterview}%`
+    if (typeof data.atsScore === 'number') return `${data.atsScore}% ATS`
+    return '—'
+  }
+
+  async function openJobApplicantsRoster(job: EmployerJob) {
+    if (isOptimisticJobId(job.id)) return
+    setJobRosterOpen({ jobId: job.id, title: job.title })
+    setJobRosterLoading(true)
+    setJobRosterError('')
+    setJobRosterRows([])
+    try {
+      await ensureApiSession()
+      const { applicants, total } = await fetchJobApplicants(job.id)
+      setJobRosterRows(applicants)
+      setJobCounts((prev) => ({ ...prev, [job.id]: total ?? applicants.length }))
+    } catch (err) {
+      setJobRosterError(err instanceof Error ? err.message : 'Could not load applicants.')
+    } finally {
+      setJobRosterLoading(false)
+    }
+  }
+
+  function closeJobApplicantsRoster() {
+    setJobRosterOpen(null)
+    setJobRosterRows([])
+    setJobRosterError('')
   }
 
   async function handleCopyLink(job: EmployerJob) {
@@ -561,13 +564,30 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </p>
         ) : null}
         {isCandidatesView && (
-          <motion.div className={styles.heroCard} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <h1 className={styles.heroTitle}>Search HireRight candidates</h1>
-            <p className={styles.heroDesc}>
-              Everyone here comes from your database — applicants, shared interviews, and job seekers
-              who completed an AI interview on HireRight.
-            </p>
-          </motion.div>
+          <>
+            <motion.div className={styles.heroCard} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <h1 className={styles.heroTitle}>Search HireRight candidates</h1>
+              <p className={styles.heroDesc}>
+                Everyone here comes from your database — applicants, shared interviews, and job seekers
+                who completed an AI interview on HireRight.
+              </p>
+            </motion.div>
+
+            <SearchCandidatesPanel
+              embedded
+              initialQuery={candidateSearchQuery}
+              onSearch={(query) => {
+                setCandidateSearchQuery(query)
+                if (query.candidateName.trim()) {
+                  setSearchFilter(query.candidateName.trim())
+                }
+              }}
+              onClear={() => {
+                setCandidateSearchQuery(null)
+                setSearchFilter('')
+              }}
+            />
+          </>
         )}
         {!isCandidatesView && (
           <>
@@ -620,13 +640,21 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   const isCopied = copiedCode === job.shareableCode
                   const isSelected = selectedJobId === job.id
                   const isPending = isOptimisticJobId(job.id)
+                  const isDeleting = deletingJobId === job.id
 
                   return (
                     <div
                       key={job.id}
-                      className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''} ${isPending ? styles.jobCardPending : ''}`}
+                      className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''} ${isPending ? styles.jobCardPending : ''} ${isDeleting ? styles.jobCardDeleting : ''}`}
+                      aria-busy={isDeleting}
+                      data-testid={isDeleting ? 'job-card-deleting' : undefined}
                     >
                       <div>
+                        {isDeleting ? (
+                          <p className={styles.jobDeletingNotice} role="status">
+                            Deleting…
+                          </p>
+                        ) : null}
                         <h4 className={styles.jobCardTitle}>{job.title}</h4>
                         <div className={styles.jobCardMeta}>
                           <span className={styles.metaBadge}>{job.roleTrack}</span>
@@ -643,7 +671,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                           <button
                             type="button"
                             className={styles.copyBtn}
-                            disabled={isPending}
+                            disabled={isPending || isDeleting}
                             onClick={() => handleCopyLink(job)}
                           >
                             {isCopied ? 'Copied!' : 'Copy'}
@@ -652,24 +680,32 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                       </div>
 
                       <div className={styles.jobFooter}>
-                        <span>{count} in roster</span>
+                        <button
+                          type="button"
+                          className={styles.rosterCountBtn}
+                          disabled={isPending || isDeleting}
+                          onClick={() => void openJobApplicantsRoster(job)}
+                          aria-label={`View ${count} applicants for ${job.title}`}
+                        >
+                          {count} in roster
+                        </button>
                         <div className={styles.jobFooterActions}>
                           <button
                             type="button"
                             className={styles.inspectBtn}
-                            disabled={isPending}
-                            onClick={() => void loadJobCandidatesFromApi(job.id)}
+                            disabled={isPending || isDeleting}
+                            onClick={() => void openJobApplicantsRoster(job)}
                           >
-                            View interviews →
+                            View applicants →
                           </button>
                           <button
                             type="button"
                             className={styles.deleteJobBtn}
-                            disabled={isPending}
+                            disabled={isPending || isDeleting}
                             onClick={() => void handleDeleteJob(job)}
                             aria-label={`Delete job ${job.title}`}
                           >
-                            Delete
+                            {isDeleting ? 'Deleting…' : 'Delete'}
                           </button>
                         </div>
                       </div>
@@ -679,69 +715,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
             </motion.div>
 
-            {selectedJobId && (
-              <p className={styles.portalSyncNote}>
-                Showing candidates for <strong>{selectedJobTitle}</strong>.{' '}
-                <button
-                  type="button"
-                  className={styles.filterClearBtn}
-                  onClick={() => {
-                    setSelectedJobId(null)
-                    setSelectedJobTitle('')
-                    void loadOrgCandidatesFromApi()
-                    setPortalSyncNote('')
-                  }}
-                >
-                  Clear job filter
-                </button>
-              </p>
-            )}
-
             {portalSyncNote && (
               <p className={styles.portalSyncNote} role="status">
                 {portalSyncNote}
               </p>
             )}
           </>
-        )}
-
-        <div className={styles.centerSearchBtnRow}>
-          {candidateSearchQuery && (
-            <button
-              type="button"
-              className={styles.clearSearchQueryBtn}
-              onClick={handleClearSearchCandidate}
-              title="Clear candidate search and open search panel"
-            >
-              <HrIcon name="close" size={13} /> Clear search candidate
-            </button>
-          )}
-          <button
-            type="button"
-            className={`${styles.centerSearchBtn} ${showSearchPanel ? styles.centerSearchBtnActive : ''}`}
-            onClick={() => setShowSearchPanel((prev) => !prev)}
-            title={showSearchPanel ? 'Hide search candidates panel' : 'Open search candidates panel'}
-          >
-            <HrIcon name="search" size={14} /> Search candidates
-          </button>
-        </div>
-
-        {showSearchPanel && (
-          <SearchCandidatesPanel
-            initialQuery={candidateSearchQuery}
-            onClose={() => setShowSearchPanel(false)}
-            onSearch={(query) => {
-              setCandidateSearchQuery(query)
-              if (query.candidateName) {
-                setSearchFilter(query.candidateName)
-              }
-              void runServerCandidateSearch(query)
-              setShowSearchPanel(false)
-            }}
-            onClear={() => {
-              setCandidateSearchQuery(null)
-            }}
-          />
         )}
 
         {showCandidateTable && (
@@ -1088,83 +1067,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         </>
         )}
 
-        {/* Active Job Openings & Shareable Assessment Links (Image 3 - Placed Below Candidates, hidden on candidate view) */}
-        {!isCandidatesView && (
-          <motion.div
-            className={styles.jobsSection}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.05 }}
-            style={{ marginTop: '28px' }}
-          >
-            <div className={styles.jobsHeader}>
-              <h3 className={styles.jobsTitle}>
-                <HrIcon name="briefcase" size={20} /> Active Job Openings &amp; Shareable Assessment Links
-              </h3>
-              <button
-                type="button"
-                className={styles.createJobBtn}
-                onClick={() => setShowCreateJobModal(true)}
-              >
-                <HrIcon name="plus" size={14} /> Create New Job Opening
-              </button>
-            </div>
-
-            <div className={styles.jobsGrid}>
-              {jobs.length === 0 && !portalLoading && (
-                <p className={styles.portalSyncNote}>
-                  No jobs in the database yet. Create an opening and share the link with candidates.
-                </p>
-              )}
-              {jobs.map((job) => {
-                const count = jobCounts[job.id] ?? 0
-                const isCopied = copiedCode === job.shareableCode
-                const isSelected = selectedJobId === job.id
-
-                return (
-                  <div
-                    key={job.id}
-                    className={`${styles.jobCard} ${isSelected ? styles.jobCardSelected : ''}`}
-                  >
-                    <div>
-                      <h4 className={styles.jobCardTitle}>{job.title}</h4>
-                      <div className={styles.jobCardMeta}>
-                        <span className={styles.metaBadge}>{job.roleTrack}</span>
-                        <span className={styles.metaBadge}>{job.experienceLevel}</span>
-                        <span className={styles.metaBadge}>{job.location}</span>
-                      </div>
-
-                      <div className={styles.linkBox}>
-                        <span className={styles.linkUrl}>
-                          {buildApplyUrl(job.company, job.shareableCode)}
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.copyBtn}
-                          onClick={() => handleCopyLink(job)}
-                        >
-                          {isCopied ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className={styles.jobFooter}>
-                      <span>{count} in roster</span>
-                      <button
-                        type="button"
-                        className={styles.inspectBtn}
-                        onClick={() => void loadJobCandidatesFromApi(job.id)}
-                      >
-                        View interviews →
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </motion.div>
-        )}
-
         {/* Create Job Opening Modal */}
         {showCreateJobModal && (
           <div className={styles.modalOverlay}>
@@ -1273,6 +1175,87 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {jobRosterOpen && (
+          <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="job-roster-title">
+            <div className={styles.modal} style={{ maxWidth: '720px' }}>
+              <div className={styles.modalHeader}>
+                <div>
+                  <h2 id="job-roster-title">
+                    <HrIcon name="briefcase" size={18} /> Applicants · {jobRosterOpen.title}
+                  </h2>
+                  <p className={styles.rosterModalSub}>
+                    Loaded from the database for this job posting.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={styles.closeBtn}
+                  onClick={closeJobApplicantsRoster}
+                  aria-label="Close applicants list"
+                >
+                  <HrIcon name="close" size={16} />
+                </button>
+              </div>
+
+              {jobRosterLoading ? (
+                <p className={styles.portalSyncNote} role="status">
+                  Loading applicants…
+                </p>
+              ) : null}
+              {jobRosterError ? (
+                <p className={styles.formError} role="alert">
+                  {jobRosterError}
+                </p>
+              ) : null}
+
+              {!jobRosterLoading && !jobRosterError ? (
+                <div className={styles.rosterTableWrap}>
+                  <table className={styles.rosterTable}>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th>Experience</th>
+                        <th>Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {jobRosterRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className={styles.rosterEmpty}>
+                            No applications yet. Share the job link so candidates can apply with their
+                            report.
+                          </td>
+                        </tr>
+                      ) : (
+                        jobRosterRows.map((app) => (
+                          <tr key={app.id}>
+                            <td>{app.data.candidateName || app.candidateEmail}</td>
+                            <td>
+                              {app.data.candidateRole ||
+                                app.data.roleTrack ||
+                                (app.data.interviewResult as { role?: string } | undefined)?.role ||
+                                '—'}
+                            </td>
+                            <td>{app.data.experienceYears || '—'}</td>
+                            <td>{applicantDisplayScore(app)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              <div className={styles.modalFooter}>
+                <button type="button" className={styles.cancelBtn} onClick={closeJobApplicantsRoster}>
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

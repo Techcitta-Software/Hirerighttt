@@ -130,6 +130,17 @@ export type Application = {
   match: number
   status: 'Applied' | 'In Review' | 'Interview' | 'Offer'
   appliedAt: string
+  jobId?: string
+  employerApplicationId?: string
+  roleTrack?: string
+  experienceLevel?: string
+  shareableCode?: string
+  companySlug?: string | null
+  atsScore?: number
+  interviewScore?: number | null
+  jobStatus?: 'active' | 'deleted'
+  jobDeletedAt?: string
+  jobDeletedMessage?: string
 }
 
 export type EmployerJob = {
@@ -770,6 +781,10 @@ export function getApplications(): Application[] {
   } catch {
     return []
   }
+}
+
+export function saveApplications(apps: Application[]) {
+  localStorage.setItem(appsKey(), JSON.stringify(apps))
 }
 
 export function applyToJob(job: {

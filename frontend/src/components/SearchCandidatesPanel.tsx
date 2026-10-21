@@ -22,6 +22,8 @@ interface SearchCandidatesPanelProps {
   onSearch?: (query: CandidateSearchQuery) => void
   onClear?: () => void
   onClose?: () => void
+  /** When true, panel is fixed on the page (no dismiss control). */
+  embedded?: boolean
 }
 
 export function SearchCandidatesPanel({
@@ -29,6 +31,7 @@ export function SearchCandidatesPanel({
   onSearch,
   onClear,
   onClose,
+  embedded = false,
 }: SearchCandidatesPanelProps) {
   const [client, setClient] = useState(initialQuery?.client ?? '')
   const [candidateName, setCandidateName] = useState(initialQuery?.candidateName ?? '')
@@ -116,10 +119,11 @@ export function SearchCandidatesPanel({
 
   return (
     <motion.section
-      className={styles.panelCard}
+      className={`${styles.panelCard} ${embedded ? styles.panelCardEmbedded : ''}`}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.05 }}
+      transition={{ duration: 0.3, delay: embedded ? 0.02 : 0.05 }}
+      aria-label="Search candidates"
     >
       <div className={styles.topHeaderRow}>
         <div>
