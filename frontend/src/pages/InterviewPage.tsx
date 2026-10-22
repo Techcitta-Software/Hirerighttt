@@ -58,6 +58,7 @@ import { ensureApiSession } from '../lib/apiSession'
 import {
   goToCandidateDashboardAfterInterview,
   goToInterviewReportAfterCompletion,
+  leaveInterviewRoom,
   markCandidateOnboardingCompleteAfterInterview,
 } from '../lib/completeOnboardingAfterInterview'
 import {
@@ -879,7 +880,7 @@ export function InterviewPage() {
       )
     ) {
       void recorderRef.current.stop()
-      navigate('/profile', { replace: true })
+      leaveInterviewRoom(navigate)
       return
     }
     finishingRef.current = true
@@ -1210,7 +1211,7 @@ export function InterviewPage() {
           <button
             type="button"
             className={styles.exitLink}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => leaveInterviewRoom(navigate)}
           >
             Exit
           </button>

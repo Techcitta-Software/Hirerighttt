@@ -5,8 +5,29 @@ import {
   clearImmediateInterviewFlag,
   isImmediateInterviewAllowed,
 } from './interviewInviteGate'
-import { ONBOARDING_STEP_COUNT } from './onboardingProgress'
+import { isOnboardingComplete, onboardingResumeStep, ONBOARDING_STEP_COUNT } from './onboardingProgress'
 import { getProfile, saveProfile, type SavedProfile } from './store'
+
+const RETURN_TO_WIZARD_KEY = 'hireright.returnToWizard'
+
+/**
+ * Where to send a candidate who exits the interview room before finishing onboarding.
+ * /dashboard and /profile are gated — incomplete users must return to the wizard (usually step 5).
+ */
+export function getCandidateInterviewExitPath(): string {
+  const profile = getProfile()
+  if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(RETURN_TO_WIZARD_KEY) === '1') {
+    return `/onboarding?step=${onboardingResumeStep(profile)}`
+  }
+  if (!isOnboardingComplete(profile)) {
+    return `/onboarding?step=${onboardingResumeStep(profile)}`
+  }
+  return '/dashboard'
+}
+
+export function leaveInterviewRoom(navigate: NavigateFunction): void {
+  navigate(getCandidateInterviewExitPath(), { replace: true })
+}
 
 export type PostInterviewReportState = {
   fromInterview?: boolean

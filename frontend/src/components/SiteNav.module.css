@@ -173,6 +173,85 @@
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
 }
 
+.avatarBtn {
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+
+.profileMenuWrap {
+  position: relative;
+}
+
+.profileDropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  min-width: 220px;
+  z-index: 120;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  padding: 8px;
+}
+
+.profileDropdownHeader {
+  padding: 8px 10px 6px;
+}
+
+.profileDropdownName {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.profileDropdownEmail {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.profileDropdownDivider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 6px 0;
+}
+
+.profileDropdownItem {
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.profileDropdownItem:hover {
+  background: #f1f5f9;
+  color: #4f46e5;
+}
+
+.profileDropdownDanger {
+  color: #dc2626;
+}
+
+.profileDropdownDanger:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .signOutBtn {
   height: 36px;
   padding: 0 14px;
