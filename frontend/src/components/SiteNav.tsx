@@ -26,7 +26,6 @@ const JOBSEEKER_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/jobs', label: 'Matches' },
   { to: '/applications', label: 'Applications' },
-  { to: '/profile', label: 'Profile' },
 ]
 
 const EMPLOYER_NAV = [
@@ -190,9 +189,9 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   </Link>
 
                   <Link
-                    to="/profile"
+                    to="/dashboard"
                     className={styles.avatarCircle}
-                    title={user?.name || 'My Profile'}
+                    title={user?.name || 'Dashboard'}
                   >
                     {initials}
                   </Link>

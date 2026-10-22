@@ -366,9 +366,6 @@ export function runLocalInterviewScore(options: {
   )
 
   let overall = scored.overall
-  if (!options.integrity.singlePersonOk) overall = Math.max(0, overall - 8)
-  if (options.integrity.faceViolations > 3) overall = Math.max(0, overall - 5)
-  if (options.integrity.banned) overall = 0
 
   const fit = resumeFitScore(options.answers, options.profile)
   const strengths = [...scored.strengths]

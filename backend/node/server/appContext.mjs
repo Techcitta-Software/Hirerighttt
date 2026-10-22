@@ -253,6 +253,7 @@ export function createAppContext() {
     if (!qText) return list
     const last = list[list.length - 1]
     if (last && String(last.question?.text || last.question || '').trim() === qText) {
+      last.answer = String(lastAnswer ?? '')
       return list
     }
     list.push({ question: lastQuestion, answer: String(lastAnswer ?? '') })

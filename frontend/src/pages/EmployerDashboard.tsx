@@ -1533,7 +1533,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </div>
 
                   <div style={{ marginTop: '20px' }}>
-                    <VideoProctorTimeline logs={selectedApplicant.interviewResult.integrity?.logs} />
+                    <VideoProctorTimeline sessionId={selectedApplicant.interviewResult.sessionId} logs={selectedApplicant.interviewResult.integrity?.logs} />
                   </div>
                 </div>
               )}

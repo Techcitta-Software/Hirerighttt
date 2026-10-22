@@ -64,31 +64,58 @@ test('computeEmployerInterviewComposite blends interview and ATS', () => {
   assert.equal(c.compositeScore, Math.round(80 * 0.65 + 60 * 0.35))
 })
 
-test('first adaptive question references JD when job description is attached', () => {
+test('theory turn uses role-relevant skills when job description is attached', () => {
   const jd =
     'Senior backend engineer. Must know Kafka, Redis, and Go. Build distributed event streaming.'
-  const q = generateAdaptiveQuestionLocal({
+  const ctx = {
+    name: 'Alex',
+    skills: ['Kafka', 'Redis'],
+    jobs: ['Backend Engineer: Acme'],
+    achievements: [],
+    resumeSnippet: 'Kafka Redis Go microservices',
+  }
+  const profile = {
+    resumeText: 'Experience with Kafka and Redis in production.',
+    skills: ['Kafka', 'Redis'],
+    workExperiences: [{ jobTitle: 'Backend Engineer', company: 'Acme', description: 'Streaming' }],
+  }
+  const q1 = generateAdaptiveQuestionLocal({
     role: 'Backend Engineer',
     level: '2–5 years',
     jobDescription: jd,
     history: [],
     lastAnswer: '',
-    profile: {
-      resumeText: 'Experience with Kafka and Redis in production.',
-      skills: ['Kafka', 'Redis'],
-    },
-    ctx: {
-      name: 'Alex',
-      skills: ['Kafka', 'Redis'],
-      jobs: [],
-      achievements: [],
-      resumeSnippet: 'Kafka Redis Go microservices',
-    },
+    profile,
+    ctx,
   })
-  const lower = q.text.toLowerCase()
+  assert.match(String(q1.focus || ''), /^structured-work-/)
+
+  const q2 = generateAdaptiveQuestionLocal({
+    role: 'Backend Engineer',
+    level: '2–5 years',
+    jobDescription: jd,
+    history: [{ question: q1, answer: 'Owned ingestion pipeline and cut lag 40%.' }],
+    lastAnswer: 'Owned ingestion pipeline and cut lag 40%.',
+    profile,
+    ctx,
+  })
+  const history = [
+    { question: q1, answer: 'Owned ingestion pipeline and cut lag 40%.' },
+    { question: q2, answer: 'Debugged partition skew with better keys and monitoring.' },
+  ]
+  const q3 = generateAdaptiveQuestionLocal({
+    role: 'Backend Engineer',
+    level: '2–5 years',
+    jobDescription: jd,
+    history,
+    lastAnswer: history[1].answer,
+    profile,
+    ctx,
+  })
+  const lower = q3.text.toLowerCase()
   assert.ok(
-    lower.includes('kafka') || lower.includes('redis') || lower.includes('job description'),
-    `expected JD-themed question, got: ${q.text}`,
+    lower.includes('kafka') || lower.includes('redis') || lower.includes('node'),
+    `expected role skill theory question, got: ${q3.text}`,
   )
 })
 

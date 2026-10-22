@@ -27,7 +27,7 @@ async function setup(page: import('@playwright/test').Page, options = { empty: f
   })
 }
 
-test('dashboard displays real data, downloads a PDF and opens profile editing', async ({ page }) => {
+test('dashboard displays real data, downloads a PDF and opens job matches', async ({ page }) => {
   await setup(page)
   await page.goto('/dashboard')
   await expect(page.getByRole('heading', { name: 'Welcome back, Maya.' })).toBeVisible()
@@ -40,8 +40,8 @@ test('dashboard displays real data, downloads a PDF and opens profile editing', 
   expect(download.suggestedFilename()).toBe('maya-patel-career-report.pdf')
   expect(await download.failure()).toBeNull()
   await page.screenshot({ path: 'test-results/candidate-dashboard-desktop.png', fullPage: true })
-  await page.getByRole('link', { name: 'Update Profile', exact: true }).first().click()
-  await expect(page).toHaveURL(/\/profile$/)
+  await page.getByRole('link', { name: 'Browse all roles', exact: true }).click()
+  await expect(page).toHaveURL(/\/jobs$/)
 })
 
 test('empty dashboard has no invented scores and fits mobile', async ({ page }) => {

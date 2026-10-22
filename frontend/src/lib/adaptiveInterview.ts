@@ -54,6 +54,9 @@ export async function fetchNextAdaptiveQuestion(options: {
   lastQuestion: Question
   lastAnswer: string
 }): Promise<Question> {
+  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+    throw new Error('INTERVIEW_COMPLETE')
+  }
   await ensureApiSession()
   try {
     const res = await apiFetch('/api/interview/next', {
@@ -72,10 +75,16 @@ export async function fetchNextAdaptiveQuestion(options: {
     })
     if (res.ok) {
       const data = await res.json()
+      if (data.complete === true) throw new Error('INTERVIEW_COMPLETE')
       if (data.question?.text) return data.question as Question
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') throw err
     // client LLM / local fallback
+  }
+
+  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+    throw new Error('INTERVIEW_COMPLETE')
   }
 
   return generateAdaptiveQuestionClient({

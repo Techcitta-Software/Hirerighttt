@@ -25,7 +25,7 @@ import {
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
-import { beginImmediateInterview, isImmediateInterviewTestEnabled } from '../lib/interviewTestMode'
+import { beginImmediateInterview } from '../lib/interviewTestMode'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -144,7 +144,6 @@ export function ProfileWizard() {
     } catch {
       // local save is enough when API is offline
     }
-    await new Promise((resolve) => setTimeout(resolve, 350))
     setSaving(false)
     showToast(message)
   }
@@ -336,18 +335,6 @@ export function ProfileWizard() {
                 All changes are saved automatically
               </p>
 
-              {step === 4 && isImmediateInterviewTestEnabled() && (
-                <MotionButton
-                  type="button"
-                  className={styles.backBtn}
-                  disabled={saving}
-                  onClick={() => beginImmediateInterviewTest(navigate)}
-                  lift
-                >
-                  Test: interview now
-                </MotionButton>
-              )}
-
               <MotionButton
                 type="button"
                 className={styles.primaryBtn}
@@ -359,7 +346,7 @@ export function ProfileWizard() {
                   ? 'Saving…'
                   : step === 4
                     ? isScheduled
-                      ? 'Save & finish scheduling'
+                      ? 'Save & Submit'
                       : 'Save & Start AI Interview'
                     : step === 5
                       ? 'Explore matched roles'

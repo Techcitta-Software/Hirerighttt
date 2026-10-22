@@ -101,7 +101,7 @@ test('localVendorJobQuestion covers six JD-anchored turns for AI JD', () => {
   assert.ok(gapCount >= 1)
 })
 
-test('generateVendorJobQuestion falls back when LLM anchor invalid', async () => {
+test('generateVendorJobQuestion falls back when the response misses the work slot', async () => {
   const plan = buildJdCoveragePlan({ jobDescription: AI_ENGINEER_JD, resumeText: FULL_STACK_RESUME })
   const q = await generateVendorJobQuestion(
     {
@@ -130,7 +130,8 @@ test('generateVendorJobQuestion falls back when LLM anchor invalid', async () =>
       }),
     },
   )
-  assert.equal(q.focus, 'vendor-jd-local')
+  assert.equal(q.focus, 'structured-work-1')
+  assert.match(q.text, /responsibilities/)
 })
 
 test('generateVendorJobQuestion accepts valid LLM question', async () => {
@@ -151,7 +152,7 @@ test('generateVendorJobQuestion accepts valid LLM question', async () => {
       callLlm: async () => ({
         text: JSON.stringify({
           question: {
-            text: 'Describe how you would evaluate LLM output quality before shipping a RAG feature to users.',
+            text: 'Describe a work responsibility you owned and how your contribution improved the outcome.',
             category: 'Technical',
             keywords: ['llm', 'quality'],
             hint: 'Metrics and process',
@@ -162,7 +163,8 @@ test('generateVendorJobQuestion accepts valid LLM question', async () => {
       }),
     },
   )
-  assert.equal(q.focus, 'vendor-jd-llm')
+  assert.equal(q.focus, 'structured-work-1')
+  assert.equal(q.text, 'Describe a work responsibility you owned and how your contribution improved the outcome.')
 })
 
 test('localVendorJobQuestion avoids coding questions for sales JD', () => {

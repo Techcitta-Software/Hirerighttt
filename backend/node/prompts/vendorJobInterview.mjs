@@ -1,3 +1,4 @@
+import { buildStructuredTurnQuestion, structuredPlanSummary, resolveExactInterviewRole, questionMatchesPlan } from '../interviewQuestionPlan.mjs'
 import { CATEGORIES, callLlmApi, firstNameFromFull, INTERVIEW_TURN_COUNT } from '../interviewAgent.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
@@ -283,64 +284,35 @@ function parseLlmQuestion(rawText, ctx) {
  */
 export async function generateVendorJobQuestion(input, deps = {}) {
   const callLlm = deps.callLlm || callLlmApi
-  const totalTurns = Number(input.totalTurns) || INTERVIEW_TURN_COUNT
   const history = Array.isArray(input.history) ? input.history : []
   const turnNumber = history.length + 1
-  const priorQuestions = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
-  const gapProbedSoFar = history.some((h) => h.question?.probesGap)
-  const firstName = firstNameFromFull(input.candidateName || input.ctx?.name || '')
-  const jobDescription = clean(input.jobDescription)
-  const plan = input.plan || buildJdCoveragePlan({
-    jobDescription,
-    requiredSkills: input.requiredSkills || [],
-    resumeText: input.ctx?.resumeSnippet || input.profile?.resumeText || '',
-  })
-
-  const validateCtx = {
-    plan,
-    priorQuestions,
-    jobDescription,
-    turnNumber,
-    totalTurns,
-    gapProbedSoFar,
-  }
-
-  const system = buildVendorJobSystemPrompt({
-    turnNumber,
-    totalTurns,
-    jobTitle: input.jobTitle || input.role,
-    roleTrack: input.roleTrack || input.role,
-    level: input.level,
-    firstName,
-  })
-  const user = buildVendorJobUserPayload({
-    turnNumber,
-    totalTurns,
-    jobTitle: input.jobTitle || input.role,
-    roleTrack: input.roleTrack || input.role,
-    level: input.level,
-    jobDescription,
-    plan,
-    candidateSummary: input.ctx,
-    priorQuestions,
-    lastAnswer: input.lastAnswer || '',
-  })
-
+  const ctx = input.ctx || { skills: input.profile?.skills || [], jobs: (input.profile?.workExperiences || []).map(w => `${w.jobTitle || ''} at ${w.company || ''}`), certs: (input.profile?.certifications || []).map(c => c.name), achievements: input.profile?.achievements || [], resumeSnippet: input.profile?.resumeText || '' }
+  const role = resolveExactInterviewRole(input.profile || {}, input.jobTitle || input.role)
+  const plan = structuredPlanSummary(role, ctx, input.profile || null, input.level || '')
+  const fallback = buildStructuredTurnQuestion({ turnNumber, first: firstNameFromFull(input.candidateName || ctx.name || ''), level: input.level || '', profile: input.profile || null, ctx, roleOverride: role, history })
+  if (!fallback) throw new Error('The six-question interview is complete.')
+  const theory = plan.fresher ? turnNumber <= 2 : turnNumber === 3 || turnNumber === 4
+  const system = `You are Ava, the same professional live interviewer. Generate exactly one question as JSON.
+Follow this mandatory six-question plan: ${JSON.stringify(plan.turnPlan)}.
+This is turn ${turnNumber}: ${plan.turnPlan[turnNumber - 1]}. Experience: ${input.profile?.totalExperience || input.level || 'not specified'}.
+Analyze the current role and experience to calibrate depth. The two designated skills are ${plan.recommendedSkills.join(', ')}.
+For theory slots, ask one clear conceptual question on the assigned skill, never a résumé example, past-work story or coding exercise. Use that skill as topic and omit resumeAnchor.
+For freshers, skill one is a known programming language and skill two is SQL; do not assume employment.
+Use supplied work/project/certification evidence only in the relevant slots. Never invent employers, projects or credentials.
+The JD provides role context but must not override the slot or convert a theory question into a personal work question.
+Do not repeat prior questions. Keep a natural conversational tone and one main question.
+Return {"question":{"text":"...","category":"Technical|Experience|Problem Solving|Communication","keywords":[],"hint":"...","topic":"..."}}.`
+  const user = JSON.stringify({ role, experience: input.level, jobDescription: input.jobDescription, candidateSummary: theory ? undefined : ctx, priorQuestions: history.map(h => h.question?.text || h.question), lastAnswer: theory ? undefined : input.lastAnswer, slotExample: fallback })
   for (const temperature of [0.55, 0.35]) {
     const llm = await callLlm({ system, user, temperature, tier: 'quality' })
     if (!llm?.text) continue
-    const validated = parseLlmQuestion(llm.text, validateCtx)
-    if (validated) return validated
+    try {
+      const parsed = JSON.parse(llm.text.match(/\{[\s\S]*\}/)?.[0] || '{}')
+      const q = parsed.question || parsed
+      if (typeof q.text !== 'string' || q.text.length < 24 || !questionMatchesPlan(q, plan, turnNumber)) continue
+      if (history.some(h => (h.question?.text || h.question) === q.text)) continue
+      return { ...fallback, text: q.text, hint: typeof q.hint === 'string' ? q.hint : fallback.hint, keywords: Array.isArray(q.keywords) ? q.keywords.filter(k => typeof k === 'string') : fallback.keywords, topic: theory ? fallback.topic : q.topic || fallback.topic, jdAnchor: fallback.topic, probesGap: false, focus: fallback.focus }
+    } catch { /* Retry the same provider before the slot-specific fallback. */ }
   }
-
-  return localVendorJobQuestion({
-    turnNumber,
-    totalTurns,
-    jobTitle: input.jobTitle || input.role,
-    level: input.level,
-    plan,
-    history,
-    lastAnswer: input.lastAnswer,
-    firstName,
-  })
+  return { ...fallback, jdAnchor: fallback.topic, probesGap: false }
 }

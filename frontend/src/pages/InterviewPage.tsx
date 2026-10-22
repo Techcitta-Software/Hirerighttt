@@ -1,3 +1,4 @@
+import { ReviewEventTracker, saveReviewEvents } from '../lib/interviewReview'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -21,7 +22,6 @@ import {
   type FaceTrackStatus,
 } from '../lib/faceTracker'
 import {
-  pingInterviewIntegrity,
   processInterviewTurn,
   scoreInterviewRemote,
   startInterviewSession,
@@ -42,9 +42,6 @@ import {
   getInterviewResult,
   getProfile,
   saveInterviewResult,
-  saveProfile,
-  updateUserName,
-  type IntegrityLogEvent,
   type InterviewResult,
 } from '../lib/store'
 import {
@@ -57,7 +54,7 @@ import {
   hasSubstantiveInterviewProgress,
 } from '../lib/interviewFinish'
 import { apiHealthInfo } from '../lib/api'
-import { ensureApiSession, syncProfileToApi } from '../lib/apiSession'
+import { ensureApiSession } from '../lib/apiSession'
 import {
   goToCandidateDashboardAfterInterview,
   goToInterviewReportAfterCompletion,
@@ -67,7 +64,6 @@ import {
   createGroqVadSttController,
   type GroqVadSttController,
 } from '../lib/groqVadStt'
-import { parseResumeFile } from '../lib/resumeParser'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
@@ -84,7 +80,7 @@ const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
   'Only you in frame — extra people bans the interview',
-  'Face the camera (not the side) the whole time',
+  'Brief glances are fine. Poor frames are marked unable to assess. Scores are unaffected.',
   'Questions follow your resume and the role on your profile',
   'It works for any field — engineering, healthcare, oil & gas, and more',
   'Talk over Ava to interrupt — only your voice stops her (not background noise)',
@@ -155,7 +151,6 @@ export function InterviewPage() {
   const [mediaBusy, setMediaBusy] = useState(false)
   const [checklist, setChecklist] = useState([false, false, false])
   const [starting, setStarting] = useState(false)
-  const [agentLabel, setAgentLabel] = useState('Ava · live voice agent')
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
 
   useEffect(() => {
@@ -194,7 +189,10 @@ export function InterviewPage() {
   const [banMessage, setBanMessage] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [, setRecordingNote] = useState('')
-  const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
+  const [, setRecordingUrl] = useState<string | null>(null)
+  const reviewRef = useRef(new ReviewEventTracker())
+  const [reviewSyncError, setReviewSyncError] = useState('')
+  const recordingConsent = true
   const sessionIdRef = useRef<string | null>(null)
   const integrityRef = useRef<IntegritySnapshot>({
     faceViolations: 0,
@@ -207,6 +205,7 @@ export function InterviewPage() {
   const multiBanRef = useRef(0)
   const currentRef = useRef(0)
   const recorderRef = useRef(new InterviewRecorder())
+  const pendingClipRef = useRef<Awaited<ReturnType<InterviewRecorder['stop']>>>(null)
   const recordingBlobUrlRef = useRef<string | null>(null)
 
   const answersRef = useRef<string[]>([])
@@ -248,7 +247,6 @@ export function InterviewPage() {
   const groqSttLoading = groqSttPreferred && streamReady && !groqVadReady && !groqInitFailed
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
-  const [resumeNote, setResumeNote] = useState('')
   const [savedReport] = useState<InterviewResult | null>(() => getInterviewResult())
   const name = firstName()
 
@@ -386,52 +384,18 @@ export function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groqWhisperEnabled, streamReady])
 
-  const lastLogTimeRef = useRef<{ [key: string]: number }>({})
-
-  const addIntegrityLog = useCallback(
-    (
-      eventType: IntegrityLogEvent['eventType'],
-      severity: IntegrityLogEvent['severity'],
-      message: string,
-    ) => {
-      const now = Date.now()
-      const lastTime = lastLogTimeRef.current[eventType] || 0
-      if (now - lastTime < 3000 && eventType !== 'INTERVIEW_BANNED') return
-      lastLogTimeRef.current[eventType] = now
-
-      const date = new Date()
-      const formattedTime = date.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-
-      const logEvent: IntegrityLogEvent = {
-        id: `log-${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-        timestamp: date.toISOString(),
-        formattedTime,
-        eventType,
-        severity,
-        message,
-        questionIndex: stageRef.current === 'interview' ? currentRef.current + 1 : undefined,
-      }
-
-      if (!integrityRef.current.logs) {
-        integrityRef.current.logs = []
-      }
-      integrityRef.current.logs.push(logEvent)
-    },
-    [],
-  )
 
   // Continuous face tracking in lobby + full interview room
   useEffect(() => {
-    if (skipCamera || (!streamReady && stage === 'setup')) return
+    if (stage === 'setup' && (skipCamera || !streamReady)) return
     if (stage === 'analyzing' || stage === 'results') return
     const tracker = new FaceTracker()
     faceTrackerRef.current = tracker
     let alive = true
+    let busy = false
     const id = window.setInterval(() => {
+      if (busy) return
+      busy = true
       void (async () => {
         if (!alive || interviewBanned) return
         const video =
@@ -440,80 +404,11 @@ export function InterviewPage() {
         if (!alive) return
         setFaceStatus(status)
 
-        integrityRef.current.maxFacesSeen = Math.max(
-          integrityRef.current.maxFacesSeen,
-          status.faceCount,
-        )
-
-        if (status.issue === 'looking_away') {
-          integrityRef.current.sideLookWarnings =
-            (integrityRef.current.sideLookWarnings || 0) + 1
-          addIntegrityLog(
-            'SIDE_GAZE_LOOKING_AWAY',
-            'warn',
-            `Alert: Candidate looking away from screen (Yaw: ${(status.yaw * 57.3).toFixed(1)}°)`,
-          )
+        if (stageRef.current === 'interview' && !pendingClipRef.current) {
+          reviewRef.current.sample(status, Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000))
+          integrityRef.current.logs = reviewRef.current.events
         }
-        if (status.issue === 'too_far') {
-          integrityRef.current.tooFarWarnings =
-            (integrityRef.current.tooFarWarnings || 0) + 1
-          addIntegrityLog(
-            'EXCESSIVE_MOVEMENT',
-            'warn',
-            `Alert: Excessive distance/movement from camera (Face ratio: ${status.faceAreaRatio.toFixed(3)})`,
-          )
-        }
-
-        if (status.issue === 'multi_person' || status.severity === 'ban') {
-          integrityRef.current.faceViolations += 1
-          integrityRef.current.singlePersonOk = false
-          multiBanRef.current += 1
-          void pingInterviewIntegrity(sessionIdRef.current, status.faceCount)
-
-          addIntegrityLog(
-            'MULTIPLE_FACES_DETECTED',
-            'ban',
-            `Alert: MULTIPLE PEOPLE DETECTED: ${status.faceCount} faces in camera frame simultaneously!`,
-          )
-
-          // ~2 seconds of multi-person (interval 350ms × 6) → ban live interview
-          if (stageRef.current === 'interview' && multiBanRef.current >= 6) {
-            const reason =
-              'Interview banned: more than one person was detected on camera. Only the candidate may be in frame.'
-            integrityRef.current.banned = true
-            integrityRef.current.banReason = reason
-            addIntegrityLog(
-              'INTERVIEW_BANNED',
-              'ban',
-              `Alert: INTERVIEW BANNED & TERMINATED: Integrity violation (Multiple people detected)`,
-            )
-            setInterviewBanned(true)
-            setBanMessage(reason)
-            stopAllSpeech()
-            finishingRef.current = true
-            const next = [...answersRef.current]
-            next[currentRef.current] = draftRef.current.trim()
-            answersRef.current = next
-            finish(next, true, reason)
-          }
-        } else {
-          multiBanRef.current = Math.max(0, multiBanRef.current - 1)
-        }
-
-        if (
-          status.severity === 'block' &&
-          status.issue === 'no_face' &&
-          stageRef.current === 'interview'
-        ) {
-          integrityRef.current.faceViolations += 1
-          void pingInterviewIntegrity(sessionIdRef.current, 0)
-          addIntegrityLog(
-            'NO_FACE_SEEN',
-            'block',
-            `Alert: NO FACE DETECTED: Candidate face moved out of camera frame`,
-          )
-        }
-      })()
+      })().finally(() => { busy = false })
     }, 350)
     return () => {
       alive = false
@@ -860,6 +755,15 @@ export function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, current])
 
+  useEffect(() => {
+    if (stage !== 'interview') return
+    const timer = window.setInterval(() => {
+      if (sessionIdRef.current) void saveReviewEvents(sessionIdRef.current, reviewRef.current.events)
+        .then(() => setReviewSyncError('')).catch(e => setReviewSyncError(e.message))
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [stage])
+
   async function startInterview() {
     if (!streamReady && !skipCamera) return
     if (!skipCamera) {
@@ -931,7 +835,6 @@ export function InterviewPage() {
       })
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
-      setAgentLabel(started.agent || 'Ava · adaptive interviewer')
       setQuestions(started.questions)
       setCurrent(0)
       setDraft('')
@@ -939,10 +842,12 @@ export function InterviewPage() {
       setRecordingNote('')
       setRecordingUrl(null)
       setShowTypeFallback(!speechSupported)
+      if (recordingConsent && !sessionIdRef.current) throw new Error('A connected backend session is required to save a vendor recording.')
       setStage('interview')
-
-      // Start local webcam recording (saved on finish)
-      if (streamRef.current) {
+      reviewRef.current = new ReviewEventTracker()
+      interviewStartedAtRef.current = Date.now()
+      // This epoch is also the recording timeline origin.
+      if (streamRef.current && recordingConsent && sessionIdRef.current) {
         const ok = recorderRef.current.start(streamRef.current)
         setIsRecording(ok)
         if (!ok) {
@@ -986,20 +891,6 @@ export function InterviewPage() {
       return
     }
     if (interviewBanned || advancingRef.current) return
-    if (!skipCamera) {
-      if (faceStatus.issue === 'multi_person' || faceStatus.severity === 'ban') {
-        setDeviceError('Multiple people detected — interview cannot continue.')
-        return
-      }
-      if (faceStatus.severity === 'block') {
-        setDeviceError('Keep your face clearly in frame to submit.')
-        return
-      }
-      if (faceStatus.issue === 'looking_away' && Math.abs(faceStatus.yaw) >= 0.48) {
-        setDeviceError('Turn to face the camera, then submit your answer.')
-        return
-      }
-    }
     listenAfterTtsRef.current = false
     stopAllSpeech()
 
@@ -1028,7 +919,16 @@ export function InterviewPage() {
       return
     }
 
-    if (adaptiveRef.current && (answeredCount >= MAX_ADAPTIVE_QUESTIONS || current >= MAX_ADAPTIVE_QUESTIONS - 1)) {
+    const currentQuestion = questions[current]
+    historyRef.current = [
+      ...historyRef.current.slice(0, current),
+      { question: currentQuestion, answer },
+    ]
+
+    if (
+      adaptiveRef.current &&
+      historyRef.current.length >= MAX_ADAPTIVE_QUESTIONS
+    ) {
       finishingRef.current = true
       finish(next, false)
       return
@@ -1039,12 +939,6 @@ export function InterviewPage() {
     lastSpeechAtRef.current = 0
     setDraft('')
     setDeviceError('')
-
-    const currentQuestion = questions[current]
-    historyRef.current = [
-      ...historyRef.current.slice(0, current),
-      { question: currentQuestion, answer },
-    ]
 
     try {
       const turn = await processInterviewTurn({
@@ -1077,9 +971,19 @@ export function InterviewPage() {
         lastQuestion: currentQuestion,
         lastAnswer: answer,
       })
+      if (historyRef.current.length >= MAX_ADAPTIVE_QUESTIONS) {
+        finishingRef.current = true
+        finish(next, false)
+        return
+      }
       setQuestions((prev) => [...prev, nextQuestion])
       setCurrent((c) => c + 1)
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') {
+        finishingRef.current = true
+        finish(next, false)
+        return
+      }
       setDeviceError('Could not load the next question. Try again or say "end the interview".')
     } finally {
       advancingRef.current = false
@@ -1092,6 +996,8 @@ export function InterviewPage() {
   }
 
   function finish(finalAnswers: string[], banned: boolean, banReason?: string) {
+    reviewRef.current.finish((Date.now() - interviewStartedAtRef.current) / 1000)
+    integrityRef.current.logs = reviewRef.current.events
     setStage('analyzing')
     setIsRecording(false)
     const reason =
@@ -1107,24 +1013,14 @@ export function InterviewPage() {
     window.setTimeout(() => {
       void (async () => {
         const integrity = { ...integrityRef.current }
+        if (sessionIdRef.current) await saveReviewEvents(sessionIdRef.current, reviewRef.current.events)
         let recordingNoteLocal = ''
 
         try {
-          const clip = await recorderRef.current.stop()
+          const clip = pendingClipRef.current || await recorderRef.current.stop()
+          pendingClipRef.current = clip
           if (clip) {
-            await recorderRef.current.saveToIndexedDb({
-              blob: clip.blob,
-              durationMs: clip.durationMs,
-              role,
-              level,
-              candidateName: firstName(),
-            })
-            if (recordingBlobUrlRef.current) {
-              URL.revokeObjectURL(recordingBlobUrlRef.current)
-            }
-            recordingBlobUrlRef.current = URL.createObjectURL(clip.blob)
-            setRecordingUrl(recordingBlobUrlRef.current)
-            recordingNoteLocal = `Video recording saved locally (${Math.round(clip.blob.size / 1024)} KB)`
+            recordingNoteLocal = 'Recording ready for secure upload.'
             if (sessionIdRef.current) {
               const { uploadInterviewRecordingToS3 } = await import(
                 '../lib/interviewRecordingUpload'
@@ -1136,15 +1032,16 @@ export function InterviewPage() {
               })
               if (cloud.ok) {
                 recordingNoteLocal = `Recording saved to secure cloud storage (S3).`
-              } else if (!cloud.skipped) {
-                recordingNoteLocal += ` Cloud upload: ${cloud.error}`
+                pendingClipRef.current = null
+              } else {
+                throw new Error(`Recording upload failed: ${cloud.error} Your video remains in memory; keep this tab open and retry Leave.`)
               }
             }
           } else {
             recordingNoteLocal = 'Recording not captured — answers were still scored locally.'
           }
-        } catch {
-          recordingNoteLocal = 'Could not save recording locally.'
+        } catch (error) {
+          throw error instanceof Error ? error : new Error('Could not upload recording. Keep this tab open and retry Leave.')
         }
         setRecordingNote(recordingNoteLocal)
 
@@ -1180,26 +1077,8 @@ export function InterviewPage() {
             integrity,
           })
         }
-        if (integrity.banned) {
-          scored = {
-            ...scored,
-            overall: 0,
-            improvements: [
-              integrity.banReason || reason,
-              ...(scored.improvements || []).slice(0, 4),
-            ],
-            strengths: ['Integrity rules were enforced for a fair interview.'],
-            integrity: {
-              faceViolations: integrity.faceViolations,
-              singlePersonOk: false,
-              maxFacesSeen: integrity.maxFacesSeen,
-              banned: true,
-              banReason: integrity.banReason || reason,
-              sideLookWarnings: integrity.sideLookWarnings,
-              tooFarWarnings: integrity.tooFarWarnings,
-            },
-          }
-        }
+        scored.sessionId = sessionIdRef.current || undefined
+        scored.integrity = { ...integrity, logs: reviewRef.current.events }
         saveInterviewResult(scored)
         await markCandidateOnboardingCompleteAfterInterview()
         if (targetJobRaw?.applicationId) {
@@ -1271,9 +1150,8 @@ export function InterviewPage() {
     return `${m}:${s.toString().padStart(2, '0')}`
   }, [secondsLeft])
 
-  const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0
   const faceBlocks =
-    !skipCamera &&
+    stage === 'setup' && !skipCamera &&
     (faceStatus.severity === 'block' ||
       faceStatus.severity === 'ban' ||
       faceStatus.issue === 'multi_person' ||
@@ -1287,35 +1165,12 @@ export function InterviewPage() {
     !starting &&
     scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
-  const sttEngineLabel = groqVadReady
-    ? 'Silero VAD · Groq Whisper'
-    : webSpeechSupported
-      ? 'Browser speech'
-      : ''
-
-  const liveCaptionText = (() => {
-    const committed = draft.trim()
-    if (committed) return committed
-    if (sttPhase === 'capturing') {
-      return groqVadReady
-        ? 'Recording your voice… (Silero VAD)'
-        : 'Listening… speak your answer.'
-    }
-    if (sttPhase === 'transcribing') return 'Transcribing with Groq Whisper…'
-    if (listening && groqVadReady) {
-      return 'Speak now — each pause sends a phrase to the live transcript.'
-    }
-    if (listening) return 'Listening… speak your answer out loud.'
-    if (aiSpeaking) return 'Waiting for Ava to finish…'
-    return 'Waiting for Ava to finish the question…'
-  })()
-
   const callStatus = advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
-      ? 'Recording your answer — watch the live caption'
+      ? 'Recording your answer…'
       : sttPhase === 'transcribing'
-        ? 'Updating live transcript…'
+        ? 'Transcribing your answer…'
         : aiSpeaking
           ? 'Ava speaking — speak clearly (2+ words) to interrupt'
           : listening
@@ -1334,15 +1189,6 @@ export function InterviewPage() {
 
         {stage === 'interview' && question ? (
           <div className={styles.appMeta}>
-            <span className={styles.livePill}>
-              <i /> Recording
-            </span>
-            <span className={styles.agentPill}>{agentLabel}</span>
-            {isRecording && (
-              <span className={styles.recPill}>
-                <i /> REC
-              </span>
-            )}
             {!skipCamera && (
               <span
                 className={`${styles.faceBadgeInline} ${
@@ -1356,9 +1202,6 @@ export function InterviewPage() {
                 {faceStatus.label}
               </span>
             )}
-            <span>
-              Question {current + 1} of {questions.length}
-            </span>
             <span className={secondsLeft < 30 ? styles.timerLow : styles.timer}>
               {timeLabel}
             </span>
@@ -1374,6 +1217,7 @@ export function InterviewPage() {
         )}
       </header>
 
+      {reviewSyncError && <p role="alert">{reviewSyncError}</p>}
       <AnimatePresence mode="wait">
         {stage === 'setup' && (
           <motion.section
@@ -1492,123 +1336,6 @@ export function InterviewPage() {
                     </span>
                   </div>
                 )}
-
-                {/* Live Resume Sync Dropzone */}
-                <div className={styles.tips} style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                    <h4
-                      style={{
-                        margin: 0,
-                        color: '#166534',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <HrIcon name="document" size={18} /> Resume Synchronized:{' '}
-                      <strong>{candidateDisplayName}</strong>
-                    </h4>
-                    <label style={{ cursor: 'pointer', background: '#ffffff', border: '1px solid #86efac', padding: '5px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#15803d', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
-                      Upload / Change Resume PDF
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.txt"
-                        style={{ display: 'none' }}
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          try {
-                            const extracted = await parseResumeFile(file)
-                            if (extracted.fullName) {
-                              updateUserName(extracted.fullName)
-                              setCandidateDisplayName(extracted.fullName)
-                            }
-                            const currentP = getProfile() || {
-                              resumeName: file.name,
-                              updatedAt: new Date().toISOString(),
-                              completedSteps: 1,
-                              skills: [],
-                              whoAreYou: '',
-                              whatDrivesYou: '',
-                              keyStrengths: '',
-                              currentRole: role,
-                              totalExperience: level,
-                              currentLocation: 'Remote',
-                              noticePeriod: '',
-                              experienceSummary: '',
-                              workExperiences: [],
-                              achievements: [],
-                              metrics: [],
-                              awards: [],
-                              certifications: [],
-                              selfRating: 4,
-                              preferredRoles: [],
-                              preferredLocations: [],
-                              workMode: '',
-                              salaryExpectation: '',
-                              interviewNotes: '',
-                              resumeText: '',
-                            }
-                            const updatedP = {
-                              ...currentP,
-                              resumeFile: null,
-                              resumeName: file.name,
-                              resumeText: extracted.resumeText || `Resume: ${file.name}`,
-                              fullName: extracted.fullName || currentP.fullName,
-                              name: extracted.fullName || currentP.name,
-                              skills: extracted.skills?.length ? extracted.skills : currentP.skills,
-                              currentRole: extracted.currentRole || currentP.currentRole || role,
-                              totalExperience: extracted.totalExperience || currentP.totalExperience || level,
-                              workExperiences: extracted.workExperiences !== undefined ? extracted.workExperiences : currentP.workExperiences,
-                              certifications: extracted.certifications?.length ? extracted.certifications : currentP.certifications,
-                            }
-                            saveProfile(updatedP)
-                            void syncProfileToApi(updatedP)
-                            setResumeNote(
-                              `Loaded: ${file.name}${extracted.fullName ? ` (${extracted.fullName})` : ''}`,
-                            )
-                          } catch (err) {
-                            console.warn('Resume upload error:', err)
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                  {resumeNote ? (
-                    <p
-                      style={{
-                        margin: '4px 0',
-                        fontSize: '0.8rem',
-                        color: '#15803d',
-                        fontWeight: 600,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <HrIcon name="check" size={14} /> {resumeNote}
-                    </p>
-                  ) : profile?.resumeName ? (
-                    <p
-                      style={{
-                        margin: '4px 0',
-                        fontSize: '0.8rem',
-                        color: '#166534',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                      }}
-                    >
-                      <HrIcon name="check" size={14} /> File: {profile.resumeName} (
-                      {profileSkills.slice(0, 5).join(', ')}
-                      {profileSkills.length > 5 ? '…' : ''})
-                    </p>
-                  ) : (
-                    <p style={{ margin: '4px 0', fontSize: '0.8rem', color: '#64748b' }}>
-                      Upload your PDF resume so Ava can extract your real name and tailor questions to your projects.
-                    </p>
-                  )}
-                </div>
 
                 <div className={styles.tips}>
                   <h4>Before you join</h4>
@@ -1773,63 +1500,8 @@ export function InterviewPage() {
                 </div>
 
                 <div className={styles.ccBox}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                    <span className={styles.ccTag}>Ava asks · Gemini 2.5 Flash / Luna</span>
-                    {question.resumeAnchor && (
-                      <span className={styles.resumeAnchorTag} title={question.resumeAnchor}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                          <HrIcon name="document" size={14} /> Sourced from Resume:{' '}
-                          {question.resumeAnchor.length > 38
-                            ? `${question.resumeAnchor.slice(0, 38)}…`
-                            : question.resumeAnchor}
-                        </span>
-                      </span>
-                    )}
-                  </div>
+                  <span className={styles.ccTag}>Ava asks · Gemini 2.5 Flash / Luna</span>
                   <p>{question.text}</p>
-                  {!aiSpeaking && <small>{question.hint}</small>}
-                </div>
-
-                {/* Candidate live STT — Silero VAD + Groq Whisper or browser speech */}
-                <div
-                  className={`${styles.webcamCaptionsOverlay} ${
-                    sttPhase === 'capturing'
-                      ? styles.webcamCaptionsRecording
-                      : sttPhase === 'transcribing'
-                        ? styles.webcamCaptionsTranscribing
-                        : draft.trim()
-                          ? styles.webcamCaptionsHasText
-                          : ''
-                  }`}
-                  aria-live="polite"
-                  aria-atomic="true"
-                >
-                  <span
-                    className={`${styles.ccLiveTag} ${
-                      sttPhase === 'capturing' || draft.trim() ? styles.ccLiveTagHot : ''
-                    }`}
-                  >
-                    {sttPhase === 'capturing'
-                      ? '● RECORDING'
-                      : sttPhase === 'transcribing'
-                        ? '● TRANSCRIBING'
-                        : '● LIVE TRANSCRIPT'}
-                  </span>
-                  {groqVadReady && (
-                    <span className={styles.ccEngineTag}>Silero VAD · Groq Whisper</span>
-                  )}
-                  <p className={styles.ccLiveText}>
-                    {draft.trim() ? `"${draft.trim()}"` : liveCaptionText}
-                  </p>
-                  {(sttPhase === 'capturing' || sttPhase === 'transcribing') && (
-                    <div className={styles.ccLiveMeter} aria-hidden="true">
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                    </div>
-                  )}
                 </div>
 
                 <div className={styles.youLabel}>
@@ -1872,69 +1544,25 @@ export function InterviewPage() {
               </div>
             </div>
 
-            <aside className={styles.sidePanel}>
-              <div className={styles.panelHead}>
-                <h3>Live transcript</h3>
-                <span>
-                  {wordCount} words
-                  {sttEngineLabel ? ` · ${sttEngineLabel}` : ''}
-                </span>
-              </div>
-              <div className={styles.panelBody}>
-                <div
-                  className={`${styles.liveTranscriptBox} ${
-                    sttPhase === 'capturing'
-                      ? styles.liveTranscriptRecording
-                      : sttPhase === 'transcribing'
-                        ? styles.liveTranscriptTranscribing
-                        : ''
-                  }`}
-                  aria-live="polite"
-                >
-                  <p className={styles.liveTranscriptStatus}>
-                    {sttPhase === 'capturing'
-                      ? 'Recording…'
-                      : sttPhase === 'transcribing'
-                        ? 'Transcribing…'
-                        : listening
-                          ? 'Listening'
-                          : aiSpeaking
-                            ? 'Ava speaking'
-                            : 'Ready'}
-                  </p>
-                  <p className={styles.liveTranscriptText}>
-                    {draft.trim() ||
-                      (aiSpeaking
-                        ? 'Ava is asking — speak a short phrase to interrupt her, then answer.'
-                        : speechSupported
-                          ? groqVadReady
-                            ? 'Your answer builds here after each phrase. Pause briefly between sentences so Groq can transcribe.'
-                            : 'Pause ~5 seconds when finished to go to the next question.'
-                          : 'Speech unavailable in this browser. Type your answer.')}
-                  </p>
-                </div>
-                {(showTypeFallback || !speechSupported) && (
-                  <textarea
-                    className={styles.typeFallback}
-                    value={draft}
-                    rows={4}
-                    placeholder="Type your answer…"
-                    onChange={(e) => setDraft(e.target.value)}
-                  />
-                )}
-                {speechSupported && (
-                  <button
-                    type="button"
-                    className={styles.textBtn}
-                    onClick={() => setShowTypeFallback((v) => !v)}
-                  >
-                    {showTypeFallback ? 'Hide keyboard' : 'Use keyboard'}
-                  </button>
-                )}
-              </div>
-            </aside>
-
             <footer className={styles.dock}>
+              {(showTypeFallback || !speechSupported) && (
+                <textarea
+                  className={styles.typeFallback}
+                  value={draft}
+                  rows={3}
+                  placeholder="Type your answer…"
+                  onChange={(e) => setDraft(e.target.value)}
+                />
+              )}
+              {speechSupported && (
+                <button
+                  type="button"
+                  className={styles.textBtn}
+                  onClick={() => setShowTypeFallback((v) => !v)}
+                >
+                  {showTypeFallback ? 'Hide keyboard' : 'Use keyboard'}
+                </button>
+              )}
               <div className={styles.dockCluster}>
                 <button
                   type="button"
@@ -2075,52 +1703,7 @@ export function InterviewPage() {
               onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
             />
 
-            {/* Verification & Proctoring Audit Logs */}
-            {(recordingUrl || (result.integrity?.logs && result.integrity.logs.length > 0)) && (
-              <div style={{ marginTop: '24px', background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '24px', textAlign: 'left', boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginBottom: '14px' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <HrIcon name="shield-check" size={22} /> Proctoring Verification &amp; Session
-                    Recording
-                  </span>
-                </h3>
-                {recordingUrl && (
-                  <video
-                    className={styles.recordingPreview}
-                    src={recordingUrl}
-                    controls
-                    controlsList="nodownload"
-                    disablePictureInPicture
-                    playsInline
-                    style={{ width: '100%', maxHeight: '360px', borderRadius: '12px', background: '#000', marginBottom: '16px' }}
-                  />
-                )}
-                {result.integrity?.logs && result.integrity.logs.length > 0 && (
-                  <div>
-                    <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>
-                      Proctoring Audit Logs ({result.integrity.logs.length})
-                    </p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
-                      {result.integrity.logs.map((log) => (
-                        <div
-                          key={log.id}
-                          style={{
-                            background: log.severity === 'ban' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(37, 99, 235, 0.06)',
-                            border: `1px solid ${log.severity === 'ban' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(37, 99, 235, 0.15)'}`,
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            fontSize: '0.78rem',
-                            color: log.severity === 'ban' ? '#dc2626' : '#1e293b',
-                          }}
-                        >
-                          <span style={{ fontWeight: 700 }}>[{log.formattedTime}]</span> {log.message}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+
           </motion.section>
         )}
       </AnimatePresence>

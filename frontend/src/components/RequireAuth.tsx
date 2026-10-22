@@ -63,7 +63,8 @@ export function RequireAuth({ children, role }: Props) {
     return () => {
       cancelled = true
     }
-  }, [location.pathname])
+    // Validate once per mount; route changes reuse cached /api/me when still fresh.
+  }, [])
 
   if (!ready) {
     return (

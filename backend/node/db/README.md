@@ -1,5 +1,10 @@
 # HireRight PostgreSQL (Neon)
 
+For the current 35-table inventory, proposed normalized SaaS schema, storage boundary,
+and safe migration plan, see [NEON-SAAS-DESIGN.md](../../../docs/NEON-SAAS-DESIGN.md).
+The proposed DDL is in `design/schema-v2.sql`; it is deliberately excluded from startup
+and `db:init` until data reconciliation and application adapters are complete.
+
 ## Apply schema
 
 From repo root (loads `DATABASE_URL` from `.env`):

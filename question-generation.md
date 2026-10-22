@@ -15,6 +15,29 @@ There is **no fixed question bank** in the adaptive path: **one new LLM question
 
 ---
 
+## Current six-question policy (2026-10-21)
+
+This policy supersedes the older examples below that start with an introduction or freely follow a claimed skill. The configured model/provider, scoring, speech, and turn count remain unchanged. Generate one question at a time within its assigned slot.
+
+| Question | Experienced candidate | Fresher / no experience |
+|---|---|---|
+| 1 | Work responsibilities and personal contribution | Theory on a programming language the candidate knows |
+| 2 | A distinct work problem, decisions, and outcome | SQL theory fundamentals |
+| 3 | Theory on the first essential current-role skill | Academic, personal, or practice project contribution |
+| 4 | Theory on the second essential current-role skill | Project testing and problem solving |
+| 5 | Project contribution or certification learning | Certification learning, otherwise project improvement |
+| 6 | General motivation or learning goals | General motivation or learning goals |
+
+Resolve current role from the profile or actual work history, then the supplied role. Rank core skills using the role library; only relevant candidate skills can reorder that list. Unrelated résumé keywords cannot become primary skills. Use years of experience for conceptual difficulty; months are not years. If no programming language is known from the supplied data, ask the fresher to choose one instead of inventing proficiency.
+
+Theory questions must ask about a specific concept, mechanism, distinction, or trade-off within the assigned skill. They must not ask for résumé examples, previous implementations, or personal work stories, and must leave `resumeAnchor` empty. The theory payload omits the candidate résumé summary and last answer. Work, project, and certification questions may use real profile evidence; do not invent employers or credentials.
+
+The live adaptive backend, frontend fallback, and vendor generator apply this policy. `questionMatchesPlan` checks for obvious slot drift after output normalization. Invalid responses retry using the existing provider/settings, then use the slot-specific local fallback. The guard is heuristic; it does not prove semantic correctness of every model response. The separate opt-in assessment-plan API is a different workflow.
+
+Implementation: `backend/node/interviewQuestionPlan.mjs`, `frontend/src/lib/interviewQuestionPlan.ts`, `backend/node/interviewAgent.mjs`, `frontend/src/lib/interviewQuestionGeneration.ts`, and `backend/node/prompts/vendorJobInterview.mjs`.
+
+Verification: `node --test backend/node/tests/interviewQuestionPlan.test.mjs backend/node/tests/vendorJobInterview.test.mjs` and `npm run build`.
+
 ## 0. Agent rules (read first)
 
 | Rule | Why |
@@ -103,7 +126,7 @@ Send as `priorQuestions` in the user JSON so the model avoids duplicates.
 - Try **`temperature: 0.62`**, then **`0.42`** if parse/validation fails.
 - Model cascade: `PRIMARY_MODEL` → `FALLBACK_MODEL` → `LITE_FALLBACK_MODEL` (see `backend/node/llmModels.mjs`).
 
-### 2.2 System prompt (copy exactly — replace `${}` at runtime)
+### 2.2 Earlier system-prompt example (use current source and six-slot policy above)
 
 ```
 You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
@@ -148,7 +171,7 @@ Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint
 }
 ```
 
-### 2.4 Follow the last answer (critical behavior)
+### 2.4 Follow the last answer within the assigned non-theory slot
 
 The app does **not** use a separate rules engine for “good at Java” on the server path today; the **LLM** must:
 
@@ -244,7 +267,7 @@ type Question = {
 
 ---
 
-## 6. Turn 1 expectations (no separate code path)
+## 6. Earlier turn-1 examples (superseded by the six-slot policy above)
 
 Question 1 uses the **same** `generateAdaptiveQuestion` with empty history. The model should still:
 

@@ -47,9 +47,14 @@ export type AnswerAnalysis = {
 
 export type IntegrityLogEvent = {
   id: string
+  startOffsetSec?: number
+  durationSec?: number
+  reviewOnly?: boolean
+  candidateExplanation?: string
   timestamp: string
   formattedTime: string
   eventType:
+    | 'UNABLE_TO_ASSESS'
     | 'NO_FACE_SEEN'
     | 'MULTIPLE_FACES_DETECTED'
     | 'SIDE_GAZE_LOOKING_AWAY'
@@ -101,6 +106,7 @@ export type CareerScorecard = {
 }
 
 export type InterviewResult = {
+  sessionId?: string
   role: string
   level: string
   date: string

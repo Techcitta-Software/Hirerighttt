@@ -18,19 +18,34 @@ import { syncProfileToSupabase } from './supabaseSync'
 import { getUser, isLoggedIn, type SavedProfile } from './store'
 
 let syncInFlight: Promise<boolean> | null = null
+let tokenValidCache: { email: string; ok: boolean; at: number } | null = null
+const TOKEN_VALID_CACHE_MS = 45_000
 
 async function validateToken(expectedEmail?: string): Promise<boolean> {
   if (!getApiToken()) return false
+  const key = (expectedEmail || '').toLowerCase()
+  const now = Date.now()
+  if (
+    tokenValidCache &&
+    tokenValidCache.email === key &&
+    tokenValidCache.ok &&
+    now - tokenValidCache.at < TOKEN_VALID_CACHE_MS
+  ) {
+    return true
+  }
   try {
     const me = (await apiMe()) as { user?: { email?: string } }
     const tokenEmail = me.user?.email?.trim().toLowerCase()
     if (expectedEmail && tokenEmail !== expectedEmail) {
       setApiToken(null)
+      tokenValidCache = { email: key, ok: false, at: now }
       return false
     }
+    tokenValidCache = { email: key, ok: true, at: now }
     return true
   } catch {
     setApiToken(null)
+    tokenValidCache = { email: key, ok: false, at: now }
     return false
   }
 }

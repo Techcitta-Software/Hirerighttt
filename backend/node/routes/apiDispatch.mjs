@@ -1,3 +1,4 @@
+import { mergeReviewEvents } from '../interviewReview.mjs'
 import { randomBytes } from 'node:crypto'
 import { evaluateResumeAgainstJd, generateVendorAssessmentSheet, vendorReportNeedsRefresh } from '../vendor/aiEvaluation.mjs'
 import {
@@ -994,8 +995,8 @@ export function createApiDispatchMiddleware(ctx) {
             : null,
         organizationId: (() => {
           if (vendorApplication?.organizationId) return String(vendorApplication.organizationId)
-          const fromBody = body.organizationId ? String(body.organizationId) : ''
-          if (fromBody) return fromBody
+          // Vendor access is derived from the resolved job, never a client tenant ID.
+          if (vendorJob?.organizationId) return String(vendorJob.organizationId)
           if (!body.applicationId) return null
           const linked = (db.employerApplications || []).find(
             (a) => a.id === String(body.applicationId),
@@ -1076,6 +1077,11 @@ export function createApiDispatchMiddleware(ctx) {
         body.lastAnswer,
       )
       session.history = history
+      if (history.length >= INTERVIEW_TURN_COUNT) {
+        db.interviewSessions[sessionId] = session
+        await saveDb(db)
+        return json(res, 200, { complete: true, turn: history.length })
+      }
       const lastAnswer = String(body.lastAnswer || '')
       const next =
         session.questionMode === 'vendor_jd'
@@ -1363,8 +1369,11 @@ export function createApiDispatchMiddleware(ctx) {
     }
 
     if (req.method === 'GET' && path.startsWith('/api/interview/recordings/') && path.endsWith('/download')) {
-      const email = await requireAuth(req, res)
-      if (!email) return
+      const access = await requireEmployerTenant(req, res, loadDb())
+      if (!access) return
+      if (access.user.status === 'disabled' || access.tenant.organization.status !== 'active' || !['owner', 'admin', 'recruiter'].includes(access.tenant.membership?.role)) return json(res, 403, { error: 'Reviewer access required.' })
+      const email = access.user.email
+      res.setHeader('Cache-Control', 'no-store')
       const recordingId = path
         .replace('/api/interview/recordings/', '')
         .replace(/\/download$/, '')
@@ -1374,6 +1383,7 @@ export function createApiDispatchMiddleware(ctx) {
         const signed = await resolveInterviewRecordingDownload({
           pool,
           requesterEmail: email,
+          tenantId: access.tenant.organization.id,
           recordingId,
         })
         const accept = String(req.headers.accept || '')
@@ -1508,6 +1518,55 @@ export function createApiDispatchMiddleware(ctx) {
       return json(res, 400, { ok: false, error: 'Could not extract fields from resume.' })
     }
 
+    if (path === '/api/interview/review-events' && ['GET', 'POST', 'PATCH'].includes(req.method)) {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const body = req.method === 'GET' ? {} : await readBody(req)
+      const sessionId = String(body.sessionId || url.searchParams.get('sessionId') || '')
+      const db = loadDb()
+      const session = db.interviewSessions?.[sessionId]
+      if (!session || session.email !== email) return json(res, 404, { error: 'Interview not found.' })
+      if (req.method === 'POST') {
+        try { session.reviewEvents = mergeReviewEvents(session.reviewEvents, body.events) }
+        catch (error) { return json(res, 400, { error: error.message }) }
+      }
+      if (req.method === 'PATCH') {
+        const event = session.reviewEvents?.find(e => e.id === body.eventId)
+        if (!event) return json(res, 404, { error: 'Event not found.' })
+        if (typeof body.explanation !== 'string' || body.explanation.length > 2000) return json(res, 400, { error: 'Explanation must be at most 2000 characters.' })
+        event.candidateExplanation = body.explanation.trim()
+        event.explainedAt = new Date().toISOString()
+      }
+      if (req.method !== 'GET') await saveDb(db)
+      return json(res, 200, { events: session.reviewEvents || [] })
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/interview-review') {
+      const db = loadDb()
+      const access = await requireEmployerTenant(req, res, db)
+      if (!access) return
+      if (access.user.status === 'disabled' || access.tenant.organization.status !== 'active' || !['owner', 'admin', 'recruiter'].includes(access.tenant.membership?.role)) return json(res, 403, { error: 'Reviewer access required.' })
+      const sessionId = String(url.searchParams.get('sessionId') || '')
+      const session = db.interviewSessions?.[sessionId]
+      const tenantId = access.tenant.organization.id
+      if (!session || session.organizationId !== tenantId) return json(res, 404, { error: 'Interview not found.' })
+      let videoUrl = null
+      let recordingStatus = 'No recording available'
+      if (config.databaseUrl && s3StorageConfigured()) {
+        try {
+          const pool = dbPool(config.databaseUrl)
+          const found = await pool.query("SELECT id FROM interview_recordings WHERE interview_id = $1 AND tenant_id = $2 AND status IN ('uploaded', 'completed') ORDER BY created_at DESC LIMIT 1", [sessionId, tenantId])
+          if (found.rows[0]) {
+            const signed = await resolveInterviewRecordingDownload({ pool, requesterEmail: access.user.email, tenantId, recordingId: found.rows[0].id })
+            videoUrl = signed.url
+            recordingStatus = 'Recording available'
+          }
+        } catch { recordingStatus = 'Recording temporarily unavailable. Retry to load playback.' }
+      }
+      res.setHeader('Cache-Control', 'no-store')
+      return json(res, 200, { events: session.reviewEvents || [], videoUrl, recordingStatus })
+    }
+
     /** Record integrity ping (face count) during interview */
     if (req.method === 'POST' && path === '/api/interview/integrity') {
       const email = await requireAuth(req, res)
@@ -1580,11 +1639,6 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, 400, { error: 'At least one answer is required to score the interview.' })
       }
 
-      const integrity = {
-        ...(session?.integrity || {}),
-        ...(body.integrity || {}),
-      }
-
       const startedAt = session?.startedAt ? new Date(session.startedAt).getTime() : Date.now()
       const durationMinutes = Math.max(1, Math.round((Date.now() - startedAt) / 60000))
 
@@ -1594,10 +1648,13 @@ export function createApiDispatchMiddleware(ctx) {
         questions: scoredQuestions,
         answers: scoredAnswers,
         profile,
-        integrity,
+        integrity: {},
         accountName: db.users.find((u) => u.email === email)?.name,
         durationMinutes,
       })
+
+      result.sessionId = sessionId
+      result.integrity = { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1, logs: session.reviewEvents || [] }
 
       const employerInterviewContext =
         session?.questionMode === 'employer' ||

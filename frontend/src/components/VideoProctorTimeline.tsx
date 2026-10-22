@@ -1,178 +1,62 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { IntegrityLogEvent } from '../lib/store'
-import { HrIcon } from './HrIcon'
+import { apiFetch } from '../lib/api'
 import styles from './VideoProctorTimeline.module.css'
 
-type Props = {
-  videoUrl?: string | null
-  logs?: IntegrityLogEvent[]
-  durationSec?: number
-}
+type Props = { sessionId?: string; videoUrl?: string | null; logs?: IntegrityLogEvent[]; durationSec?: number }
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
-export function VideoProctorTimeline({ videoUrl, logs = [], durationSec = 180 }: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [videoDuration, setVideoDuration] = useState(durationSec)
-  const [hoveredLog, setHoveredLog] = useState<IntegrityLogEvent | null>(null)
-
-  function handleLoadedMetadata() {
-    if (videoRef.current && videoRef.current.duration) {
-      setVideoDuration(Math.max(1, Math.floor(videoRef.current.duration)))
+export function VideoProctorTimeline({ sessionId, logs = [], durationSec = 0 }: Props) {
+  const video = useRef<HTMLVideoElement>(null)
+  const clipEnd = useRef<number | null>(null)
+  const [events, setEvents] = useState(logs)
+  const [source, setSource] = useState<string | null>(null)
+  const [message, setMessage] = useState('No recording available for this interview.')
+  const [time, setTime] = useState(0)
+  const [duration, setDuration] = useState(durationSec)
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    let active = true
+    setSource(null); setEvents(logs); setTime(0); setDuration(durationSec)
+    if (sessionId) {
+      setMessage('Loading authorized vendor review…')
+      void apiFetch(`/api/vendor/interview-review?sessionId=${encodeURIComponent(sessionId)}`)
+        .then(async r => { if (!r.ok) throw new Error('Video review is restricted to authorized vendor reviewers.'); return r.json() })
+        .then(data => { if (active) { setEvents(data.events || []); setSource(data.videoUrl); setMessage(data.recordingStatus) } })
+        .catch(e => { if (active) setMessage(e.message) })
     }
+    return () => { active = false }
+  }, [sessionId, retry]) // Caller logs are only a legacy fallback; live review comes from the authorized API.
+  const end = Math.max(duration, ...events.map(e => (e.startOffsetSec || 0) + (e.durationSec || 0)), 1)
+  function seek(sec: number, stop: number | null = null) {
+    if (!video.current || !source) return
+    clipEnd.current = stop
+    video.current.currentTime = Math.max(0, sec)
+    void video.current.play().catch(() => setMessage('Press Play to review this event.'))
   }
-
-  function handleTimeUpdate() {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime)
-    }
-  }
-
-  function seekToSec(sec: number) {
-    if (videoRef.current) {
-      videoRef.current.currentTime = sec
-      videoRef.current.play().catch(() => {})
-    }
-  }
-
-  const effectiveDuration = Math.max(videoDuration, 1)
-
-  return (
-    <div className={styles.container}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <strong
-          style={{
-            fontSize: '0.95rem',
-            color: '#f8fafc',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <HrIcon name="video" size={18} />
-          Video Timeline & Misbehavior Markers ({logs.length} events)
-        </strong>
-        <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-          Red dots = Proctoring violations · Click dot to jump to timestamp
-        </span>
+  return <section className={styles.container} aria-label="Interview video review">
+    <h3>Interview recording and review events</h3>
+    <p>Red markers need human review; gray markers mean unable to assess. These are observations, not findings of cheating, and do not affect interview scores. Consider the candidate’s explanation.</p>
+    {source ? <video ref={video} src={source} controls controlsList="nodownload" className={styles.video} onError={() => setMessage('Playback unavailable or expired. Reload recording to retry.')}
+      onLoadedMetadata={() => { const d = video.current?.duration; if (d && Number.isFinite(d)) setDuration(d) }}
+      onTimeUpdate={() => { if (video.current) { setTime(video.current.currentTime); if (clipEnd.current !== null && video.current.currentTime >= clipEnd.current) { video.current.pause(); clipEnd.current = null } } }} />
+      : <p role="status">{message}</p>}
+    {source && <p role="status">{message}</p>}
+    {sessionId && <button type="button" onClick={() => setRetry(n => n + 1)}>Reload recording</button>}
+    <div style={{ marginTop: 18 }}>
+      <label>Playback position {clock(time)} / {clock(end)}<input aria-label="Playback position" type="range" min="0" max={end} step="0.1" value={Math.min(time, end)} disabled={!source} style={{ width: '100%' }} onChange={e => seek(Number(e.target.value))} /></label>
+      <div style={{ position: 'relative', height: 24, background: '#e2e8f0', borderRadius: 5 }}>
+        {events.filter(e => Number.isFinite(e.startOffsetSec)).map(e => <button key={e.id} type="button" disabled={!source}
+          aria-label={`${e.eventType.replaceAll('_', ' ')} at ${clock(e.startOffsetSec!)} for ${(e.durationSec || 0).toFixed(1)} seconds`}
+          title={`${e.message} · ${clock(e.startOffsetSec!)}`} onClick={() => seek(Math.max(0, e.startOffsetSec! - 2), e.startOffsetSec! + (e.durationSec || 0) + 2)}
+          style={{ position: 'absolute', top: 3, left: `${Math.min(99, e.startOffsetSec! / end * 100)}%`, width: `${Math.max(.6, (e.durationSec || 0) / end * 100)}%`, minWidth: 6, height: 18, border: 0, borderRadius: 3, background: e.eventType === 'UNABLE_TO_ASSESS' ? '#64748b' : '#dc2626', cursor: source ? 'pointer' : 'default' }} />)}
       </div>
-
-      {videoUrl ? (
-        <div className={styles.videoWrapper}>
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className={styles.video}
-            controls
-            controlsList="nodownload"
-            disablePictureInPicture
-            onLoadedMetadata={handleLoadedMetadata}
-            onTimeUpdate={handleTimeUpdate}
-          />
-        </div>
-      ) : (
-        <div
-          className={styles.videoWrapper}
-          style={{ padding: '36px 20px', textAlign: 'center', background: '#1e293b' }}
-        >
-          <div style={{ marginBottom: '8px', color: '#94a3b8' }}>
-            <HrIcon name="video" size={32} />
-          </div>
-          <div style={{ color: '#cbd5e1', fontWeight: 700, fontSize: '0.9rem' }}>
-            Video Recording Stored in Local Session Storage
-          </div>
-          <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '4px' }}>
-            Timeline markers below pinpoint exact misbehavior timestamps
-          </div>
-        </div>
-      )}
-
-      {/* Interactive Timeline Bar with Red Dot Markers */}
-      <div className={styles.timelineBar}>
-        <div
-          className={styles.timelineTrack}
-          style={{ width: `${(currentTime / effectiveDuration) * 100}%` }}
-        />
-
-        {logs.map((log, index) => {
-          const sec = log.questionIndex ? (log.questionIndex - 1) * 30 + 10 : (index + 1) * 15
-          const pct = Math.min(98, Math.max(2, (sec / effectiveDuration) * 100))
-          const markerClass =
-            log.severity === 'ban'
-              ? styles.markerBan
-              : log.severity === 'block'
-                ? styles.markerBlock
-                : styles.markerWarn
-
-          return (
-            <div
-              key={log.id || index}
-              className={`${styles.marker} ${markerClass}`}
-              style={{ left: `${pct}%` }}
-              onClick={() => seekToSec(sec)}
-              onMouseEnter={() => setHoveredLog(log)}
-              onMouseLeave={() => setHoveredLog(null)}
-            >
-              {hoveredLog?.id === log.id && (
-                <div className={styles.tooltip}>
-                  [{log.formattedTime}] {log.message}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Misbehavior Event Log Rows */}
-      {logs.length > 0 ? (
-        <div className={styles.logList}>
-          {logs.map((log, index) => {
-            const sec = log.questionIndex ? (log.questionIndex - 1) * 30 + 10 : (index + 1) * 15
-            const bg =
-              log.severity === 'ban'
-                ? 'rgba(239, 68, 68, 0.15)'
-                : log.severity === 'block'
-                  ? 'rgba(59, 130, 246, 0.15)'
-                  : 'rgba(245, 158, 11, 0.15)'
-
-            return (
-              <div
-                key={log.id || index}
-                className={styles.logRow}
-                style={{ background: bg }}
-                onClick={() => seekToSec(sec)}
-              >
-                <div>
-                  <strong style={{ color: log.severity === 'ban' ? '#fca5a5' : '#f8fafc' }}>
-                    [{log.formattedTime}] {log.eventType.replace(/_/g, ' ')}
-                  </strong>
-                  <div style={{ fontSize: '0.78rem', color: '#cbd5e1', marginTop: '2px' }}>
-                    {log.message}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  style={{
-                    background: '#2563eb',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '4px 8px',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Jump to {sec}s
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <div style={{ marginTop: '12px', fontSize: '0.82rem', color: '#10b981', fontWeight: 700 }}>
-          Perfect integrity: zero markers or misbehavior events detected.
-        </div>
-      )}
     </div>
-  )
+    {events.length ? <ol>{events.map(e => <li key={e.id} style={{ marginTop: 12 }}>
+      <strong>{e.eventType.replaceAll('_', ' ')}</strong> · {Number.isFinite(e.startOffsetSec) ? clock(e.startOffsetSec!) : 'Timestamp unavailable'} · {e.durationSec?.toFixed(1) ?? 'Unknown'} seconds
+      <p>{e.message} <time dateTime={e.timestamp}>{new Date(e.timestamp).toLocaleString()}</time></p>
+      <p>Candidate explanation: {e.candidateExplanation || 'Not yet provided. Ask the candidate before reaching a conclusion.'}</p>
+      <button type="button" disabled={!source || !Number.isFinite(e.startOffsetSec)} onClick={() => seek(Math.max(0, e.startOffsetSec! - 2), e.startOffsetSec! + (e.durationSec || 0) + 2)}>Review clip</button>
+    </li>)}</ol> : <p>No review events recorded. This does not establish interview integrity.</p>}
+  </section>
 }

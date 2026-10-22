@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { CandidateReviewEvents } from '../components/CandidateReviewEvents'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -30,6 +31,7 @@ export function DashboardPage() {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
   const email = user?.email
+  const lastFocusRefresh = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -70,23 +72,19 @@ export function DashboardPage() {
       setLoading(false)
     }
     void load()
-    const refresh = () => { if (document.visibilityState === 'visible') setRevision(n => n + 1) }
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastFocusRefresh.current < 60_000) return
+      lastFocusRefresh.current = now
+      setRevision((n) => n + 1)
+    }
     window.addEventListener('focus', refresh)
     window.addEventListener('storage', refresh)
     return () => { cancelled = true; window.removeEventListener('focus', refresh); window.removeEventListener('storage', refresh) }
   }, [email, revision])
 
   const name = profile?.fullName || user?.name || 'Candidate'
-  const fields = [
-    { label: 'Target role', value: profile?.currentRole },
-    { label: 'Experience', value: profile?.totalExperience },
-    { label: 'Location', value: profile?.currentLocation },
-    { label: 'Resume', value: profile?.resumeName },
-    { label: 'Skills', value: profile?.skills?.length ? `${profile.skills.length} skills added` : '' },
-    { label: 'Notice period', value: profile?.noticePeriod },
-  ]
-  const completed = fields.filter(f => f.value?.trim()).length
-  const completeness = Math.round(completed / fields.length * 100)
   const hasScore = !!interview && Number.isFinite(interview.overall)
   const categories = interview?.categories?.filter(c => Number.isFinite(c.score)) ?? []
   const recent = [...applications].sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 4)
@@ -106,7 +104,6 @@ export function DashboardPage() {
       <header className={styles.header}>
         <div><p className={styles.eyebrow}>YOUR CAREER WORKSPACE</p><h1>Welcome back, {name.split(' ')[0]}.</h1><p>Your interview insights and next steps, in one place.</p></div>
         <div className={styles.actions}>
-          <Link className={styles.secondary} to="/profile"><HrIcon name="user" size={17} />Update Profile</Link>
           <button className={styles.primary} disabled={!hasScore || downloading} onClick={() => void download()}><HrIcon name="download" size={17} />{downloading ? 'Preparing report…' : 'Download Report'}</button>
         </div>
       </header>
@@ -120,7 +117,6 @@ export function DashboardPage() {
       </section>
       <section className={styles.metrics} aria-label="Your overview">
         <article><span>Interview score</span><strong>{hasScore ? interview.overall : '—'}{hasScore && <small>/100</small>}</strong><p>{hasScore ? 'From your latest interview' : 'Available after your interview'}</p></article>
-        <article><span>Profile completeness</span><strong>{completeness}<small>%</small></strong><p>{completed} of {fields.length} key details added</p></article>
         <article><span>Applications</span><strong>{appsReady ? applications.length : '—'}</strong><p>{appsReady ? `${applications.filter(a => a.status === 'In Review').length} in review` : loading ? 'Loading applications' : 'Temporarily unavailable'}</p></article>
         <article><span>Open roles</span><strong>{jobsReady ? jobCount : '—'}</strong><p>{jobsReady ? 'Currently listed by employers' : loading ? 'Loading open roles' : 'Temporarily unavailable'}</p></article>
       </section>
@@ -140,24 +136,16 @@ export function DashboardPage() {
             <div className={styles.sectionHead}><h2>Application activity</h2><Link to="/applications">View all <HrIcon name="arrow-right" size={15} /></Link></div>
             {!appsReady ? <p className={styles.empty}>{loading ? 'Loading your applications…' : 'Application activity is unavailable. Retry refresh above.'}</p> : recent.length ? <ul className={styles.rows}>{recent.map(app => <li key={app.id}><div><Link to="/applications">{app.title}</Link><p>{app.company} · {dateLabel(app.appliedAt)}</p></div><span className={styles.badge}>{app.status}</span></li>)}</ul> : <div className={styles.empty}><HrIcon name="briefcase" size={26} /><h3>Your applications will appear here</h3><p>Find a role that fits, then track its progress here.</p><Link to="/jobs">Explore open roles →</Link></div>}
           </section>
-        </div>
-        <aside className={styles.stack}>
-          <section className={styles.card}>
-            <div className={styles.sectionHead}><h2>Your profile</h2><span className={styles.badge}>{completeness}% complete</span></div>
-            <progress aria-label="Profile completeness" value={completeness} max={100} />
-            <dl className={styles.details}>{fields.map(field => <div key={field.label}><dt>{field.label}</dt><dd>{field.value || 'Not added'}</dd></div>)}</dl>
-            {profile?.skills?.length ? <div className={styles.pills}>{profile.skills.slice(0, 6).map((skill, i) => <span key={i}>{skill}</span>)}{profile.skills.length > 6 && <span>+{profile.skills.length - 6} more</span>}</div> : null}
-            <Link className={styles.secondary} to="/profile">Update Profile <HrIcon name="arrow-right" size={16} /></Link>
-          </section>
           <section className={styles.card}>
             <div className={styles.sectionHead}><h2>Explore opportunities</h2><HrIcon name="briefcase" size={20} /></div>
             <p className={styles.muted}>Open employer listings. Review each role's requirements before applying.</p>
             {!jobsReady ? <p className={styles.empty}>{loading ? 'Loading roles…' : 'Roles are unavailable. Retry refresh above.'}</p> : jobs.length ? <ul className={styles.rows}>{jobs.slice(0, 3).map((job, i) => <li key={job.id || i}><div><Link to="/jobs">{job.title}</Link><p>{job.company}</p><p>{job.location}</p></div></li>)}</ul> : <p className={styles.empty}>No open roles at the moment. Check back for new opportunities.</p>}
             <Link to="/jobs">Browse all roles <HrIcon name="arrow-right" size={15} /></Link>
           </section>
-        </aside>
+        </div>
       </div>
       <p className={styles.footnote}>Your dashboard uses your saved profile, latest interview and employer application updates.</p>
+    <CandidateReviewEvents sessionId={interview?.sessionId} />
     </main>
     {hasScore && <div className={styles.capture} aria-hidden="true" inert><CareerIntelligenceDashboard result={interview} candidateName={name} candidateRole={profile?.currentRole || interview.role} candidateExperience={profile?.totalExperience || interview.level} skills={profile?.skills ?? []} /></div>}
     <SiteFooter />

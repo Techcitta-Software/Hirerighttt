@@ -11,6 +11,7 @@ import {
   recommendTopSkillsForRole,
   resolveExactInterviewRole,
   structuredPlanSummary,
+  questionMatchesPlan,
 } from './interviewQuestionPlan'
 
 export const INTERVIEW_TURN_COUNT = 6
@@ -134,7 +135,7 @@ export function buildAdaptiveQuestionSystemPrompt(options: {
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
       : `You may use the first name "${options.first}" once if natural.`
   const planRule = options.planSummary
-    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Q1–Q2 = skill depth; Q3–Q4 = work experience from résumé; Q5 = certification OR project; Q6 = closing motivation/strength.`
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow the six slots exactly. Theory slots assess concepts in the two assigned skills, not résumé examples. Calibrate concept depth to years of experience. Do not require production work from freshers.`
     : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
@@ -142,6 +143,8 @@ Rules:
 - This is question ${options.turnNumber} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
 - Use the candidate resume, role "${options.exactRole || options.role}", experience "${options.level}", job description (if any), and their last answer to choose the next realistic topic.
 - One clear idea per question — how a real hiring manager speaks.
+- In a theory slot, ask about a specific concept within the assigned skill; no personal work stories, résumé references, coding exercise or invented projects. Leave resumeAnchor empty and set topic to the assigned skill.
+- Work/project/certification slots may use supplied history. If evidence is missing, ask neutrally rather than assuming a company or credential.
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
 - category must be one of: Communication, Technical, Problem Solving, Experience.
@@ -162,16 +165,17 @@ export function buildAdaptiveQuestionUserPayload(options: {
   priorTexts: string[]
   lastAnswer: string
 }): string {
+  const theory = options.planSummary && (options.planSummary.fresher ? options.turnNumber <= 2 : options.turnNumber === 3 || options.turnNumber === 4)
   return JSON.stringify({
     turnNumber: options.turnNumber,
     totalTurns: INTERVIEW_TURN_COUNT,
     roleTrack: options.exactRole || options.role,
     exactRole: options.exactRole || options.role,
-    recommendedSkillsForRole: options.recommendedSkills || [],
+    recommendedSkillsForRole: options.planSummary?.recommendedSkills || options.recommendedSkills || [],
     interviewPlan: options.planSummary?.turnPlan || [],
     experienceLevel: options.level,
     jobDescription: options.jobDescription?.trim() || null,
-    candidateSummary: {
+    candidateSummary: theory ? undefined : {
       skills: options.ctx.skills.slice(0, 16),
       jobs: options.ctx.jobs.slice(0, 4),
       achievements: options.ctx.achievements.slice(0, 5),
@@ -179,7 +183,7 @@ export function buildAdaptiveQuestionUserPayload(options: {
       resumeSnippet: options.ctx.resumeSnippet.slice(0, 2800),
     },
     priorQuestions: options.priorTexts,
-    lastAnswer: options.lastAnswer.trim() || null,
+    lastAnswer: theory ? null : options.lastAnswer.trim() || null,
   })
 }
 
@@ -489,6 +493,9 @@ export function generateAdaptiveQuestionLocal(options: {
   const exactRole = resolveExactInterviewRole(options.profile, role)
   const level = options.level || '1–3 years'
   const history = options.history || []
+  if (history.length >= INTERVIEW_TURN_COUNT) {
+    throw new Error('INTERVIEW_COMPLETE')
+  }
   const lastAnswer = clean(options.lastAnswer)
   const priorTexts = history.map((h) => clean(h.question?.text)).filter(Boolean)
   const first = firstNameFromFull(ctx.name)
@@ -649,7 +656,10 @@ export async function generateAdaptiveQuestionClient(options: {
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
   const exactRole = resolveExactInterviewRole(options.profile, options.role)
   const recommendedSkills = recommendTopSkillsForRole(exactRole, ctx)
-  const planSummary = structuredPlanSummary(exactRole, ctx)
+  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, options.level)
+  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+    throw new Error('INTERVIEW_COMPLETE')
+  }
   const turnNumber = options.history.length + 1
   const priorTexts = options.history
     .map((h) => clean(h.question?.text))
@@ -685,7 +695,7 @@ export async function generateAdaptiveQuestionClient(options: {
     try {
       const parsed = JSON.parse(match[0]) as { question?: Question } & Question
       const q = normalizeAdaptiveQuestion(parsed.question || parsed, priorTexts)
-      if (q) return q
+      if (q && questionMatchesPlan(q, planSummary, turnNumber)) return q
     } catch {
       // retry temperature
     }

@@ -20,9 +20,17 @@ export function consumeAuthInvalidMessage(): string | null {
   return msg
 }
 
+const SESSION_VALID_CACHE_MS = 45_000
+let sessionValidCache: { email: string; ok: boolean; at: number } | null = null
+
+export function clearSessionValidationCache() {
+  sessionValidCache = null
+}
+
 export function clearStoredAuth() {
   setApiToken(null)
   logout()
+  clearSessionValidationCache()
 }
 
 export function hasLocalSession(): boolean {
@@ -35,16 +43,28 @@ export async function isApiSessionValid(): Promise<boolean> {
   if (!user?.email?.trim()) return false
   if (!getApiToken()) return false
   const expected = user.email.trim().toLowerCase()
+  const now = Date.now()
+  if (
+    sessionValidCache &&
+    sessionValidCache.email === expected &&
+    sessionValidCache.ok &&
+    now - sessionValidCache.at < SESSION_VALID_CACHE_MS
+  ) {
+    return true
+  }
   try {
     const me = (await apiMe()) as { user?: { email?: string } }
     const tokenEmail = me.user?.email?.trim().toLowerCase()
     if (!tokenEmail || tokenEmail !== expected) {
       setApiToken(null)
+      sessionValidCache = { email: expected, ok: false, at: now }
       return false
     }
+    sessionValidCache = { email: expected, ok: true, at: now }
     return true
   } catch {
     setApiToken(null)
+    sessionValidCache = { email: expected, ok: false, at: now }
     return false
   }
 }

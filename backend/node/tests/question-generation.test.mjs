@@ -51,9 +51,13 @@ test('local question generation follows the spec without a Gemini key', async ()
   })
   assert.ok(first.text.length >= 24)
   assert.ok(CATEGORIES.includes(first.category))
-  assert.ok(String(first.focus || '').startsWith('structured-skill'))
+  assert.ok(
+    String(first.focus || '').startsWith('structured-work') ||
+      String(first.focus || '').startsWith('structured-theory'),
+    `expected structured turn focus, got: ${first.focus}`,
+  )
   assert.match(first.text, /Karthik/)
-  assert.match(first.text, /React|Node/i)
+  assert.match(first.text, /responsibilit|contribution|Acme/i)
   assert.doesNotMatch(first.text, /\b(Arjun|there|TechCitta|Initech)\b/i)
 
   const javaAnswer =
@@ -65,7 +69,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: javaAnswer }],
     lastAnswer: javaAnswer,
   })
-  assert.match(second.text, /Node|React/i)
+  assert.match(second.text, /problem|challenge|decision|trade-off/i)
   assert.notEqual(second.text.slice(0, 40), first.text.slice(0, 40))
   assert.ok(second.text.length >= 24)
 
@@ -76,7 +80,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: 'ok' }],
     lastAnswer: 'ok',
   })
-  assert.match(thin.text, /Node|React|Full Stack/i)
+  assert.match(thin.text, /problem|challenge|decision|trade-off/i)
   assert.doesNotMatch(thin.text, /TechCitta|Initech/)
   assert.notEqual(thin.text.slice(0, 40), first.text.slice(0, 40))
 
@@ -90,6 +94,23 @@ test('local question generation follows the spec without a Gemini key', async ()
   assert.match(anon.text, /Python|Backend|concrete|describe/i)
   assert.equal(anon.category, 'Technical')
   assert.doesNotMatch(anon.text, /\bthere\b|\bArjun\b|\bCandidate\b/)
+
+  const workHistory = [
+    { question: first, answer: javaAnswer },
+    {
+      question: second,
+      answer: 'We split the monolith and added caching; latency dropped 30%.',
+    },
+  ]
+  const third = generateAdaptiveQuestionLocal({
+    ctx,
+    role: 'Full Stack Engineer',
+    level: '1–3 years',
+    history: workHistory,
+    lastAnswer: workHistory[1].answer,
+  })
+  assert.match(third.text, /Node|React/i)
+  assert.ok(String(third.focus || '').startsWith('structured-theory'))
 
   const history = []
   const prefixes = new Set()

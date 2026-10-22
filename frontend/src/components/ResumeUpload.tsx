@@ -147,23 +147,10 @@ export function ResumeUpload({
         await clearPendingResume()
       }
 
-      const filled = Object.keys(extract).filter((key) => key !== 'fullName' && key !== 'resumeText').length
-      const parseMsg = extract.fullName
-        ? `AI successfully parsed profile for ${extract.fullName} (${filled} fields detected).`
-        : filled > 0
-          ? `AI extracted ${filled} fields from your resume.`
-          : 'Resume uploaded. Ready for next step.'
-      if (stored?.storageProvider === 's3' && stored.resumeStoragePath) {
-        const where = stored.bucket
-          ? `${stored.bucket}/${stored.resumeStoragePath}`
-          : stored.resumeStoragePath
-        setStatus(`${parseMsg} Saved to S3: ${where}`)
-      } else if (storageWarning) {
+      if (storageWarning) {
         setError(storageWarning)
-        setStatus(parseMsg)
-      } else {
-        setStatus(parseMsg)
       }
+      setStatus('')
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Could not extract resume data.'

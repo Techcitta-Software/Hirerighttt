@@ -21,11 +21,15 @@ export function apiConnectionHint(): string {
   return 'Cannot reach the server. Check your connection and try again.'
 }
 
+const HEALTH_PING_MS = import.meta.env.DEV ? 2_500 : 8_000
+let healthCache: { at: number; ok: boolean } | null = null
+const HEALTH_CACHE_MS = 20_000
+
 async function pingHealth(base: string): Promise<boolean> {
   const root = base.replace(/\/$/, '')
   const url = root ? `${root}/api/health` : '/api/health'
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(12_000) })
+    const res = await fetch(url, { signal: AbortSignal.timeout(HEALTH_PING_MS) })
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean }
     return Boolean(res.ok && data.ok)
   } catch {
@@ -83,7 +87,11 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   }
   const token = getApiToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  return fetch(apiUrl(path), { ...options, headers })
+  const timeoutMs = import.meta.env.DEV ? 25_000 : 45_000
+  const signal =
+    options.signal ??
+    (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
+  return fetch(apiUrl(path), { ...options, headers, signal })
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -98,22 +106,27 @@ export async function apiMe() {
 }
 
 export async function apiHealth() {
+  if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_MS) {
+    return healthCache.ok
+  }
   await resolveApiBase()
+  let ok = false
   if (ENV_API_BASE) {
     try {
       const data = await request('/api/health')
-      return Boolean(data.ok)
+      ok = Boolean(data.ok)
     } catch {
-      return false
+      ok = false
     }
-  }
-  if (await pingHealth(runtimeApiBase)) return true
-  if (import.meta.env.DEV && !runtimeApiBase && (await pingHealth(DEV_API_FALLBACK))) {
+  } else if (await pingHealth(runtimeApiBase)) {
+    ok = true
+  } else if (import.meta.env.DEV && !runtimeApiBase && (await pingHealth(DEV_API_FALLBACK))) {
     runtimeApiBase = DEV_API_FALLBACK
     resolveApiBasePromise = Promise.resolve(DEV_API_FALLBACK)
-    return true
+    ok = true
   }
-  return false
+  healthCache = { at: Date.now(), ok }
+  return ok
 }
 
 export async function apiSignup(

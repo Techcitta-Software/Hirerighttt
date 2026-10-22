@@ -1,3 +1,4 @@
+import { canReviewRecording } from '../interviewReview.mjs'
 import {
   buildInterviewRecordingObjectKey,
   resolveTenantId,
@@ -186,7 +187,7 @@ export async function completeInterviewRecordingUpload(opts) {
  */
 export async function resolveInterviewRecordingDownload(opts) {
   const row = await getInterviewRecordingById(opts.pool, opts.recordingId)
-  if (!canAccessInterviewRecording(opts.requesterEmail, row)) {
+  if (!canReviewRecording(opts.tenantId, row)) {
     const err = new Error('Recording not found.')
     err.status = 404
     throw err

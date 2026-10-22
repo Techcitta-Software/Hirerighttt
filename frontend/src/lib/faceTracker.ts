@@ -15,6 +15,7 @@ export type FaceIssue =
   | 'multi_person'
   | 'looking_away'
   | 'too_far'
+  | 'unable_to_assess'
   | 'engine_off'
   | 'scanning'
 
@@ -161,7 +162,7 @@ function buildStatus(
       faceCount: 0,
       ok: false,
       label: 'No face found — center yourself in the camera',
-      severity: 'block',
+      severity: 'warn',
       issue: 'no_face',
       faceAreaRatio: 0,
       yaw: 0,
@@ -174,7 +175,7 @@ function buildStatus(
       faceCount,
       ok: false,
       label: `${faceCount} people in frame — only you are allowed`,
-      severity: 'ban',
+      severity: 'warn',
       issue: 'multi_person',
       faceAreaRatio: area,
       yaw,
@@ -186,7 +187,7 @@ function buildStatus(
     return {
       faceCount: 1,
       ok: false,
-      label: 'Face the camera — looking sideways is not allowed',
+      label: 'Face the camera — brief glances are fine',
       severity: 'warn',
       issue: 'looking_away',
       faceAreaRatio: area,
@@ -237,7 +238,7 @@ function buildStatus(
   return {
     faceCount: 1,
     ok: true,
-    label: '1 person verified · facing camera',
+    label: 'One face detected · facing camera',
     severity: 'ok',
     issue: 'ok',
     faceAreaRatio: area,
@@ -263,8 +264,10 @@ const SCANNING: FaceTrackStatus = {
 
 export class FaceTracker {
   private lastTs = -1
+  private canvas = document.createElement('canvas')
+  private videoTime = -1
+  private frameAt = performance.now()
   private lastStatus: FaceTrackStatus = SCANNING
-  private lastGood: FaceTrackStatus | null = null
   private disposed = false
   private errorStreak = 0
   multiPersonStreak = 0
@@ -276,19 +279,35 @@ export class FaceTracker {
 
   async detect(video: HTMLVideoElement | null): Promise<FaceTrackStatus> {
     if (this.disposed || !video || video.readyState < 2 || !video.videoWidth) {
-      this.noFaceStreak += 1
-      // Keep last good briefly so UI does not flicker while video warms up
-      if (this.lastGood && this.noFaceStreak < 4) return this.lastGood
-      this.lastStatus = SCANNING
-      return this.lastStatus
+      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: camera frame unavailable.' }
+    }
+    if (video.currentTime !== this.videoTime) { this.videoTime = video.currentTime; this.frameAt = performance.now() }
+    if (document.hidden || performance.now() - this.frameAt > 1500) {
+      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: video paused or page hidden.' }
+    }
+    this.canvas.width = 64
+    this.canvas.height = 48
+    const ctx = this.canvas.getContext('2d', { willReadFrequently: true })
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, 64, 48)
+      const data = ctx.getImageData(0, 0, 64, 48).data
+      let sum = 0, squares = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const l = .2126 * data[i] + .7152 * data[i + 1] + .0722 * data[i + 2]
+        sum += l; squares += l * l
+      }
+      const mean = sum / (64 * 48)
+      if (mean < 35 || mean > 235 || squares / (64 * 48) - mean * mean < 70) {
+        return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: improve lighting and keep the lens clear.' }
+      }
     }
 
     const detector = await getDetector()
     if (!detector) {
       this.lastStatus = {
-        faceCount: 1,
-        ok: true,
-        label: 'Face engine offline — refresh the page',
+        faceCount: 0,
+        ok: false,
+        label: 'Unable to assess: camera checks unavailable. Refresh to retry.',
         severity: 'warn',
         issue: 'engine_off',
         faceAreaRatio: 0,
@@ -307,6 +326,9 @@ export class FaceTracker {
       const result = detector.detectForVideo(video, ts)
       this.errorStreak = 0
       const detections = (result.detections as Detection[] | undefined) ?? []
+      if (detections.some(d => (d.categories?.[0]?.score ?? 0) < .65)) {
+        return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: low detection confidence.' }
+      }
       const count = detections.length
 
       if (count > 1) {
@@ -320,15 +342,7 @@ export class FaceTracker {
         this.noFaceStreak = 0
       }
 
-      if (count === 0) {
-        // Brief miss: keep last good so "paused" flicker never appears
-        if (this.lastGood && this.noFaceStreak < 5) {
-          this.lastStatus = this.lastGood
-          return this.lastStatus
-        }
-        this.lastStatus = buildStatus(0)
-        return this.lastStatus
-      }
+      if (count === 0) return buildStatus(0)
 
       let primary = detections[0]
       let bestArea = faceAreaRatio(primary, video)
@@ -340,6 +354,7 @@ export class FaceTracker {
         }
       }
 
+      if (bestArea < TOO_FAR_RATIO) return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: move closer and center your face.' }
       const yaw = estimateYaw(primary)
       const lookingForward = Math.abs(yaw) < YAW_WARN
       this.lastStatus = buildStatus(count, {
@@ -347,20 +362,11 @@ export class FaceTracker {
         area: bestArea,
         lookingForward,
       })
-      if (this.lastStatus.issue === 'ok' || this.lastStatus.faceCount === 1) {
-        this.lastGood = this.lastStatus
-      }
       return this.lastStatus
     } catch (err) {
       this.errorStreak += 1
-      // Never show a confusing "paused" label — reuse last good frame or keep scanning.
-      if (this.lastGood && this.errorStreak < 12) {
-        this.lastStatus = this.lastGood
-        return this.lastStatus
-      }
       console.warn('[face-tracker] detect error', err)
-      this.lastStatus = SCANNING
-      return this.lastStatus
+      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: camera analysis interrupted.' }
     }
   }
 
