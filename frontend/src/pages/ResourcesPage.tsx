@@ -291,7 +291,7 @@ export function ResourcesPage() {
                   <span className={styles.rubricWeight}>AI + HEURISTIC</span>
                 </div>
                 <h3>Answer Correctness</h3>
-                <p>Whether your answer is accurate for the question and consistent with your résumé — technical soundness for skill questions.</p>
+                <p>Whether your answer is accurate for the question and consistent with your resume — technical soundness for skill questions.</p>
                 <ul className={styles.rubricList}>
                   <li>Up to ~45% weight on technical / skill questions</li>
                   <li>Penalizes invented employers or facts</li>

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
@@ -308,7 +308,7 @@ export function ResumeDatabasePage() {
                 onClick={() => setViewMode('grid')}
                 title="Grid view"
               >
-                ⊞ Grid
+                Grid
               </button>
               <button
                 type="button"

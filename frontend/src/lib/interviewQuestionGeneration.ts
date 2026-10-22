@@ -135,7 +135,7 @@ export function buildAdaptiveQuestionSystemPrompt(options: {
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
       : `You may use the first name "${options.first}" once if natural.`
   const planRule = options.planSummary
-    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow the six slots exactly. Theory slots assess concepts in the two assigned skills, not résumé examples. Calibrate concept depth to years of experience. Do not require production work from freshers.`
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow the six slots exactly. Theory slots assess concepts in the two assigned skills, not resume examples. Calibrate concept depth to years of experience. Do not require production work from freshers.`
     : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
 
@@ -336,7 +336,7 @@ function buildFirstAdaptiveQuestionLocal(
       text: ctx.resumeSnippet
         ? spokenLead(
             first,
-            `you're interviewing for ${role} as a ${level} candidate. Walk me through yourself — education, projects or internships, and strengths from your résumé that fit this role.`,
+            `you're interviewing for ${role} as a ${level} candidate. Walk me through yourself — education, projects or internships, and strengths from your resume that fit this role.`,
           )
         : spokenLead(
             first,
@@ -360,7 +360,7 @@ function buildFirstAdaptiveQuestionLocal(
       : ctx.resumeSnippet
         ? spokenLead(
             first,
-            `I've reviewed your résumé for ${role} (${level}). Walk me through your professional experience — roles, industry context, and outcomes you're proud of.`,
+            `I've reviewed your resume for ${role} (${level}). Walk me through your professional experience — roles, industry context, and outcomes you're proud of.`,
           )
         : spokenLead(
             first,

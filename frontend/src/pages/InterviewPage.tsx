@@ -59,6 +59,7 @@ import { ensureApiSession } from '../lib/apiSession'
 import {
   goToCandidateDashboardAfterInterview,
   goToInterviewReportAfterCompletion,
+  leaveInterviewRoom,
   markCandidateOnboardingCompleteAfterInterview,
 } from '../lib/completeOnboardingAfterInterview'
 import {
@@ -888,7 +889,7 @@ export function InterviewPage() {
       )
     ) {
       void recorderRef.current.stop()
-      navigate('/profile', { replace: true })
+      leaveInterviewRoom(navigate)
       return
     }
     finishingRef.current = true
@@ -1033,11 +1034,11 @@ export function InterviewPage() {
         }
         let recordingNoteLocal = ''
 
-        const clip = pendingClipRef.current || (await recorderRef.current.stop())
-        pendingClipRef.current = clip
-        if (clip && serverSessionId) {
-          recordingNoteLocal = 'Recording ready for secure upload.'
-          try {
+        try {
+          const clip = pendingClipRef.current || (await recorderRef.current.stop())
+          pendingClipRef.current = clip
+          if (clip && serverSessionId) {
+            recordingNoteLocal = 'Recording captured — scoring your answers.'
             const { uploadInterviewRecordingToS3 } = await import(
               '../lib/interviewRecordingUpload'
             )
@@ -1051,19 +1052,20 @@ export function InterviewPage() {
               pendingClipRef.current = null
             } else if (cloud.skipped) {
               recordingNoteLocal =
-                'Cloud recording storage is not configured — your interview was still scored.'
+                'Cloud recording storage is not configured — your scorecard will still be generated.'
             } else {
               console.warn('[InterviewPage] recording upload failed:', cloud.error)
-              recordingNoteLocal =
-                'Recording could not be saved to cloud storage — your interview was still scored.'
+              recordingNoteLocal = `${cloud.error || 'Recording upload failed.'} Your answers will still be scored.`
             }
-          } catch (uploadErr) {
-            console.warn('[InterviewPage] recording upload error', uploadErr)
-            recordingNoteLocal =
-              'Recording upload failed — your interview was still scored.'
+          } else if (!clip) {
+            recordingNoteLocal = 'Recording not captured — answers were still scored.'
           }
-        } else if (!clip) {
-          recordingNoteLocal = 'Recording not captured — answers were still scored.'
+        } catch (error) {
+          console.warn('[InterviewPage] recording upload error', error)
+          recordingNoteLocal =
+            error instanceof Error
+              ? `${error.message} Your answers will still be scored.`
+              : 'Recording upload had a problem. Your answers will still be scored.'
         }
         setRecordingNote(recordingNoteLocal)
 
@@ -1232,7 +1234,7 @@ export function InterviewPage() {
           <button
             type="button"
             className={styles.exitLink}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => leaveInterviewRoom(navigate)}
           >
             Exit
           </button>

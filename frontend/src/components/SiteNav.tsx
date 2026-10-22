@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { handleLoginNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -45,6 +45,8 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   const onLogoutRoute = location.pathname === '/logout'
   const hideSignOut = suppressSignOut || onLogoutRoute
   const [open, setOpen] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
   const [loggedIn, setLoggedIn] = useState(false)
   const [unread, setUnread] = useState(0)
   const user = getUser()
@@ -76,8 +78,37 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
     return () => window.removeEventListener('hireright-auth', syncAuth)
   }, [location.pathname])
 
+  useEffect(() => {
+    setProfileMenuOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    function onPointerDown(event: globalThis.MouseEvent) {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setProfileMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [profileMenuOpen])
+
+  function goFromProfileMenu(path: string) {
+    setProfileMenuOpen(false)
+    setOpen(false)
+    navigate(path)
+  }
+
   function handleLogout() {
     setOpen(false)
+    setProfileMenuOpen(false)
     openSignOutModal()
   }
 
@@ -188,13 +219,73 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                     {unread > 0 && <span className={styles.bellBadge}>{unread}</span>}
                   </Link>
 
-                  <Link
-                    to="/dashboard"
-                    className={styles.avatarCircle}
-                    title={user?.name || 'Dashboard'}
-                  >
-                    {initials}
-                  </Link>
+                  <div className={styles.profileMenuWrap} ref={profileMenuRef}>
+                    <button
+                      type="button"
+                      className={`${styles.avatarCircle} ${styles.avatarBtn}`}
+                      title={user?.name || 'Account menu'}
+                      aria-label="Open account menu"
+                      aria-expanded={profileMenuOpen}
+                      aria-haspopup="menu"
+                      onClick={() => {
+                        setOpen(false)
+                        setProfileMenuOpen((v) => !v)
+                      }}
+                    >
+                      {initials}
+                    </button>
+                    <AnimatePresence>
+                      {profileMenuOpen && (
+                        <motion.div
+                          className={styles.profileDropdown}
+                          role="menu"
+                          initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          <div className={styles.profileDropdownHeader}>
+                            <p className={styles.profileDropdownName}>{user?.name || 'Candidate'}</p>
+                            <p className={styles.profileDropdownEmail}>{user?.email}</p>
+                          </div>
+                          <div className={styles.profileDropdownDivider} />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/profile')}
+                          >
+                            View & edit profile
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/dashboard')}
+                          >
+                            Dashboard
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/settings')}
+                          >
+                            Account settings
+                          </button>
+                          <div className={styles.profileDropdownDivider} />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={`${styles.profileDropdownItem} ${styles.profileDropdownDanger}`}
+                            onClick={handleLogout}
+                          >
+                            Sign out
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </>
               )}
               {!hideSignOut && (
@@ -299,6 +390,28 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   {navLabel(item)}
                 </NavLink>
               ))}
+              {loggedIn && user?.role !== 'employer' && (
+                <>
+                  <NavLink
+                    to="/profile"
+                    onClick={() => setOpen(false)}
+                    className={({ isActive }) =>
+                      isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                    }
+                  >
+                    Profile
+                  </NavLink>
+                  <NavLink
+                    to="/settings"
+                    onClick={() => setOpen(false)}
+                    className={({ isActive }) =>
+                      isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                    }
+                  >
+                    Settings
+                  </NavLink>
+                </>
+              )}
               {!loggedIn && (
                 <>
                   <NavLink to="/login" onClick={() => setOpen(false)} className={styles.mobileLink}>
