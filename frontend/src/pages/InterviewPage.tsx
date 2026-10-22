@@ -22,6 +22,7 @@ import {
   type FaceTrackStatus,
 } from '../lib/faceTracker'
 import {
+  isServerInterviewSession,
   processInterviewTurn,
   scoreInterviewRemote,
   startInterviewSession,
@@ -757,9 +758,15 @@ export function InterviewPage() {
 
   useEffect(() => {
     if (stage !== 'interview') return
+    let inFlight = false
     const timer = window.setInterval(() => {
-      if (sessionIdRef.current) void saveReviewEvents(sessionIdRef.current, reviewRef.current.events)
-        .then(() => setReviewSyncError('')).catch(e => setReviewSyncError(e.message))
+      const sid = sessionIdRef.current
+      if (!isServerInterviewSession(sid) || inFlight) return
+      inFlight = true
+      void saveReviewEvents(sid, reviewRef.current.events)
+        .then(() => setReviewSyncError(''))
+        .catch(e => setReviewSyncError(e.message))
+        .finally(() => { inFlight = false })
     }, 5000)
     return () => window.clearInterval(timer)
   }, [stage])
@@ -847,12 +854,14 @@ export function InterviewPage() {
       reviewRef.current = new ReviewEventTracker()
       interviewStartedAtRef.current = Date.now()
       // This epoch is also the recording timeline origin.
-      if (streamRef.current && recordingConsent && sessionIdRef.current) {
+      if (streamRef.current && recordingConsent && isServerInterviewSession(sessionIdRef.current)) {
         const ok = recorderRef.current.start(streamRef.current)
         setIsRecording(ok)
         if (!ok) {
           setRecordingNote('Recording unavailable in this browser — answers still score.')
         }
+      } else if (streamRef.current && recordingConsent) {
+        setRecordingNote('Interview server unreachable — this session will not be recorded, answers still score.')
       }
 
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
@@ -1013,35 +1022,48 @@ export function InterviewPage() {
     window.setTimeout(() => {
       void (async () => {
         const integrity = { ...integrityRef.current }
-        if (sessionIdRef.current) await saveReviewEvents(sessionIdRef.current, reviewRef.current.events)
+        const serverSessionId = isServerInterviewSession(sessionIdRef.current) ? sessionIdRef.current : null
+        if (serverSessionId) {
+          try {
+            await saveReviewEvents(serverSessionId, reviewRef.current.events)
+          } catch (syncErr) {
+            // Review events also ride along on the score payload; never block finishing on this sync.
+            console.warn('[InterviewPage] final review-event sync failed', syncErr)
+          }
+        }
         let recordingNoteLocal = ''
 
-        try {
-          const clip = pendingClipRef.current || await recorderRef.current.stop()
-          pendingClipRef.current = clip
-          if (clip) {
-            recordingNoteLocal = 'Recording ready for secure upload.'
-            if (sessionIdRef.current) {
-              const { uploadInterviewRecordingToS3 } = await import(
-                '../lib/interviewRecordingUpload'
-              )
-              const cloud = await uploadInterviewRecordingToS3({
-                sessionId: sessionIdRef.current,
-                blob: clip.blob,
-                durationMs: clip.durationMs,
-              })
-              if (cloud.ok) {
-                recordingNoteLocal = `Recording saved to secure cloud storage (S3).`
-                pendingClipRef.current = null
-              } else {
-                throw new Error(`Recording upload failed: ${cloud.error} Your video remains in memory; keep this tab open and retry Leave.`)
-              }
+        const clip = pendingClipRef.current || (await recorderRef.current.stop())
+        pendingClipRef.current = clip
+        if (clip && serverSessionId) {
+          recordingNoteLocal = 'Recording ready for secure upload.'
+          try {
+            const { uploadInterviewRecordingToS3 } = await import(
+              '../lib/interviewRecordingUpload'
+            )
+            const cloud = await uploadInterviewRecordingToS3({
+              sessionId: serverSessionId,
+              blob: clip.blob,
+              durationMs: clip.durationMs,
+            })
+            if (cloud.ok) {
+              recordingNoteLocal = 'Recording saved to secure cloud storage (S3).'
+              pendingClipRef.current = null
+            } else if (cloud.skipped) {
+              recordingNoteLocal =
+                'Cloud recording storage is not configured — your interview was still scored.'
+            } else {
+              console.warn('[InterviewPage] recording upload failed:', cloud.error)
+              recordingNoteLocal =
+                'Recording could not be saved to cloud storage — your interview was still scored.'
             }
-          } else {
-            recordingNoteLocal = 'Recording not captured — answers were still scored locally.'
+          } catch (uploadErr) {
+            console.warn('[InterviewPage] recording upload error', uploadErr)
+            recordingNoteLocal =
+              'Recording upload failed — your interview was still scored.'
           }
-        } catch (error) {
-          throw error instanceof Error ? error : new Error('Could not upload recording. Keep this tab open and retry Leave.')
+        } else if (!clip) {
+          recordingNoteLocal = 'Recording not captured — answers were still scored.'
         }
         setRecordingNote(recordingNoteLocal)
 

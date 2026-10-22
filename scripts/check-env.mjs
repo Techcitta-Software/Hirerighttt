@@ -35,13 +35,19 @@ loadEnv()
 if (s3StorageConfigured()) {
   const { bucket, region } = s3Env()
   const hasKey = Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
-  console.log(`[check-env] S3 resume storage: bucket=${bucket} region=${region}`)
+  console.log(`[check-env] S3 (single bucket): bucket=${bucket} region=${region}`)
+  console.log(
+    '[check-env] Object kinds: resumes, interview transcripts, reports, recordings (all under tenants/)',
+  )
+  if (process.env.DISABLE_SUPABASE === 'true') {
+    console.log('[check-env] Supabase storage: disabled (S3-only for files)')
+  }
   if (!hasKey) {
     console.warn(
       '[check-env] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set — OK only if API uses an IAM role',
     )
   }
-  console.log('[check-env] Verify uploads: npm run s3:test  (new keys under tenants/ prefix)')
+  console.log('[check-env] Verify IAM + bucket: npm run s3:test')
 } else {
   console.warn(
     '[check-env] S3 not configured — set AWS_REGION + S3_BUCKET in repo-root .env (see s3.md)',

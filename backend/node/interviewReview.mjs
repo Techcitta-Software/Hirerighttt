@@ -1,3 +1,5 @@
+import { assertVendorMayViewCandidateDocuments } from './vendor/candidateDocuments.mjs'
+
 const TYPES = new Set(['NO_FACE_SEEN', 'MULTIPLE_FACES_DETECTED', 'SIDE_GAZE_LOOKING_AWAY', 'UNABLE_TO_ASSESS'])
 
 export function mergeReviewEvents(existing, incoming) {
@@ -24,4 +26,25 @@ export function mergeReviewEvents(existing, incoming) {
 
 export function canReviewRecording(tenantId, row) {
   return Boolean(tenantId && row && row.tenant_id === tenantId)
+}
+
+/**
+ * Employer may stream org-scoped recordings or platform (B2C) practice interviews
+ * for candidates visible in their roster.
+ * @param {import('./db/store.mjs').DbShape} db
+ */
+export function employerCanReviewRecording(db, organizationId, candidateEmail, row) {
+  if (!row) return false
+  if (row.status !== 'uploaded' && row.status !== 'completed') return false
+  const orgId = String(organizationId || '').trim()
+  if (!orgId) return false
+  if (String(row.tenant_id) === orgId) return true
+  const platform = (process.env.S3_DEFAULT_TENANT_ID || 'platform').trim() || 'platform'
+  if (String(row.tenant_id) !== platform) return false
+  try {
+    assertVendorMayViewCandidateDocuments(db, orgId, candidateEmail)
+    return true
+  } catch {
+    return false
+  }
 }

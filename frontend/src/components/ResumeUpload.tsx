@@ -148,7 +148,7 @@ export function ResumeUpload({
       }
 
       if (storageWarning) {
-        setError(storageWarning)
+        console.warn('[ResumeUpload] secure storage skipped:', storageWarning)
       }
       setStatus('')
     } catch (err) {

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import ts from 'typescript'
-import { mergeReviewEvents, canReviewRecording } from '../interviewReview.mjs'
+import { mergeReviewEvents, canReviewRecording, employerCanReviewRecording } from '../interviewReview.mjs'
 import { resolveInterviewRecordingDownload } from '../storage/interviewRecordingStorage.mjs'
 
 const source = await readFile(new URL('../../../frontend/src/lib/reviewEventTracker.ts', import.meta.url), 'utf8')
@@ -69,4 +69,21 @@ test('recording access denies candidate ownership and other tenants before signi
   assert.equal(signed, false)
   await resolveInterviewRecordingDownload({ pool, s3, recordingId: 'one', tenantId: 'vendor-a' })
   assert.equal(signed, true)
+})
+
+test('employerCanReviewRecording allows platform practice interviews for roster job seekers', () => {
+  const db = {
+    users: [{ id: 'u1', email: 'seeker@test.com', role: 'jobseeker' }],
+    profiles: {},
+    employerApplications: [],
+    interviewSessions: {},
+    organizationMembers: [],
+  }
+  const row = { tenant_id: 'platform', candidate_email: 'seeker@test.com', status: 'uploaded' }
+  assert.equal(employerCanReviewRecording(db, 'org-vendor-1', 'seeker@test.com', row), true)
+  assert.equal(employerCanReviewRecording(db, 'org-vendor-1', 'other@test.com', row), false)
+  assert.equal(
+    employerCanReviewRecording(db, 'org-vendor-1', 'seeker@test.com', { ...row, tenant_id: 'org-vendor-1' }),
+    true,
+  )
 })

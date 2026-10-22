@@ -31,6 +31,7 @@ import {
   authorizeInterviewRecordingUpload,
   completeInterviewRecordingUpload,
   resolveInterviewRecordingDownload,
+  resolveEmployerCandidateRecordingPlayback,
 } from '../storage/interviewRecordingStorage.mjs'
 import {
   persistInterviewReportPdfToS3,
@@ -39,6 +40,8 @@ import {
   resolveCandidateInterviewReportDownload,
 } from '../storage/interviewArtifactStorage.mjs'
 import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
+import { generateAndPersistInterviewReportPdf } from '../reports/generateInterviewReportPdf.mjs'
+import { publicObjectStorageError } from '../storage/storageErrors.mjs'
 import {
   newInviteToken,
   insertInterviewInvite,
@@ -493,6 +496,38 @@ export function createApiDispatchMiddleware(ctx) {
       } catch (err) {
         return json(res, err.status || 500, {
           error: err instanceof Error ? err.message : 'Could not load resume.',
+        })
+      }
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/candidate-documents/recording') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const candidateEmail = String(url.searchParams.get('email') || '').trim()
+      try {
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveEmployerCandidateRecordingPlayback({
+          pool,
+          db,
+          organizationId: ctx.tenant.organization.id,
+          candidateEmail,
+        })
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, {
+          playbackUrl: signed.url,
+          viewUrl: signed.url,
+          downloadUrl: signed.url,
+          expiresInSeconds: signed.expiresInSeconds,
+          contentType: signed.contentType,
+          filename: signed.filename,
+          sessionId: signed.interviewId,
+          durationSeconds: signed.durationSeconds,
+          fileSizeBytes: signed.fileSizeBytes,
+        })
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not load interview recording.',
         })
       }
     }
@@ -1338,7 +1373,9 @@ export function createApiDispatchMiddleware(ctx) {
         if (err.skipped) {
           return json(res, status, { error: err.message, skipped: true })
         }
-        return json(res, status, { error: err instanceof Error ? err.message : 'Upload failed' })
+        return json(res, status, {
+          error: publicObjectStorageError(err, 'Resume upload failed. Please try again.'),
+        })
       }
     }
 
@@ -1402,7 +1439,9 @@ export function createApiDispatchMiddleware(ctx) {
         if (err.skipped) {
           return json(res, status, { error: err.message, skipped: true })
         }
-        return json(res, status, { error: err instanceof Error ? err.message : 'Upload URL failed' })
+        return json(res, status, {
+          error: publicObjectStorageError(err, 'Recording upload could not be started.'),
+        })
       }
     }
 
@@ -1423,7 +1462,7 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, 200, { ok: true, ...out })
       } catch (err) {
         return json(res, err.status || 502, {
-          error: err instanceof Error ? err.message : 'Could not finalize recording upload.',
+          error: publicObjectStorageError(err, 'Could not finalize recording upload.'),
         })
       }
     }
@@ -1484,7 +1523,9 @@ export function createApiDispatchMiddleware(ctx) {
       } catch (err) {
         const status = err.status || 502
         if (err.skipped) return json(res, status, { error: err.message, skipped: true })
-        return json(res, status, { error: err instanceof Error ? err.message : 'Report upload failed' })
+        return json(res, status, {
+          error: publicObjectStorageError(err, 'Report upload failed.'),
+        })
       }
     }
 
@@ -1615,13 +1656,17 @@ export function createApiDispatchMiddleware(ctx) {
       if (config.databaseUrl && s3StorageConfigured()) {
         try {
           const pool = dbPool(config.databaseUrl)
-          const found = await pool.query("SELECT id FROM interview_recordings WHERE interview_id = $1 AND tenant_id = $2 AND status IN ('uploaded', 'completed') ORDER BY created_at DESC LIMIT 1", [sessionId, tenantId])
-          if (found.rows[0]) {
-            const signed = await resolveInterviewRecordingDownload({ pool, requesterEmail: access.user.email, tenantId, recordingId: found.rows[0].id })
-            videoUrl = signed.url
-            recordingStatus = 'Recording available'
-          }
-        } catch { recordingStatus = 'Recording temporarily unavailable. Retry to load playback.' }
+          const signed = await resolveEmployerCandidateRecordingPlayback({
+            pool,
+            db,
+            organizationId: tenantId,
+            candidateEmail: String(session.email || ''),
+          })
+          videoUrl = signed.url
+          recordingStatus = 'Recording available'
+        } catch {
+          recordingStatus = 'No recording available'
+        }
       }
       res.setHeader('Cache-Control', 'no-store')
       return json(res, 200, { events: session.reviewEvents || [], videoUrl, recordingStatus })
@@ -1859,6 +1904,28 @@ export function createApiDispatchMiddleware(ctx) {
             artifactErr instanceof Error ? artifactErr.message : artifactErr,
           )
         }
+        const profileRow = db.profiles[email] || {}
+        void generateAndPersistInterviewReportPdf({
+          pool: dbPool(config.databaseUrl),
+          db,
+          requesterEmail: email,
+          account: scoredUser,
+          sessionId,
+          result,
+          candidateName: scoredUser?.name,
+          candidateRole: profileRow.currentRole || role,
+          candidateExperience: profileRow.totalExperience,
+          skills: Array.isArray(profileRow.skills) ? profileRow.skills : [],
+        })
+          .then((out) => {
+            console.log(`[interview-artifact] report session=${sessionId} key=${out.objectKey}`)
+          })
+          .catch((reportErr) => {
+            console.warn(
+              '[interview-artifact] report pdf failed',
+              reportErr instanceof Error ? reportErr.message : reportErr,
+            )
+          })
       }
       return json(res, 200, { interview: result, sessionId })
     }

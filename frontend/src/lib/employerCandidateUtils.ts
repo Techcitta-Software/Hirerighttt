@@ -112,6 +112,7 @@ export function mapOrgCandidate(c: OrgCandidateRecord): EmployerApplicant {
     primarySkills: c.primarySkills,
     appliedAt: c.appliedAt,
     status: (c.status as EmployerApplicant['status']) || 'New',
+    interviewRecordingAvailable: Boolean(c.interviewRecordingAvailable),
   }
 }
 
@@ -127,6 +128,10 @@ export function hasResumeContent(app: EmployerApplicant): boolean {
 
 export function hasHireRightReport(app: EmployerApplicant): boolean {
   return Boolean(app.interviewResult)
+}
+
+export function hasInterviewRecording(app: EmployerApplicant): boolean {
+  return Boolean(app.interviewRecordingAvailable)
 }
 
 export function downloadResumeFile(app: EmployerApplicant) {

@@ -92,6 +92,28 @@ export async function updateInterviewRecording(pool, id, patch) {
  * @param {string} requesterEmail
  * @param {{ candidate_email: string, status?: string }} row
  */
+/**
+ * Latest uploaded recording for a candidate (any tenant — access checked at playback).
+ * @param {import('pg').Pool} pool
+ * @param {string} candidateEmail
+ */
+export async function getLatestInterviewRecordingForCandidate(pool, candidateEmail) {
+  const email = String(candidateEmail || '').trim().toLowerCase()
+  if (!email) return null
+  const res = await pool.query(
+    `SELECT id, tenant_id, interview_id, candidate_id, candidate_email,
+            s3_object_key, bucket, original_filename, content_type,
+            file_size_bytes, duration_seconds, status, created_at, updated_at
+     FROM interview_recordings
+     WHERE lower(candidate_email) = $1
+       AND status IN ('uploaded', 'completed')
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [email],
+  )
+  return res.rows[0] || null
+}
+
 export function canAccessInterviewRecording(requesterEmail, row) {
   if (!row) return false
   if (row.status === 'deleted') return false

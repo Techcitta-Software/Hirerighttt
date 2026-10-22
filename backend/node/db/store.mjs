@@ -493,235 +493,383 @@ export async function upsertJobRecord(databaseUrl, job) {
   )
 }
 
+/**
+ * Last row wins per conflict key — Postgres rejects one INSERT … ON CONFLICT that touches a row twice.
+ * @template T @param {T[]} rows @param {(row: T) => string} keyOf
+ */
+function dedupeBy(rows, keyOf) {
+  const byKey = new Map()
+  for (const row of rows) byKey.set(keyOf(row), row)
+  return [...byKey.values()]
+}
+
+/**
+ * table → (row key → row JSON) as of the last committed save. Saves only send rows that differ,
+ * because every Neon round-trip costs ~0.3s and full rewrites took 25s+ per request.
+ * @type {Map<string, Map<string, string>>}
+ */
+let persistedRows = new Map()
+
+/**
+ * @param {Map<string, Map<string, string>>} next
+ * @param {string} table @param {Record<string, unknown>[]} rows @param {(row: any) => string} keyOf
+ */
+function diffRows(next, table, rows, keyOf) {
+  const prev = persistedRows.get(table)
+  const current = new Map()
+  for (const row of rows) current.set(keyOf(row), JSON.stringify(row))
+  next.set(table, current)
+  const changed = rows.filter((row) => prev?.get(keyOf(row)) !== current.get(keyOf(row)))
+  const removed = prev ? [...prev.keys()].some((key) => !current.has(key)) : true
+  return { rows, changed, removed }
+}
+
+const recordset = (rows) => [JSON.stringify(rows)]
+
 /** @param {import('pg').PoolClient} client @param {DbShape} db */
 async function saveRelational(client, db) {
-  await client.query('BEGIN')
-  try {
-    for (const org of db.organizations || []) {
-      await client.query(
-        `INSERT INTO organizations (id, name, slug, logo_url, website, billing_email, status, settings, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::timestamptz,$10::timestamptz)
-         ON CONFLICT (id) DO UPDATE SET
-           name = EXCLUDED.name, slug = EXCLUDED.slug, logo_url = EXCLUDED.logo_url,
-           website = EXCLUDED.website, billing_email = EXCLUDED.billing_email,
-           status = EXCLUDED.status, settings = EXCLUDED.settings, updated_at = EXCLUDED.updated_at`,
-        [
-          org.id,
-          org.name,
-          org.slug,
-          org.logoUrl || null,
-          org.website || null,
-          org.billingEmail || null,
-          org.status || 'active',
-          JSON.stringify(org.settings || {}),
-          org.createdAt || new Date().toISOString(),
-          org.updatedAt || new Date().toISOString(),
-        ],
-      )
-    }
+  /** @type {Map<string, Map<string, string>>} */
+  const next = new Map()
+  /** @type {[string, unknown[]][]} */
+  const statements = []
 
-    for (const sub of db.organizationSubscriptions || []) {
-      await client.query(
-        `INSERT INTO organization_subscriptions
-           (id, organization_id, plan_id, status, stripe_customer_id, stripe_subscription_id,
-            trial_ends_at, current_period_start, current_period_end, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9::timestamptz,$10::timestamptz,$11::timestamptz)
-         ON CONFLICT (organization_id) DO UPDATE SET
-           plan_id = EXCLUDED.plan_id, status = EXCLUDED.status,
-           trial_ends_at = EXCLUDED.trial_ends_at, updated_at = EXCLUDED.updated_at,
-           stripe_customer_id = EXCLUDED.stripe_customer_id, stripe_subscription_id = EXCLUDED.stripe_subscription_id,
-           current_period_start = EXCLUDED.current_period_start, current_period_end = EXCLUDED.current_period_end`,
-        [
-          sub.id,
-          sub.organizationId,
-          sub.planId,
-          sub.status,
-          sub.stripeCustomerId || null,
-          sub.stripeSubscriptionId || null,
-          sub.trialEndsAt || null,
-          sub.currentPeriodStart || null,
-          sub.currentPeriodEnd || null,
-          sub.createdAt || new Date().toISOString(),
-          sub.updatedAt || new Date().toISOString(),
-        ],
-      )
-    }
+  const orgs = diffRows(
+    next,
+    'organizations',
+    dedupeBy(db.organizations || [], (o) => o.id).map((org) => ({
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      logo_url: org.logoUrl || null,
+      website: org.website || null,
+      billing_email: org.billingEmail || null,
+      status: org.status || 'active',
+      settings: org.settings || {},
+      created_at: org.createdAt || null,
+      updated_at: org.updatedAt || null,
+    })),
+    (r) => r.id,
+  )
+  if (orgs.changed.length) {
+    statements.push([
+      `INSERT INTO organizations (id, name, slug, logo_url, website, billing_email, status, settings, created_at, updated_at)
+       SELECT id, name, slug, logo_url, website, billing_email, status, settings,
+         COALESCE(created_at, NOW()), COALESCE(updated_at, NOW())
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, name text, slug text, logo_url text, website text,
+         billing_email text, status text, settings jsonb, created_at timestamptz, updated_at timestamptz)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name, slug = EXCLUDED.slug, logo_url = EXCLUDED.logo_url,
+         website = EXCLUDED.website, billing_email = EXCLUDED.billing_email,
+         status = EXCLUDED.status, settings = EXCLUDED.settings, updated_at = EXCLUDED.updated_at`,
+      recordset(orgs.changed),
+    ])
+  }
 
-    for (const u of db.users || []) {
-      await client.query(
-        `INSERT INTO users (id, email, name, password_hash, role, company_name, primary_organization_id, status, phone, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz)
-         ON CONFLICT (email) DO UPDATE SET
-           name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, role = EXCLUDED.role,
-           company_name = EXCLUDED.company_name, primary_organization_id = EXCLUDED.primary_organization_id,
-           status = EXCLUDED.status, phone = COALESCE(EXCLUDED.phone, users.phone)
-         WHERE users.id = EXCLUDED.id`,
-        [
-          u.id,
-          u.email,
-          u.name,
-          u.passwordHash,
-          u.role || 'jobseeker',
-          u.companyName || null,
-          u.primaryOrganizationId || null,
-          u.status || 'active',
-          u.phone || null,
-          u.createdAt || new Date().toISOString(),
-        ],
-      )
-    }
+  const subs = diffRows(
+    next,
+    'organization_subscriptions',
+    dedupeBy(db.organizationSubscriptions || [], (s) => s.organizationId).map((sub) => ({
+      id: sub.id,
+      organization_id: sub.organizationId,
+      plan_id: sub.planId,
+      status: sub.status,
+      stripe_customer_id: sub.stripeCustomerId || null,
+      stripe_subscription_id: sub.stripeSubscriptionId || null,
+      trial_ends_at: sub.trialEndsAt || null,
+      current_period_start: sub.currentPeriodStart || null,
+      current_period_end: sub.currentPeriodEnd || null,
+      created_at: sub.createdAt || null,
+      updated_at: sub.updatedAt || null,
+    })),
+    (r) => r.organization_id,
+  )
+  if (subs.changed.length) {
+    statements.push([
+      `INSERT INTO organization_subscriptions
+         (id, organization_id, plan_id, status, stripe_customer_id, stripe_subscription_id,
+          trial_ends_at, current_period_start, current_period_end, created_at, updated_at)
+       SELECT id, organization_id, plan_id, status, stripe_customer_id, stripe_subscription_id,
+          trial_ends_at, current_period_start, current_period_end,
+          COALESCE(created_at, NOW()), COALESCE(updated_at, NOW())
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, organization_id text, plan_id text, status text,
+         stripe_customer_id text, stripe_subscription_id text, trial_ends_at timestamptz,
+         current_period_start timestamptz, current_period_end timestamptz, created_at timestamptz, updated_at timestamptz)
+       ON CONFLICT (organization_id) DO UPDATE SET
+         plan_id = EXCLUDED.plan_id, status = EXCLUDED.status,
+         trial_ends_at = EXCLUDED.trial_ends_at, updated_at = EXCLUDED.updated_at,
+         stripe_customer_id = EXCLUDED.stripe_customer_id, stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+         current_period_start = EXCLUDED.current_period_start, current_period_end = EXCLUDED.current_period_end`,
+      recordset(subs.changed),
+    ])
+  }
 
-    for (const m of db.organizationMembers || []) {
-      await client.query(
-        `INSERT INTO organization_members (id, organization_id, user_id, role, invited_by_user_id, joined_at)
-         VALUES ($1,$2,$3,$4,$5,$6::timestamptz)
-         ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
-        [
-          m.id,
-          m.organizationId,
-          m.userId,
-          m.role,
-          m.invitedByUserId || null,
-          m.joinedAt || new Date().toISOString(),
-        ],
-      )
-    }
+  const users = diffRows(
+    next,
+    'users',
+    dedupeBy(db.users || [], (u) => u.email).map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      password_hash: u.passwordHash,
+      role: u.role || 'jobseeker',
+      company_name: u.companyName || null,
+      primary_organization_id: u.primaryOrganizationId || null,
+      status: u.status || 'active',
+      phone: u.phone || null,
+      created_at: u.createdAt || null,
+    })),
+    (r) => r.email,
+  )
+  if (users.changed.length) {
+    statements.push([
+      `INSERT INTO users (id, email, name, password_hash, role, company_name, primary_organization_id, status, phone, created_at)
+       SELECT id, email, name, password_hash, role, company_name, primary_organization_id, status, phone,
+         COALESCE(created_at, NOW())
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, email text, name text, password_hash text, role text,
+         company_name text, primary_organization_id text, status text, phone text, created_at timestamptz)
+       ON CONFLICT (email) DO UPDATE SET
+         name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, role = EXCLUDED.role,
+         company_name = EXCLUDED.company_name, primary_organization_id = EXCLUDED.primary_organization_id,
+         status = EXCLUDED.status, phone = COALESCE(EXCLUDED.phone, users.phone)
+       WHERE users.id = EXCLUDED.id`,
+      recordset(users.changed),
+    ])
+  }
 
-    // Do not delete/reinsert retained jobs: ON DELETE SET NULL destroys history links.
-    const jobIds = (db.jobs || []).map((job) => job.id).filter(Boolean)
-    if (jobIds.length) {
-      await client.query('DELETE FROM jobs WHERE NOT (id = ANY($1::text[]))', [jobIds])
-    }
-    for (const job of db.jobs || []) {
-      const extras = {
-        createdByEmail: job.createdByEmail || '',
-        companySlug: job.companySlug || null,
-      }
-      await client.query(
-        `INSERT INTO jobs (
-           id, organization_id, created_by_user_id, title, company, role_track, experience_level,
-           location, job_description, required_skills, shareable_code, status, extras, created_at, updated_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::timestamptz,$15::timestamptz)
-         ON CONFLICT (id) DO UPDATE SET
-           title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
-           required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
-           role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
-           location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras`,
-        [
-          job.id,
-          job.organizationId,
-          job.createdByUserId || null,
-          job.title,
-          job.company,
-          job.roleTrack || null,
-          job.experienceLevel || null,
-          job.location || null,
-          job.jobDescription || null,
-          JSON.stringify(job.requiredSkills || []),
-          job.shareableCode,
-          job.status || 'published',
-          JSON.stringify(extras),
-          job.createdAt || new Date().toISOString(),
-          new Date().toISOString(),
-        ],
-      )
-    }
+  const members = diffRows(
+    next,
+    'organization_members',
+    dedupeBy(db.organizationMembers || [], (m) => `${m.organizationId}\u0000${m.userId}`).map((m) => ({
+      id: m.id,
+      organization_id: m.organizationId,
+      user_id: m.userId,
+      role: m.role,
+      invited_by_user_id: m.invitedByUserId || null,
+      joined_at: m.joinedAt || null,
+    })),
+    (r) => `${r.organization_id}\u0000${r.user_id}`,
+  )
+  if (members.changed.length) {
+    statements.push([
+      `INSERT INTO organization_members (id, organization_id, user_id, role, invited_by_user_id, joined_at)
+       SELECT id, organization_id, user_id, role, invited_by_user_id, COALESCE(joined_at, NOW())
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, organization_id text, user_id text, role text,
+         invited_by_user_id text, joined_at timestamptz)
+       ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+      recordset(members.changed),
+    ])
+  }
 
-    await client.query('DELETE FROM employer_applications WHERE NOT (id = ANY($1::text[]))', [(db.employerApplications || []).map(app => app.id)])
-    for (const app of db.employerApplications || []) {
-      await client.query(
-        `INSERT INTO employer_applications
-           (id, organization_id, job_id, candidate_user_id, candidate_email, status, data, applied_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz)
-         ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, data=EXCLUDED.data,
-           candidate_user_id=EXCLUDED.candidate_user_id`,
-        [
-          app.id,
-          app.organizationId,
-          app.jobId,
-          app.candidateUserId || null,
-          app.candidateEmail,
-          app.status || 'new',
-          JSON.stringify(app.data || {}),
-          app.appliedAt || new Date().toISOString(),
-        ],
-      )
-    }
+  const jobs = diffRows(
+    next,
+    'jobs',
+    dedupeBy(db.jobs || [], (j) => j.id).map((job) => ({
+      id: job.id,
+      organization_id: job.organizationId,
+      created_by_user_id: job.createdByUserId || null,
+      title: job.title,
+      company: job.company,
+      role_track: job.roleTrack || null,
+      experience_level: job.experienceLevel || null,
+      location: job.location || null,
+      job_description: job.jobDescription || null,
+      required_skills: job.requiredSkills || [],
+      shareable_code: job.shareableCode,
+      status: job.status || 'published',
+      extras: { createdByEmail: job.createdByEmail || '', companySlug: job.companySlug || null },
+      created_at: job.createdAt || null,
+    })),
+    (r) => r.id,
+  )
+  // Do not delete/reinsert retained jobs: ON DELETE SET NULL destroys history links.
+  const jobIds = jobs.rows.map((job) => job.id).filter(Boolean)
+  if (jobs.removed && jobIds.length) {
+    statements.push(['DELETE FROM jobs WHERE NOT (id = ANY($1::text[]))', [jobIds]])
+  }
+  if (jobs.changed.length) {
+    statements.push([
+      `INSERT INTO jobs (
+         id, organization_id, created_by_user_id, title, company, role_track, experience_level,
+         location, job_description, required_skills, shareable_code, status, extras, created_at, updated_at
+       )
+       SELECT id, organization_id, created_by_user_id, title, company, role_track, experience_level,
+         location, job_description, required_skills, shareable_code, status, extras, COALESCE(created_at, NOW()), NOW()
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, organization_id text, created_by_user_id text,
+         title text, company text, role_track text, experience_level text, location text, job_description text,
+         required_skills jsonb, shareable_code text, status text, extras jsonb, created_at timestamptz)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
+         required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = EXCLUDED.updated_at,
+         role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
+         location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras`,
+      recordset(jobs.changed),
+    ])
+  }
 
-    for (const email of Object.keys(db.profiles || {})) {
-      await client.query(
-        `INSERT INTO profiles (email, user_id, data, updated_at)
-         VALUES ($1, $2, $3::jsonb, NOW())
-         ON CONFLICT (email) DO UPDATE SET user_id = EXCLUDED.user_id, data = EXCLUDED.data, updated_at = NOW()`,
-        [email, userIdForEmail(db, email), JSON.stringify(db.profiles[email])],
-      )
-    }
+  const empApps = diffRows(
+    next,
+    'employer_applications',
+    dedupeBy(db.employerApplications || [], (a) => a.id).map((app) => ({
+      id: app.id,
+      organization_id: app.organizationId,
+      job_id: app.jobId,
+      candidate_user_id: app.candidateUserId || null,
+      candidate_email: app.candidateEmail,
+      status: app.status || 'new',
+      data: app.data || {},
+      applied_at: app.appliedAt || null,
+    })),
+    (r) => r.id,
+  )
+  if (empApps.removed) {
+    statements.push([
+      'DELETE FROM employer_applications WHERE NOT (id = ANY($1::text[]))',
+      [empApps.rows.map((app) => app.id)],
+    ])
+  }
+  if (empApps.changed.length) {
+    statements.push([
+      `INSERT INTO employer_applications
+         (id, organization_id, job_id, candidate_user_id, candidate_email, status, data, applied_at)
+       SELECT id, organization_id, job_id, candidate_user_id, candidate_email, status, data, COALESCE(applied_at, NOW())
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, organization_id text, job_id text,
+         candidate_user_id text, candidate_email text, status text, data jsonb, applied_at timestamptz)
+       ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, data=EXCLUDED.data,
+         candidate_user_id=EXCLUDED.candidate_user_id`,
+      recordset(empApps.changed),
+    ])
+  }
 
-    for (const email of Object.keys(db.interviews || {})) {
+  const profiles = diffRows(
+    next,
+    'profiles',
+    Object.keys(db.profiles || {}).map((email) => ({
+      email,
+      user_id: userIdForEmail(db, email),
+      data: db.profiles[email] ?? null,
+    })),
+    (r) => r.email,
+  )
+  if (profiles.changed.length) {
+    statements.push([
+      `INSERT INTO profiles (email, user_id, data, updated_at)
+       SELECT email, user_id, data, NOW()
+       FROM jsonb_to_recordset($1::jsonb) AS x(email text, user_id text, data jsonb)
+       ON CONFLICT (email) DO UPDATE SET user_id = EXCLUDED.user_id, data = EXCLUDED.data, updated_at = NOW()`,
+      recordset(profiles.changed),
+    ])
+  }
+
+  const results = diffRows(
+    next,
+    'interview_results',
+    Object.keys(db.interviews || {}).map((email) => {
       const payload = db.interviews[email]
       const overall =
         typeof payload === 'object' && payload && 'overall' in payload
           ? Number(/** @type {{ overall?: number }} */ (payload).overall) || 0
           : null
-      await client.query(
-        `INSERT INTO interview_results (email, user_id, overall, data, updated_at)
-         VALUES ($1, $2, $3, $4::jsonb, NOW())
-         ON CONFLICT (email) DO UPDATE SET user_id = EXCLUDED.user_id, overall = EXCLUDED.overall, data = EXCLUDED.data, updated_at = NOW()`,
-        [email, userIdForEmail(db, email), overall, JSON.stringify(payload)],
-      )
-    }
+      return { email, user_id: userIdForEmail(db, email), overall, data: payload ?? null }
+    }),
+    (r) => r.email,
+  )
+  if (results.changed.length) {
+    statements.push([
+      `INSERT INTO interview_results (email, user_id, overall, data, updated_at)
+       SELECT email, user_id, round(overall)::int, data, NOW()
+       FROM jsonb_to_recordset($1::jsonb) AS x(email text, user_id text, overall numeric, data jsonb)
+       ON CONFLICT (email) DO UPDATE SET user_id = EXCLUDED.user_id, overall = EXCLUDED.overall, data = EXCLUDED.data, updated_at = NOW()`,
+      recordset(results.changed),
+    ])
+  }
 
-    await client.query('DELETE FROM job_applications')
-    for (const [email, list] of Object.entries(db.applications || {})) {
-      if (!Array.isArray(list)) continue
-      for (const item of list) {
-        const id = String(item?.id || item?.jobId || randomAppId())
-        await client.query(
-          `INSERT INTO job_applications (id, email, data, created_at)
-           VALUES ($1, $2, $3::jsonb, COALESCE($4::timestamptz, NOW()))`,
-          [id, email, JSON.stringify(item), item?.appliedAt || item?.createdAt || null],
-        )
-      }
+  const appRows = []
+  for (const [email, list] of Object.entries(db.applications || {})) {
+    if (!Array.isArray(list)) continue
+    for (const item of list) {
+      appRows.push({
+        id: String(item?.id || item?.jobId || randomAppId()),
+        email,
+        data: item ?? null,
+        created_at: item?.appliedAt || item?.createdAt || null,
+      })
     }
+  }
+  const apps = diffRows(next, 'job_applications', dedupeBy(appRows, (r) => `${r.email}\u0000${r.id}`), (r) => `${r.email}\u0000${r.id}`)
+  if (apps.removed || apps.changed.length) {
+    statements.push(['DELETE FROM job_applications', []])
+    if (apps.rows.length) {
+      statements.push([
+        `INSERT INTO job_applications (id, email, data, created_at)
+         SELECT id, email, data, COALESCE(created_at, NOW())
+         FROM jsonb_to_recordset($1::jsonb) AS x(id text, email text, data jsonb, created_at timestamptz)`,
+        recordset(apps.rows),
+      ])
+    }
+  }
 
-    for (const [sessionId, data] of Object.entries(db.interviewSessions || {})) {
+  const sessions = diffRows(
+    next,
+    'interview_sessions',
+    Object.entries(db.interviewSessions || {}).map(([sessionId, data]) => {
       const email = String(/** @type {{ email?: string }} */ (data)?.email || '')
-      await client.query(
-        `INSERT INTO interview_sessions (session_id, email, user_id, data, updated_at)
-         VALUES ($1, $2, $3, $4::jsonb, NOW())
-         ON CONFLICT (session_id) DO UPDATE SET email = EXCLUDED.email, data = EXCLUDED.data, updated_at = NOW()`,
-        [sessionId, email || 'unknown@local', userIdForEmail(db, email), JSON.stringify(data)],
-      )
-    }
+      return {
+        session_id: sessionId,
+        email: email || 'unknown@local',
+        user_id: userIdForEmail(db, email),
+        data: data ?? null,
+      }
+    }),
+    (r) => r.session_id,
+  )
+  if (sessions.changed.length) {
+    statements.push([
+      `INSERT INTO interview_sessions (session_id, email, user_id, data, updated_at)
+       SELECT session_id, email, user_id, data, NOW()
+       FROM jsonb_to_recordset($1::jsonb) AS x(session_id text, email text, user_id text, data jsonb)
+       ON CONFLICT (session_id) DO UPDATE SET email = EXCLUDED.email, data = EXCLUDED.data, updated_at = NOW()`,
+      recordset(sessions.changed),
+    ])
+  }
 
-    await client.query('DELETE FROM confidential_candidates')
-    const vault = db.confidentialVault || []
-    for (let i = 0; i < vault.length; i++) {
-      const item = vault[i]
-      const id = String(/** @type {{ id?: string }} */ (item)?.id || `conf-${i}`)
-      const orgId =
-        String(/** @type {{ organizationId?: string }} */ (item)?.organizationId || '') ||
-        'org-platform'
-      const { organizationId: _o, id: _i, ...rest } =
-        typeof item === 'object' && item ? /** @type {Record<string, unknown>} */ (item) : {}
-      await client.query(
+  const vaultRows = (db.confidentialVault || []).map((item, i) => {
+    const { organizationId: _o, id: _i, ...rest } =
+      typeof item === 'object' && item ? /** @type {Record<string, unknown>} */ (item) : {}
+    return {
+      id: String(/** @type {{ id?: string }} */ (item)?.id || `conf-${i}`),
+      organization_id:
+        String(/** @type {{ organizationId?: string }} */ (item)?.organizationId || '') || 'org-platform',
+      data: rest,
+      sort_order: i,
+      created_at: /** @type {{ createdAt?: string }} */ (item)?.createdAt || null,
+    }
+  })
+  const vault = diffRows(next, 'confidential_candidates', dedupeBy(vaultRows, (r) => r.id), (r) => r.id)
+  if (vault.removed || vault.changed.length) {
+    statements.push(['DELETE FROM confidential_candidates', []])
+    if (vault.rows.length) {
+      statements.push([
         `INSERT INTO confidential_candidates (id, organization_id, data, sort_order, created_at)
-         VALUES ($1, $2, $3::jsonb, $4, COALESCE($5::timestamptz, NOW()))`,
-        [
-          id,
-          orgId,
-          JSON.stringify(rest),
-          i,
-          /** @type {{ createdAt?: string }} */ (item)?.createdAt || null,
-        ],
-      )
+         SELECT id, organization_id, data, sort_order, COALESCE(created_at, NOW())
+         FROM jsonb_to_recordset($1::jsonb) AS x(id text, organization_id text, data jsonb, sort_order int, created_at timestamptz)`,
+        recordset(vault.rows),
+      ])
     }
+  }
 
+  if (!statements.length) {
+    persistedRows = next
+    return
+  }
+  await client.query('BEGIN')
+  try {
+    for (const [sql, params] of statements) await client.query(sql, params)
     await client.query('COMMIT')
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
   }
+  persistedRows = next
 }
 
 function randomAppId() {
@@ -739,16 +887,31 @@ export async function loadDb(databaseUrl) {
   }
 }
 
-export async function saveDb(db, databaseUrl) {
+/** @type {{ snapshot: DbShape, databaseUrl: string, promise: Promise<void> } | null} */
+let queuedSave = null
+
+/**
+ * Saves are full-state snapshots, so callers waiting behind a running save share one
+ * follow-up write with the newest snapshot instead of each queuing their own.
+ */
+export function saveDb(db, databaseUrl) {
   requireDatabaseUrl(databaseUrl)
   const snapshot = structuredClone(db)
-  const pending = saveQueue.then(async () => {
-    await ensurePgSchema(databaseUrl)
-    const client = await getPool(databaseUrl).connect()
-    try { await saveRelational(client, snapshot) } finally { client.release() }
+  if (queuedSave) {
+    queuedSave.snapshot = snapshot
+    queuedSave.databaseUrl = databaseUrl
+    return queuedSave.promise
+  }
+  const job = { snapshot, databaseUrl, promise: Promise.resolve() }
+  job.promise = saveQueue.then(async () => {
+    if (queuedSave === job) queuedSave = null
+    await ensurePgSchema(job.databaseUrl)
+    const client = await getPool(job.databaseUrl).connect()
+    try { await saveRelational(client, job.snapshot) } finally { client.release() }
   })
-  saveQueue = pending.catch(() => {})
-  return pending
+  queuedSave = job
+  saveQueue = job.promise.catch(() => {})
+  return job.promise
 }
 
 export async function pingDatabase(databaseUrl) {
@@ -819,4 +982,5 @@ export async function closeStore() {
   if (pool) await pool.end()
   pool = null
   schemaReady = null
+  persistedRows = new Map()
 }

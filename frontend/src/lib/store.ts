@@ -182,6 +182,7 @@ export type EmployerApplicant = {
   appliedAt: string
   status: 'New' | 'Shortlisted' | 'In Review' | 'Interviewing' | 'Rejected'
   integrityStatus?: 'verified' | 'pending' | 'unverified'
+  interviewRecordingAvailable?: boolean
   aiScore?: number
   atsScore?: number
   jdMatchScore?: number

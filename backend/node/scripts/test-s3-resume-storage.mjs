@@ -40,9 +40,8 @@ async function main() {
       console.log('[s3-test] legacy resumes/ objects (should be empty after cleanup):', legacyKeys.length ? legacyKeys.join('\n  ') : '(none)')
     }
   } catch (err) {
-    console.error('[s3-test] List failed:', err.message || err)
-    console.error('  → Check IAM (s3:ListBucket on bucket) or bucket name/region')
-    process.exit(1)
+    console.warn('[s3-test] List skipped (optional s3:ListBucket):', err.message || err)
+    console.warn('  → Upload/download still works with object-level IAM (Put/Get/Head on arn:aws:s3:::BUCKET/*)')
   }
 
   console.log('[s3-test] PutObject test key:', testKey)

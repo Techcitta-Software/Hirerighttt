@@ -25,7 +25,9 @@ const server = app.listen(PORT, () => {
   console.log('Storage: PostgreSQL (Neon)')
   if (s3StorageConfigured()) {
     const { bucket, region } = s3Env()
-    console.log(`Object storage: Amazon S3 (bucket=${bucket}, region=${region})`)
+    console.log(
+      `Object storage: Amazon S3 (bucket=${bucket}, region=${region}) — resumes, transcripts, reports, recordings under tenants/`,
+    )
   } else if (supabaseStorageConfigured()) {
     console.log('Object storage: Supabase (resume files)')
   } else {
@@ -51,8 +53,11 @@ const server = app.listen(PORT, () => {
 
 server.on('error', (err) => {
   if (err && err.code === 'EADDRINUSE') {
-    console.warn(`Port ${PORT} already in use — API assumed running.`)
-    return
+    console.error(
+      `Port ${PORT} already in use — another API is still running (often stale S3 config).`,
+    )
+    console.error('Stop it and restart: npm run dev:all  (or run: node scripts/ensure-dev-api-port.mjs)')
+    process.exit(1)
   }
   console.error(err)
   process.exit(1)

@@ -461,7 +461,35 @@ export async function listOrganizationCandidates(db, organizationId, databaseUrl
   )
   candidates.sort((a, b) => String(b.appliedAt).localeCompare(String(a.appliedAt)))
 
+  if (databaseUrl && candidates.length) {
+    candidates = await attachInterviewRecordingFlags(databaseUrl, candidates)
+  }
+
   return { total: candidates.length, candidates }
+}
+
+/** Lightweight EXISTS-style flag — no presigned URLs on list. */
+async function attachInterviewRecordingFlags(databaseUrl, candidates) {
+  const emails = [...new Set(candidates.map((c) => String(c.candidateEmail || '').toLowerCase()).filter(Boolean))]
+  if (!emails.length) return candidates
+  try {
+    const res = await dbPool(databaseUrl).query(
+      `SELECT lower(candidate_email) AS email
+       FROM interview_recordings
+       WHERE lower(candidate_email) = ANY($1::text[])
+         AND status IN ('uploaded', 'completed')
+       GROUP BY lower(candidate_email)`,
+      [emails],
+    )
+    const withRecording = new Set(res.rows.map((r) => r.email))
+    return candidates.map((c) => ({
+      ...c,
+      interviewRecordingAvailable: withRecording.has(String(c.candidateEmail || '').toLowerCase()),
+    }))
+  } catch (err) {
+    console.warn('[vendor] recording flags:', err.message)
+    return candidates
+  }
 }
 
 /** Applicants for one job only (same org). */

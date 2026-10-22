@@ -1,4 +1,6 @@
-import { canReviewRecording } from '../interviewReview.mjs'
+import { canReviewRecording, employerCanReviewRecording } from '../interviewReview.mjs'
+import { assertVendorMayViewCandidateDocuments } from '../vendor/candidateDocuments.mjs'
+import { getLatestInterviewRecordingForCandidate } from './interviewRecordingsRepo.mjs'
 import {
   buildInterviewRecordingObjectKey,
   resolveTenantId,
@@ -185,6 +187,31 @@ export async function completeInterviewRecordingUpload(opts) {
  *   s3?: ReturnType<typeof createS3ObjectStorage>,
  * }} opts
  */
+async function presignRecordingPlayback(row, s3Inject) {
+  const s3 = s3Inject || defaultS3ObjectStorage
+  const head = await s3.headObject({ key: row.s3_object_key })
+  if (!head) {
+    const err = new Error('Recording file is missing from storage.')
+    err.status = 404
+    throw err
+  }
+  const safeName = String(row.original_filename || 'interview.webm').replace(/"/g, '')
+  const contentType = String(row.content_type || 'video/webm').split(';')[0].trim()
+  const signed = await s3.presignDownload({
+    key: row.s3_object_key,
+    responseContentDisposition: `inline; filename="${safeName}"`,
+    responseContentType: contentType,
+  })
+  return {
+    ...signed,
+    contentType,
+    filename: safeName,
+    interviewId: row.interview_id,
+    durationSeconds: row.duration_seconds,
+    fileSizeBytes: row.file_size_bytes,
+  }
+}
+
 export async function resolveInterviewRecordingDownload(opts) {
   const row = await getInterviewRecordingById(opts.pool, opts.recordingId)
   if (!canReviewRecording(opts.tenantId, row)) {
@@ -197,16 +224,26 @@ export async function resolveInterviewRecordingDownload(opts) {
     err.status = 409
     throw err
   }
-  const s3 = opts.s3 || defaultS3ObjectStorage
-  const head = await s3.headObject({ key: row.s3_object_key })
-  if (!head) {
-    const err = new Error('Recording file is missing from storage.')
+  return presignRecordingPlayback(row, opts.s3)
+}
+
+/**
+ * Presigned GET for HTML5 streaming (Range requests go directly to S3).
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   db: import('../db/store.mjs').DbShape,
+ *   organizationId: string,
+ *   candidateEmail: string,
+ *   s3?: ReturnType<typeof createS3ObjectStorage>,
+ * }} opts
+ */
+export async function resolveEmployerCandidateRecordingPlayback(opts) {
+  assertVendorMayViewCandidateDocuments(opts.db, opts.organizationId, opts.candidateEmail)
+  const row = await getLatestInterviewRecordingForCandidate(opts.pool, opts.candidateEmail)
+  if (!employerCanReviewRecording(opts.db, opts.organizationId, opts.candidateEmail, row)) {
+    const err = new Error('Interview recording not found.')
     err.status = 404
     throw err
   }
-  const disposition = `inline; filename="${String(row.original_filename).replace(/"/g, '')}"`
-  return s3.presignDownload({
-    key: row.s3_object_key,
-    responseContentDisposition: disposition,
-  })
+  return presignRecordingPlayback(row, opts.s3)
 }

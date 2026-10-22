@@ -28,6 +28,17 @@ export type ResumeUploadOutcome =
 
 const MAX_API_RESUME_BYTES = 2_000_000
 
+const GENERIC_STORAGE_ERROR =
+  'Secure file storage is temporarily unavailable. Please try again in a few minutes.'
+
+function sanitizeStorageError(raw: string): string {
+  if (/arn:aws:/i.test(raw) || /not authorized|accessdenied/i.test(raw)) {
+    return GENERIC_STORAGE_ERROR
+  }
+  if (raw.length > 180) return GENERIC_STORAGE_ERROR
+  return raw
+}
+
 /** Upload resume binary to S3 (via Node API) after auth. */
 export async function uploadResumeViaApiWithStatus(file: File): Promise<ResumeUploadOutcome> {
   if (file.size > MAX_API_RESUME_BYTES) {
@@ -61,7 +72,8 @@ export async function uploadResumeViaApiWithStatus(file: File): Promise<ResumeUp
     return { ok: false, error: data.error || 'Cloud storage is not configured on the server.' }
   }
   if (!res.ok) {
-    return { ok: false, error: data.error || `Upload failed (${res.status}).` }
+    const raw = data.error || `Upload failed (${res.status}).`
+    return { ok: false, error: sanitizeStorageError(raw) }
   }
   if (!data.storagePath) {
     return { ok: false, error: 'Upload succeeded but no storage path was returned.' }

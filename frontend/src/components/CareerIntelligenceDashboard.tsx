@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { InterviewResult } from '../lib/store'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import { openStoredScorecardPdf } from '../lib/interviewReportUpload'
 import { buildQaRowsFromInterview } from '../lib/scorecardQaRows'
 import { HrIcon, type HrIconName } from './HrIcon'
 import { BrandLogo } from './BrandLogo'
@@ -214,7 +215,11 @@ export function CareerIntelligenceDashboard({
               onClick={() => {
                 setDownloadError('')
                 setDownloading(true)
-                void downloadScorecardPdf(candidateName)
+                void (async () => {
+                  const sid = result.sessionId
+                  if (sid && (await openStoredScorecardPdf(sid))) return
+                  await downloadScorecardPdf(candidateName)
+                })()
                   .catch(() => {
                     setDownloadError('Could not download the report. Try again.')
                   })

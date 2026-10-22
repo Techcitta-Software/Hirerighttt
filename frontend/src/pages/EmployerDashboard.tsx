@@ -996,11 +996,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <tr>
                   {isCandidatesView ? (
                     <>
-                      <th style={{ width: '26%' }}>NAME</th>
-                      <th style={{ width: '18%' }}>ROLE</th>
-                      <th style={{ width: '14%' }}>EXPERIENCE</th>
-                      <th style={{ width: '20%' }}>RESUME</th>
-                      <th style={{ width: '22%' }}>REPORT ON HIRERIGHTTT</th>
+                      <th style={{ width: '28%' }}>NAME</th>
+                      <th style={{ width: '20%' }}>ROLE</th>
+                      <th style={{ width: '16%' }}>EXPERIENCE</th>
+                      <th style={{ width: '22%' }}>RESUME</th>
+                      <th style={{ width: '24%' }}>REPORT ON HIRERIGHTTT</th>
                     </>
                   ) : (
                     <>

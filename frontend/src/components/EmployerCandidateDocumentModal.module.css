@@ -83,10 +83,38 @@
   min-height: 0;
 }
 
+.videoSection {
+  margin-top: 16px;
+}
+
+.videoSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.interviewVideo {
+  width: 100%;
+  max-height: min(42vh, 420px);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
+}
+
+.recordingNote {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: #b45309;
+}
+
 .docFrame {
   flex: 1;
   width: 100%;
-  min-height: min(72vh, 720px);
+  min-height: min(52vh, 520px);
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   background: #f8fafc;

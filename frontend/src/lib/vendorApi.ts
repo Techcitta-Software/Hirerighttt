@@ -147,6 +147,14 @@ export type OrgCandidateRecord = {
   primarySkills?: string[]
   appliedAt: string
   status?: string
+  /** Set by GET /api/vendor/candidates — no video URL until recording endpoint is called. */
+  interviewRecordingAvailable?: boolean
+}
+
+export type VendorCandidateRecordingLink = VendorCandidateDocumentLink & {
+  playbackUrl: string
+  durationSeconds?: number | null
+  fileSizeBytes?: number | null
 }
 
 export type VendorCandidateDocumentLink = {
@@ -168,6 +176,13 @@ export async function fetchVendorCandidateReportDocument(candidateEmail: string)
   const qs = new URLSearchParams({ email: candidateEmail })
   const res = await apiFetch(`/api/vendor/candidate-documents/report?${qs}`)
   return parse<VendorCandidateDocumentLink>(res)
+}
+
+/** Presigned S3 URL for HTML5 streaming (byte-range requests handled by S3). */
+export async function fetchVendorCandidateRecordingDocument(candidateEmail: string) {
+  const qs = new URLSearchParams({ email: candidateEmail })
+  const res = await apiFetch(`/api/vendor/candidate-documents/recording?${qs}`)
+  return parse<VendorCandidateRecordingLink>(res)
 }
 
 export async function fetchOrganizationCandidates(params?: {

@@ -53,7 +53,16 @@ export function createHealthRouter(ctx) {
         provider: objectProvider,
         bucket: s3?.bucket || null,
         region: s3?.region || null,
-        resumeKeyPrefix: 'tenants/',
+        keyPrefix: 'tenants/',
+        /** All private blobs use S3_BUCKET from env only — no migration or second bucket. */
+        objectKinds: s3
+          ? [
+              'resume (server PutObject)',
+              'interview_transcript (server PutObject JSON)',
+              'interview_report (server PutObject PDF)',
+              'interview_recording (browser presigned PutObject)',
+            ]
+          : [],
       },
     })
   })

@@ -1,7 +1,16 @@
-import { spawn } from 'node:child_process'
+import { spawn, execSync } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { loadEnv } from '../env/loadEnv.mjs'
 
 loadEnv()
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+try {
+  execSync('node scripts/ensure-dev-api-port.mjs', { stdio: 'inherit', cwd: repoRoot })
+} catch {
+  process.exit(1)
+}
 
 function run(command, args) {
   const env = { ...process.env }

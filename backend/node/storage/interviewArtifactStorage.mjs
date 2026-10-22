@@ -97,32 +97,8 @@ export async function persistInterviewTranscriptToS3(opts) {
  *   s3?: ReturnType<typeof createS3ObjectStorage>,
  * }} opts
  */
-export async function persistInterviewReportPdfToS3(opts) {
-  if (!s3StorageConfigured()) {
-    const err = new Error('Report storage is not configured (S3).')
-    err.status = 503
-    err.skipped = true
-    throw err
-  }
-  const email = String(opts.requesterEmail || '').toLowerCase()
-  const session = /** @type {any} */ (opts.db.interviewSessions?.[opts.sessionId])
-  if (!session || String(session.email || '').toLowerCase() !== email) {
-    const err = new Error('Interview session not found.')
-    err.status = 404
-    throw err
-  }
-  let buffer
-  try {
-    const raw = String(opts.fileBase64 || '').includes(',')
-      ? String(opts.fileBase64).split(',')[1]
-      : String(opts.fileBase64 || '')
-    buffer = Buffer.from(raw, 'base64')
-  } catch {
-    const err = new Error('Invalid file_base64 for report PDF.')
-    err.status = 400
-    throw err
-  }
-  if (buffer.length < 256) {
+function assertReportPdfBuffer(buffer) {
+  if (!buffer || buffer.length < 256) {
     const err = new Error('Report PDF is too small or empty.')
     err.status = 400
     throw err
@@ -137,6 +113,35 @@ export async function persistInterviewReportPdfToS3(opts) {
     err.status = 400
     throw err
   }
+}
+
+/**
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   db: { interviewSessions?: Record<string, unknown> },
+ *   requesterEmail: string,
+ *   account?: { id?: string, primaryOrganizationId?: string } | null,
+ *   sessionId: string,
+ *   buffer: Buffer,
+ *   s3?: ReturnType<typeof createS3ObjectStorage>,
+ * }} opts
+ */
+export async function persistInterviewReportPdfBuffer(opts) {
+  if (!s3StorageConfigured()) {
+    const err = new Error('Report storage is not configured (S3).')
+    err.status = 503
+    err.skipped = true
+    throw err
+  }
+  const email = String(opts.requesterEmail || '').toLowerCase()
+  const session = /** @type {any} */ (opts.db.interviewSessions?.[opts.sessionId])
+  if (!session || String(session.email || '').toLowerCase() !== email) {
+    const err = new Error('Interview session not found.')
+    err.status = 404
+    throw err
+  }
+  const buffer = opts.buffer
+  assertReportPdfBuffer(buffer)
   const tenantId = resolveTenantId({
     user: opts.account,
     sessionOrganizationId: session.organizationId,
@@ -167,6 +172,29 @@ export async function persistInterviewReportPdfToS3(opts) {
     console.warn('[interview-artifact] report metadata insert failed — run npm run db:init', dbErr)
   }
   return { objectKey, bucket }
+}
+
+export async function persistInterviewReportPdfToS3(opts) {
+  let buffer
+  try {
+    const raw = String(opts.fileBase64 || '').includes(',')
+      ? String(opts.fileBase64).split(',')[1]
+      : String(opts.fileBase64 || '')
+    buffer = Buffer.from(raw, 'base64')
+  } catch {
+    const err = new Error('Invalid file_base64 for report PDF.')
+    err.status = 400
+    throw err
+  }
+  return persistInterviewReportPdfBuffer({
+    pool: opts.pool,
+    db: opts.db,
+    requesterEmail: opts.requesterEmail,
+    account: opts.account,
+    sessionId: opts.sessionId,
+    buffer,
+    s3: opts.s3,
+  })
 }
 
 /**

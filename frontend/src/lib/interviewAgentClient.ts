@@ -166,6 +166,13 @@ export type InterviewStartOptions = {
   jdMatchScore?: number
 }
 
+const INTERVIEW_START_TIMEOUT_MS = 90_000
+
+/** Client-generated ids (offline fallbacks) have no server session to sync review events or recordings to. */
+export function isServerInterviewSession(sessionId: string | null | undefined): sessionId is string {
+  return Boolean(sessionId) && !/^(local|gemini|session)-/.test(sessionId!)
+}
+
 export async function startInterviewSession(
   role: string,
   level: string,
@@ -187,6 +194,9 @@ export async function startInterviewSession(
   try {
     const res = await apiFetch('/api/interview/start', {
       method: 'POST',
+      // LLM question generation + session save can outlast apiFetch's default timeout; aborting
+      // early drops the candidate into an offline session that cannot save review events or video.
+      signal: AbortSignal.timeout(INTERVIEW_START_TIMEOUT_MS),
       body: JSON.stringify({
         role,
         level,
@@ -247,7 +257,7 @@ export async function startInterviewSession(
     }
   } catch (err) {
     if (isVendorJob) throw err
-    // backend not running, proceed to direct Gemini call
+    console.warn('[interview] server start failed — continuing offline (no video/review sync):', err)
   }
 
   // 2. Direct adaptive question (one LLM call — same spec as server)

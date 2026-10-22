@@ -84,18 +84,19 @@ export function createS3ObjectStorage(options = {}) {
       throw err
     }
     const client = getClient()
+    // Do not set ServerSideEncryption here — browser PUT must send matching x-amz-* headers
+    // or S3 returns SignatureDoesNotMatch. Bucket default encryption still applies when enabled.
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: key,
       ContentType: contentType,
       ContentLength: contentLength,
-      ServerSideEncryption: 'AES256',
     })
     const url = await getSignedUrl(client, command, { expiresIn: presignSeconds })
     return { url, expiresInSeconds: presignSeconds, method: 'PUT' }
   }
 
-  async function presignDownload({ key, responseContentDisposition }) {
+  async function presignDownload({ key, responseContentDisposition, responseContentType }) {
     const { bucket, presignSeconds } = s3Env()
     if (!bucket) {
       const err = new Error('S3_BUCKET is not configured.')
@@ -107,6 +108,7 @@ export function createS3ObjectStorage(options = {}) {
       Bucket: bucket,
       Key: key,
       ResponseContentDisposition: responseContentDisposition,
+      ...(responseContentType ? { ResponseContentType: responseContentType } : {}),
     })
     const url = await getSignedUrl(client, command, { expiresIn: presignSeconds })
     return { url, expiresInSeconds: presignSeconds }

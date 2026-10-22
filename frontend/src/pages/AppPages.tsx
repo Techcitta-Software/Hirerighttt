@@ -28,7 +28,7 @@ import {
   PENDING_REPORT_UPLOAD_KEY,
   type PostInterviewReportState,
 } from '../lib/completeOnboardingAfterInterview'
-import { uploadInterviewReportPdfToS3 } from '../lib/interviewReportUpload'
+import { uploadInterviewReportPdfToS3, waitForStoredReportPdf } from '../lib/interviewReportUpload'
 import { apiListApplications, apiSaveProfile, apiWithdrawApplication } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
@@ -67,7 +67,12 @@ export function InterviewReportPage() {
     if (!sessionId || !getInterviewResult()) return
     let cancelled = false
     const timer = window.setTimeout(() => {
-      void uploadInterviewReportPdfToS3(sessionId).finally(() => {
+      void (async () => {
+        const ready = await waitForStoredReportPdf(sessionId)
+        if (!ready && !cancelled) {
+          await uploadInterviewReportPdfToS3(sessionId)
+        }
+      })().finally(() => {
         if (!cancelled) sessionStorage.removeItem(PENDING_REPORT_UPLOAD_KEY)
       })
     }, 900)

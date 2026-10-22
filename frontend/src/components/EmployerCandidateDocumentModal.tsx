@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { EmployerApplicant } from '../lib/store'
 import {
+  fetchVendorCandidateRecordingDocument,
   fetchVendorCandidateReportDocument,
   fetchVendorCandidateResumeDocument,
   type VendorCandidateDocumentLink,
+  type VendorCandidateRecordingLink,
 } from '../lib/vendorApi'
 import { HrIcon } from './HrIcon'
 import styles from './EmployerCandidateDocumentModal.module.css'
@@ -26,6 +28,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [documentLink, setDocumentLink] = useState<VendorCandidateDocumentLink | null>(null)
+  const [recordingLink, setRecordingLink] = useState<VendorCandidateRecordingLink | null>(null)
+  const [recordingError, setRecordingError] = useState('')
 
   const isResume = kind === 'resume'
   const title = isResume
@@ -37,12 +41,34 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     setLoading(true)
     setLoadError('')
     setDocumentLink(null)
+    setRecordingLink(null)
+    setRecordingError('')
     void (async () => {
       try {
-        const link = isResume
-          ? await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
-          : await fetchVendorCandidateReportDocument(applicant.candidateEmail)
-        if (!cancelled) setDocumentLink(link)
+        if (isResume) {
+          const link = await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
+          if (!cancelled) setDocumentLink(link)
+          return
+        }
+        const [reportSettled, recordingSettled] = await Promise.allSettled([
+          fetchVendorCandidateReportDocument(applicant.candidateEmail),
+          fetchVendorCandidateRecordingDocument(applicant.candidateEmail),
+        ])
+        if (cancelled) return
+        if (reportSettled.status === 'fulfilled') {
+          setDocumentLink(reportSettled.value)
+        } else {
+          setLoadError(
+            reportSettled.reason instanceof Error
+              ? reportSettled.reason.message
+              : 'Could not load report.',
+          )
+        }
+        if (recordingSettled.status === 'fulfilled') {
+          setRecordingLink(recordingSettled.value)
+        } else if (applicant.interviewRecordingAvailable) {
+          setRecordingError('Interview video is temporarily unavailable.')
+        }
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : 'Could not load document.')
@@ -54,7 +80,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     return () => {
       cancelled = true
     }
-  }, [isResume, applicant.candidateEmail])
+  }, [isResume, applicant.candidateEmail, applicant.interviewRecordingAvailable])
 
   function handleDownload() {
     if (!documentLink?.downloadUrl) return
@@ -62,6 +88,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   }
 
   const pdfReady = documentLink && isPdfDocument(documentLink)
+  const playbackUrl = recordingLink?.playbackUrl || recordingLink?.viewUrl
 
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="employer-doc-title">
@@ -89,25 +116,45 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
         <div className={styles.body}>
           {loading ? (
             <p className={styles.loading}>Loading document from secure storage…</p>
-          ) : loadError ? (
+          ) : loadError && !documentLink ? (
             <p className={styles.empty} role="alert">
               {loadError}
             </p>
-          ) : pdfReady ? (
-            <iframe
-              className={styles.docFrame}
-              title={title}
-              src={documentLink.viewUrl}
-            />
-          ) : documentLink ? (
-            <div className={styles.fallbackLink}>
-              <p>This file is not a PDF preview in the browser.</p>
-              <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
-                Open {documentLink.filename || 'file'}
-              </button>
-            </div>
           ) : (
-            <p className={styles.empty}>No document available.</p>
+            <>
+              {pdfReady ? (
+                <iframe className={styles.docFrame} title={title} src={documentLink!.viewUrl} />
+              ) : documentLink ? (
+                <div className={styles.fallbackLink}>
+                  <p>This file is not a PDF preview in the browser.</p>
+                  <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
+                    Open {documentLink.filename || 'file'}
+                  </button>
+                </div>
+              ) : !loadError ? (
+                <p className={styles.empty}>No document available.</p>
+              ) : null}
+              {!isResume && playbackUrl ? (
+                <section className={styles.videoSection} aria-label="Interview recording">
+                  <div className={styles.videoSectionHeader}>
+                    <HrIcon name="video" size={16} />
+                    <span>Interview recording (streamed from secure storage)</span>
+                  </div>
+                  <video
+                    className={styles.interviewVideo}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    src={playbackUrl}
+                  >
+                    Your browser does not support video playback.
+                  </video>
+                </section>
+              ) : null}
+              {!isResume && !playbackUrl && recordingError ? (
+                <p className={styles.recordingNote}>{recordingError}</p>
+              ) : null}
+            </>
           )}
         </div>
 
