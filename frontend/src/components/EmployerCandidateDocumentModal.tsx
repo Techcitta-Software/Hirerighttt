@@ -1,14 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { EmployerApplicant } from '../lib/store'
 import {
-  downloadResumeFile,
-  hireRightReportPdfName,
-} from '../lib/employerCandidateUtils'
-import { downloadElementAsPdf } from '../lib/printScorecard'
+  fetchVendorCandidateReportDocument,
+  fetchVendorCandidateResumeDocument,
+  type VendorCandidateDocumentLink,
+} from '../lib/vendorApi'
 import { HrIcon } from './HrIcon'
 import styles from './EmployerCandidateDocumentModal.module.css'
-
-export const EMPLOYER_REPORT_PREVIEW_ID = 'employer-candidate-report-preview'
 
 export type EmployerDocumentKind = 'resume' | 'report'
 
@@ -18,46 +16,56 @@ type Props = {
   onClose: () => void
 }
 
+function isPdfDocument(link: VendorCandidateDocumentLink): boolean {
+  const type = (link.contentType || '').toLowerCase()
+  const name = (link.filename || '').toLowerCase()
+  return type.includes('pdf') || name.endsWith('.pdf')
+}
+
 export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Props) {
-  const [downloading, setDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [documentLink, setDocumentLink] = useState<VendorCandidateDocumentLink | null>(null)
 
   const isResume = kind === 'resume'
   const title = isResume
     ? `Resume — ${applicant.candidateName}`
     : `HireRighttt report — ${applicant.candidateName}`
 
-  const canDownloadResume = Boolean(applicant.resumeText?.trim())
-  const canDownloadReport = Boolean(applicant.interviewResult)
-
-  async function handleDownload() {
-    setDownloadError('')
-    setDownloading(true)
-    try {
-      if (isResume) {
-        downloadResumeFile(applicant)
-        if (!applicant.resumeText?.trim()) {
-          setDownloadError('No resume text available to download.')
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setLoadError('')
+    setDocumentLink(null)
+    void (async () => {
+      try {
+        const link = isResume
+          ? await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
+          : await fetchVendorCandidateReportDocument(applicant.candidateEmail)
+        if (!cancelled) setDocumentLink(link)
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err instanceof Error ? err.message : 'Could not load document.')
         }
-      } else {
-        await downloadElementAsPdf(
-          EMPLOYER_REPORT_PREVIEW_ID,
-          hireRightReportPdfName(applicant.candidateName),
-          'HireRighttt assessment report',
-        )
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-    } catch {
-      setDownloadError('Could not prepare download. Try again.')
-    } finally {
-      setDownloading(false)
+    })()
+    return () => {
+      cancelled = true
     }
+  }, [isResume, applicant.candidateEmail])
+
+  function handleDownload() {
+    if (!documentLink?.downloadUrl) return
+    window.open(documentLink.downloadUrl, '_blank', 'noopener,noreferrer')
   }
 
-  const score = applicant.aiScore ?? applicant.interviewResult?.overall
+  const pdfReady = documentLink && isPdfDocument(documentLink)
 
   return (
     <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="employer-doc-title">
-      <div className={styles.modal}>
+      <div className={styles.modalWide}>
         <div className={styles.header}>
           <div>
             <h2 id="employer-doc-title">
@@ -69,6 +77,9 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                 {applicant.company ? ` · ${applicant.company}` : ''}
               </p>
             )}
+            {documentLink?.filename ? (
+              <p className={styles.subtitle}>{documentLink.filename}</p>
+            ) : null}
           </div>
           <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
             <HrIcon name="close" size={16} />
@@ -76,93 +87,42 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
         </div>
 
         <div className={styles.body}>
-          {isResume ? (
-            canDownloadResume ? (
-              <pre className={styles.resumeText}>{applicant.resumeText}</pre>
-            ) : (
-              <p className={styles.empty}>No resume on file for this candidate.</p>
-            )
-          ) : canDownloadReport ? (
-            <div id={EMPLOYER_REPORT_PREVIEW_ID} className={styles.reportRoot}>
-              <div className={styles.reportHero}>
-                <div>
-                  <div className={styles.reportLabel}>Candidate</div>
-                  <div className={styles.reportName}>{applicant.candidateName}</div>
-                  <div className={styles.reportMeta}>{applicant.candidateEmail}</div>
-                  <div className={styles.reportMeta}>Experience: {applicant.experienceYears || '—'}</div>
-                </div>
-                <div className={styles.scoreBlock}>
-                  <div className={styles.reportLabel}>Overall fit</div>
-                  <div className={styles.scoreValue}>
-                    {score != null ? `${score}%` : '—'}
-                  </div>
-                </div>
-              </div>
-
-              {(applicant.atsScore != null || applicant.jdMatchScore != null) && (
-                <div className={styles.metricsRow}>
-                  {applicant.atsScore != null && <span>ATS {applicant.atsScore}%</span>}
-                  {applicant.jdMatchScore != null && <span>JD match {applicant.jdMatchScore}%</span>}
-                </div>
-              )}
-
-              {applicant.primarySkills && applicant.primarySkills.length > 0 && (
-                <div className={styles.skills}>
-                  <strong>Key skills:</strong> {applicant.primarySkills.join(', ')}
-                </div>
-              )}
-
-              {applicant.interviewResult?.categories && applicant.interviewResult.categories.length > 0 && (
-                <>
-                  <h3 className={styles.sectionTitle}>Category breakdown</h3>
-                  <div className={styles.categoryGrid}>
-                    {applicant.interviewResult.categories.map((cat) => (
-                      <div key={cat.label} className={styles.categoryCard}>
-                        <span>{cat.label}</span>
-                        <strong>{cat.score}%</strong>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {applicant.interviewResult?.answers && applicant.interviewResult.answers.length > 0 && (
-                <>
-                  <h3 className={styles.sectionTitle}>Interview Q&amp;A</h3>
-                  <div className={styles.qaList}>
-                    {applicant.interviewResult.answers.map((ans, idx) => (
-                      <div key={idx} className={styles.qaCard}>
-                        <div className={styles.qaQuestion}>
-                          Q{idx + 1}: {ans.question}
-                        </div>
-                        <div className={styles.qaAnswer}>&ldquo;{ans.answer}&rdquo;</div>
-                        <div className={styles.qaMeta}>
-                          Score {ans.score}% · {ans.wordCount} words
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
+          {loading ? (
+            <p className={styles.loading}>Loading document from secure storage…</p>
+          ) : loadError ? (
+            <p className={styles.empty} role="alert">
+              {loadError}
+            </p>
+          ) : pdfReady ? (
+            <iframe
+              className={styles.docFrame}
+              title={title}
+              src={documentLink.viewUrl}
+            />
+          ) : documentLink ? (
+            <div className={styles.fallbackLink}>
+              <p>This file is not a PDF preview in the browser.</p>
+              <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
+                Open {documentLink.filename || 'file'}
+              </button>
             </div>
           ) : (
-            <p className={styles.empty}>This candidate has not completed a HireRighttt interview yet.</p>
+            <p className={styles.empty}>No document available.</p>
           )}
         </div>
 
         <div className={styles.footer} data-download-exclude>
-          {downloadError ? <p className={styles.downloadError}>{downloadError}</p> : null}
           <button type="button" className={styles.secondaryBtn} onClick={onClose}>
             Close
           </button>
           <button
             type="button"
             className={styles.primaryBtn}
-            disabled={downloading || (isResume ? !canDownloadResume : !canDownloadReport)}
-            onClick={() => void handleDownload()}
+            disabled={!documentLink?.downloadUrl}
+            onClick={handleDownload}
           >
             <HrIcon name="download" size={16} />
-            {downloading ? 'Preparing…' : isResume ? 'Download resume' : 'Download report'}
+            Download
           </button>
         </div>
       </div>

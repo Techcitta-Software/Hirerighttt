@@ -122,7 +122,7 @@ export function resumeDisplayLabel(app: EmployerApplicant): string {
 }
 
 export function hasResumeContent(app: EmployerApplicant): boolean {
-  return Boolean(app.resumeText?.trim())
+  return Boolean(app.resumeName?.trim() || app.resumeText?.trim())
 }
 
 export function hasHireRightReport(app: EmployerApplicant): boolean {

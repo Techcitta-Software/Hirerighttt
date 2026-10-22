@@ -59,6 +59,24 @@ export async function getInterviewArtifact(pool, interviewId, artifactType) {
 }
 
 /**
+ * @param {import('pg').Pool} pool
+ * @param {string} candidateEmail
+ * @param {'transcript' | 'report' | 'audio'} artifactType
+ */
+export async function getLatestInterviewArtifactForCandidate(pool, candidateEmail, artifactType) {
+  const res = await pool.query(
+    `SELECT id, tenant_id, interview_id, candidate_email, artifact_type,
+            s3_object_key, bucket, content_type, byte_size, status, updated_at
+     FROM interview_artifacts
+     WHERE lower(candidate_email) = lower($1) AND artifact_type = $2 AND status = 'ready'
+     ORDER BY updated_at DESC NULLS LAST, created_at DESC
+     LIMIT 1`,
+    [String(candidateEmail || '').trim(), artifactType],
+  )
+  return res.rows[0] || null
+}
+
+/**
  * @param {string} requesterEmail
  * @param {{ candidate_email: string, status?: string }} row
  */

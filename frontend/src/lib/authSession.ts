@@ -131,44 +131,23 @@ const INVALID_AUTH_MSG =
 /**
  * Home / nav “Log in”: validate stored session with backend, then dashboard or login.
  */
+/** Nav / marketing “Log in” — always open the login form (no skip to onboarding). */
 export async function handleLoginNavigation(navigate: NavigateFunction): Promise<void> {
-  const user = getUser()
-  const token = getApiToken()
-
-  if (!user && !token) {
-    navigate('/login')
-    return
-  }
-
-  if ((user && !token) || (!user && token)) {
-    clearStoredAuth()
-    setAuthInvalidMessage('Stored auth data is not valid. Please sign in again.')
-    navigate('/login', { replace: true })
-    return
-  }
-
-  const valid = await isApiSessionValid()
-  if (!valid) {
-    clearStoredAuth()
-    setAuthInvalidMessage(INVALID_AUTH_MSG)
-    navigate('/login', { replace: true })
-    return
-  }
-
-  const current = getUser()
-  if (!current) {
-    navigate('/login')
-    return
-  }
-  navigate(resolveAuthenticatedDestination(current), { replace: true })
+  navigate('/login', { state: { explicitLogin: true } })
 }
 
 /** Login/signup mount: redirect if valid; clear and flag message if stale local auth. */
-export async function reconcileAuthOnAuthPage(): Promise<
+export async function reconcileAuthOnAuthPage(options?: {
+  /** User chose “Log in” explicitly — show the form even if a session exists. */
+  explicitLogin?: boolean
+}): Promise<
   | { action: 'redirect'; path: string }
   | { action: 'invalid'; message: string }
   | { action: 'none' }
 > {
+  if (options?.explicitLogin) {
+    return { action: 'none' }
+  }
   const user = getUser()
   const token = getApiToken()
 

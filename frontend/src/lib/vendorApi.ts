@@ -149,6 +149,27 @@ export type OrgCandidateRecord = {
   status?: string
 }
 
+export type VendorCandidateDocumentLink = {
+  viewUrl: string
+  downloadUrl: string
+  expiresInSeconds: number | null
+  contentType: string
+  filename: string
+  sessionId?: string
+}
+
+export async function fetchVendorCandidateResumeDocument(candidateEmail: string) {
+  const qs = new URLSearchParams({ email: candidateEmail })
+  const res = await apiFetch(`/api/vendor/candidate-documents/resume?${qs}`)
+  return parse<VendorCandidateDocumentLink>(res)
+}
+
+export async function fetchVendorCandidateReportDocument(candidateEmail: string) {
+  const qs = new URLSearchParams({ email: candidateEmail })
+  const res = await apiFetch(`/api/vendor/candidate-documents/report?${qs}`)
+  return parse<VendorCandidateDocumentLink>(res)
+}
+
 export async function fetchOrganizationCandidates(params?: {
   name?: string
   job?: string

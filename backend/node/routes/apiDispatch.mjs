@@ -24,6 +24,7 @@ import { parseResumeUploadBody } from '../storage/resumeUploadValidation.mjs'
 import {
   objectStorageConfigured,
   resolveResumeDownloadForUser,
+  resolveResumeDownloadFromProfile,
   uploadResumeToObjectStorage,
 } from '../storage/resumeObjectStorage.mjs'
 import {
@@ -35,6 +36,7 @@ import {
   persistInterviewReportPdfToS3,
   persistInterviewTranscriptToS3,
   resolveInterviewArtifactDownload,
+  resolveCandidateInterviewReportDownload,
 } from '../storage/interviewArtifactStorage.mjs'
 import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 import {
@@ -73,6 +75,10 @@ import {
   publicJobPayload,
 } from '../vendor/jobs.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
+import {
+  assertVendorMayViewCandidateDocuments,
+  candidateProfileForDocuments,
+} from '../vendor/candidateDocuments.mjs'
 import {
   JOB_DELETED_MESSAGE,
   markCandidateJobApplicationsDeleted,
@@ -464,6 +470,60 @@ export function createApiDispatchMiddleware(ctx) {
         organizationId: orgId,
         ...roster,
       })
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/candidate-documents/resume') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const candidateEmail = String(url.searchParams.get('email') || '').trim()
+      try {
+        assertVendorMayViewCandidateDocuments(db, ctx.tenant.organization.id, candidateEmail)
+        const profile = candidateProfileForDocuments(db, candidateEmail)
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveResumeDownloadFromProfile(profile, pool, { inline: true })
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, {
+          viewUrl: signed.url,
+          downloadUrl: signed.url,
+          expiresInSeconds: signed.expiresInSeconds,
+          contentType: signed.contentType,
+          filename: signed.filename,
+        })
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not load resume.',
+        })
+      }
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/candidate-documents/report') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const candidateEmail = String(url.searchParams.get('email') || '').trim()
+      try {
+        assertVendorMayViewCandidateDocuments(db, ctx.tenant.organization.id, candidateEmail)
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveCandidateInterviewReportDownload({
+          pool,
+          candidateEmail,
+          inline: true,
+        })
+        res.setHeader('Cache-Control', 'no-store')
+        return json(res, 200, {
+          viewUrl: signed.url,
+          downloadUrl: signed.url,
+          expiresInSeconds: signed.expiresInSeconds,
+          contentType: signed.contentType,
+          filename: signed.filename,
+          sessionId: signed.sessionId,
+        })
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not load interview report.',
+        })
+      }
     }
 
     if (

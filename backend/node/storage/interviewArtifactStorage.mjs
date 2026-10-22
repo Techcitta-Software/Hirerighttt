@@ -12,6 +12,7 @@ import {
 import {
   canAccessInterviewArtifact,
   getInterviewArtifact,
+  getLatestInterviewArtifactForCandidate,
   upsertInterviewArtifact,
 } from './interviewArtifactsRepo.mjs'
 
@@ -184,7 +185,33 @@ export async function resolveInterviewArtifactDownload(opts) {
     err.status = 404
     throw err
   }
-  const s3 = opts.s3 || defaultS3ObjectStorage
+  return presignInterviewArtifactRow(row, opts.artifactType, opts.s3, opts.inline)
+}
+
+/**
+ * Latest PDF report for a candidate (vendor review — no candidate session required).
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   candidateEmail: string,
+ *   inline?: boolean,
+ *   s3?: ReturnType<typeof createS3ObjectStorage>,
+ * }} opts
+ */
+export async function resolveCandidateInterviewReportDownload(opts) {
+  const row = await getLatestInterviewArtifactForCandidate(opts.pool, opts.candidateEmail, 'report')
+  if (!row) {
+    const err = new Error('Interview report not found in storage.')
+    err.status = 404
+    throw err
+  }
+  return presignInterviewArtifactRow(row, 'report', opts.s3, opts.inline !== false)
+}
+
+/**
+ * @param {{ s3_object_key: string, candidate_email?: string }} row
+ */
+async function presignInterviewArtifactRow(row, artifactType, s3Inject, inline = false) {
+  const s3 = s3Inject || defaultS3ObjectStorage
   const head = await s3.headObject({ key: row.s3_object_key })
   if (!head) {
     const err = new Error('Artifact file is missing from storage.')
@@ -192,11 +219,18 @@ export async function resolveInterviewArtifactDownload(opts) {
     throw err
   }
   const name =
-    opts.artifactType === 'report' ? 'interview_report.pdf' : 'transcript.json'
-  return s3.presignDownload({
+    artifactType === 'report' ? 'interview_report.pdf' : 'transcript.json'
+  const mode = inline ? 'inline' : 'attachment'
+  const signed = await s3.presignDownload({
     key: row.s3_object_key,
-    responseContentDisposition: `attachment; filename="${name}"`,
+    responseContentDisposition: `${mode}; filename="${name}"`,
   })
+  return {
+    ...signed,
+    contentType: artifactType === 'report' ? 'application/pdf' : 'application/json',
+    filename: name,
+    sessionId: row.interview_id,
+  }
 }
 
 export function s3TenantsPrefix() {

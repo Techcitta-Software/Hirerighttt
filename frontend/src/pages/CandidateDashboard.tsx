@@ -4,11 +4,9 @@ import { Link } from 'react-router-dom'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { HrIcon } from '../components/HrIcon'
-import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { apiMe, apiListApplications } from '../lib/api'
 import { fetchOpenJobs } from '../lib/vendorApi'
 import { getUser, getProfile, getInterviewResult, profileKey, rankPostedJobs, type Application, type RankedJob, type InterviewResult } from '../lib/store'
-import { downloadScorecardPdf } from '../lib/printScorecard'
 import styles from './CandidateDashboard.module.css'
 
 function dateLabel(value?: string) {
@@ -28,8 +26,6 @@ export function DashboardPage() {
   const [jobsReady, setJobsReady] = useState(false)
   const [appsReady, setAppsReady] = useState(false)
   const [revision, setRevision] = useState(0)
-  const [downloading, setDownloading] = useState(false)
-  const [downloadError, setDownloadError] = useState('')
   const email = user?.email
   const lastFocusRefresh = useRef(0)
 
@@ -89,32 +85,27 @@ export function DashboardPage() {
   const categories = interview?.categories?.filter(c => Number.isFinite(c.score)) ?? []
   const recent = [...applications].sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 4)
 
-  async function download() {
-    if (downloading) return
-    setDownloading(true)
-    setDownloadError('')
-    try { await downloadScorecardPdf(name) }
-    catch { setDownloadError('Your report could not be downloaded. Please try again or open the full report.') }
-    finally { setDownloading(false) }
-  }
-
   return <div className={styles.page}>
     <SiteNav />
     <main className={styles.main}>
       <header className={styles.header}>
         <div><p className={styles.eyebrow}>YOUR CAREER WORKSPACE</p><h1>Welcome back, {name.split(' ')[0]}.</h1><p>Your interview insights and next steps, in one place.</p></div>
         <div className={styles.actions}>
-          <button className={styles.primary} disabled={!hasScore || downloading} onClick={() => void download()}><HrIcon name="download" size={17} />{downloading ? 'Preparing report…' : 'Download Report'}</button>
+          {hasScore ? (
+            <Link to="/dashboard/report" className={styles.primary}>
+              <HrIcon name="document" size={17} />
+              View Report
+            </Link>
+          ) : (
+            <button type="button" className={styles.primary} disabled>
+              <HrIcon name="document" size={17} />
+              View Report
+            </button>
+          )}
         </div>
       </header>
-      {downloadError && <p className={styles.alert} role="alert">{downloadError}</p>}
       {loading && <p className={styles.sync} role="status">Refreshing your dashboard…</p>}
       {errors.length > 0 && <div className={styles.alert} role="alert">{errors.map(error => <p key={error}>{error}</p>)}<button className={styles.secondary} onClick={() => setRevision(n => n + 1)} disabled={loading}>Retry refresh</button></div>}
-      <section className={styles.banner} aria-label="Interview status">
-        <div className={styles.statusIcon}><HrIcon name={hasScore ? 'check' : 'mic'} size={24} /></div>
-        <div><h2>{hasScore ? 'Interview complete. Your next chapter starts here.' : 'Your interview is the next step.'}</h2><p>{hasScore ? `${interview.role || 'Interview'} · ${dateLabel(interview.date)} · Review your feedback and explore open roles.` : 'Complete your interview with Ava to receive your personal feedback and report.'}</p></div>
-        <Link to={hasScore ? '/dashboard/report' : '/interview'}>{hasScore ? 'View full report' : 'Start interview'} <HrIcon name="arrow-right" size={17} /></Link>
-      </section>
       <section className={styles.metrics} aria-label="Your overview">
         <article><span>Interview score</span><strong>{hasScore ? interview.overall : '—'}{hasScore && <small>/100</small>}</strong><p>{hasScore ? 'From your latest interview' : 'Available after your interview'}</p></article>
         <article><span>Applications</span><strong>{appsReady ? applications.length : '—'}</strong><p>{appsReady ? `${applications.filter(a => a.status === 'In Review').length} in review` : loading ? 'Loading applications' : 'Temporarily unavailable'}</p></article>
@@ -147,7 +138,6 @@ export function DashboardPage() {
       <p className={styles.footnote}>Your dashboard uses your saved profile, latest interview and employer application updates.</p>
     <CandidateReviewEvents sessionId={interview?.sessionId} />
     </main>
-    {hasScore && <div className={styles.capture} aria-hidden="true" inert><CareerIntelligenceDashboard result={interview} candidateName={name} candidateRole={profile?.currentRole || interview.role} candidateExperience={profile?.totalExperience || interview.level} skills={profile?.skills ?? []} /></div>}
     <SiteFooter />
   </div>
 }

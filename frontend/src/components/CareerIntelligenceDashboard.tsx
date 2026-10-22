@@ -222,7 +222,7 @@ export function CareerIntelligenceDashboard({
               }}
             >
               <HrIcon name="download" size={16} />
-              {downloading ? 'Preparing download…' : 'Download report'}
+              {downloading ? 'Preparing download…' : 'Download Report'}
             </button>
             {downloadError ? <p className={styles.downloadError}>{downloadError}</p> : null}
           </div>

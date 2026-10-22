@@ -133,7 +133,13 @@ export async function apiSignup(
   name: string,
   email: string,
   password: string,
-  extras?: { role?: 'jobseeker' | 'employer'; companyName?: string; phone?: string },
+  extras?: {
+    role?: 'jobseeker' | 'employer'
+    companyName?: string
+    phone?: string
+    /** When false, account is created but no Bearer token is stored (sign-in separately). */
+    storeSessionToken?: boolean
+  },
 ) {
   const data = await request('/api/signup', {
     method: 'POST',
@@ -146,7 +152,9 @@ export async function apiSignup(
       phone: extras?.phone,
     }),
   })
-  setApiToken(data.token)
+  if (extras?.storeSessionToken !== false) {
+    setApiToken(data.token)
+  }
   return data.user
 }
 

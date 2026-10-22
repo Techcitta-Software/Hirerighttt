@@ -157,41 +157,63 @@ export async function uploadResumeToObjectStorage(opts) {
  *   s3?: ReturnType<typeof createS3ObjectStorage>,
  * }} opts
  */
-export async function resolveResumeDownloadForUser(opts) {
-  const email = String(opts.requesterEmail || '').toLowerCase()
-  const profile = opts.profile || {}
+/**
+ * Presign resume bytes from profile metadata (no ownership check — caller must authorize).
+ * @param {Record<string, unknown>} profile
+ * @param {import('pg').Pool} pool
+ * @param {{ inline?: boolean, s3?: ReturnType<typeof createS3ObjectStorage> }} [options]
+ */
+export async function resolveResumeDownloadFromProfile(profile, pool, options = {}) {
   const fileId = profile.resumeFileId ? String(profile.resumeFileId) : ''
+  const dispositionMode = options.inline ? 'inline' : 'attachment'
 
   if (fileId) {
-    const row = await getStoredFileById(opts.pool, fileId)
-    if (!canAccessStoredFile(email, row)) {
+    const row = await getStoredFileById(pool, fileId)
+    if (!row || row.deleted_at || (row.status && row.status !== 'ready')) {
       const err = new Error('Resume file not found.')
       err.status = 404
       throw err
     }
     if (row.storage_provider === 's3') {
-      const s3 = opts.s3 || defaultS3ObjectStorage
+      const s3 = options.s3 || defaultS3ObjectStorage
       const head = await s3.headObject({ key: row.object_key })
       if (!head) {
         const err = new Error('Resume file is missing from storage.')
         err.status = 404
         throw err
       }
-      const disposition = `attachment; filename="${row.original_filename.replace(/"/g, '')}"`
-      return s3.presignDownload({ key: row.object_key, responseContentDisposition: disposition })
+      const disposition = `${dispositionMode}; filename="${row.original_filename.replace(/"/g, '')}"`
+      const signed = await s3.presignDownload({ key: row.object_key, responseContentDisposition: disposition })
+      return {
+        ...signed,
+        contentType: row.content_type || 'application/pdf',
+        filename: row.original_filename,
+      }
     }
     if (row.storage_provider === 'supabase' && profile.resumeUrl) {
-      return { url: String(profile.resumeUrl), expiresInSeconds: null, legacyPublic: true }
+      return {
+        url: String(profile.resumeUrl),
+        expiresInSeconds: null,
+        legacyPublic: true,
+        contentType: row.content_type || 'application/pdf',
+        filename: row.original_filename,
+      }
     }
   }
 
   const provider = String(profile.storageProvider || '')
   if (provider === 'supabase' && profile.resumeUrl) {
-    return { url: String(profile.resumeUrl), expiresInSeconds: null, legacyPublic: true }
+    return {
+      url: String(profile.resumeUrl),
+      expiresInSeconds: null,
+      legacyPublic: true,
+      contentType: 'application/pdf',
+      filename: String(profile.resumeName || 'resume.pdf'),
+    }
   }
 
   if (provider === 's3' && profile.resumeStoragePath) {
-    const s3 = opts.s3 || defaultS3ObjectStorage
+    const s3 = options.s3 || defaultS3ObjectStorage
     const key = String(profile.resumeStoragePath)
     if (!isLegacyResumeObjectKey(key) && !key.startsWith('tenants/')) {
       const err = new Error('Resume file not found.')
@@ -205,13 +227,33 @@ export async function resolveResumeDownloadForUser(opts) {
       throw err
     }
     const name = String(profile.resumeName || 'resume.pdf')
-    return s3.presignDownload({
+    const signed = await s3.presignDownload({
       key,
-      responseContentDisposition: `attachment; filename="${name.replace(/"/g, '')}"`,
+      responseContentDisposition: `${dispositionMode}; filename="${name.replace(/"/g, '')}"`,
     })
+    return {
+      ...signed,
+      contentType: inferResumeContentType(name),
+      filename: name,
+    }
   }
 
   const err = new Error('No stored resume file for this account.')
   err.status = 404
   throw err
+}
+
+export async function resolveResumeDownloadForUser(opts) {
+  const email = String(opts.requesterEmail || '').toLowerCase()
+  const profile = opts.profile || {}
+  const fileId = profile.resumeFileId ? String(profile.resumeFileId) : ''
+  if (fileId) {
+    const row = await getStoredFileById(opts.pool, fileId)
+    if (!canAccessStoredFile(email, row)) {
+      const err = new Error('Resume file not found.')
+      err.status = 404
+      throw err
+    }
+  }
+  return resolveResumeDownloadFromProfile(profile, opts.pool, { s3: opts.s3 })
 }

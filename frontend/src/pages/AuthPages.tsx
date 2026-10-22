@@ -19,7 +19,14 @@ import {
   updateUserEmail,
   updateUserPassword,
 } from '../lib/store'
-import { apiConnectionHint, apiHealth, apiLogin, apiLogout, apiSignup } from '../lib/api'
+import {
+  apiConnectionHint,
+  apiHealth,
+  apiLogin,
+  apiLogout,
+  apiSignup,
+  setApiToken,
+} from '../lib/api'
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
 import { ensureNewJobseekerProfileOnServer } from '../lib/initCandidateProfile'
 import { isValidPhone, normalizePhone } from '../lib/phone'
@@ -32,7 +39,9 @@ import {
 } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
+import { consumeSignupLoginHandoff, stashSignupLoginHandoff } from '../lib/authHandoff'
 import {
+  clearSessionValidationCache,
   reconcileAuthOnAuthPage,
   resolveAuthenticatedDestination,
   setAuthInvalidMessage,
@@ -283,29 +292,32 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
 
-  // Sync state passed via navigation
+  const explicitLogin = Boolean(
+    (location.state as { explicitLogin?: boolean } | null)?.explicitLogin,
+  )
+
+  // Prefill login after signup or navigation state
   useEffect(() => {
+    const handoff = consumeSignupLoginHandoff()
+    if (handoff) {
+      setAuthMode('login')
+      setLoginEmail(handoff.email)
+      setLoginPassword(handoff.password)
+      if (handoff.message) setSuccessMessage(handoff.message)
+      return
+    }
     const navState = location.state as {
       successMsg?: string
       prefillEmail?: string
       prefillPassword?: string
     } | null
-
-    if (navState?.successMsg) {
-      setSuccessMessage(navState.successMsg)
-    }
-    if (navState?.prefillEmail) {
-      setLoginEmail(navState.prefillEmail)
-    }
-    if (navState?.prefillPassword) {
-      setLoginPassword(navState.prefillPassword)
-    }
+    if (navState?.successMsg) setSuccessMessage(navState.successMsg)
+    if (navState?.prefillEmail) setLoginEmail(navState.prefillEmail)
+    if (navState?.prefillPassword) setLoginPassword(navState.prefillPassword)
   }, [location.state])
-
-  // Login state
-  const [loginEmail, setLoginEmail] = useState('')
-  const [loginPassword, setLoginPassword] = useState('')
 
   // Signup state
   const searchRole = new URLSearchParams(location.search).get('role')
@@ -403,10 +415,24 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     })
   }
 
+  function finishSignupAndShowLogin(email: string, password: string) {
+    setApiToken(null)
+    logout()
+    clearSessionValidationCache()
+    const message = 'Account created successfully. Sign in with your email and password to continue.'
+    stashSignupLoginHandoff({ email, password, message })
+    setAuthMode('login')
+    setLoginEmail(email)
+    setLoginPassword(password)
+    setSuccessMessage(message)
+    setError('')
+    navigate('/login', { replace: true, state: { explicitLogin: true } })
+  }
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const result = await reconcileAuthOnAuthPage()
+      const result = await reconcileAuthOnAuthPage({ explicitLogin })
       if (cancelled) return
       if (result.action === 'redirect') {
         navigate(result.path, { replace: true })
@@ -420,7 +446,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     return () => {
       cancelled = true
     }
-  }, [location.pathname, navigate])
+  }, [location.pathname, navigate, explicitLogin])
 
   async function runQuickLogin(
     demo: typeof DEMO_CANDIDATE | typeof DEMO_EMPLOYER | typeof DEMO_ADMIN,
@@ -547,23 +573,33 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           )
           return
         }
-        await ensureApiSession()
-        await pullProfileFromSupabase()
+        await supabaseSignOut()
+        const phoneNormSb = normalizePhone(signupPhone) || signupPhone.trim()
+        const createdEmailSb = signupEmail.trim().toLowerCase()
+        saveUser(
+          {
+            name: signupName.trim(),
+            email: createdEmailSb,
+            password: signupPassword,
+            role: signupRole,
+            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
+            phone: phoneNormSb,
+          },
+          true,
+          false,
+        )
+        finishSignupAndShowLogin(createdEmailSb, signupPassword)
+        return
       } else if (await apiHealth()) {
         const phoneNorm = normalizePhone(signupPhone) || signupPhone.trim()
         const createdEmail = signupEmail.trim().toLowerCase()
-        let apiUser: Awaited<ReturnType<typeof apiSignup>> | null = null
         try {
-          apiUser = await apiSignup(
-            signupName.trim(),
-            createdEmail,
-            signupPassword,
-            {
-              role: signupRole,
-              companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-              phone: phoneNorm,
-            },
-          )
+          await apiSignup(signupName.trim(), createdEmail, signupPassword, {
+            role: signupRole,
+            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
+            phone: phoneNorm,
+            storeSessionToken: false,
+          })
         } catch (apiErr) {
           setError(
             apiErr instanceof Error
@@ -572,15 +608,6 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           )
           return
         }
-        const sessionUser = persistLoggedInUser({
-          id: apiUser?.id || createdEmail,
-          name: apiUser?.name || signupName.trim(),
-          email: createdEmail,
-          role: apiUser?.role === 'employer' ? 'employer' : signupRole,
-          companyName: apiUser?.companyName || signupCompanyName.trim() || undefined,
-          phone: apiUser?.phone || phoneNorm,
-          primaryOrganizationId: apiUser?.primaryOrganizationId,
-        })
         saveUser(
           {
             name: signupName.trim(),
@@ -591,40 +618,29 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
             phone: phoneNorm,
           },
           true,
-          true,
+          false,
         )
-        await syncSessionFromApi()
-        if (signupRole === 'jobseeker') {
-          await ensureNewJobseekerProfileOnServer()
-          await pullProfileFromApi()
-        }
-        const signedIn = getUser() ?? sessionUser
-        navigateAfterLogin(signedIn)
+        finishSignupAndShowLogin(createdEmail, signupPassword)
         return
       } else if (requireApiForAuth()) {
         setError(apiConnectionHint())
         return
       }
+      const createdEmailLocal = signupEmail.trim().toLowerCase()
       saveUser(
         {
           name: signupName.trim(),
-          email: signupEmail.trim().toLowerCase(),
+          email: createdEmailLocal,
           password: signupPassword,
           role: signupRole,
           companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
           phone: normalizePhone(signupPhone) || signupPhone.trim(),
         },
         true,
-        true,
+        false,
       )
-      const signedInUser = getUser()
-      if (signedInUser) {
-        if (signedInUser.role === 'jobseeker') {
-          await ensureNewJobseekerProfileOnServer()
-        }
-        navigateAfterLogin(signedInUser)
-        return
-      }
+      finishSignupAndShowLogin(createdEmailLocal, signupPassword)
+      return
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account.')
     } finally {

@@ -9,6 +9,18 @@
   padding: 24px;
 }
 
+.modalWide {
+  width: min(960px, 100%);
+  max-height: min(92vh, 960px);
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .modal {
   width: min(820px, 100%);
   max-height: min(88vh, 900px);
@@ -66,6 +78,32 @@
   flex: 1;
   overflow: auto;
   padding: 16px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.docFrame {
+  flex: 1;
+  width: 100%;
+  min-height: min(72vh, 720px);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.loading {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.fallbackLink {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: #475569;
 }
 
 .resumeText {
