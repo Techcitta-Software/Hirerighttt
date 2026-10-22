@@ -1018,10 +1018,10 @@ export function InterviewPage() {
         let recordingNoteLocal = ''
 
         try {
-          const clip = pendingClipRef.current || await recorderRef.current.stop()
+          const clip = pendingClipRef.current || (await recorderRef.current.stop())
           pendingClipRef.current = clip
           if (clip) {
-            recordingNoteLocal = 'Recording ready for secure upload.'
+            recordingNoteLocal = 'Recording captured — scoring your answers.'
             if (sessionIdRef.current) {
               const { uploadInterviewRecordingToS3 } = await import(
                 '../lib/interviewRecordingUpload'
@@ -1032,17 +1032,23 @@ export function InterviewPage() {
                 durationMs: clip.durationMs,
               })
               if (cloud.ok) {
-                recordingNoteLocal = `Recording saved to secure cloud storage (S3).`
+                recordingNoteLocal = 'Recording saved to secure cloud storage (S3).'
                 pendingClipRef.current = null
+              } else if (cloud.skipped) {
+                recordingNoteLocal =
+                  'Cloud recording storage is not configured — your scorecard will still be generated.'
               } else {
-                throw new Error(`Recording upload failed: ${cloud.error} Your video remains in memory; keep this tab open and retry Leave.`)
+                recordingNoteLocal = `${cloud.error || 'Recording upload failed.'} Your answers will still be scored.`
               }
             }
           } else {
             recordingNoteLocal = 'Recording not captured — answers were still scored locally.'
           }
         } catch (error) {
-          throw error instanceof Error ? error : new Error('Could not upload recording. Keep this tab open and retry Leave.')
+          recordingNoteLocal =
+            error instanceof Error
+              ? `${error.message} Your answers will still be scored.`
+              : 'Recording upload had a problem. Your answers will still be scored.'
         }
         setRecordingNote(recordingNoteLocal)
 
