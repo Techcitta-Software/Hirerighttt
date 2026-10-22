@@ -52,7 +52,7 @@ export function PrivacyPolicyPage() {
           (candidate or employer).
         </li>
         <li>
-          <strong>Profile &amp; hiring data:</strong> résumé text, skills, experience, job preferences, and
+          <strong>Profile &amp; hiring data:</strong> resume text, skills, experience, job preferences, and
           application materials you upload.
         </li>
         <li>
@@ -152,7 +152,7 @@ export function TermsPage() {
 
       <h2>Your content</h2>
       <p>
-        You retain ownership of résumés, answers, and materials you submit. You grant HireRight a license to
+        You retain ownership of resumes, answers, and materials you submit. You grant HireRight a license to
         host, process, and display that content to operate the service (including AI scoring and sharing with
         employers you apply to).
       </p>

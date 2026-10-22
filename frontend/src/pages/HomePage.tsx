@@ -447,7 +447,7 @@ export function HomePage() {
                 <span className={styles.stepNumberRed}>1</span> Create Your Profile
               </h3>
               <p className={styles.stepDescText}>
-                Upload your résumé, highlight your skills and set your target career roles.
+                Upload your resume, highlight your skills and set your target career roles.
               </p>
             </motion.div>
 

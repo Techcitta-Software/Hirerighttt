@@ -426,7 +426,7 @@ export function CandidateApplyPage() {
                     required
                   />
                   <span>
-                    I consent to HireRight sharing my name, contact details, and résumé with the employer for
+                    I consent to HireRight sharing my name, contact details, and resume with the employer for
                     this job, and processing my data as described in the{' '}
                     <Link to="/privacy">Privacy Policy</Link>.
                   </span>
