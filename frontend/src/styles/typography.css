@@ -1,0 +1,378 @@
+/**
+ * HireRight — global typography & spacing tokens
+ * Import via index.css. Use var(--*) in module CSS; utility classes for shared patterns.
+ */
+
+:root {
+  /* ── Font families ── */
+  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: var(--font-sans);
+  --font: var(--font-sans);
+
+  /* ── Type scale (rem) ── */
+  --font-size-xs: 0.75rem; /* 12 */
+  --font-size-sm: 0.875rem; /* 14 */
+  --font-size-base: 1rem; /* 16 */
+  --font-size-md: 1.0625rem; /* 17 — comfortable body */
+  --font-size-lg: 1.125rem; /* 18 */
+  --font-size-xl: 1.25rem; /* 20 */
+  --font-size-2xl: 1.5rem; /* 24 */
+  --font-size-3xl: clamp(1.25rem, 2.2vw, 1.45rem);
+  --font-size-4xl: clamp(1.75rem, 3.2vw, 2.25rem);
+  --font-size-5xl: clamp(2.35rem, 4.8vw, 3.15rem);
+
+  /* Semantic aliases (match existing index.css names) */
+  --text-h1: var(--font-size-5xl);
+  --text-h2: var(--font-size-4xl);
+  --text-h3: var(--font-size-3xl);
+  --text-h4: clamp(1rem, 1.6vw, 1.15rem);
+  --font-size-heading: var(--text-h2);
+  --font-size-subheading: var(--text-h3);
+  --font-size-content: var(--text-h4);
+  --font-size-body: var(--font-size-md);
+  --font-size-label: var(--font-size-xs);
+  --font-size-caption: var(--font-size-sm);
+
+  /* ── Line height ── */
+  --line-height-tight: 1.2;
+  --line-height-snug: 1.35;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.65;
+  --line-height-loose: 1.75;
+
+  /* ── Letter spacing ── */
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.08em;
+
+  /* ── Font weight ── */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* ── Text colors ── */
+  --color-text-primary: #141638;
+  --color-text-secondary: #334155;
+  --color-text-muted: #5f6686;
+  --color-text-subtle: #64748b;
+  --color-text-inverse: #ffffff;
+  --color-text-accent: #6366f1;
+  --color-text-link: #2563eb;
+
+  /* Marketing alias (legacy module vars) */
+  --text-main: var(--color-text-primary);
+  --text-muted: var(--color-text-muted);
+  --text-subtle: var(--color-text-subtle);
+
+  /* ── Spacing scale (4px base) ── */
+  --space-0: 0;
+  --space-1: 0.25rem; /* 4 */
+  --space-2: 0.5rem; /* 8 */
+  --space-3: 0.75rem; /* 12 */
+  --space-4: 1rem; /* 16 */
+  --space-5: 1.25rem; /* 20 */
+  --space-6: 1.5rem; /* 24 */
+  --space-7: 1.75rem; /* 28 */
+  --space-8: 2rem; /* 32 */
+  --space-10: 2.5rem; /* 40 */
+  --space-12: 3rem; /* 48 */
+  --space-16: 4rem; /* 64 */
+  --space-20: 5rem; /* 80 */
+
+  /* ── Layout spacing ── */
+  --layout-max-width: 1200px;
+  --layout-gutter: clamp(1rem, 3vw, 1.5rem);
+  --layout-gutter-wide: clamp(1.25rem, 3.5vw, 3rem);
+  --layout-section-y: var(--space-10);
+  --layout-section-y-lg: var(--space-12);
+  --layout-stack-gap: var(--space-6);
+  --layout-stack-gap-sm: var(--space-4);
+  --layout-stack-gap-lg: var(--space-8);
+  --layout-inline-gap: var(--space-3);
+  --layout-inline-gap-lg: var(--space-4);
+
+  /* App shell */
+  --app-main-padding-y: var(--space-7);
+  --app-main-padding-x: var(--layout-gutter);
+  --app-page-padding-bottom: var(--space-16);
+
+  /* Cards & forms */
+  --card-padding: var(--space-6);
+  --card-padding-sm: var(--space-4);
+  --card-gap: var(--space-5);
+  --form-field-gap: var(--space-2);
+  --form-section-gap: var(--space-6);
+  --form-label-gap: var(--space-1);
+
+  /* Nav */
+  --nav-height: 64px;
+  --nav-padding-x: var(--space-6);
+  --nav-padding-y: var(--space-3);
+
+  /* Brand wordmark (text logo) */
+  --logo-color-hire: #0a1128;
+  /* Matches primary actions (e.g. View Report — #6550ce) */
+  --logo-color-right: #6550ce;
+  --logo-color-tagline: #6b7280;
+  --logo-color-hire-on-dark: #ffffff;
+  --logo-color-right-on-dark: #b8acf5;
+  --logo-color-tagline-on-dark: #94a3b8;
+  --logo-wordmark-weight: 700;
+  --logo-wordmark-tracking: -0.03em;
+  --logo-tagline-weight: 500;
+  --logo-tagline-tracking: 0.34em;
+  --logo-tagline-size-sm: 0.5rem;
+  --logo-tagline-size-md: 0.5625rem;
+  --logo-tagline-size-lg: 0.625rem;
+  --logo-tagline-size-xl: 0.6875rem;
+  --logo-wordmark-size-sm: 1.25rem;
+  --logo-wordmark-size-md: 1.55rem;
+  --logo-wordmark-size-lg: 1.875rem;
+  --logo-wordmark-size-xl: 2.25rem;
+}
+
+/* ── Root app wrapper ── */
+.hr-ui {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hr-ui .page {
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+}
+
+/* ── Semantic type utilities ── */
+.hr-display {
+  font-family: var(--font-display);
+  font-size: var(--text-h1);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-height-tight);
+  color: var(--color-text-primary);
+}
+
+.hr-h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-h1);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-height-tight);
+}
+
+.hr-h2,
+.hr-page-title {
+  font-family: var(--font-display);
+  font-size: var(--text-h2);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-height-snug);
+}
+
+.hr-h3,
+.hr-section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-h3);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-snug);
+}
+
+.hr-h4,
+.hr-card-title {
+  font-size: var(--text-h4);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+}
+
+.hr-body {
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-secondary);
+}
+
+.hr-lead {
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-muted);
+  max-width: 36rem;
+}
+
+.hr-eyebrow {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-text-accent);
+  margin-bottom: var(--space-2);
+}
+
+.hr-label {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.hr-caption {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-subtle);
+}
+
+.hr-muted {
+  color: var(--color-text-muted);
+}
+
+/* ── Layout utilities ── */
+.hr-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--layout-stack-gap);
+}
+
+.hr-stack-sm {
+  gap: var(--layout-stack-gap-sm);
+}
+
+.hr-stack-lg {
+  gap: var(--layout-stack-gap-lg);
+}
+
+.hr-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--layout-inline-gap);
+}
+
+.hr-section {
+  padding-block: var(--layout-section-y);
+}
+
+.hr-section-lg {
+  padding-block: var(--layout-section-y-lg);
+}
+
+.hr-page-header {
+  margin-bottom: var(--space-6);
+}
+
+.hr-page-header h1,
+.hr-page-header .hr-h2 {
+  margin-bottom: var(--space-2);
+}
+
+.hr-page-header p {
+  margin-top: var(--space-2);
+}
+
+/* ── Brand wordmark (text logo — no image) ── */
+.hr-logo,
+.brand-logo {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  line-height: 1;
+  user-select: none;
+  text-decoration: none;
+  color: inherit;
+}
+
+.hr-logo__wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-sans);
+  font-weight: var(--logo-wordmark-weight);
+  letter-spacing: var(--logo-wordmark-tracking);
+  white-space: nowrap;
+}
+
+.hr-logo__hire {
+  color: var(--logo-color-hire);
+}
+
+.hr-logo__right {
+  color: var(--logo-color-right);
+}
+
+.hr-logo__tagline {
+  display: block;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--logo-tagline-size-md);
+  font-weight: var(--logo-tagline-weight);
+  letter-spacing: var(--logo-tagline-tracking);
+  text-transform: uppercase;
+  color: var(--logo-color-tagline);
+  text-align: justify;
+  text-align-last: justify;
+  line-height: 1.2;
+}
+
+.hr-logo--sm .hr-logo__wordmark {
+  font-size: var(--logo-wordmark-size-sm);
+}
+
+.hr-logo--sm .hr-logo__tagline {
+  font-size: var(--logo-tagline-size-sm);
+  letter-spacing: 0.3em;
+}
+
+.hr-logo--md .hr-logo__wordmark {
+  font-size: var(--logo-wordmark-size-md);
+}
+
+.hr-logo--md .hr-logo__tagline {
+  font-size: var(--logo-tagline-size-md);
+}
+
+.hr-logo--lg .hr-logo__wordmark {
+  font-size: var(--logo-wordmark-size-lg);
+}
+
+.hr-logo--lg .hr-logo__tagline {
+  font-size: var(--logo-tagline-size-lg);
+}
+
+.hr-logo--xl .hr-logo__wordmark {
+  font-size: var(--logo-wordmark-size-xl);
+}
+
+.hr-logo--xl .hr-logo__tagline {
+  font-size: var(--logo-tagline-size-xl);
+  letter-spacing: 0.36em;
+}
+
+.hr-logo--dark .hr-logo__hire {
+  color: var(--logo-color-hire-on-dark);
+}
+
+.hr-logo--dark .hr-logo__right {
+  color: var(--logo-color-right-on-dark);
+}
+
+.hr-logo--dark .hr-logo__tagline {
+  color: var(--logo-color-tagline-on-dark);
+}
+
+@media (max-width: 640px) {
+  .hr-logo--md .hr-logo__wordmark {
+    font-size: 1.35rem;
+  }
+
+  .hr-logo--md .hr-logo__tagline {
+    font-size: var(--logo-tagline-size-sm);
+  }
+}

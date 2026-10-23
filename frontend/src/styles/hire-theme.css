@@ -73,15 +73,15 @@
 }
 
 .hr-heading {
-  font-size: var(--text-h3, 1.45rem);
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: var(--text-h3);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-snug);
   color: var(--hr-navy);
 }
 
 .hr-content {
-  font-size: var(--text-h4, 1.15rem);
-  font-weight: 400;
-  line-height: 1.6;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-relaxed);
   color: var(--hr-muted);
 }

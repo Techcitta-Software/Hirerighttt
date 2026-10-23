@@ -10,10 +10,10 @@
 
 .shell {
   position: relative;
-  width: var(--hr-layout-width, 85%);
-  max-width: var(--hr-layout-width, 85%);
+  width: min(var(--hr-layout-width, 85%), var(--layout-max-width));
+  max-width: min(var(--hr-layout-width, 85%), var(--layout-max-width));
   margin: 0 auto;
-  padding-bottom: 64px;
+  padding-bottom: var(--app-page-padding-bottom);
 }
 
 .reportCapture {
@@ -25,16 +25,16 @@
 }
 
 .main {
-  padding-top: 28px;
+  padding-top: var(--space-7);
 }
 
 .head {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: flex-end;
   flex-wrap: wrap;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-6);
 }
 
 .head h1 {
@@ -46,11 +46,11 @@
 }
 
 .head p {
-  margin-top: 0.5rem;
-  color: #5f6686;
-  font-size: var(--text-h4, 1.125rem);
-  font-weight: 400;
-  line-height: 1.65;
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-relaxed);
   max-width: 36rem;
 }
 
@@ -196,7 +196,7 @@
   background: #ffffff;
   border: 1px solid #e5e5ef;
   border-radius: 20px;
-  padding: 22px;
+  padding: var(--card-padding);
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
   transition: all 0.25s ease;
 }
@@ -716,12 +716,12 @@
 /* ─── Exact Job Seeker Dashboard Spec ─── */
 .eyebrow {
   display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
-  color: #6366f1;
-  margin-bottom: 6px;
+  color: var(--color-text-accent);
+  margin-bottom: var(--space-2);
 }
 
 .bannerRequired {
@@ -1513,163 +1513,29 @@
 }
 
 /* ─── Profile & Preferences Spec ─── */
-.profileMainShell {
+.profileShell {
+  position: relative;
   width: 100%;
-  min-width: 0;
-  overflow-x: clip;
+  max-width: 100%;
+  padding-left: clamp(1.25rem, 3.5vw, 3rem);
+  padding-right: clamp(1.25rem, 3.5vw, 3rem);
+  padding-bottom: var(--app-page-padding-bottom);
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
-.profilePageFrame {
-  display: grid;
-  grid-template-columns: 1fr minmax(0, 960px) 1fr;
+.profileMainShell {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
-  align-items: start;
-}
-
-.profileNavRail {
-  grid-column: 1;
-  justify-self: end;
-  align-self: start;
-  position: sticky;
-  top: 72px;
-  z-index: 5;
-  width: min(220px, 100%);
-  max-height: calc(100vh - 88px);
-  max-height: calc(100dvh - 88px);
-  padding-right: clamp(10px, 1.5vw, 18px);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.profileContentCenterSlot {
-  grid-column: 2;
-  min-width: 0;
-  width: 100%;
+  box-sizing: border-box;
 }
 
 .profileContentColumn {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
-}
-
-@media (max-width: 720px) {
-  .profilePageFrame {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .profileNavRail {
-    grid-column: 1;
-    width: min(168px, 38vw);
-    padding-right: 8px;
-  }
-
-  .profileContentCenterSlot {
-    grid-column: 2;
-  }
-}
-
-.profileMenuBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #0f172a;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
-}
-
-.profileMenuBtn:hover {
-  border-color: #c7d2fe;
-  background: #f8fafc;
-}
-
-.profileMenuBtn[aria-expanded='true'] {
-  border-color: #818cf8;
-  background: #eef2ff;
-}
-
-.profileMenuIcon {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  width: 18px;
-}
-
-.profileMenuIcon span {
-  display: block;
-  height: 2px;
-  width: 100%;
-  border-radius: 2px;
-  background: #334155;
-  transition: transform 0.25s ease;
-}
-
-.profileMenuLabel {
-  line-height: 1.2;
-}
-
-@media (max-width: 520px) {
-  .profileMenuLabel {
-    display: none;
-  }
-
-  .profileMenuBtn {
-    padding: 10px 12px;
-  }
-}
-
-.profileSidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow: hidden;
-  width: 100%;
-}
-
-.profileSideLink {
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: #64748b;
-  text-decoration: none;
-  transition:
-    background 0.18s ease,
-    color 0.18s ease;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  text-align: left;
-  width: 100%;
-  line-height: 1.35;
-}
-
-.profileSideLink:hover {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.profileSideActive {
-  background: #ede9fe !important;
-  color: #4f46e5 !important;
-  font-weight: 700 !important;
 }
 
 .profileSectionStack {
@@ -1679,14 +1545,25 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  margin-left: auto;
-  margin-right: auto;
+  margin-top: 24px;
 }
 
 .profileSectionStack .card {
-  min-width: 0;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: clamp(1.5rem, 2.5vw, 2.25rem);
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profileSectionStack .card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
 }
 
 .formGridTwo {
@@ -1725,15 +1602,15 @@
 }
 
 .formInputText {
-  height: 38px;
-  padding: 0 12px;
+  height: 42px;
+  padding: 0 14px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.875rem;
+  border-radius: 10px;
+  font-size: 0.9rem;
   color: #0f172a;
   background: #ffffff;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   width: 100%;
   max-width: 100%;
   min-width: 0;

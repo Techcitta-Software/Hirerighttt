@@ -9,9 +9,9 @@
   --primary-purple-light: #6366f1;
   --primary-purple-subtle: #f0f2fe;
   --primary-purple-border: #dcd7fe;
-  --text-main: #181236;
-  --text-muted: #5c567a;
-  --text-subtle: #736e8e;
+  --text-main: var(--color-text-primary);
+  --text-muted: var(--color-text-muted);
+  --text-subtle: var(--color-text-subtle);
   --bg-page: #fafaff;
   --bg-card: #ffffff;
   --bg-footer: #0e0b24;
@@ -19,7 +19,7 @@
   min-height: 100vh;
   background-color: var(--bg-page);
   color: var(--text-main);
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   overflow-x: clip;
   display: flex;
   flex-direction: column;
@@ -27,14 +27,14 @@
 
 .page,
 .page * {
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .shell {
   width: 100%;
   max-width: 100%;
-  padding-left: clamp(1.25rem, 3.5vw, 3rem);
-  padding-right: clamp(1.25rem, 3.5vw, 3rem);
+  padding-left: var(--layout-gutter-wide);
+  padding-right: var(--layout-gutter-wide);
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;

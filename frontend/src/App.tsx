@@ -239,12 +239,14 @@ function App() {
   }, [])
 
   return (
-    <BrowserRouter>
-      <AnimatedRoutes />
-      <CookieConsentBanner />
-      <SignOutModal />
-      <AuthInvalidModal />
-    </BrowserRouter>
+    <div className="hr-ui">
+      <BrowserRouter>
+        <AnimatedRoutes />
+        <CookieConsentBanner />
+        <SignOutModal />
+        <AuthInvalidModal />
+      </BrowserRouter>
+    </div>
   )
 }
 

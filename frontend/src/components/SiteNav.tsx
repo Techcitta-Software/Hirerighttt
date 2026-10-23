@@ -133,18 +133,28 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
     return item.label
   }
 
+  const isAppShellNav = loggedIn && variant === 'default' && !showMarketingOnHome
+
   const headerClass = [
     styles.navbar,
     variant === 'minimal' && styles.navbarMinimal,
     isLanding && styles.navbarLanding,
     isHome && styles.navbarHome,
+    isAppShellNav && styles.navbarApp,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const innerClass = [
+    isLanding ? styles.innerLanding : styles.inner,
+    isAppShellNav && styles.innerApp,
   ]
     .filter(Boolean)
     .join(' ')
 
   return (
     <header className={headerClass}>
-      <div className={isLanding ? styles.innerLanding : styles.inner}>
+      <div className={innerClass}>
         <BrandLogo
           dark={variant === 'dark'}
           onClick={() => setOpen(false)}
@@ -160,30 +170,31 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
         />
 
 
-        <nav
-          className={isLanding ? styles.navPillGroup : styles.navLinks}
-          aria-label="Primary"
-        >
-          {primaryNav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                isLanding
-                  ? isActive
-                    ? `${styles.navPillLink} ${styles.navPillActive}`
-                    : styles.navPillLink
-                  : isActive
-                    ? `${styles.navLink} ${styles.active}`
-                    : styles.navLink
-              }
-            >
-              {navLabel(item)}
-            </NavLink>
-          ))}
-        </nav>
+        <div className={isAppShellNav ? styles.navRight : styles.navRightPassthrough}>
+          <nav
+            className={isLanding ? styles.navPillGroup : styles.navLinks}
+            aria-label="Primary"
+          >
+            {primaryNav.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  isLanding
+                    ? isActive
+                      ? `${styles.navPillLink} ${styles.navPillActive}`
+                      : styles.navPillLink
+                    : isActive
+                      ? `${styles.navLink} ${styles.active}`
+                      : styles.navLink
+                }
+              >
+                {navLabel(item)}
+              </NavLink>
+            ))}
+          </nav>
 
-        <div className={styles.navActions}>
+          <div className={styles.navActions}>
           {loggedIn && !showMarketingOnHome ? (
             <>
               {isLanding && (
@@ -288,7 +299,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   </div>
                 </>
               )}
-              {!hideSignOut && (
+              {!hideSignOut && user?.role === 'employer' && (
                 <button
                   type="button"
                   className={isLanding ? styles.landingOutline : styles.signOutBtn}
@@ -366,6 +377,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
               )}
             </svg>
           </button>
+          </div>
         </div>
 
         <AnimatePresence>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { BrandLogo } from './BrandLogo'
 import { getUser, isLoggedIn } from '../lib/store'
 import styles from './AppFooter.module.css'
 
@@ -45,9 +46,12 @@ export function AppFooter() {
       <div className={styles.inner}>
         <div className={styles.mainRow}>
           <div className={styles.brandBlock}>
-            <Link to={user?.role === 'employer' ? '/employer/dashboard' : '/dashboard'} className={styles.brandLink}>
-              <img src="/logos/hirerighttt-logo-dark.svg" alt="" className={styles.logo} />
-            </Link>
+            <BrandLogo
+              to={user?.role === 'employer' ? '/employer/dashboard' : '/dashboard'}
+              size="sm"
+              dark
+              className={styles.brandLink}
+            />
             <p className={styles.tagline}>Fair AI interviews and clear scorecards.</p>
           </div>
           <nav className={styles.nav} aria-label="App footer">

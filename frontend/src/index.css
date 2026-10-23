@@ -1,3 +1,5 @@
+@import './styles/typography.css';
+
 :root {
   --hr-layout-width: 85%;
   --hr-navy: #07122a;
@@ -97,35 +99,16 @@
   --radius-xl: 20px;
   --radius-full: 9999px;
 
-  /* Typography */
-  --font: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Typography tokens → see styles/typography.css */
   --sidebar-width: 320px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-
-  /* ==========================================================================
-     HIERARCHICAL TYPOGRAPHY SYSTEM
-     Tier 1: Heading     -> h2 (Section titles, major headers)
-     Tier 2: Sub Heading -> h3 (Card titles, step titles, item headers)
-     Tier 3: Content     -> h4 (Body text, descriptions, labels)
-     ========================================================================== */
-  --text-h1: clamp(2.35rem, 4.8vw, 3.15rem);
-  --text-h2: clamp(1.75rem, 3.2vw, 2.25rem); /* Heading */
-  --text-h3: clamp(1.25rem, 2.2vw, 1.45rem); /* Sub Heading */
-  --text-h4: clamp(1rem, 1.6vw, 1.15rem);    /* Content */
-
-  /* Semantic Typography Mapping */
-  --font-size-heading: var(--text-h2);
-  --font-size-subheading: var(--text-h3);
-  --font-size-content: var(--text-h4);
 
   --text-page-title: var(--text-h1);
   --text-section-title: var(--text-h2);
   --text-subheading: var(--text-h3);
   --text-card-title: var(--text-h3);
   --text-lead: var(--text-h4);
-  --text-body: var(--text-h4);
+  --text-body: var(--font-size-body);
   --text-content: var(--text-h4);
 }
 
@@ -168,13 +151,13 @@ body,
 }
 
 body {
-  font-family: var(--font);
-  font-size: 18px;
-  color: #1a1a1a;
-  background-color: #f8fafc;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  color: var(--color-text-primary);
+  background-color: var(--bg-page, #f8fafc);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  line-height: 1.65;
+  line-height: var(--line-height-relaxed);
 }
 
 /* Tier 0: Hero / Page Title */

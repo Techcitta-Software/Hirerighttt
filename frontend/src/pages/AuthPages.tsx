@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { BrandLogo } from '../components/BrandLogo'
 import { HrIcon } from '../components/HrIcon'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
@@ -587,13 +588,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
       {/* LEFT COLUMN: PDF Page 1 Branding */}
       <aside className={styles.splitLeft}>
         <div className={styles.splitLeftInner}>
-          <Link to="/" className={styles.brandLink} title="Back to HireRighttt Home">
-            <img
-              src="/logos/hirerighttt-logo-dark.svg"
-              alt="HireRighttt — Talent to Talent"
-              className={styles.brandLogoImg}
-            />
-          </Link>
+          <BrandLogo to="/" size="lg" dark className={styles.brandLink} />
 
           <div className={styles.splitLeftCopy}>
             {authMode === 'signup' ? (

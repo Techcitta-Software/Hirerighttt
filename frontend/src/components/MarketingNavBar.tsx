@@ -1,6 +1,7 @@
 import { useState, type MouseEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { handleLoginNavigation } from '../lib/authSession'
+import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
 const MARKETING_NAV = [
@@ -44,13 +45,12 @@ export function MarketingNavBar() {
   return (
     <header className={styles.navbar}>
       <div className={styles.navInner}>
-        <Link to="/" className={styles.brandWrap} aria-label="HireRighttt Home" onClick={closeMobile}>
-          <img
-            src="/logos/hirerighttt-logo.svg"
-            alt="HireRighttt — Talent to Talent"
-            className={styles.brandLogoImg}
-          />
-        </Link>
+        <BrandLogo
+          to="/"
+          size="md"
+          className={styles.brandWrap}
+          onClick={closeMobile}
+        />
 
         <nav aria-label="Main Navigation">
           <ul className={styles.navLinks}>

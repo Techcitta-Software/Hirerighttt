@@ -1,23 +1,29 @@
 .footer {
   margin-top: auto;
+  width: 100%;
   background: #0e0b24;
   color: #e2e8f0;
   font-family: var(--font, 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   -webkit-font-smoothing: antialiased;
   padding: 1.25rem 0 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
 }
 
 .inner {
-  width: min(100% - 48px, 1200px);
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding-left: clamp(1.25rem, 4vw, 3rem);
+  padding-right: clamp(1.25rem, 4vw, 3rem);
+  box-sizing: border-box;
 }
 
 .mainRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1.25rem 2rem;
+  justify-content: flex-start;
+  gap: clamp(1rem, 2vw, 2rem);
   flex-wrap: wrap;
 }
 
@@ -56,8 +62,9 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.35rem 1rem;
-  flex: 1;
+  gap: 0.35rem clamp(0.75rem, 1.5vw, 1.25rem);
+  margin-left: auto;
+  flex: 0 1 auto;
 }
 
 .link {
@@ -100,10 +107,6 @@
 }
 
 @media (max-width: 480px) {
-  .inner {
-    width: min(100% - 32px, 1200px);
-  }
-
   .brandBlock {
     flex-direction: column;
     align-items: flex-start;

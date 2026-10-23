@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { BrandLogo } from './BrandLogo'
 import styles from './MarketingFooter.module.css'
 
 const FOOTER_LINKS = [
@@ -22,13 +23,7 @@ export function MarketingFooter() {
       <div className={styles.inner}>
         <div className={styles.mainRow}>
           <div className={styles.brandBlock}>
-            <Link to="/" className={styles.brandLink} aria-label="HireRighttt Home">
-              <img
-                src="/logos/hirerighttt-logo-dark.svg"
-                alt=""
-                className={styles.logo}
-              />
-            </Link>
+            <BrandLogo to="/" size="md" dark className={styles.brandLink} />
             <p className={styles.tagline}>Your Personal AI Career Companion</p>
           </div>
 

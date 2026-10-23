@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import {
   addNotification,
@@ -973,33 +973,12 @@ function ProfileSectionHeader({
   )
 }
 
-const PROFILE_NAV_SECTIONS = [
-  { id: 'basics', label: 'Basics' },
-  { id: 'role', label: 'Role and experience' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'resume', label: 'Résumé' },
-  { id: 'preferences', label: 'Job preferences' },
-  { id: 'links', label: 'Links' },
-  { id: 'privacy', label: 'Privacy and consent' },
-] as const
-
 export function ProfilePage() {
   const user = getUser()
   const profile = getProfile()
   const interview = getInterviewResult()
 
-  const [activeSection, setActiveSection] = useState('basics')
-  const [profileNavOpen, setProfileNavOpen] = useState(false)
   const [toast, setToast] = useState('')
-
-  useEffect(() => {
-    if (!profileNavOpen) return
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setProfileNavOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [profileNavOpen])
 
   // Form state initialized from the candidate profile
   const profileExtras = profile as
@@ -1065,14 +1044,6 @@ export function ProfilePage() {
   const [visibleToEmployers, setVisibleToEmployers] = useState(true)
   const [shareRecording, setShareRecording] = useState(false)
   const [emailAlerts, setEmailAlerts] = useState(true)
-
-  function scrollToSection(id: string) {
-    setActiveSection(id)
-    const el = document.getElementById(id)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }
 
   function handleAddSkill() {
     const trimmed = newSkillInput.trim()
@@ -1268,72 +1239,26 @@ export function ProfilePage() {
   }
   return (
     <div className={styles.page}>
-      <div className={styles.shell}>
+      <div className={styles.profileShell}>
         <motion.main
           className={`${styles.main} ${styles.profileMainShell}`}
           variants={staggerContainer}
           initial="hidden"
           animate="show"
         >
-          <div className={styles.profilePageFrame}>
-            <aside className={styles.profileNavRail} aria-label="Profile section navigation">
-              <button
-                type="button"
-                className={styles.profileMenuBtn}
-                aria-expanded={profileNavOpen}
-                aria-controls="profile-section-nav"
-                aria-label={profileNavOpen ? 'Hide profile sections' : 'Show profile sections'}
-                onClick={() => setProfileNavOpen((open) => !open)}
-              >
-                <span className={styles.profileMenuIcon} aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span className={styles.profileMenuLabel}>
-                  {profileNavOpen ? 'Hide sections' : 'Sections'}
-                </span>
-              </button>
+          <div className={styles.profileContentColumn}>
+            {/* Header */}
+            <motion.header className={styles.head} variants={fadeUp}>
+              <div>
+                <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
+                <h1>Keep your profile sharp</h1>
+                <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
+              </div>
+            </motion.header>
 
-              <AnimatePresence initial={false}>
-                {profileNavOpen ? (
-                  <motion.nav
-                    id="profile-section-nav"
-                    className={styles.profileSidebar}
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-                  >
-                    {PROFILE_NAV_SECTIONS.map((section) => (
-                      <button
-                        key={section.id}
-                        type="button"
-                        className={`${styles.profileSideLink} ${activeSection === section.id ? styles.profileSideActive : ''}`}
-                        onClick={() => scrollToSection(section.id)}
-                      >
-                        {section.label}
-                      </button>
-                    ))}
-                  </motion.nav>
-                ) : null}
-              </AnimatePresence>
-            </aside>
+            {toast && <div className={styles.toast}>{toast}</div>}
 
-            <div className={styles.profileContentCenterSlot}>
-            <div className={styles.profileContentColumn}>
-              {/* Header */}
-              <motion.header className={styles.head} variants={fadeUp}>
-                <div>
-                  <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
-                  <h1>Keep your profile sharp</h1>
-                  <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
-                </div>
-              </motion.header>
-
-              {toast && <div className={styles.toast}>{toast}</div>}
-
-              <div className={styles.profileSectionStack}>
+            <div className={styles.profileSectionStack}>
               {/* Card 1: Basics */}
               <section id="basics" className={styles.card} aria-busy={basicsSaving}>
                 <ProfileSectionHeader
@@ -1888,8 +1813,6 @@ export function ProfilePage() {
                   />
                 </div>
               )}
-              </div>
-            </div>
             </div>
           </div>
         </motion.main>

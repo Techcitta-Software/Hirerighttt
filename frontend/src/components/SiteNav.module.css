@@ -8,7 +8,7 @@
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(220, 215, 254, 0.45);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  font-family: var(--font, 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -16,13 +16,13 @@
   align-self: center;
 }
 
-.navbar :global(.logo-hire),
-.navbar :global(.logo-right) {
-  font-size: 19px;
+.navbar :global(.hr-logo--md .hr-logo__wordmark) {
+  font-size: 1.4rem;
 }
 
-.navbar :global(.logo-tagline) {
-  font-size: 7px;
+.navbar :global(.hr-logo--md .hr-logo__tagline) {
+  font-size: var(--logo-tagline-size-sm);
+  letter-spacing: 0.28em;
 }
 
 .navbarMinimal {
@@ -43,13 +43,48 @@
   width: min(var(--hr-layout-width, 85%), 1200px);
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0.65rem 24px;
-  min-height: 64px;
+  padding: var(--nav-padding-y) var(--nav-padding-x);
+  min-height: var(--nav-height);
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 1.5rem;
   position: relative;
+}
+
+/* Logged-in app shell: full-width bar, logo at gutter, actions at opposite gutter */
+.navbarApp {
+  width: 100%;
+}
+
+.innerApp {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--nav-padding-y) clamp(1.25rem, 4vw, 3rem);
+  gap: clamp(1rem, 2vw, 2rem);
+}
+
+.navRightPassthrough {
+  display: contents;
+}
+
+.navRight {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(0.5rem, 1.5vw, 1.25rem);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.innerApp .navLinks {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.innerApp .navActions {
+  gap: 0.625rem;
 }
 
 .brand {

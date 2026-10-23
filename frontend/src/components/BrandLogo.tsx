@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import styles from './BrandLogo.module.css'
 
 export type BrandLogoProps = {
+  /** Light text on dark backgrounds (footer, auth panel). */
   dark?: boolean
   size?: 'sm' | 'md' | 'lg' | 'xl'
   to?: string
@@ -10,7 +11,29 @@ export type BrandLogoProps = {
   onClick?: () => void
   className?: string
   style?: CSSProperties
-  imgStyle?: CSSProperties
+  showTagline?: boolean
+}
+
+function LogoMark({
+  dark,
+  size,
+  showTagline,
+}: {
+  dark: boolean
+  size: BrandLogoProps['size']
+  showTagline: boolean
+}) {
+  const sizeClass = `hr-logo--${size ?? 'md'}`
+  const toneClass = dark ? 'hr-logo--dark' : ''
+  return (
+    <span className={`hr-logo brand-logo ${sizeClass} ${toneClass}`.trim()} aria-hidden={false}>
+      <span className="hr-logo__wordmark">
+        <span className="hr-logo__hire">Hire</span>
+        <span className="hr-logo__right">Righttt</span>
+      </span>
+      {showTagline ? <span className="hr-logo__tagline">Talent to Talent</span> : null}
+    </span>
+  )
 }
 
 export function BrandLogo({
@@ -21,25 +44,10 @@ export function BrandLogo({
   onClick,
   className = '',
   style,
-  imgStyle,
+  showTagline = true,
 }: BrandLogoProps) {
-  const imgSrc = dark
-    ? '/logos/hirerighttt-logo-dark.svg'
-    : '/logos/hirerighttt-logo.svg'
-
-  const imgElement = (
-    <img
-      src={imgSrc}
-      alt="HireRighttt — Talent to Talent"
-      title="HireRighttt — Talent to Talent"
-      className={`${styles.logoImg} ${styles[size]}`}
-      style={imgStyle}
-      loading="eager"
-      decoding="async"
-    />
-  )
-
   const combinedClass = `${styles.brandLink} ${className}`.trim()
+  const mark = <LogoMark dark={dark} size={size} showTagline={showTagline} />
 
   if (asSpan || !to) {
     return (
@@ -50,7 +58,7 @@ export function BrandLogo({
         role={onClick ? 'button' : undefined}
         tabIndex={onClick ? 0 : undefined}
       >
-        {imgElement}
+        {mark}
       </span>
     )
   }
@@ -59,11 +67,11 @@ export function BrandLogo({
     <Link
       to={to}
       className={combinedClass}
-      aria-label="HireRight — Right People. Right Decisions."
+      aria-label="HireRighttt — Talent to Talent"
       onClick={onClick}
       style={style}
     >
-      {imgElement}
+      {mark}
     </Link>
   )
 }
