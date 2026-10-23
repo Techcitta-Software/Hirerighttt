@@ -1908,46 +1908,6 @@
   text-decoration: underline;
 }
 
-.profileGaugeWrap {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.profileGaugeCircle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.profileGaugeInner {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #ffffff;
-}
-
-.profileGaugeText {
-  display: flex;
-  flex-direction: column;
-}
-
-.profileGaugePercent {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.profileGaugeSub {
-  font-size: 0.75rem;
-  color: #64748b;
-}
-
 .skillPillCustom {
   display: inline-flex;
   align-items: center;

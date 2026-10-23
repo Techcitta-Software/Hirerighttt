@@ -51,7 +51,7 @@ const server = app.listen(PORT, () => {
   console.log(`Demo accounts: ${ctx.config.allowDemoAccounts ? 'enabled' : 'disabled'}`)
 })
 
-server.on('error', (err) => {
+server.on('error', (err) => { 
   if (err && err.code === 'EADDRINUSE') {
     console.error(
       `Port ${PORT} already in use — another API is still running (often stale S3 config).`,

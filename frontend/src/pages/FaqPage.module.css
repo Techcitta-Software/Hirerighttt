@@ -30,8 +30,10 @@
 }
 
 .shell {
-  width: 90%;
-  max-width: 860px;
+  width: 100%;
+  max-width: 100%;
+  padding-left: clamp(1.25rem, 3.5vw, 3rem);
+  padding-right: clamp(1.25rem, 3.5vw, 3rem);
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
@@ -109,7 +111,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1.25rem;
-  padding: 1.35rem 1.75rem;
+  padding: 1.35rem clamp(1.5rem, 2.5vw, 2.25rem);
   background: none;
   border: none;
   text-align: left;
@@ -139,7 +141,7 @@
 }
 
 .accordionBody {
-  padding: 0 1.75rem 1.45rem 1.75rem;
+  padding: 0 clamp(1.5rem, 2.5vw, 2.25rem) 1.5rem clamp(1.5rem, 2.5vw, 2.25rem);
   border-top: 1px solid rgba(231, 229, 250, 0.5);
 }
 

@@ -10,7 +10,10 @@
 }
 
 .inner {
-  width: min(100% - 48px, 1200px);
+  width: 100%;
+  max-width: 100%;
+  padding-left: clamp(1.25rem, 3.5vw, 3rem);
+  padding-right: clamp(1.25rem, 3.5vw, 3rem);
   margin: 0 auto;
   box-sizing: border-box;
 }

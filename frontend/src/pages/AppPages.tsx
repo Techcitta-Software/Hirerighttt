@@ -1329,20 +1329,6 @@ export function ProfilePage() {
                   <h1>Keep your profile sharp</h1>
                   <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
                 </div>
-                <div className={styles.profileGaugeWrap}>
-                  <div
-                    className={styles.profileGaugeCircle}
-                    style={{
-                      background: 'conic-gradient(#5b46e5 0 89%, #ede9fe 89% 100%)',
-                    }}
-                  >
-                    <div className={styles.profileGaugeInner} />
-                  </div>
-                  <div className={styles.profileGaugeText}>
-                    <span className={styles.profileGaugePercent}>89% complete</span>
-                    <span className={styles.profileGaugeSub}>Add projects to reach 100%</span>
-                  </div>
-                </div>
               </motion.header>
 
               {toast && <div className={styles.toast}>{toast}</div>}
