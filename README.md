@@ -15,9 +15,11 @@ End-to-end AI hiring product: candidate onboarding, live AI video interview, ran
 
 ```bash
 cp .env.example .env    # edit DATABASE_URL + GEMINI_API_KEY
-npm install
+npm install             # also downloads Playwright Chromium (~300MB) for scorecard PDFs
 npm run dev:all
 ```
+
+`npm install` runs `backend/node` `postinstall` and installs Chromium so the API can write HireRight report PDFs to S3. Skip with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. Retry later with `npm run playwright:install-chromium`.
 
 - App: http://localhost:5173
 - API: http://localhost:8787/api/health

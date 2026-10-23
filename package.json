@@ -27,6 +27,8 @@
     "db:purge": "node backend/node/scripts/purge-all-data.mjs",
     "db:purge-keep-demos": "node backend/node/scripts/purge-keep-demo-accounts.mjs",
     "s3:purge-data": "node backend/node/scripts/s3-purge-object-data.mjs",
+    "report:generate-missing": "node backend/node/scripts/generate-missing-report-pdfs.mjs",
+    "playwright:install-chromium": "npx --prefix backend/node playwright install chromium",
     "check:env": "node scripts/check-env.mjs",
     "s3:test": "node backend/node/scripts/test-s3-resume-storage.mjs",
     "s3:test:recording": "node backend/node/scripts/test-s3-recording-upload.mjs",

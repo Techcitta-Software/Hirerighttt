@@ -1,3 +1,14 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+
+function ensurePlaywrightBrowsersPath() {
+  const current = process.env.PLAYWRIGHT_BROWSERS_PATH || ''
+  if (current && !current.includes('cursor-sandbox-cache') && existsSync(current)) return
+  const local = join(homedir(), 'AppData', 'Local', 'ms-playwright')
+  if (existsSync(local)) process.env.PLAYWRIGHT_BROWSERS_PATH = local
+}
+
 /**
  * Renders HTML to PDF using Playwright (Chromium print). Requires browsers installed:
  * npx playwright install chromium
@@ -8,6 +19,7 @@ export async function htmlToPdfBuffer(html, options = {}) {
     err.code = 'PDF_DISABLED'
     throw err
   }
+  ensurePlaywrightBrowsersPath()
   let chromium
   try {
     ;({ chromium } = await import('playwright'))

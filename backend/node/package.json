@@ -13,7 +13,8 @@
     "check:smoke": "node scripts/smoke-features.mjs",
     "mail:test": "node scripts/test-smtp.mjs",
     "mail:test-confirm": "node scripts/test-onboarding-confirmation-email.mjs",
-    "test:auth-workflow": "node scripts/test-auth-workflow.mjs"
+    "test:auth-workflow": "node scripts/test-auth-workflow.mjs",
+    "postinstall": "node scripts/install-playwright-chromium.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.888.0",
