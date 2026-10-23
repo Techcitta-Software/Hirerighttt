@@ -1,9 +1,8 @@
-import { useState, useRef, type ChangeEvent, type MouseEvent } from 'react'
+import { useState, useRef, type ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   clearStoredAuth,
-  handleLoginNavigation,
   isApiSessionValid,
   resolveAuthenticatedDestination,
   setAuthInvalidMessage,
@@ -11,11 +10,12 @@ import {
 import { requireApiForAuth } from '../lib/authConfig'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import styles from './HomePage.module.css'
 
 export function HomePage() {
   const navigate = useNavigate()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showSampleModal, setShowSampleModal] = useState(false)
   const resumeFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -68,12 +68,6 @@ export function HomePage() {
     }
   }
 
-  function handleLoginClick(event: MouseEvent) {
-    event.preventDefault()
-    setMobileMenuOpen(false)
-    void handleLoginNavigation(navigate)
-  }
-
   function handleRecruiterClick() {
     const user = getUser()
     if (user && user.role === 'employer') {
@@ -95,131 +89,8 @@ export function HomePage() {
         aria-hidden="true"
       />
 
-      {/* ====================================================================
-          Section 1: Navigation Bar
-          ==================================================================== */}
-      <header className={styles.navbar}>
-        <div className={styles.navInner}>
-          <Link to="/" className={styles.brandWrap} aria-label="HireRighttt Home">
-            <img
-              src="/logos/hirerighttt-logo.svg"
-              alt="HireRighttt — Talent to Talent"
-              className={styles.brandLogoImg}
-            />
-          </Link>
+      <MarketingNavBar />
 
-          <nav aria-label="Main Navigation">
-            <ul className={styles.navLinks}>
-              <li>
-                <Link to="/" className={styles.navLink}>
-                  HOME
-                </Link>
-              </li>
-              <li>
-                <Link to="/how-it-works" className={styles.navLink}>
-                  HOW IT WORKS
-                </Link>
-              </li>
-              <li>
-                <Link to="/career-view" className={styles.navLink}>
-                  360° CAREER VIEW
-                </Link>
-              </li>
-              <li>
-                <Link to="/who-its-for" className={styles.navLink}>
-                  WHO IT’S FOR
-                </Link>
-              </li>
-              <li>
-                <Link to="/faqs" className={styles.navLink}>
-                  FAQS
-                </Link>
-              </li>
-            </ul>
-          </nav>
-
-          <div className={styles.navActions}>
-            <Link to="/login" className={styles.navActionLink} onClick={handleLoginClick}>
-              LOG IN
-            </Link>
-            <Link to="/signup" className={styles.navCtaBtn}>
-              SIGN UP
-            </Link>
-          </div>
-
-          <button
-            type="button"
-            className={styles.mobileMenuBtn}
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle Menu"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {mobileMenuOpen ? (
-                <path d="M18 6L6 18M6 6l12 12" />
-              ) : (
-                <path d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
-          </button>
-        </div>
-
-        {/* Mobile menu dropdown */}
-        <div className={`${styles.mobileMenuDrawer} ${mobileMenuOpen ? styles.mobileOpen : ''}`}>
-          <Link
-            to="/"
-            className={styles.navLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            HOME
-          </Link>
-          <Link
-            to="/how-it-works"
-            className={styles.navLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            HOW IT WORKS
-          </Link>
-          <Link
-            to="/career-view"
-            className={styles.navLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            360° CAREER VIEW
-          </Link>
-          <Link
-            to="/who-its-for"
-            className={styles.navLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            WHO IT’S FOR
-          </Link>
-          <Link
-            to="/faqs"
-            className={styles.navLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            FAQS
-          </Link>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-            <Link
-              to="/login"
-              className={styles.navActionLink}
-              onClick={(e) => {
-                handleLoginClick(e)
-              }}
-            >
-              LOG IN
-            </Link>
-            <Link to="/signup" className={styles.navCtaBtn} onClick={() => setMobileMenuOpen(false)}>
-              SIGN UP
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* ====================================================================
-          Section 2: Hero Section
-          ==================================================================== */}
       {/* ====================================================================
           Section 2: Hero Section (Centered 100% Viewport Design)
           ==================================================================== */}
@@ -546,57 +417,7 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* ====================================================================
-          Section 7: Footer
-          ==================================================================== */}
-      <footer className={styles.footer}>
-        <div className={styles.shell}>
-          <div className={styles.footerTop}>
-            <div className={styles.footerBrandColumn}>
-              <Link to="/" className={styles.footerBrandWrap}>
-                <img
-                  src="/logos/hirerighttt-logo-dark.svg"
-                  alt="HireRighttt — Talent to Talent"
-                  className={styles.footerLogoImg}
-                />
-              </Link>
-              <p className={styles.footerTagline}>Your Personal AI Career Companion</p>
-            </div>
-
-            <nav className={styles.footerLinksRow} aria-label="Footer Navigation">
-              <Link to="/" className={styles.footerLink}>
-                Home
-              </Link>
-              <Link to="/how-it-works" className={styles.footerLink}>
-                How It Works
-              </Link>
-              <Link to="/faqs" className={styles.footerLink}>
-                FAQs
-              </Link>
-              <Link to="/contact" className={styles.footerLink}>
-                Contact
-              </Link>
-              <Link to="/privacy" className={styles.footerLink}>
-                Privacy Policy
-              </Link>
-              <Link to="/terms" className={styles.footerLink}>
-                Terms &amp; Conditions
-              </Link>
-              <Link to="/cookies" className={styles.footerLink}>
-                Cookie Policy
-              </Link>
-            </nav>
-          </div>
-
-          <div className={styles.footerDivider} />
-
-          <div className={styles.footerBottom}>
-            <p className={styles.footerCopyright}>
-              © {new Date().getFullYear()} HireRight. All rights reserved.
-            </p>
-          </div>
-        </div>
-      </footer>
+      <MarketingFooter />
 
       {/* ====================================================================
           Sample 360° Career Intelligence Report Modal

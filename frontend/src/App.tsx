@@ -39,6 +39,7 @@ import { RequireCandidateOnboardingComplete } from './components/RequireCandidat
 import { SignOutModal } from './components/SignOutModal'
 import { pageTransition } from './motion/variants'
 import { applyClientStorageMigration } from './lib/store'
+import { AppShell } from './components/AppShell'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -108,120 +109,122 @@ function AnimatedRoutes() {
               </RequireAuth>
             }
           />
-          <Route
-            path="/dashboard"
-            element={
-              <RequireAuth role="jobseeker">
-                <RequireCandidateOnboardingComplete>
-                  <DashboardPage />
-                </RequireCandidateOnboardingComplete>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/dashboard/report"
-            element={
-              <RequireAuth role="jobseeker">
-                <RequireCandidateOnboardingComplete>
-                  <InterviewReportPage />
-                </RequireCandidateOnboardingComplete>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/employer/dashboard"
-            element={
-              <RequireAuth role="employer">
-                <EmployerDashboard />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/employer/candidates"
-            element={
-              <RequireAuth role="employer">
-                <EmployerDashboard view="candidates" />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/candidates"
-            element={
-              <RequireAuth role="employer">
-                <EmployerDashboard view="candidates" />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/employer"
-            element={
-              <RequireAuth role="employer">
-                <EmployerDashboard />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/resumes"
-            element={
-              <RequireAuth>
-                <ResumeDatabasePage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/talent-vault"
-            element={
-              <RequireAuth>
-                <ResumeDatabasePage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/jobs"
-            element={
-              <RequireAuth role="jobseeker">
-                <RequireCandidateOnboardingComplete>
-                  <JobsPage />
-                </RequireCandidateOnboardingComplete>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/applications"
-            element={
-              <RequireAuth role="jobseeker">
-                <RequireCandidateOnboardingComplete>
-                  <ApplicationsPage />
-                </RequireCandidateOnboardingComplete>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/profile"
-            element={
-              <RequireAuth role="jobseeker">
-                <RequireCandidateOnboardingComplete>
-                  <ProfilePage />
-                </RequireCandidateOnboardingComplete>
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <RequireAuth>
-                <SettingsPage />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <RequireAuth role="employer">
-                <AdminDashboard />
-              </RequireAuth>
-            }
-          />
+          <Route element={<AppShell />}>
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <DashboardPage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/dashboard/report"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <InterviewReportPage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/employer/dashboard"
+              element={
+                <RequireAuth role="employer">
+                  <EmployerDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/employer/candidates"
+              element={
+                <RequireAuth role="employer">
+                  <EmployerDashboard view="candidates" />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/candidates"
+              element={
+                <RequireAuth role="employer">
+                  <EmployerDashboard view="candidates" />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/employer"
+              element={
+                <RequireAuth role="employer">
+                  <EmployerDashboard />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/resumes"
+              element={
+                <RequireAuth>
+                  <ResumeDatabasePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/talent-vault"
+              element={
+                <RequireAuth>
+                  <ResumeDatabasePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/jobs"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <JobsPage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/applications"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <ApplicationsPage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/profile"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <ProfilePage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <RequireAuth>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <RequireAuth role="employer">
+                  <AdminDashboard />
+                </RequireAuth>
+              }
+            />
+          </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </motion.div>

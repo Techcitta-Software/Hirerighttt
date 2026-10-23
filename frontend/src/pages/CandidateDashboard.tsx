@@ -1,8 +1,6 @@
 import { CandidateReviewEvents } from '../components/CandidateReviewEvents'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
 import { HrIcon } from '../components/HrIcon'
 import { apiMe, apiListApplications } from '../lib/api'
 import { fetchOpenJobs } from '../lib/vendorApi'
@@ -86,7 +84,6 @@ export function DashboardPage() {
   const recent = [...applications].sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 4)
 
   return <div className={styles.page}>
-    <SiteNav />
     <main className={styles.main}>
       <header className={styles.header}>
         <div><p className={styles.eyebrow}>YOUR CAREER WORKSPACE</p><h1>Welcome back, {name.split(' ')[0]}.</h1><p>Your interview insights and next steps, in one place.</p></div>
@@ -138,6 +135,5 @@ export function DashboardPage() {
       <p className={styles.footnote}>Your dashboard uses your saved profile, latest interview and employer application updates.</p>
     <CandidateReviewEvents sessionId={interview?.sessionId} />
     </main>
-    <SiteFooter />
   </div>
 }

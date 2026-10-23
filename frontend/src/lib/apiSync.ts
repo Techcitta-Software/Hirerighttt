@@ -93,3 +93,33 @@ export async function syncInterviewResultToApi(result: InterviewResult): Promise
     // offline — local result still kept
   }
 }
+
+/** Merge latest interview report from Neon/API into localStorage (for apply + dashboard). */
+export async function pullInterviewFromApi(): Promise<InterviewResult | null> {
+  const ok = await ensureApiSession()
+  if (!ok) {
+    const { getInterviewResult } = await import('./store')
+    return getInterviewResult()
+  }
+  try {
+    const data = await apiMe()
+    const remote = data.interview as InterviewResult | null | undefined
+    const { getInterviewResult, getUser, normalizeInterviewResult, saveInterviewResult } =
+      await import('./store')
+    const user = getUser()
+    if (!user?.email || !remote) return getInterviewResult()
+
+    const local = getInterviewResult()
+    const remoteTime = Date.parse(remote.date || '')
+    const localTime = local?.date ? Date.parse(local.date) : 0
+    if (!local || (Number.isFinite(remoteTime) && remoteTime >= localTime)) {
+      const merged = normalizeInterviewResult(remote)
+      saveInterviewResult(merged)
+      return merged
+    }
+    return local
+  } catch {
+    const { getInterviewResult } = await import('./store')
+    return getInterviewResult()
+  }
+}

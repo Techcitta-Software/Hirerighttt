@@ -1,26 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import {
   addNotification,
 
-  canApplyToJobs,
   firstName,
   getApplications,
   getInterviewResult,
   type Application,
+  type InterviewResult,
   getProfile,
   getUser,
-  hasInterviewScore,
   markNotificationsRead,
   rankPostedJobs,
+  resolveInterviewOverall,
   saveApplications,
   profileKey,
 
 } from '../lib/store'
+import { pullInterviewFromApi } from '../lib/apiSync'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import {
@@ -105,7 +104,6 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <SiteNav />
           <main className={styles.main}>
             <h1>Interview report</h1>
             <p className={styles.muted}>Complete your AI interview first to generate a career report.</p>
@@ -114,7 +112,6 @@ export function InterviewReportPage() {
             </Link>
           </main>
         </div>
-        <SiteFooter />
       </div>
     )
   }
@@ -122,7 +119,6 @@ export function InterviewReportPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <SiteNav />
         <main className={styles.main} style={{ paddingTop: 24 }}>
           {fromInterview ? (
             <div style={{ marginBottom: 16 }} role="status">
@@ -163,7 +159,6 @@ export function InterviewReportPage() {
           />
         </main>
       </div>
-      <SiteFooter />
     </div>
   )
 }
@@ -215,10 +210,12 @@ export function JobsPage() {
   const [showAllMatches, setShowAllMatches] = useState(false)
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
   const [applyingJobId, setApplyingJobId] = useState<string | null>(null)
+  const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
 
-  const interview = getInterviewResult()
-  const candidateScore = interview ? interview.overall : 78
-  const unlocked = hasInterviewScore()
+  const interviewOverall = resolveInterviewOverall(interview)
+  const candidateScoreLabel =
+    interviewOverall !== null ? String(interviewOverall) : 'not completed yet'
+  const unlocked = interviewOverall !== null
 
   const [employerJobs, setEmployerJobs] = useState<JobMatchRole[]>([])
   const [jobsBoardState, setJobsBoardState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -230,6 +227,9 @@ export function JobsPage() {
       setJobsBoardState('loading')
       setJobsBoardError('')
       try {
+        const pulled = await pullInterviewFromApi()
+        if (!cancelled) setInterview(pulled ?? getInterviewResult())
+
         const sessionOk = await ensureApiSession()
         if (!sessionOk) {
           if (!cancelled) {
@@ -308,7 +308,7 @@ export function JobsPage() {
     return () => {
       cancelled = true
     }
-  }, [interview?.overall])
+  }, [])
 
   const allRoles = useMemo(() => employerJobs, [employerJobs])
 
@@ -373,8 +373,8 @@ export function JobsPage() {
       profile?.experienceSummary || profile?.whoAreYou || '',
       profile?.keyStrengths ? `Strengths: ${profile.keyStrengths}` : '',
       profile?.skills?.length ? `Skills: ${profile.skills.join(', ')}` : '',
-      interview
-        ? `AI interview score: ${interview.overall}% (${interview.role || 'Interview'})`
+      interviewOverall !== null
+        ? `AI interview score: ${interviewOverall}% (${interview?.role || 'Interview'})`
         : '',
     ].filter(Boolean)
     return parts.join('\n').slice(0, 100_000)
@@ -394,7 +394,10 @@ export function JobsPage() {
     const user = getUser()
     const profile = getProfile()
     const resumeText = buildResumeTextForApply()
-    if (!canApplyToJobs()) {
+    const latestInterview = (await pullInterviewFromApi()) ?? getInterviewResult()
+    setInterview(latestInterview)
+    const overall = resolveInterviewOverall(latestInterview)
+    if (overall === null) {
       setToast('Complete an AI interview before applying with your report.')
       window.setTimeout(() => setToast(''), 3500)
       return
@@ -460,7 +463,6 @@ export function JobsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <SiteNav />
         <motion.main
           className={styles.main}
           variants={staggerContainer}
@@ -488,7 +490,7 @@ export function JobsPage() {
                 <span className={styles.badgeSubtlePill}>{sortedRoles.length} live posting(s)</span>
               ) : null}
               <span className={styles.badgeScoreFitPill}>
-                Interview score {candidateScore}
+                Interview score {candidateScoreLabel}
                 {unlocked && sortedRoles.length > 0
                   ? ` · ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
                   : ''}
@@ -698,7 +700,7 @@ export function JobsPage() {
 
                 <div className={styles.scoreReqAlert}>
                   Employer requires an interview score of {selectedJob.minScore} or more. Yours is{' '}
-                  {candidateScore}.
+                  {candidateScoreLabel}.
                 </div>
 
                 {/* Why you match */}
@@ -869,7 +871,6 @@ export function JobsPage() {
           </motion.div>
         </motion.main>
       </div>
-      <SiteFooter />
     </div>
   )
 }
@@ -1268,7 +1269,6 @@ export function ProfilePage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <SiteNav />
         <motion.main
           className={`${styles.main} ${styles.profileMainShell}`}
           variants={staggerContainer}
@@ -1908,7 +1908,6 @@ export function ProfilePage() {
           </div>
         </motion.main>
       </div>
-      <SiteFooter />
     </div>
   )
 }
@@ -1973,7 +1972,6 @@ export function ApplicationsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <SiteNav />
         <motion.main
           className={styles.main}
           variants={staggerContainer}
@@ -2068,7 +2066,6 @@ export function ApplicationsPage() {
           ) : null}
         </motion.main>
       </div>
-      <SiteFooter />
     </div>
   )
 }

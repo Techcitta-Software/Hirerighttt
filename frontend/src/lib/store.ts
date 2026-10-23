@@ -639,23 +639,55 @@ export function calcProfileStrength(profile: SavedProfile | null): number {
   return Math.min(100, score)
 }
 
-/** Minimum AI interview score required to apply to jobs. */
-export const MIN_APPLY_SCORE = 40
+/** Minimum 0–100 interview overall to apply (0 = disabled for testing). */
+export const MIN_APPLY_SCORE = 0
+
+/** 0–100 interview overall used for apply gates and job match (not career scorecard scale). */
+export function resolveInterviewOverall(interview: InterviewResult | null | undefined): number | null {
+  if (!interview) return null
+  if (typeof interview.overall === 'number' && Number.isFinite(interview.overall)) {
+    return interview.overall
+  }
+  const fromSession = interview.scorecard?.sessionStats?.overallInterviewScore
+  if (typeof fromSession === 'number' && Number.isFinite(fromSession)) {
+    return fromSession
+  }
+  const career = interview.scorecard?.careerScore
+  if (typeof career === 'number' && Number.isFinite(career)) {
+    return Math.round(Math.min(100, Math.max(0, career / 10)))
+  }
+  return null
+}
+
+export function normalizeInterviewResult(result: InterviewResult): InterviewResult {
+  const overall = resolveInterviewOverall(result)
+  if (overall === null) return result
+  if (result.overall === overall) return result
+  return { ...result, overall }
+}
+
+export function interviewResultKey(email?: string) {
+  const e = (email ?? getUser()?.email)?.trim().toLowerCase()
+  return e ? `${RESULT_KEY}.${e}` : RESULT_KEY
+}
 
 export function hasInterviewScore(): boolean {
-  return Boolean(getInterviewResult())
+  return resolveInterviewOverall(getInterviewResult()) !== null
 }
 
 /** Scorecard career score (e.g. 530 on a ~980 scale), not the 0–100 interview overall. */
 export function getCareerDisplayScore(interview?: InterviewResult | null): number | null {
   if (!interview) return null
   const sc = interview.scorecard
-  return sc?.careerScore ?? Math.min(980, Math.max(50, Math.round(interview.overall * 10)))
+  const overall = resolveInterviewOverall(interview)
+  if (sc?.careerScore != null) return sc.careerScore
+  if (overall != null) return Math.min(980, Math.max(50, Math.round(overall * 10)))
+  return null
 }
 
 export function canApplyToJobs(): boolean {
-  const interview = getInterviewResult()
-  return Boolean(interview && interview.overall >= MIN_APPLY_SCORE)
+  const overall = resolveInterviewOverall(getInterviewResult())
+  return overall !== null && overall >= MIN_APPLY_SCORE
 }
 
 export type RankedJob = {
@@ -715,8 +747,9 @@ export function rankPostedJobs(
   }[],
 ): RankedJob[] {
   const interview = getInterviewResult()
+  const interviewOverall = resolveInterviewOverall(interview)
   const profile = getProfile()
-  const unlocked = Boolean(interview)
+  const unlocked = interviewOverall !== null
   const roleHint =
     interview?.role ||
     profile?.currentRole ||
@@ -727,9 +760,9 @@ export function rankPostedJobs(
     .filter((job) => job.title && job.company)
     .map((job) => {
       let match = 0
-      if (unlocked && interview) {
+      if (unlocked && interviewOverall !== null) {
         match = jobMatchFromInterview(
-          interview.overall,
+          interviewOverall,
           job.title,
           roleHint,
           profile?.skills ?? [],
@@ -771,22 +804,37 @@ export function getRankedJobs(): RankedJob[] {
 }
 
 export function saveInterviewResult(result: InterviewResult) {
-  const user = getUser()
-  const key = user ? `${RESULT_KEY}.${user.email}` : RESULT_KEY
-  localStorage.setItem(key, JSON.stringify(result))
-  void import('./supabaseSync').then((m) => m.syncInterviewResultToSupabase(result))
+  const normalized = normalizeInterviewResult(result)
+  const key = interviewResultKey()
+  localStorage.setItem(key, JSON.stringify(normalized))
+  void import('./supabaseSync').then((m) => m.syncInterviewResultToSupabase(normalized))
+  void import('./apiSync').then((m) => m.syncInterviewResultToApi(normalized))
 }
 
 export function getInterviewResult(): InterviewResult | null {
   const user = getUser()
-  const raw =
-    user ? localStorage.getItem(`${RESULT_KEY}.${user.email}`) : localStorage.getItem(RESULT_KEY)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as InterviewResult
-  } catch {
-    return null
+  const keys: string[] = []
+  if (user?.email) {
+    const lower = user.email.trim().toLowerCase()
+    keys.push(`${RESULT_KEY}.${lower}`)
+    if (user.email !== lower) keys.push(`${RESULT_KEY}.${user.email}`)
   }
+  keys.push(RESULT_KEY)
+
+  for (const key of keys) {
+    const raw = localStorage.getItem(key)
+    if (!raw) continue
+    try {
+      const parsed = normalizeInterviewResult(JSON.parse(raw) as InterviewResult)
+      if (user?.email && key === RESULT_KEY) {
+        localStorage.setItem(interviewResultKey(user.email), JSON.stringify(parsed))
+      }
+      return parsed
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 function appsKey() {
@@ -815,7 +863,9 @@ export function applyToJob(job: {
 }): Application {
   if (!canApplyToJobs()) {
     throw new Error(
-      `Complete an AI interview scoring at least ${MIN_APPLY_SCORE} to apply.`,
+      MIN_APPLY_SCORE > 0
+        ? `Complete an AI interview scoring at least ${MIN_APPLY_SCORE} to apply.`
+        : 'Complete an AI interview before applying.',
     )
   }
   const apps = getApplications()

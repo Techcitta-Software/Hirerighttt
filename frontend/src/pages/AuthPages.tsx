@@ -2,8 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { HrIcon } from '../components/HrIcon'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {
@@ -198,70 +196,6 @@ async function authenticateWithEmailPassword(
     authenticatedUser = getUser()
   }
   return { user: authenticatedUser }
-}
-
-function AuthMarketingAside() {
-  return (
-    <aside className={styles.loginAside}>
-      <span className={styles.asidePill}>HIRERIGHT™ COMMUNITY</span>
-      <h2 className={styles.asideTitle}>
-        Your Dream Job Deserves the <span className={styles.asideAccent}>Right</span> Start
-      </h2>
-      <p className={styles.asideLead}>
-        Background screening you can trust. Confidence you can carry into your future — for job
-        seekers and hiring teams worldwide.
-      </p>
-      <ul className={styles.asideFeatures}>
-        <li>
-          <span className={styles.featureIcon} aria-hidden>
-            <HrIcon name="shield-check" size={14} />
-          </span>
-          Fast, secure checks &amp; AI interviews
-        </li>
-        <li>
-          <span className={styles.featureIcon} aria-hidden>
-            <HrIcon name="star" size={14} />
-          </span>
-          Trusted by top employers globally
-        </li>
-        <li>
-          <span className={styles.featureIcon} aria-hidden>
-            <HrIcon name="lock" size={14} />
-          </span>
-          Your privacy, always protected
-        </li>
-      </ul>
-      <div className={styles.asideSocial}>
-        <div className={styles.avatarStack}>
-          {[1, 2, 3, 4].map((i) => (
-            <img key={i} src={`/avatars/avatar${i}.jpg`} alt="" />
-          ))}
-        </div>
-        <p>
-          <strong>Trusted by 1000+ employers</strong>
-          <br />
-          and millions of job seekers worldwide.
-        </p>
-      </div>
-    </aside>
-  )
-}
-
-function AuthPageFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div className={styles.page}>
-      <div className={styles.shell}>
-        <SiteNav />
-        <div className={styles.authStage}>
-          <div className={styles.loginLayout}>
-            <AuthMarketingAside />
-            {children}
-          </div>
-        </div>
-      </div>
-      <SiteFooter showWorkflow={false} />
-    </div>
-  )
 }
 
 type AuthMode = 'login' | 'signup'
@@ -1145,7 +1079,7 @@ export function SettingsPage() {
   }
 
   return (
-    <AuthPageFrame>
+    <div className={styles.settingsAppWrap}>
         <motion.div
           className={`${styles.card} ${styles.settingsCard}`}
           variants={fadeUp}
@@ -1313,7 +1247,7 @@ export function SettingsPage() {
             </form>
           )}
         </motion.div>
-    </AuthPageFrame>
+    </div>
   )
 }
 

@@ -539,8 +539,16 @@
   background: #f5f3ff;
 }
 
+.settingsAppWrap {
+  width: min(100% - 48px, 720px);
+  margin: 0 auto;
+  padding: 2rem 0 2.5rem;
+  box-sizing: border-box;
+}
+
 .settingsCard {
   max-width: 520px;
+  margin: 0 auto;
 }
 
 .checkRow {

@@ -2,8 +2,6 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
-import { SiteFooter } from '../components/SiteFooter'
-
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import {
   ADMIN_JOBS,
@@ -651,7 +649,6 @@ export function AdminDashboard() {
         )}
       </AnimatePresence>
     </div>
-    <SiteFooter />
     </>
   )
 }

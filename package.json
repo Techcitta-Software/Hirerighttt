@@ -25,6 +25,8 @@
     "db:init": "npm --prefix backend/node run db:init",
     "db:verify": "npm --prefix backend/node run db:verify",
     "db:purge": "node backend/node/scripts/purge-all-data.mjs",
+    "db:purge-keep-demos": "node backend/node/scripts/purge-keep-demo-accounts.mjs",
+    "s3:purge-data": "node backend/node/scripts/s3-purge-object-data.mjs",
     "check:env": "node scripts/check-env.mjs",
     "s3:test": "node backend/node/scripts/test-s3-resume-storage.mjs",
     "s3:test:recording": "node backend/node/scripts/test-s3-recording-upload.mjs",

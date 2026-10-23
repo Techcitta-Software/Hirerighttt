@@ -1,7 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { extractResumeText, parseResumeFile } from '../lib/resumeParser'
 import { getUser, type InterviewResult } from '../lib/store'
@@ -193,8 +191,6 @@ export function ResumeDatabasePage() {
 
   return (
     <div className={styles.page}>
-      <SiteNav />
-
       <main className={styles.shell}>
         <motion.header
           className={styles.header}
@@ -712,7 +708,6 @@ export function ResumeDatabasePage() {
         )}
       </AnimatePresence>
 
-      <SiteFooter />
     </div>
   )
 }

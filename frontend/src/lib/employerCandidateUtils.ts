@@ -47,6 +47,13 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     shortlisted: 'Shortlisted',
     rejected: 'Rejected',
   }
+  const interviewResult = a.data.interviewResult as EmployerApplicant['interviewResult']
+  const overallFromInterview =
+    typeof a.data.interviewScore === 'number'
+      ? a.data.interviewScore
+      : typeof interviewResult?.overall === 'number'
+        ? interviewResult.overall
+        : undefined
   return {
     id: a.id,
     jobId: a.jobId,
@@ -58,13 +65,14 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     role:
       a.data.candidateRole ||
       a.data.roleTrack ||
-      (a.data.interviewResult as EmployerApplicant['interviewResult'])?.role ||
+      interviewResult?.role ||
       a.data.jobTitle ||
       '',
     experienceYears: a.data.experienceYears || '',
     resumeName: a.data.resumeName || null,
     resumeText: a.data.resumeText,
-    interviewResult: a.data.interviewResult as EmployerApplicant['interviewResult'],
+    interviewResult,
+    aiScore: overallFromInterview,
     atsScore: a.data.atsScore,
     jdMatchScore: a.data.jdMatchScore,
     primarySkills: a.data.primarySkills,

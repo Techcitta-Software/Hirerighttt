@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
@@ -16,6 +14,7 @@ import {
   hasResumeContent,
   mapApplicantStatusToApi,
   mapOrgCandidate,
+  mapVendorApplicant,
   resumeDisplayLabel,
   vendorJobToEmployerJob,
 } from '../lib/employerCandidateUtils'
@@ -30,7 +29,6 @@ import {
   fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
-  type VendorApplicant,
   patchApplicantStatus,
   sendApplicantInterviewInvite,
 } from '../lib/vendorApi'
@@ -68,6 +66,105 @@ function normalizeApplicant(row: EmployerApplicant): EmployerApplicant {
     experienceYears: row.experienceYears?.trim() || '',
     status: row.status || 'New',
   }
+}
+
+type CandidatesDirectoryTableProps = {
+  rows: EmployerApplicant[]
+  emptyTitle: string
+  emptyBody: string
+  onViewDocument: (kind: EmployerDocumentKind, applicant: EmployerApplicant) => void
+}
+
+/** Same layout as /employer/candidates — name, role, experience, resume, HireRight report. */
+function CandidatesDirectoryTable({
+  rows,
+  emptyTitle,
+  emptyBody,
+  onViewDocument,
+}: CandidatesDirectoryTableProps) {
+  return (
+    <table className={styles.candidatesTable}>
+      <thead>
+        <tr>
+          <th style={{ width: '28%' }}>NAME</th>
+          <th style={{ width: '20%' }}>ROLE</th>
+          <th style={{ width: '16%' }}>EXPERIENCE</th>
+          <th style={{ width: '22%' }}>RESUME</th>
+          <th style={{ width: '24%' }}>REPORT ON HIRERIGHTTT</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr>
+            <td colSpan={5}>
+              <div className={styles.emptyState}>
+                <h3>{emptyTitle}</h3>
+                <p>{emptyBody}</p>
+              </div>
+            </td>
+          </tr>
+        ) : (
+          rows.map((cand) => {
+            const initials = getInitials(cand.candidateName)
+            const resumeLabel = resumeDisplayLabel(cand)
+            const resumeReady = hasResumeContent(cand)
+            const reportReady = hasHireRightReport(cand)
+
+            return (
+              <tr key={cand.id}>
+                <td>
+                  <div className={styles.candidateCell}>
+                    <div className={styles.avatar}>{initials}</div>
+                    <div>
+                      <div className={styles.candidateName}>{cand.candidateName}</div>
+                      <div className={styles.candidateContact}>
+                        {cand.candidateEmail}
+                        {cand.candidatePhone ? ` · ${cand.candidatePhone}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span className={styles.roleTag}>{cand.role || '—'}</span>
+                </td>
+                <td>
+                  <span className={styles.experienceText}>{cand.experienceYears || '—'}</span>
+                </td>
+                <td>
+                  {resumeReady ? (
+                    <button
+                      type="button"
+                      className={styles.docLinkBtn}
+                      onClick={() => onViewDocument('resume', cand)}
+                    >
+                      <HrIcon name="document" size={14} />
+                      {resumeLabel}
+                    </button>
+                  ) : (
+                    <span className={styles.docMuted}>No resume</span>
+                  )}
+                </td>
+                <td>
+                  {reportReady ? (
+                    <button
+                      type="button"
+                      className={styles.docLinkBtn}
+                      onClick={() => onViewDocument('report', cand)}
+                    >
+                      <HrIcon name="sparkle" size={14} />
+                      View HireRighttt report
+                    </button>
+                  ) : (
+                    <span className={styles.docMuted}>No interview yet</span>
+                  )}
+                </td>
+              </tr>
+            )
+          })
+        )}
+      </tbody>
+    </table>
+  )
 }
 
 interface EmployerDashboardProps {
@@ -130,7 +227,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   )
   const [jobRosterLoading, setJobRosterLoading] = useState(false)
   const [jobRosterError, setJobRosterError] = useState('')
-  const [jobRosterRows, setJobRosterRows] = useState<VendorApplicant[]>([])
+  const [jobRosterRows, setJobRosterRows] = useState<EmployerApplicant[]>([])
 
   const [inviteStart, setInviteStart] = useState('')
   const [inviteDuration, setInviteDuration] = useState(60)
@@ -491,19 +588,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }
 
-  function applicantDisplayScore(app: VendorApplicant): string {
-    const data = app.data || {}
-    const fromInterview =
-      typeof data.interviewScore === 'number'
-        ? data.interviewScore
-        : typeof (data.interviewResult as { overall?: number } | undefined)?.overall === 'number'
-          ? (data.interviewResult as { overall: number }).overall
-          : null
-    if (fromInterview != null) return `${fromInterview}%`
-    if (typeof data.atsScore === 'number') return `${data.atsScore}% ATS`
-    return '—'
-  }
-
   async function openJobApplicantsRoster(job: EmployerJob) {
     if (isOptimisticJobId(job.id)) return
     setJobRosterOpen({ jobId: job.id, title: job.title })
@@ -513,7 +597,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     try {
       await ensureApiSession()
       const { applicants, total } = await fetchJobApplicants(job.id)
-      setJobRosterRows(applicants)
+      setJobRosterRows(applicants.map((a) => normalizeApplicant(mapVendorApplicant(a))))
       setJobCounts((prev) => ({ ...prev, [job.id]: total ?? applicants.length }))
     } catch (err) {
       setJobRosterError(err instanceof Error ? err.message : 'Could not load applicants.')
@@ -572,8 +656,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
   return (
     <div className={styles.page}>
-      <SiteNav />
-
       <div className={styles.shell}>
         {portalLoading && (
           <p className={styles.portalSyncNote} role="status">
@@ -989,44 +1071,34 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
           {/* Candidates Table */}
           <div className={styles.tableContainer}>
-            <table
-              className={`${styles.candidatesTable}${isCandidatesView ? '' : ` ${styles.candidatesTableWide}`}`}
-            >
+            {isCandidatesView ? (
+              <CandidatesDirectoryTable
+                rows={filteredApplicants}
+                emptyTitle="No candidates in database"
+                emptyBody="No matching profiles yet. Try search or wait for candidates to complete interviews."
+                onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
+              />
+            ) : (
+            <table className={`${styles.candidatesTable} ${styles.candidatesTableWide}`}>
               <thead>
                 <tr>
-                  {isCandidatesView ? (
-                    <>
-                      <th style={{ width: '28%' }}>NAME</th>
-                      <th style={{ width: '20%' }}>ROLE</th>
-                      <th style={{ width: '16%' }}>EXPERIENCE</th>
-                      <th style={{ width: '22%' }}>RESUME</th>
-                      <th style={{ width: '24%' }}>REPORT ON HIRERIGHTTT</th>
-                    </>
-                  ) : (
-                    <>
-                      <th style={{ width: '22%' }}>CANDIDATE ▲</th>
-                      <th style={{ width: '13%' }}>ROLE</th>
-                      <th style={{ width: '16%' }}>TARGET JOB</th>
-                      <th style={{ width: '9%' }}>EXPERIENCE</th>
-                      <th style={{ width: '14%' }}>AI SCORE & FIT</th>
-                      <th style={{ width: '12%' }}>INTEGRITY</th>
-                      <th style={{ width: '10%' }}>STATUS</th>
-                      <th style={{ width: '11%' }}>ACTIONS</th>
-                    </>
-                  )}
+                  <th style={{ width: '22%' }}>CANDIDATE ▲</th>
+                  <th style={{ width: '13%' }}>ROLE</th>
+                  <th style={{ width: '16%' }}>TARGET JOB</th>
+                  <th style={{ width: '9%' }}>EXPERIENCE</th>
+                  <th style={{ width: '14%' }}>AI SCORE & FIT</th>
+                  <th style={{ width: '12%' }}>INTEGRITY</th>
+                  <th style={{ width: '10%' }}>STATUS</th>
+                  <th style={{ width: '11%' }}>ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredApplicants.length === 0 ? (
                   <tr>
-                    <td colSpan={isCandidatesView ? 5 : 8}>
+                    <td colSpan={8}>
                       <div className={styles.emptyState}>
                         <h3>No candidates in database</h3>
-                        <p>
-                          {isCandidatesView
-                            ? 'No matching profiles yet. Try search or wait for candidates to complete interviews.'
-                            : 'No applicants or interviews linked to this job yet. Share the apply link.'}
-                        </p>
+                        <p>No applicants or interviews linked to this job yet. Share the apply link.</p>
                       </div>
                     </td>
                   </tr>
@@ -1044,65 +1116,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             : styles.scoreAmber
 
                     const integ = cand.integrityStatus ?? (cand.interviewResult?.integrity?.faceViolations ? 'pending' : 'verified')
-
-                    if (isCandidatesView) {
-                      const resumeLabel = resumeDisplayLabel(cand)
-                      const resumeReady = hasResumeContent(cand)
-                      const reportReady = hasHireRightReport(cand)
-
-                      return (
-                        <tr key={cand.id}>
-                          <td>
-                            <div className={styles.candidateCell}>
-                              <div className={styles.avatar}>{initials}</div>
-                              <div>
-                                <div className={styles.candidateName}>{cand.candidateName}</div>
-                                <div className={styles.candidateContact}>
-                                  {cand.candidateEmail}
-                                  {cand.candidatePhone ? ` · ${cand.candidatePhone}` : ''}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={styles.roleTag}>{cand.role || '—'}</span>
-                          </td>
-                          <td>
-                            <span className={styles.experienceText}>
-                              {cand.experienceYears || '—'}
-                            </span>
-                          </td>
-                          <td>
-                            {resumeReady ? (
-                              <button
-                                type="button"
-                                className={styles.docLinkBtn}
-                                onClick={() => setDocumentViewer({ kind: 'resume', applicant: cand })}
-                              >
-                                <HrIcon name="document" size={14} />
-                                {resumeLabel}
-                              </button>
-                            ) : (
-                              <span className={styles.docMuted}>No resume</span>
-                            )}
-                          </td>
-                          <td>
-                            {reportReady ? (
-                              <button
-                                type="button"
-                                className={styles.docLinkBtn}
-                                onClick={() => setDocumentViewer({ kind: 'report', applicant: cand })}
-                              >
-                                <HrIcon name="sparkle" size={14} />
-                                View HireRighttt report
-                              </button>
-                            ) : (
-                              <span className={styles.docMuted}>No interview yet</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    }
 
                     return (
                       <tr key={cand.id}>
@@ -1196,6 +1209,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 )}
               </tbody>
             </table>
+            )}
           </div>
         </motion.div>
         </>
@@ -1315,15 +1329,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {jobRosterOpen && (
           <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="job-roster-title">
-            <div className={styles.modal} style={{ maxWidth: '720px' }}>
+            <div className={styles.modal} style={{ maxWidth: 'min(1100px, 96vw)', width: '100%' }}>
               <div className={styles.modalHeader}>
                 <div>
-                  <h2 id="job-roster-title">
-                    <HrIcon name="briefcase" size={18} /> Applicants · {jobRosterOpen.title}
-                  </h2>
-                  <p className={styles.rosterModalSub}>
-                    Loaded from the database for this job posting.
-                  </p>
+                  <h2 id="job-roster-title">Applicants · {jobRosterOpen.title}</h2>
+                  <div className={styles.countText}>
+                    Showing {jobRosterRows.length} of {jobRosterRows.length} from database
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -1347,41 +1359,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               ) : null}
 
               {!jobRosterLoading && !jobRosterError ? (
-                <div className={styles.rosterTableWrap}>
-                  <table className={styles.rosterTable}>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Role</th>
-                        <th>Experience</th>
-                        <th>Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobRosterRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className={styles.rosterEmpty}>
-                            No applications yet. Share the job link so candidates can apply with their
-                            report.
-                          </td>
-                        </tr>
-                      ) : (
-                        jobRosterRows.map((app) => (
-                          <tr key={app.id}>
-                            <td>{app.data.candidateName || app.candidateEmail}</td>
-                            <td>
-                              {app.data.candidateRole ||
-                                app.data.roleTrack ||
-                                (app.data.interviewResult as { role?: string } | undefined)?.role ||
-                                '—'}
-                            </td>
-                            <td>{app.data.experienceYears || '—'}</td>
-                            <td>{applicantDisplayScore(app)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                <div className={styles.tableContainer}>
+                  <CandidatesDirectoryTable
+                    rows={jobRosterRows}
+                    emptyTitle="No applications yet"
+                    emptyBody="Share the job link so candidates can apply with their resume and HireRight report."
+                    onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
+                  />
                 </div>
               ) : null}
 
@@ -1551,8 +1535,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </div>
         )}
       </div>
-
-      <SiteFooter />
     </div>
   )
 }
