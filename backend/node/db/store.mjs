@@ -1,5 +1,6 @@
 import pg from 'pg'
 import { applySchema } from './applySchema.mjs'
+import { resolvePgHost } from './resolvePgHost.mjs'
 
 /** @typedef {{
  *   users: import('../index.mjs').User[],
@@ -72,6 +73,8 @@ export function emptyDb() {
 }
 
 let pool = null
+/** @type {Promise<import('pg').Pool> | null} */
+let poolInit = null
 let schemaReady = null
 let saveQueue = Promise.resolve()
 
@@ -91,26 +94,70 @@ function pgSsl(databaseUrl) {
   return undefined
 }
 
-function getPool(databaseUrl) {
-  const url = requireDatabaseUrl(databaseUrl)
-  if (!pool) {
-    pool = new pg.Pool({
+function poolConfigFromUrl(url, resolved) {
+  const base = {
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 15_000,
+    keepAlive: true,
+  }
+  const sslBase = pgSsl(url)
+  if (!resolved.servername) {
+    return {
+      ...base,
       connectionString: url,
-      ssl: pgSsl(url),
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 15_000,
-      keepAlive: true,
+      ssl: sslBase,
+    }
+  }
+  const parsed = new URL(url)
+  const ssl = sslBase ? { ...sslBase, servername: resolved.servername } : undefined
+  return {
+    ...base,
+    host: resolved.host,
+    port: Number(parsed.port || 5432),
+    user: decodeURIComponent(parsed.username),
+    password: decodeURIComponent(parsed.password),
+    database: decodeURIComponent(parsed.pathname.replace(/^\//, '')),
+    ssl,
+  }
+}
+
+async function ensurePool(databaseUrl) {
+  const url = requireDatabaseUrl(databaseUrl)
+  if (pool) return pool
+  if (!poolInit) {
+    poolInit = (async () => {
+      const parsed = new URL(url)
+      const resolved = await resolvePgHost(parsed.hostname)
+      if (resolved.servername) {
+        console.log(`[dns] Resolved ${parsed.hostname} → ${resolved.host} (public DNS)`)
+      }
+      const cfg = poolConfigFromUrl(url, resolved)
+      const next = new pg.Pool(cfg)
+      next.on('error', (err) => {
+        console.warn('[db] pool idle client error (Neon reconnect):', err?.message || err)
+      })
+      pool = next
+      return next
+    })().catch((err) => {
+      poolInit = null
+      throw err
     })
-    pool.on('error', (err) => {
-      console.warn('[db] pool idle client error (Neon reconnect):', err?.message || err)
-    })
+  }
+  return poolInit
+}
+
+function getPool(databaseUrl) {
+  requireDatabaseUrl(databaseUrl)
+  if (!pool) {
+    throw new Error('Database pool not ready — bootstrapDb must complete first')
   }
   return pool
 }
 
 async function ensurePgSchema(databaseUrl) {
   if (!schemaReady) schemaReady = (async () => {
+    await ensurePool(databaseUrl)
     const client = await getPool(databaseUrl).connect()
     try { await applySchema(client) } finally { client.release() }
   })().catch(error => { schemaReady = null; throw error })
@@ -917,6 +964,7 @@ export function saveDb(db, databaseUrl) {
 export async function pingDatabase(databaseUrl) {
   try {
     requireDatabaseUrl(databaseUrl)
+    await ensurePool(databaseUrl)
     const res = await getPool(databaseUrl).query('SELECT 1 AS ok')
     return { ok: res.rows[0]?.ok === 1 }
   } catch (err) {
@@ -977,10 +1025,13 @@ export function dbPool(databaseUrl) {
   return getPool(databaseUrl)
 }
 
+export { ensurePool }
+
 export async function closeStore() {
   await saveQueue
   if (pool) await pool.end()
   pool = null
+  poolInit = null
   schemaReady = null
   persistedRows = new Map()
 }

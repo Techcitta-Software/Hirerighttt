@@ -1,11 +1,14 @@
 /**
  * Production-safe runtime configuration for the Node interview API.
  */
+import { configureDns } from './configureDns.mjs'
 import { loadEnv, envFilePath } from './loadEnv.mjs'
 
 if (!loadEnv()) {
   console.warn(`[config] No ${envFilePath()} — copy .env.example to .env at repo root.`)
 }
+
+configureDns()
 
 const env = process.env.ENVIRONMENT || process.env.NODE_ENV || 'development'
 export const isProduction = env === 'production'

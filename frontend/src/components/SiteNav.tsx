@@ -51,14 +51,14 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   const [unread, setUnread] = useState(0)
   const user = getUser()
   const initials = useMemo(() => {
-    const raw = (user?.name || '').trim()
-    if (!raw) return 'AR'
+    const raw = (user?.name || user?.companyName || '').trim()
+    if (!raw) return user?.role === 'employer' ? 'EM' : 'HR'
     const parts = raw.split(/\s+/).filter(Boolean)
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase()
     }
     return raw.slice(0, 2).toUpperCase()
-  }, [user?.name])
+  }, [user?.name, user?.companyName, user?.role])
   const isHome = variant === 'home'
 
   function onLoginClick(event: MouseEvent) {
@@ -179,15 +179,19 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
               <NavLink
                 key={item.to}
                 to={item.to}
-                className={({ isActive }) =>
-                  isLanding
-                    ? isActive
+                className={({ isActive }) => {
+                  const isCurrent =
+                    isActive ||
+                    (item.to === '/employer/dashboard' && location.pathname === '/employer') ||
+                    (item.to === '/employer/candidates' && location.pathname === '/candidates')
+                  return isLanding
+                    ? isCurrent
                       ? `${styles.navPillLink} ${styles.navPillActive}`
                       : styles.navPillLink
-                    : isActive
+                    : isCurrent
                       ? `${styles.navLink} ${styles.active}`
                       : styles.navLink
-                }
+                }}
               >
                 {navLabel(item)}
               </NavLink>
@@ -206,67 +210,104 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                 </Link>
               )}
               {user?.role !== 'employer' && (
-                <>
-                  <Link
-                    to="/applications"
-                    className={styles.bellBtn}
-                    aria-label="Notifications"
-                    title={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
+                <Link
+                  to="/applications"
+                  className={styles.bellBtn}
+                  aria-label="Notifications"
+                  title={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
                   >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                    </svg>
-                    {unread > 0 && <span className={styles.bellBadge}>{unread}</span>}
-                  </Link>
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                  </svg>
+                  {unread > 0 && <span className={styles.bellBadge}>{unread}</span>}
+                </Link>
+              )}
 
-                  <div className={styles.profileMenuWrap} ref={profileMenuRef}>
-                    <button
-                      type="button"
-                      className={`${styles.avatarCircle} ${styles.avatarBtn}`}
-                      title={user?.name || 'Account menu'}
-                      aria-label="Open account menu"
-                      aria-expanded={profileMenuOpen}
-                      aria-haspopup="menu"
-                      onClick={() => {
-                        setOpen(false)
-                        setProfileMenuOpen((v) => !v)
-                      }}
+              {/* User profile avatar icon & dropdown menu (both candidate and employer) */}
+              <div className={styles.profileMenuWrap} ref={profileMenuRef}>
+                <button
+                  type="button"
+                  className={`${styles.avatarCircle} ${styles.avatarBtn}`}
+                  title={user?.name || user?.companyName || 'Account menu'}
+                  aria-label="Open account menu"
+                  aria-expanded={profileMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={() => {
+                    setOpen(false)
+                    setProfileMenuOpen((v) => !v)
+                  }}
+                >
+                  {initials}
+                </button>
+                <AnimatePresence>
+                  {profileMenuOpen && (
+                    <motion.div
+                      className={styles.profileDropdown}
+                      role="menu"
+                      initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
                     >
-                      {initials}
-                    </button>
-                    <AnimatePresence>
-                      {profileMenuOpen && (
-                        <motion.div
-                          className={styles.profileDropdown}
-                          role="menu"
-                          initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                        >
-                          <div className={styles.profileDropdownHeader}>
-                            <p className={styles.profileDropdownName}>{user?.name || 'Candidate'}</p>
-                            <p className={styles.profileDropdownEmail}>{user?.email}</p>
-                          </div>
-                          <div className={styles.profileDropdownDivider} />
+                      <div className={styles.profileDropdownHeader}>
+                        <p className={styles.profileDropdownName}>
+                          {user?.name || user?.companyName || (user?.role === 'employer' ? 'Employer' : 'Candidate')}
+                        </p>
+                        <p className={styles.profileDropdownEmail}>{user?.email}</p>
+                        <span className={styles.profileDropdownBadge}>
+                          {user?.role === 'employer'
+                            ? (user?.companyName ? user.companyName : 'Employer Portal')
+                            : 'Candidate'}
+                        </span>
+                      </div>
+                      <div className={styles.profileDropdownDivider} />
+                      {user?.role === 'employer' ? (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/employer/dashboard')}
+                          >
+                            Jobs &amp; Openings
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/employer/candidates')}
+                          >
+                            Candidate directory
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className={styles.profileDropdownItem}
+                            onClick={() => goFromProfileMenu('/settings')}
+                          >
+                            Account settings
+                          </button>
+                        </>
+                      ) : (
+                        <>
                           <button
                             type="button"
                             role="menuitem"
                             className={styles.profileDropdownItem}
                             onClick={() => goFromProfileMenu('/profile')}
                           >
-                            View & edit profile
+                            View &amp; edit profile
                           </button>
                           <button
                             type="button"
@@ -284,30 +325,21 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                           >
                             Account settings
                           </button>
-                          <div className={styles.profileDropdownDivider} />
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className={`${styles.profileDropdownItem} ${styles.profileDropdownDanger}`}
-                            onClick={handleLogout}
-                          >
-                            Sign out
-                          </button>
-                        </motion.div>
+                        </>
                       )}
-                    </AnimatePresence>
-                  </div>
-                </>
-              )}
-              {!hideSignOut && user?.role === 'employer' && (
-                <button
-                  type="button"
-                  className={isLanding ? styles.landingOutline : styles.signOutBtn}
-                  onClick={handleLogout}
-                >
-                  Sign out
-                </button>
-              )}
+                      <div className={styles.profileDropdownDivider} />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={`${styles.profileDropdownItem} ${styles.profileDropdownDanger}`}
+                        onClick={handleLogout}
+                      >
+                        Sign out
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </>
           ) : showMarketingOnHome ? (
             loggedIn ? (
@@ -402,26 +434,60 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   {navLabel(item)}
                 </NavLink>
               ))}
-              {loggedIn && user?.role !== 'employer' && (
+              {loggedIn && (
                 <>
-                  <NavLink
-                    to="/profile"
-                    onClick={() => setOpen(false)}
-                    className={({ isActive }) =>
-                      isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
-                    }
-                  >
-                    Profile
-                  </NavLink>
-                  <NavLink
-                    to="/settings"
-                    onClick={() => setOpen(false)}
-                    className={({ isActive }) =>
-                      isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
-                    }
-                  >
-                    Settings
-                  </NavLink>
+                  {user?.role === 'employer' ? (
+                    <>
+                      <NavLink
+                        to="/employer/dashboard"
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) =>
+                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                        }
+                      >
+                        Jobs &amp; Openings
+                      </NavLink>
+                      <NavLink
+                        to="/employer/candidates"
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) =>
+                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                        }
+                      >
+                        Candidates
+                      </NavLink>
+                      <NavLink
+                        to="/settings"
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) =>
+                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                        }
+                      >
+                        Settings
+                      </NavLink>
+                    </>
+                  ) : (
+                    <>
+                      <NavLink
+                        to="/profile"
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) =>
+                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                        }
+                      >
+                        Profile
+                      </NavLink>
+                      <NavLink
+                        to="/settings"
+                        onClick={() => setOpen(false)}
+                        className={({ isActive }) =>
+                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
+                        }
+                      >
+                        Settings
+                      </NavLink>
+                    </>
+                  )}
                 </>
               )}
               {!loggedIn && (

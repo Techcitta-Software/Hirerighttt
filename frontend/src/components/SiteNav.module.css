@@ -251,6 +251,19 @@
   color: #0f172a;
 }
 
+.profileDropdownBadge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  background: #ede9fe;
+  color: #4f46e5;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
 .profileDropdownEmail {
   margin: 2px 0 0;
   font-size: 0.75rem;

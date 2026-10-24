@@ -1,34 +1,19 @@
-import pg from 'pg'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dbPool, ensurePool } from './store.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const TALENT_SCHEMA = join(__dirname, 'schema-talent-search.sql')
 
-let pool = null
-
-function pgSsl(databaseUrl) {
-  if (/sslmode=require|neon\.tech|amazonaws\.com/i.test(databaseUrl)) {
-    return { rejectUnauthorized: false }
-  }
-  return undefined
-}
-
-function getPool(databaseUrl) {
-  if (!pool) {
-    pool = new pg.Pool({
-      connectionString: databaseUrl,
-      ssl: pgSsl(databaseUrl),
-      max: 8,
-    })
-  }
-  return pool
+async function getPool(databaseUrl) {
+  await ensurePool(databaseUrl)
+  return dbPool(databaseUrl)
 }
 
 export async function ensureTalentSchema(databaseUrl) {
   const sql = readFileSync(TALENT_SCHEMA, 'utf8')
-  await getPool(databaseUrl).query(sql)
+  await (await getPool(databaseUrl)).query(sql)
 }
 
 /**
@@ -82,7 +67,7 @@ export async function upsertCandidateTalent(databaseUrl, user, profile, intervie
   await ensureTalentSchema(databaseUrl)
   const row = buildTalentRecord(user, profile || {}, interview)
 
-  await getPool(databaseUrl).query(
+  await (await getPool(databaseUrl)).query(
     `INSERT INTO candidate_talent_profiles (
        user_id, email, full_name, role_title, location, experience_years,
        skills, summary, resume_snippet, interview_score, profile_visibility, updated_at
@@ -123,7 +108,7 @@ export async function grantOrganizationTalentAccess(
 ) {
   if (!databaseUrl || !organizationId || !userId) return
   await ensureTalentSchema(databaseUrl)
-  await getPool(databaseUrl).query(
+  await (await getPool(databaseUrl)).query(
     `INSERT INTO organization_talent_access (organization_id, user_id, access_type)
      VALUES ($1, $2, $3)
      ON CONFLICT (organization_id, user_id) DO NOTHING`,
@@ -277,7 +262,7 @@ export async function searchCandidateTalent(databaseUrl, organizationId, filters
       ${scoreSql}
   `
 
-  const poolRef = getPool(databaseUrl)
+  const poolRef = await getPool(databaseUrl)
   const [rows, countRes] = await Promise.all([
     poolRef.query(sql, params),
     poolRef.query(countSql, params.slice(0, params.length - 2)),
@@ -305,7 +290,7 @@ export async function searchCandidateTalent(databaseUrl, organizationId, filters
 
 export async function getCandidateTalentById(databaseUrl, organizationId, userId) {
   await ensureTalentSchema(databaseUrl)
-  const res = await getPool(databaseUrl).query(
+  const res = await (await getPool(databaseUrl)).query(
     `SELECT t.*
      FROM candidate_talent_profiles t
      WHERE t.user_id = $2
@@ -341,7 +326,7 @@ export async function getCandidateTalentById(databaseUrl, organizationId, userId
 export async function listOrganizationTalentUserIds(databaseUrl, organizationId) {
   if (!databaseUrl || !organizationId) return []
   await ensureTalentSchema(databaseUrl)
-  const res = await getPool(databaseUrl).query(
+  const res = await (await getPool(databaseUrl)).query(
     `SELECT user_id FROM organization_talent_access WHERE organization_id = $1`,
     [organizationId],
   )
