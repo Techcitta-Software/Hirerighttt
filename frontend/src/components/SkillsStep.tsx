@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   EMPLOYMENT_TYPE_OPTIONS,
@@ -23,6 +23,17 @@ interface SkillsStepProps {
   ) => void
 }
 
+
+function hasFilledWorkExperience(
+  items: ProfileFormData['workExperiences'],
+): boolean {
+  return items.some(
+    (w) =>
+      Boolean(w.jobTitle?.trim()) ||
+      Boolean(w.company?.trim()) ||
+      Boolean(w.responsibilities?.trim()),
+  )
+}
 
 export function SkillsStep({ data, onChange }: SkillsStepProps) {
   const [skillDraft, setSkillDraft] = useState('')
@@ -56,6 +67,21 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
     data.totalExperience && !EXPERIENCE_OPTIONS.includes(data.totalExperience)
       ? [data.totalExperience, ...EXPERIENCE_OPTIONS]
       : EXPERIENCE_OPTIONS
+
+  const hasResumeWorkHistory =
+    Boolean(data.resumeText?.trim()) &&
+    /\b(work\s+experience|professional\s+experience|employment|internship)/i.test(
+      data.resumeText,
+    )
+
+  const showFresherEmptyState =
+    data.noPriorWorkExperience && !hasFilledWorkExperience(data.workExperiences)
+
+  useEffect(() => {
+    if (hasFilledWorkExperience(data.workExperiences) && data.noPriorWorkExperience) {
+      onChange('noPriorWorkExperience', false)
+    }
+  }, [data.workExperiences, data.noPriorWorkExperience])
 
   function addSkill(raw: string) {
     const skill = raw.trim()
@@ -115,6 +141,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
   }
 
   function addExperience() {
+    onChange('noPriorWorkExperience', false)
     onChange('workExperiences', [
       ...data.workExperiences,
       createEmptyExperience(),
@@ -241,11 +268,14 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
           <label className={styles.fresherCheckboxLabel}>
             <input
               type="checkbox"
-              checked={data.workExperiences.length === 0}
+              checked={data.noPriorWorkExperience}
+              disabled={hasFilledWorkExperience(data.workExperiences)}
               onChange={(e) => {
                 if (e.target.checked) {
+                  onChange('noPriorWorkExperience', true)
                   onChange('workExperiences', [])
                 } else {
+                  onChange('noPriorWorkExperience', false)
                   onChange('workExperiences', [createEmptyExperience()])
                 }
               }}
@@ -254,14 +284,14 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
           </label>
         </div>
 
-        {data.workExperiences.length === 0 ? (
+        {showFresherEmptyState ? (
           <div className={styles.fresherEmptyCard}>
             <div className={styles.fresherBadge}>
               <HrIcon name="leaf" size={16} /> Fresher / 0 Years Prior Experience
             </div>
-            <h4>No prior work experience detected in resume</h4>
+            <h4>No prior work experience</h4>
             <p>
-              If you are a fresher or student with 0 years of formal work experience, this section remains slightly dimmed and optional. Ava and hiring teams will evaluate your actual coding skills, projects, and fundamentals.
+              You marked this profile as fresher. Ava and hiring teams will focus on skills, projects, and fundamentals. Uncheck the box above if you have employment history to add.
             </p>
             <button
               type="button"
@@ -269,6 +299,26 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
               onClick={addExperience}
             >
               + Add Work Experience (Optional)
+            </button>
+          </div>
+        ) : data.workExperiences.length === 0 ? (
+          <div className={styles.fresherEmptyCard}>
+            <h4>
+              {hasResumeWorkHistory
+                ? 'We could not auto-fill jobs from your resume'
+                : 'Add your work experience'}
+            </h4>
+            <p>
+              {hasResumeWorkHistory
+                ? 'Your resume mentions experience — add roles manually below, or re-upload a PDF/DOCX with a clear Work Experience section.'
+                : 'List employers and roles so employers and Ava can tailor interviews to your background.'}
+            </p>
+            <button
+              type="button"
+              className={styles.addExpBtnOutline}
+              onClick={addExperience}
+            >
+              + Add Work Experience
             </button>
           </div>
         ) : (

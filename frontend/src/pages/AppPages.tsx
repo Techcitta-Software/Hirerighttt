@@ -20,7 +20,11 @@ import {
 
 } from '../lib/store'
 import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
-import { missingProfileFields, profileCompletionPercent } from '../lib/profileCompletion'
+import {
+  missingProfileFields,
+  profileCheckHref,
+  profileCompletionPercent,
+} from '../lib/profileCompletion'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import {
@@ -1281,10 +1285,11 @@ export function ProfilePage() {
                 {profileMissing.map((item) => (
                   <Link
                     key={item.label}
-                    to={`/profile#${item.section}`}
+                    to={profileCheckHref(item)}
                     style={{ display: 'inline-block', marginRight: 12, fontWeight: 600 }}
                   >
                     {item.label}
+                    {!item.required ? ' (optional)' : ''}
                   </Link>
                 ))}
               </div>

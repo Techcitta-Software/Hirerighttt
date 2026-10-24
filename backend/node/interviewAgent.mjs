@@ -2197,7 +2197,13 @@ JSON Schema:
 Resume Text:
 ${resumeText.slice(0, 12000)}`
 
-  const llmResult = await callLlmApi({ system, user, temperature: 0.1, tier: 'quality' })
+  const llmResult = await callLlmApi({
+    system,
+    user,
+    temperature: 0.1,
+    tier: 'fast',
+    maxTokens: 4096,
+  })
   if (!llmResult?.text) return null
 
   try {
@@ -2217,16 +2223,35 @@ ${resumeText.slice(0, 12000)}`
     }
 
     if (parsed && Array.isArray(parsed.workExperiences)) {
-      parsed.workExperiences = parsed.workExperiences.filter((w) => {
-        const comp = String(w?.company || '').trim()
-        if (!comp || /^(company|techcitta|tech solutions|acme|unknown|n\/a|none|placeholder)$/i.test(comp)) {
-          return false
-        }
-        const compClean = comp.toLowerCase().replace(/[^a-z0-9]/g, ' ')
-        const compWords = compClean.split(/\s+/).filter((word) => word.length > 2)
-        const isPresent = compWords.length > 0 && compWords.some((word) => resumeText.toLowerCase().includes(word))
-        return isPresent
-      })
+      const resumeLower = resumeText.toLowerCase()
+      parsed.workExperiences = parsed.workExperiences
+        .filter((w) => {
+          const comp = String(w?.company || '').trim()
+          if (!comp || /^(company|tech solutions|acme|unknown|n\/a|none|placeholder)$/i.test(comp)) {
+            return false
+          }
+          if (/^techcitta$/i.test(comp) && !resumeLower.includes('techcitta')) {
+            return false
+          }
+          const compCompact = comp.toLowerCase().replace(/[^a-z0-9]/g, '')
+          if (compCompact.length >= 4 && resumeLower.replace(/[^a-z0-9]/g, '').includes(compCompact)) {
+            return true
+          }
+          const compClean = comp.toLowerCase().replace(/[^a-z0-9]/g, ' ')
+          const compWords = compClean.split(/\s+/).filter((word) => word.length > 2)
+          return compWords.length > 0 && compWords.some((word) => resumeLower.includes(word))
+        })
+        .map((w, i) => ({
+          jobTitle: String(w.jobTitle || w.title || '').slice(0, 80),
+          company: String(w.company || '').slice(0, 80),
+          employmentType: String(w.employmentType || 'Full-time').slice(0, 40),
+          startDate: String(w.startDate || ''),
+          endDate: String(w.endDate || ''),
+          currentlyWorking: Boolean(w.currentlyWorking),
+          location: String(w.location || '').slice(0, 80),
+          responsibilities: String(w.responsibilities || w.description || '').slice(0, 800),
+          id: w.id || `exp-${i + 1}-${Date.now().toString(36)}`,
+        }))
     }
 
     if (parsed && Array.isArray(parsed.certifications)) {

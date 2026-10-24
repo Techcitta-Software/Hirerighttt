@@ -1651,10 +1651,12 @@ export function createApiDispatchMiddleware(ctx) {
       const body = await readBody(req)
       const fileData = body.fileData || body.fileBase64
       const fileName = String(body.fileName || 'resume.pdf')
-      const text = String(body.text || body.resumeText || '')
+      const text = String(body.text || body.resumeText || '').trim()
+      /** Browser already extracted PDF/DOCX text — skip slow Python OCR (was adding up to ~60s). */
+      const clientExtractedText = text.length >= 40
 
       let paddleExtract = null
-      if (fileData) {
+      if (!clientExtractedText && fileData) {
         try {
           const base64Content = fileData.includes(',') ? fileData.split(',')[1] : fileData
           const buffer = Buffer.from(base64Content, 'base64')
@@ -1662,21 +1664,13 @@ export function createApiDispatchMiddleware(ctx) {
         } catch (e) {
           console.warn('[PaddleOCR] Buffer decode notice:', e.message)
         }
-      } else if (text.trim()) {
-        try {
-          const buffer = Buffer.from(text, 'utf-8')
-          paddleExtract = await runPaddleOcrParser(buffer, 'resume.txt')
-        } catch (e) {
-          console.warn('[PaddleOCR] Text buffer notice:', e.message)
-        }
       }
 
       if (paddleExtract) {
         return json(res, 200, { ok: true, source: 'paddle-ocr', extract: paddleExtract })
       }
 
-      // Secondary fallback if PaddleOCR did not return output
-      if (text.trim()) {
+      if (text) {
         try {
           const parsed = await parseResumeWithAI(text)
           if (parsed) {

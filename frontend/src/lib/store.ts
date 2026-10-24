@@ -542,6 +542,7 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     skills: data.skills,
     experienceSummary: data.experienceSummary,
     workExperiences: data.workExperiences,
+    noPriorWorkExperience: Boolean(data.noPriorWorkExperience),
     achievements: data.achievements,
     metrics: data.metrics,
     awards: data.awards,
@@ -589,8 +590,15 @@ function normalizeProfile(p: SavedProfile): SavedProfile {
       if (compLower.includes('techcitta') && !(p.resumeText || '').toLowerCase().includes('techcitta')) {
         return false
       }
-      return Boolean(w.jobTitle?.trim() || w.company?.trim())
+      return Boolean(
+        w.jobTitle?.trim() || w.company?.trim() || w.responsibilities?.trim(),
+      )
     }),
+    noPriorWorkExperience:
+      p.noPriorWorkExperience === true &&
+      !(Array.isArray(p.workExperiences) && p.workExperiences.some(
+        (w) => w.jobTitle?.trim() || w.company?.trim(),
+      )),
     metrics: normalizeMetrics(Array.isArray(p.metrics) ? p.metrics : undefined),
     awards: Array.isArray(p.awards) ? p.awards : [],
     certifications: Array.isArray(p.certifications) ? p.certifications : [],

@@ -1,11 +1,13 @@
 import type { ProfileFormData } from '../data/wizard'
 import {
-  createEmptyMetric,
   LOCATION_OPTIONS,
   NOTICE_OPTIONS,
   ROLE_OPTIONS,
 } from '../data/wizard'
-import type { ResumeExtract } from '../lib/resumeParser'
+import {
+  resumeExtractToProfilePatch,
+  type ResumeExtract,
+} from '../lib/resumeParser'
 import { updateUserName } from '../lib/store'
 import { MotionItem, MotionStack } from '../motion/MotionStack'
 import { CharacterTextarea } from './CharacterTextarea'
@@ -40,27 +42,7 @@ export function AboutYouStep({
       : LOCATION_OPTIONS
 
   function applyExtract(extract: ResumeExtract) {
-    const patch: Partial<ProfileFormData> = {}
-    if (extract.whoAreYou) patch.whoAreYou = extract.whoAreYou
-    // "Can you brief me more?" — manual only; resume/AI must not pre-fill this field.
-    if (extract.keyStrengths) patch.keyStrengths = extract.keyStrengths
-    if (extract.currentRole) patch.currentRole = extract.currentRole
-    if (extract.totalExperience) patch.totalExperience = extract.totalExperience
-    if (extract.currentLocation) patch.currentLocation = extract.currentLocation
-    if (extract.skills?.length) patch.skills = extract.skills
-    if (extract.experienceSummary) patch.experienceSummary = extract.experienceSummary
-    if (extract.workExperiences !== undefined) {
-      patch.workExperiences = extract.workExperiences
-    }
-    if (extract.achievements?.length) patch.achievements = extract.achievements
-    if (extract.metrics !== undefined) {
-      patch.metrics = extract.metrics.length
-        ? extract.metrics
-        : [createEmptyMetric()]
-    }
-    if (extract.certifications?.length) patch.certifications = extract.certifications
-    if (extract.resumeText) patch.resumeText = extract.resumeText
-
+    const patch = resumeExtractToProfilePatch(extract)
     if (Object.keys(patch).length) onPatch(patch)
 
     let nextFirst: string | undefined

@@ -20,7 +20,8 @@ import {
 } from '../lib/store'
 import { syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import {
-  missingProfileFields,
+  missingRequiredProfileFields,
+  profileCheckHref,
   profileCompletionPercent,
   profileFieldChecks,
 } from '../lib/profileCompletion'
@@ -158,7 +159,11 @@ export function DashboardPage() {
   const performanceDimensions = interviewInsights.dimensions
   const recent = [...applications].sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 5)
   const profileChecks = profileFieldChecks(profile, user)
-  const missingDetails = missingProfileFields(profile, user)
+  const missingRequired = missingRequiredProfileFields(profile, user)
+  const missingOptional = profileFieldChecks(profile, user).filter(
+    (c) => !c.required && !c.done,
+  )
+  const missingDetails = missingRequired
   const completion = profileCompletionPercent(profile, user)
   const initials = name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'HR'
   const inReviewCount = applications.filter((a) => a.status === 'In Review').length
@@ -183,8 +188,8 @@ export function DashboardPage() {
     if (missingDetails.length > 0) {
       actions.push({
         title: 'Strengthen your profile',
-        body: `${missingDetails.length} field${missingDetails.length === 1 ? '' : 's'} left — better data means sharper job matches.`,
-        href: `/profile#${missingDetails[0].section}`,
+        body: `Still needed: ${missingDetails.map((m) => m.label).join(', ')}.`,
+        href: profileCheckHref(missingDetails[0]),
         cta: 'Complete profile',
         icon: 'user',
       })
@@ -480,15 +485,36 @@ export function DashboardPage() {
               </div>
             </div>
           </div>
-          {missingDetails.length > 0 && (
-            <aside className={styles.completionPanel}>
+          {(missingRequired.length > 0 || missingOptional.length > 0) && (
+            <aside className={styles.completionPanel} aria-labelledby="profile-strength-heading">
               <div className={styles.completionPanelHead}>
-                <span>Profile strength</span>
+                <span id="profile-strength-heading">Profile strength</span>
                 <span className={styles.completionPct}>{completion}%</span>
               </div>
               <progress value={completion} max={100} aria-label="Profile completion" />
-              <h3>{missingDetails.length} item{missingDetails.length === 1 ? '' : 's'} to go</h3>
-              <p>Only missing details — nothing you have already saved will be asked again.</p>
+              {missingRequired.length > 0 ? (
+                <>
+                  <h3>
+                    {missingRequired.length} required item{missingRequired.length === 1 ? '' : 's'}{' '}
+                    missing
+                  </h3>
+                  <ul className={styles.missingChecklist}>
+                    {missingRequired.map((item) => (
+                      <li key={item.label}>
+                        <Link to={profileCheckHref(item)}>{item.label}</Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <h3>Core profile complete</h3>
+              )}
+              {missingOptional.length > 0 && (
+                <p className={styles.missingOptional}>
+                  Optional: {missingOptional.map((m) => m.label).join(', ')}
+                </p>
+              )}
+              <p>Based on your saved profile — only gaps are listed below.</p>
               <a href="#complete-profile">
                 View checklist
                 <HrIcon name="arrow-right" size={15} />
@@ -497,7 +523,7 @@ export function DashboardPage() {
           )}
         </section>
 
-        {missingDetails.length > 0 && (
+        {(missingRequired.length > 0 || missingOptional.length > 0) && (
           <section id="complete-profile" className={styles.completionSection} aria-labelledby="completion-heading">
             <div className={styles.sectionIntro}>
               <div className={styles.sectionHead}>
@@ -506,14 +532,15 @@ export function DashboardPage() {
                   <h2 id="completion-heading">Complete your profile</h2>
                 </div>
                 <span className={styles.countBadge}>
-                  {profileChecks.filter(c => c.done).length} / {profileChecks.length} on file
+                  {profileChecks.filter((c) => c.required && c.done).length} /{' '}
+                  {profileChecks.filter((c) => c.required).length} required
                 </span>
               </div>
               <p className={styles.muted}>Each card opens the exact section you still need — the rest of your profile stays untouched.</p>
             </div>
             <div className={styles.completionGrid}>
-              {missingDetails.map(item => (
-                <Link to={`/profile#${item.section}`} className={styles.completionTile} key={item.label}>
+              {[...missingRequired, ...missingOptional].map(item => (
+                <Link to={profileCheckHref(item)} className={styles.completionTile} key={item.label}>
                   <span className={styles.tileIcon}><HrIcon name={item.icon} size={20} /></span>
                   <h3>{item.label}</h3>
                   <p>{item.hint}</p>

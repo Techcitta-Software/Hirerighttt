@@ -5,6 +5,7 @@ import {
   LOCATION_OPTIONS,
   ROLE_OPTIONS,
   SKILL_OPTIONS,
+  createEmptyMetric,
   type ProfileFormData,
   type WorkExperience,
   type Certification,
@@ -36,6 +37,36 @@ export type ResumeExtract = Partial<
   fullName?: string
   /** Full extracted text used by Ava for resume-accurate questions. */
   resumeText?: string
+}
+
+/** Maps parsed resume fields into onboarding profile shape (shared by upload + wizard). */
+export function resumeExtractToProfilePatch(
+  extract: ResumeExtract,
+): Partial<ProfileFormData> {
+  const patch: Partial<ProfileFormData> = {}
+  if (extract.whoAreYou) patch.whoAreYou = extract.whoAreYou
+  if (extract.keyStrengths) patch.keyStrengths = extract.keyStrengths
+  if (extract.currentRole) patch.currentRole = extract.currentRole
+  if (extract.totalExperience) patch.totalExperience = extract.totalExperience
+  if (extract.currentLocation) patch.currentLocation = extract.currentLocation
+  if (extract.skills?.length) patch.skills = extract.skills
+  if (extract.experienceSummary) patch.experienceSummary = extract.experienceSummary
+  if (extract.workExperiences?.length) {
+    patch.workExperiences = extract.workExperiences
+    patch.noPriorWorkExperience = false
+  } else if (
+    extract.totalExperience &&
+    !/fresher|0\s*[-–]\s*1|0\s*years|\b0\s*year/i.test(extract.totalExperience)
+  ) {
+    patch.noPriorWorkExperience = false
+  }
+  if (extract.achievements?.length) patch.achievements = extract.achievements
+  if (extract.metrics !== undefined) {
+    patch.metrics = extract.metrics.length ? extract.metrics : [createEmptyMetric()]
+  }
+  if (extract.certifications?.length) patch.certifications = extract.certifications
+  if (extract.resumeText) patch.resumeText = extract.resumeText
+  return patch
 }
 
 async function extractPdfText(file: File): Promise<string> {
@@ -131,27 +162,101 @@ function cleanLines(text: string): string[] {
     .filter(Boolean)
 }
 
-function sectionBody(text: string, labels: string[]): string {
+const DEFAULT_SECTION_STOPS = [
+  'experience',
+  'work experience',
+  'employment',
+  'education',
+  'skills',
+  'projects',
+  'certifications?',
+  'achievements?',
+  'awards?',
+  'summary',
+  'profile',
+  'objective',
+  'contact',
+]
+
+/** Experience sections must not stop at bare "experience" (truncates real job blocks). */
+const EXPERIENCE_SECTION_LABELS = [
+  'work experience',
+  'professional experience',
+  'employment history',
+  'employment details',
+  'work history',
+  'relevant experience',
+  'industry experience',
+  'career history',
+  'internship experience',
+  'internships?',
+  'employment',
+  'experience',
+]
+
+const EXPERIENCE_SECTION_STOPS = [
+  'work experience',
+  'professional experience',
+  'employment history',
+  'employment details',
+  'education',
+  'academic background',
+  'skills',
+  'technical skills',
+  'core competencies',
+  'projects',
+  'certifications?',
+  'certificates?',
+  'achievements?',
+  'awards?',
+  'summary',
+  'profile',
+  'objective',
+  'contact',
+  'references',
+  'declaration',
+]
+
+function normalizeResumeText(text: string): string {
+  return text
+    .replace(/\r/g, '\n')
+    .replace(/[\u00a0\t]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+function sectionBody(text: string, labels: string[], stopLabels = DEFAULT_SECTION_STOPS): string {
   const pattern = new RegExp(
-    `(?:^|\\n)\\s*(?:${labels.join('|')})\\s*[:\\-]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${[
-      'experience',
-      'work experience',
-      'employment',
-      'education',
-      'skills',
-      'projects',
-      'certifications?',
-      'achievements?',
-      'awards?',
-      'summary',
-      'profile',
-      'objective',
-      'contact',
-    ].join('|')})\\b|$)`,
+    `(?:^|\\n)\\s*(?:${labels.join('|')})\\s*[:\\-]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${stopLabels.join('|')})\\b|$)`,
     'i',
   )
   const match = text.match(pattern)
   return match?.[1]?.trim() ?? ''
+}
+
+/** PDFs often glue section titles into one line — slice between known headers. */
+function inlineExperienceSection(text: string): string {
+  const startRe =
+    /\b(?:work\s+experience|professional\s+experience|employment\s+(?:history|details)|internship\s+experience|internships?|employment)\b[:\s-]*/i
+  const start = text.match(startRe)
+  if (!start || start.index === undefined) return ''
+  const rest = text.slice(start.index + start[0].length)
+  const endRe =
+    /\b(?:education|academic|skills|technical\s+skills|certifications?|projects|achievements?|awards?|contact|references|declaration)\b/i
+  const end = endRe.exec(rest)
+  const slice = (end ? rest.slice(0, end.index) : rest).trim()
+  return slice.length >= 20 ? slice : ''
+}
+
+function pickExperienceSectionBody(text: string): string {
+  const normalized = normalizeResumeText(text)
+  const fromSection = sectionBody(
+    normalized,
+    EXPERIENCE_SECTION_LABELS,
+    EXPERIENCE_SECTION_STOPS,
+  )
+  if (fromSection.trim().length >= 20) return fromSection
+  return inlineExperienceSection(normalized)
 }
 
 function clip(value: string, max: number) {
@@ -277,27 +382,21 @@ function pickName(lines: string[]): string {
 }
 
 function pickWorkExperiences(text: string): WorkExperience[] {
-  // 1. Only parse if a genuine work experience section header exists!
-  // Never fall back to whole text, as projects/education would be mistaken for professional employment.
-  const body = sectionBody(text, [
-    'work experience',
-    'professional experience',
-    'employment history',
-    'work history',
-    'relevant experience',
-    'industry experience',
-    'career history',
-    'experience',
-  ])
+  // Only parse when a work/employment section exists (never the whole résumé).
+  const body = pickExperienceSectionBody(text)
   if (!body || body.trim().length < 20) {
     return []
   }
 
-  // Split into lines
-  const lines = body.split('\n').map((l) => l.trim()).filter(Boolean)
+  const bodyNormalized = body.includes('\n')
+    ? body
+    : body.replace(/\s{2,}/g, '\n').replace(/\s+(?=(?:19|20)\d{2}\s*[-–—])/g, '\n')
+
+  const lines = bodyNormalized.split('\n').map((l) => l.trim()).filter(Boolean)
   if (!lines.length) return []
 
-  const datePattern = /(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2}\s*(?:[-–—to/]+\s*(?:Present|Current|Ongoing|Till\s*Date|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2})?)?/i
+  const datePattern =
+    /(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2}\s*(?:[-–—to/]+\s*(?:Present|Current|Ongoing|Till\s*Date|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2})?)?|\b(?:19|20)\d{2}\s*[-–—/]\s*(?:(?:19|20)\d{2}|Present|Current|Ongoing)\b/i
 
   const blocks: { header: string; lines: string[] }[] = []
   let currentBlock: { header: string; lines: string[] } | null = null
@@ -309,7 +408,12 @@ function pickWorkExperiences(text: string): WorkExperience[] {
     const hasDate = datePattern.test(line)
     const hasSeparator = /\s+(?:at|@|\||–|—|-)\s+/i.test(line)
 
-    const isHeaderCandidate = !isBullet && (hasRole || (hasDate && (hasSeparator || lines[i + 1])) || hasSeparator)
+    const isHeaderCandidate =
+      !isBullet &&
+      (hasRole ||
+        hasSeparator ||
+        (hasDate && line.length < 120) ||
+        (hasDate && Boolean(lines[i + 1])))
 
     if (isHeaderCandidate && (!currentBlock || currentBlock.lines.length > 0)) {
       if (currentBlock) blocks.push(currentBlock)
@@ -337,6 +441,7 @@ function pickWorkExperiences(text: string): WorkExperience[] {
 
     const atMatch = header.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i)
     const pipeMatch = header.match(/^(.+?)\s+[|]\s+(.+)$/)
+    const commaMatch = header.match(/^([^,]+),\s*(.+)$/)
     const dashMatch = header.match(/^(.+?)\s+[-–—]\s+(.+)$/)
 
     if (atMatch) {
@@ -351,6 +456,16 @@ function pickWorkExperiences(text: string): WorkExperience[] {
       } else {
         company = p1
         role = p2
+      }
+    } else if (commaMatch && !datePattern.test(commaMatch[1])) {
+      const c1 = commaMatch[1].replace(datePattern, '').trim()
+      const c2 = commaMatch[2].replace(datePattern, '').trim()
+      if (pickRole(c1)) {
+        role = c1
+        company = c2
+      } else {
+        company = c1
+        role = c2
       }
     } else if (dashMatch && !dashMatch[1].toLowerCase().includes('present')) {
       const d1 = dashMatch[1].replace(datePattern, '').trim()
@@ -764,7 +879,7 @@ export function pickCertifications(text: string): Certification[] {
 }
 
 export function parseResumeText(raw: string): ResumeExtract {
-  const text = raw.split('\0').join(' ')
+  const text = normalizeResumeText(raw.split('\0').join(' '))
   const lines = cleanLines(text)
   const joined = lines.join('\n')
 
@@ -927,16 +1042,21 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
         // Anti-hallucination filter: ignore generic or placeholder company names
         if (
           !company ||
-          /^(company|techcitta|tech solutions|acme|unknown|n\/a|none|placeholder|not specified)$/i.test(company)
+          /^(company|tech solutions|acme|unknown|n\/a|none|placeholder|not specified)$/i.test(company)
         ) {
           return null
         }
-        // Verify that the company actually appears in the raw resume text (case-insensitive)
+        const resumeLower = rawText.toLowerCase()
+        if (/^techcitta$/i.test(company) && !resumeLower.includes('techcitta')) {
+          return null
+        }
+        const compCompact = company.toLowerCase().replace(/[^a-z0-9]/g, '')
+        const resumeCompact = resumeLower.replace(/[^a-z0-9]/g, '')
         const compClean = company.toLowerCase().replace(/[^a-z0-9]/g, ' ')
         const compWords = compClean.split(/\s+/).filter((word) => word.length > 2)
         const isPresentInText =
-          compWords.length > 0 &&
-          compWords.some((word) => rawText.toLowerCase().includes(word))
+          (compCompact.length >= 4 && resumeCompact.includes(compCompact)) ||
+          (compWords.length > 0 && compWords.some((word) => resumeLower.includes(word)))
         if (!isPresentInText) {
           return null
         }
@@ -951,11 +1071,12 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
             w.currentlyWorking ?? /present|current|ongoing/i.test(String(w.endDate || '')),
           ),
           location: String(w.location || ''),
-          responsibilities: clip(String(w.responsibilities || ''), 800),
+          responsibilities: clip(String(w.responsibilities || w.description || ''), 800),
         }
       })
       .filter(Boolean) as WorkExperience[]
-  } else {
+  }
+  if (!experiences.length) {
     experiences = pickWorkExperiences(rawText)
   }
 
@@ -1116,7 +1237,7 @@ ${text.slice(0, 12000)}`
     try {
       await ensureApiSession()
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 25_000)
+      const timer = setTimeout(() => controller.abort(), 12_000)
       const res = await apiFetch('/api/resume/parse', {
         method: 'POST',
         body: JSON.stringify({ text }),
@@ -1215,38 +1336,49 @@ ${text.slice(0, 12000)}`
   return null
 }
 
+const RESUME_AI_PARSE_MS = 12_000
+
+function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback: ResumeExtract): ResumeExtract {
+  return {
+    ...regexFallback,
+    ...aiExtract,
+    certifications:
+      aiExtract.certifications && aiExtract.certifications.length > 0
+        ? aiExtract.certifications
+        : regexFallback.certifications,
+    workExperiences:
+      aiExtract.workExperiences && aiExtract.workExperiences.length > 0
+        ? aiExtract.workExperiences
+        : regexFallback.workExperiences,
+    metrics:
+      aiExtract.metrics && aiExtract.metrics.length > 0 ? aiExtract.metrics : regexFallback.metrics,
+    resumeText: clip(text, 12000),
+  }
+}
+
 export async function parseResumeFile(file: File): Promise<ResumeExtract> {
   const text = await extractResumeText(file)
   if (!text.trim()) {
     throw new Error('Could not read text from this file. Please ensure the file contains selectable text, or try a DOCX/TXT.')
   }
 
-  // 1. High-accuracy AI parsing using ChatGPT 6.1 Luna
+  const regexFallback = parseResumeText(text)
+  if (!regexFallback.resumeText) regexFallback.resumeText = clip(text, 8000)
+
+  let aiExtract: ResumeExtract | null = null
   try {
-    const aiExtract = await parseResumeWithAI(text)
-    if (aiExtract && (aiExtract.fullName || (aiExtract.skills && aiExtract.skills.length > 0))) {
-      const regexFallback = parseResumeText(text)
-      return {
-        ...regexFallback,
-        ...aiExtract,
-        certifications:
-          aiExtract.certifications && aiExtract.certifications.length > 0
-            ? aiExtract.certifications
-            : regexFallback.certifications,
-        metrics:
-          aiExtract.metrics && aiExtract.metrics.length > 0
-            ? aiExtract.metrics
-            : regexFallback.metrics,
-        resumeText: clip(text, 12000),
-      }
-    }
+    aiExtract = await Promise.race([
+      parseResumeWithAI(text),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), RESUME_AI_PARSE_MS)),
+    ])
   } catch (err) {
     console.warn('[ResumeParser] AI parsing fallback to local regex:', err)
   }
 
-  // 2. Fall back to local regex heuristic parsing if AI is unreachable
-  const extract = parseResumeText(text)
-  if (!extract.resumeText) extract.resumeText = clip(text, 8000)
-  return extract
+  if (aiExtract && (aiExtract.fullName || (aiExtract.skills && aiExtract.skills.length > 0))) {
+    return mergeAiWithRegex(text, aiExtract, regexFallback)
+  }
+
+  return regexFallback
 }
 

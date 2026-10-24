@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   parseResumeFile,
+  resumeExtractToProfilePatch,
   type ResumeExtract,
 } from '../lib/resumeParser'
 import { getPendingResume, clearPendingResume } from '../lib/pendingResume'
@@ -105,20 +106,25 @@ export function ResumeUpload({
 
     onFileChange(next)
     setParsing(true)
-    setStatus('Analyzing your resume with AI…')
+    setStatus('Reading your resume…')
     try {
-      const extract = await parseResumeFile(next)
+      const ext = next.name.split('.').pop()?.toLowerCase()
+      const canCloudStore = ext === 'pdf' || ext === 'docx'
+      const uploadPromise = canCloudStore
+        ? uploadResumeViaApiWithStatus(next)
+        : Promise.resolve({ ok: false as const, error: '' })
+
+      setStatus('Extracting profile fields…')
+      const [extract, upload] = await Promise.all([parseResumeFile(next), uploadPromise])
       onParsed?.(extract)
 
       let stored: ResumeUploadResult | null = null
       let storageWarning = ''
-      const ext = next.name.split('.').pop()?.toLowerCase()
-      if (ext === 'pdf' || ext === 'docx') {
-        const upload = await uploadResumeViaApiWithStatus(next)
+      if (canCloudStore) {
         if (upload.ok) {
           stored = upload.result
           onStored?.(upload.result)
-        } else {
+        } else if (upload.error) {
           storageWarning = upload.error
           console.warn('[ResumeUpload] S3/API storage:', upload.error)
         }
@@ -129,9 +135,11 @@ export function ResumeUpload({
 
       const saved = getProfile()
       const completed = saved?.completedSteps ?? 0
+      const extractPatch = resumeExtractToProfilePatch(extract)
       const formData = {
         ...initialFormData,
         ...(saved || {}),
+        ...extractPatch,
         resumeFile: next,
         resumeName: next.name,
         resumeText: extract.resumeText || saved?.resumeText || '',

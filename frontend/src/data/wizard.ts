@@ -43,6 +43,8 @@ export interface ProfileFormData {
   skills: string[]
   experienceSummary: string
   workExperiences: WorkExperience[]
+  /** User opted in to “no prior work experience” (not inferred from an empty job list). */
+  noPriorWorkExperience: boolean
   achievements: string[]
   metrics: PerformanceMetric[]
   awards: string[]
@@ -322,6 +324,7 @@ export const initialFormData: ProfileFormData = {
   skills: [...DEFAULT_SKILLS],
   experienceSummary: '',
   workExperiences: [],
+  noPriorWorkExperience: false,
   achievements: [''],
   metrics: [createEmptyMetric()],
   awards: [''],

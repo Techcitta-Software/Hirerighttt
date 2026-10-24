@@ -78,6 +78,7 @@ export function ProfileWizard() {
         }
         return true
       }),
+      noPriorWorkExperience: saved.noPriorWorkExperience ?? false,
       achievements: saved.achievements ?? initialFormData.achievements,
       metrics: normalizeMetrics(saved.metrics),
       awards: saved.awards ?? initialFormData.awards,
