@@ -1098,6 +1098,49 @@
   margin: 12px 0 0;
 }
 
+.applicationAlertBanner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(112, 71, 255, 0.12), rgba(96, 54, 235, 0.06));
+  border: 1px solid rgba(112, 71, 255, 0.22);
+}
+
+.applicationAlertBanner strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #141638;
+  margin-bottom: 4px;
+}
+
+.applicationAlertBanner p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.applicationAlertDismiss {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #6036eb;
+  background: #fff;
+  border: 1px solid rgba(112, 71, 255, 0.35);
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.applicationAlertDismiss:hover {
+  background: rgba(112, 71, 255, 0.06);
+}
+
 .invitePanel {
   margin: 20px 0;
   padding: 16px 18px;

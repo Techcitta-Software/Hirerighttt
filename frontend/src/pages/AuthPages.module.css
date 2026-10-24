@@ -821,6 +821,18 @@
   margin-bottom: 1.15rem;
 }
 
+.formGroupReveal {
+  overflow: hidden;
+}
+
+.formGroupReveal .formGroup:last-child {
+  margin-bottom: 1.15rem;
+}
+
+.formGroupReveal .loginPillBtn {
+  margin-top: 0.25rem;
+}
+
 .formLabel {
   font-size: 0.95rem;
   font-weight: 600;

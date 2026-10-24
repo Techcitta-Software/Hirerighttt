@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { handleLoginNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
-import { getUser, isLoggedIn, unreadNotificationCount } from '../lib/store'
+import { getUser, isLoggedIn } from '../lib/store'
+import { CandidateNotificationBell } from './CandidateNotificationBell'
 import { openSignOutModal } from '../lib/signOutModal'
 import { BrandLogo } from './BrandLogo'
 import styles from './SiteNav.module.css'
@@ -24,7 +25,7 @@ const LANDING_NAV = [
 
 const JOBSEEKER_NAV = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/jobs', label: 'Matches' },
+  { to: '/jobs', label: 'Jobs' },
   { to: '/applications', label: 'Applications' },
 ]
 
@@ -48,7 +49,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const [loggedIn, setLoggedIn] = useState(false)
-  const [unread, setUnread] = useState(0)
   const user = getUser()
   const initials = useMemo(() => {
     const raw = (user?.name || user?.companyName || '').trim()
@@ -71,7 +71,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   useEffect(() => {
     function syncAuth() {
       setLoggedIn(isLoggedIn())
-      setUnread(unreadNotificationCount())
     }
     syncAuth()
     window.addEventListener('hireright-auth', syncAuth)
@@ -125,13 +124,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
       : isLanding
         ? LANDING_NAV
         : MARKETING_NAV
-
-  function navLabel(item: (typeof primaryNav)[number]) {
-    if (item.to === '/applications' && unread > 0) {
-      return `${item.label} (${unread})`
-    }
-    return item.label
-  }
 
   const isAppShellNav = loggedIn && variant === 'default' && !showMarketingOnHome
 
@@ -193,7 +185,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                       : styles.navLink
                 }}
               >
-                {navLabel(item)}
+                {item.label}
               </NavLink>
             ))}
           </nav>
@@ -209,30 +201,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   Dashboard
                 </Link>
               )}
-              {user?.role !== 'employer' && (
-                <Link
-                  to="/applications"
-                  className={styles.bellBtn}
-                  aria-label="Notifications"
-                  title={unread > 0 ? `${unread} unread notifications` : 'Notifications'}
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                  </svg>
-                  {unread > 0 && <span className={styles.bellBadge}>{unread}</span>}
-                </Link>
-              )}
+              {user?.role !== 'employer' && <CandidateNotificationBell />}
 
               {/* User profile avatar icon & dropdown menu (both candidate and employer) */}
               <div className={styles.profileMenuWrap} ref={profileMenuRef}>
@@ -431,7 +400,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                     isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
                   }
                 >
-                  {navLabel(item)}
+                  {item.label}
                 </NavLink>
               ))}
               {loggedIn && (

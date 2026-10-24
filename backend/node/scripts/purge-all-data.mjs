@@ -26,12 +26,40 @@ if (process.env.CONFIRM_PURGE !== 'yes') {
 
 const pool = new pg.Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } })
 
+async function runStep(client, label, sql) {
+  try {
+    await client.query(sql)
+    console.log(`[purge] ${label}`)
+  } catch (err) {
+    console.error(`[purge] ${label} failed:`, err.message, err.code)
+    if (err.detail) console.error('[purge] detail:', err.detail)
+    throw err
+  }
+}
+
+async function truncateOptional(client, table) {
+  try {
+    await client.query(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`)
+    console.log(`[purge] truncated ${table}`)
+  } catch (err) {
+    if (err?.code === '42P01') return
+    throw err
+  }
+}
+
 async function run() {
   const client = await pool.connect()
   try {
-    await client.query('BEGIN')
+    // Autocommit each step — TRUNCATE cannot run reliably inside one big transaction
+    // when optional / legacy tables differ between environments.
+    await truncateOptional(client, 'interview_artifacts')
+    await truncateOptional(client, 'interview_recordings')
+    await truncateOptional(client, 'stored_files')
 
-    await client.query(`
+    await runStep(
+      client,
+      'assessment + interview metadata',
+      `
       TRUNCATE TABLE
         recruiter_reviews,
         answer_evaluations,
@@ -46,9 +74,13 @@ async function run() {
         assessment_jobs,
         assessment_usage
       RESTART IDENTITY CASCADE
-    `)
+    `,
+    )
 
-    await client.query(`
+    await runStep(
+      client,
+      'jobs, applications, sessions, profiles',
+      `
       TRUNCATE TABLE
         interview_invites,
         employer_applications,
@@ -66,33 +98,44 @@ async function run() {
         hireright_sessions,
         profiles
       RESTART IDENTITY CASCADE
-    `)
+    `,
+    )
 
-    await client.query(`DELETE FROM organization_members WHERE organization_id <> 'org-platform'`)
-    await client.query(`DELETE FROM organization_subscriptions WHERE organization_id <> 'org-platform'`)
-    await client.query(`DELETE FROM organizations WHERE id <> 'org-platform'`)
-    await client.query(`DELETE FROM users`)
+    await runStep(
+      client,
+      'organizations (except platform)',
+      `DELETE FROM organization_members WHERE organization_id <> 'org-platform'`,
+    )
+    await runStep(
+      client,
+      'org subscriptions (except platform)',
+      `DELETE FROM organization_subscriptions WHERE organization_id <> 'org-platform'`,
+    )
+    await runStep(client, 'organizations (except platform)', `DELETE FROM organizations WHERE id <> 'org-platform'`)
+    await runStep(client, 'users', `DELETE FROM users`)
 
     for (const legacy of ['candidate_interview_results', 'candidates']) {
-      try {
-        await client.query(`TRUNCATE TABLE ${legacy} RESTART IDENTITY CASCADE`)
-      } catch (err) {
-        if (err?.code !== '42P01') throw err
-      }
+      await truncateOptional(client, legacy)
     }
 
-    await client.query(`
+    await runStep(
+      client,
+      'platform org scaffold',
+      `
       INSERT INTO organizations (id, name, slug, status, settings)
       VALUES ('org-platform', 'HireRight Platform', 'hireright-platform', 'active', '{"is_platform":true}'::jsonb)
       ON CONFLICT (id) DO NOTHING
-    `)
-    await client.query(`
+    `,
+    )
+    await runStep(
+      client,
+      'platform subscription scaffold',
+      `
       INSERT INTO organization_subscriptions (id, organization_id, plan_id, status)
       VALUES ('sub-platform', 'org-platform', 'plan-enterprise', 'active')
       ON CONFLICT (organization_id) DO NOTHING
-    `)
-
-    await client.query('COMMIT')
+    `,
+    )
 
     const counts = await pool.query(`
       SELECT
@@ -105,9 +148,6 @@ async function run() {
     `)
     console.log('[purge] Done. Remaining row counts:', counts.rows[0])
     console.log('[purge] New signups start with an empty database (platform org only).')
-  } catch (err) {
-    await client.query('ROLLBACK')
-    throw err
   } finally {
     client.release()
     await pool.end()
@@ -116,5 +156,6 @@ async function run() {
 
 run().catch((err) => {
   console.error('[purge] Failed:', err instanceof Error ? err.message : err)
+  if (err?.code) console.error('[purge] code:', err.code)
   process.exit(1)
 })

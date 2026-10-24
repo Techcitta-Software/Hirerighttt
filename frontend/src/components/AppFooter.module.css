@@ -117,3 +117,15 @@
     max-width: none;
   }
 }
+
+.footer { padding: 36px 0 22px; background: #17132d; }
+.inner { max-width: 1280px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 48px); }
+.mainRow { align-items: flex-start; justify-content: space-between; gap: 28px; }
+.brandBlock { flex-direction: column; align-items: flex-start; gap: 14px; }
+.tagline { max-width: 260px; line-height: 1.8; color: #ada6c3; font-weight: 400; }
+.nav { max-width: 510px; gap: 18px 24px; padding-top: 8px; }
+.link { font-size: 12px; color: #c3bdd3; }
+.link:focus-visible { outline: 2px solid #c3acf4; outline-offset: 5px; }
+.bottomRow { margin-top: 28px; padding-top: 20px; }
+.copyright { color: #a29ab7; }
+@media (max-width: 860px) { .nav { margin-left: 0; } }

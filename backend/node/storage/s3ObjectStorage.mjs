@@ -8,6 +8,9 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { buildCandidateResumeObjectKey, sanitizePathSegment } from './s3KeyLayout.mjs'
+import { assertWritableTenantObjectKey, buildS3UserMetadata } from './s3Namespace.mjs'
+
+export { buildS3UserMetadata, describeS3Layout } from './s3Namespace.mjs'
 
 export { buildCandidateResumeObjectKey, sanitizePathSegment }
 
@@ -62,38 +65,41 @@ export function createS3ObjectStorage(options = {}) {
       err.status = 503
       throw err
     }
+    const safeKey = assertWritableTenantObjectKey(key)
     const client = getClient()
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
-        Key: key,
+        Key: safeKey,
         Body: buffer,
         ContentType: contentType,
         Metadata: metadata,
         ServerSideEncryption: 'AES256',
       }),
     )
-    return { bucket, key }
+    return { bucket, key: safeKey }
   }
 
-  async function presignUpload({ key, contentType, contentLength }) {
+  async function presignUpload({ key, contentType, contentLength, metadata = {} }) {
     const { bucket, presignSeconds } = s3Env()
     if (!bucket) {
       const err = new Error('S3_BUCKET is not configured.')
       err.status = 503
       throw err
     }
+    const safeKey = assertWritableTenantObjectKey(key)
     const client = getClient()
     // Do not set ServerSideEncryption here — browser PUT must send matching x-amz-* headers
     // or S3 returns SignatureDoesNotMatch. Bucket default encryption still applies when enabled.
     const command = new PutObjectCommand({
       Bucket: bucket,
-      Key: key,
+      Key: safeKey,
       ContentType: contentType,
       ContentLength: contentLength,
+      ...(Object.keys(metadata).length ? { Metadata: metadata } : {}),
     })
     const url = await getSignedUrl(client, command, { expiresIn: presignSeconds })
-    return { url, expiresInSeconds: presignSeconds, method: 'PUT' }
+    return { url, expiresInSeconds: presignSeconds, method: 'PUT', key: safeKey }
   }
 
   async function presignDownload({ key, responseContentDisposition, responseContentType }) {

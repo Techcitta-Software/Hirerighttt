@@ -34,7 +34,19 @@ test('buildCandidateResumeObjectKey uses tenant namespace', () => {
   assert.equal(isLegacyResumeObjectKey('resumes/a/b.pdf'), true)
 })
 
-test('buildInterviewTranscriptObjectKey uses transcript.json', () => {
+test('buildInterviewTranscriptObjectKey uses candidate-scoped path when candidateId set', () => {
+  const key = buildInterviewTranscriptObjectKey({
+    tenantId: 'org-1',
+    interviewId: 'sess-9',
+    candidateId: 'user-1',
+  })
+  assert.equal(
+    key,
+    'tenants/org-1/candidates/user-1/interviews/sess-9/transcripts/transcript.json',
+  )
+})
+
+test('buildInterviewTranscriptObjectKey falls back to flat tenant path', () => {
   const key = buildInterviewTranscriptObjectKey({
     tenantId: 'org-1',
     interviewId: 'sess-9',
@@ -42,20 +54,27 @@ test('buildInterviewTranscriptObjectKey uses transcript.json', () => {
   assert.equal(key, 'tenants/org-1/interviews/sess-9/transcripts/transcript.json')
 })
 
-test('buildInterviewReportObjectKey uses interview_report.pdf', () => {
+test('buildInterviewReportObjectKey uses interview_report.pdf under candidate', () => {
   const key = buildInterviewReportObjectKey({
     tenantId: 'org-1',
     interviewId: 'sess-9',
+    candidateId: 'user-1',
   })
-  assert.equal(key, 'tenants/org-1/interviews/sess-9/reports/interview_report.pdf')
+  assert.equal(
+    key,
+    'tenants/org-1/candidates/user-1/interviews/sess-9/reports/interview_report.pdf',
+  )
 })
 
-test('buildInterviewRecordingObjectKey uses interview namespace', () => {
+test('buildInterviewRecordingObjectKey uses candidate-scoped recordings', () => {
   const key = buildInterviewRecordingObjectKey({
     tenantId: 'platform',
     interviewId: 'sess-1',
-    segmentId: 'seg-a',
+    candidateId: 'cand-9',
     contentType: 'video/webm',
   })
-  assert.match(key, /^tenants\/platform\/interviews\/sess-1\/recordings\/interview_video_[a-f0-9]+\.webm$/)
+  assert.match(
+    key,
+    /^tenants\/platform\/candidates\/cand-9\/interviews\/sess-1\/recordings\/recording_[a-f0-9]+\.webm$/,
+  )
 })

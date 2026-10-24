@@ -4,7 +4,7 @@ import { llmConfigured, publicModelConfig } from '../interviewAgent.mjs'
 import { groqWhisperConfigured } from '../groqWhisper.mjs'
 import { supabaseStorageConfigured } from '../resumeStorage.mjs'
 import { objectStorageConfigured } from '../storage/resumeObjectStorage.mjs'
-import { s3Env, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
+import { describeS3Layout, s3Env, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
 export function createHealthRouter(ctx) {
@@ -53,7 +53,7 @@ export function createHealthRouter(ctx) {
         provider: objectProvider,
         bucket: s3?.bucket || null,
         region: s3?.region || null,
-        keyPrefix: 'tenants/',
+        layout: s3 ? describeS3Layout() : null,
         /** All private blobs use S3_BUCKET from env only — no migration or second bucket. */
         objectKinds: s3
           ? [

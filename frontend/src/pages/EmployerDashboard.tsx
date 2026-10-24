@@ -31,11 +31,14 @@ import {
   createVendorJob,
   deleteVendorJob,
   markVendorJobDeletedForCandidates,
+  fetchEmployerApplicationAlerts,
   fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
+  markEmployerApplicationAlertsRead,
   patchApplicantStatus,
   sendApplicantInterviewInvite,
+  type EmployerApplicationAlert,
 } from '../lib/vendorApi'
 import styles from './EmployerDashboard.module.css'
 
@@ -226,6 +229,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobSkills, setNewJobSkills] = useState('React, TypeScript, Node.js')
   const [jobFormError, setJobFormError] = useState('')
   const [portalSyncNote, setPortalSyncNote] = useState('')
+  const [applicationAlerts, setApplicationAlerts] = useState<EmployerApplicationAlert[]>([])
+  const seenApplicationAlertIdsRef = useRef(new Set<string>())
 
   const [jobRosterOpen, setJobRosterOpen] = useState<{ jobId: string; title: string } | null>(
     null,
@@ -274,7 +279,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const online = await apiHealth()
     if (loadSeq !== jobsLoadSeqRef.current) return
     if (!online) {
-      setPortalError('API is offline. Start the backend (npm run dev:all) to load jobs from the database.')
+      setPortalError('We could not load your jobs. Please try again shortly.')
       setJobs([])
       return
     }
@@ -300,7 +305,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const { candidates } = await fetchOrganizationCandidates(filters)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
-    setPortalSyncNote(`${jobSeekers.length} job seeker profile(s) loaded from the database.`)
+    setPortalSyncNote(`${jobSeekers.length} candidate profiles available.`)
     setPortalError('')
   }
 
@@ -330,6 +335,57 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       cancelled = true
     }
   }, [user?.email, user?.role, isCandidatesView])
+
+  useEffect(() => {
+    if (!user || user.role !== 'employer') return
+    let cancelled = false
+
+    async function pollApplicationAlerts() {
+      try {
+        await ensureApiSession()
+        const { alerts } = await fetchEmployerApplicationAlerts()
+        if (cancelled) return
+        const fresh = alerts.filter((a) => !seenApplicationAlertIdsRef.current.has(a.id))
+        if (fresh.length) {
+          fresh.forEach((a) => seenApplicationAlertIdsRef.current.add(a.id))
+          setApplicationAlerts(alerts)
+          for (const alert of fresh) {
+            try {
+              const { total, applicants: roster } = await fetchJobApplicants(alert.jobId)
+              setJobCounts((prev) => ({ ...prev, [alert.jobId]: total ?? roster.length }))
+            } catch {
+              /* ignore per-job refresh errors */
+            }
+          }
+          if (isCandidatesView) {
+            void loadOrgCandidatesFromApi()
+          }
+        } else if (alerts.length) {
+          setApplicationAlerts(alerts)
+        }
+      } catch {
+        /* polling is best-effort */
+      }
+    }
+
+    void pollApplicationAlerts()
+    const interval = window.setInterval(() => void pollApplicationAlerts(), 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+    }
+  }, [user?.email, user?.role, isCandidatesView])
+
+  async function dismissApplicationAlerts() {
+    const ids = applicationAlerts.map((a) => a.id)
+    try {
+      await ensureApiSession()
+      await markEmployerApplicationAlertsRead(ids.length ? ids : undefined)
+    } catch {
+      /* still clear local banner */
+    }
+    setApplicationAlerts([])
+  }
 
   const showCandidateTable = isCandidatesView
 
@@ -461,7 +517,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         await patchApplicantStatus(id, mapApplicantStatusToApi(newStatus))
       }
     } catch {
-      setPortalError('Status saved locally only — could not sync to the database.')
+      setPortalError('Status saved on this device. We could not update it for your team yet.')
     }
   }
 
@@ -516,7 +572,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     try {
       await ensureApiSession()
       if (!(await apiHealth())) {
-        throw new Error('API is offline. Start the backend to create jobs in the database.')
+        throw new Error('We cannot create this job right now. Please try again shortly.')
       }
       const { job } = await createVendorJob({
         title,
@@ -535,7 +591,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         next[created.id] = next[created.id] ?? 0
         return next
       })
-      setPortalSyncNote(`Job “${created.title}” saved to the database. Share the link to collect applicants.`)
+      setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)
     } catch (err) {
       setJobs((prev) => prev.filter((j) => j.id !== optimisticId))
       setJobCounts((prev) => {
@@ -550,7 +606,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       setNewJobExp(experienceLevel)
       setNewJobLocation(location)
       setNewJobSkills(requiredSkills.join(', '))
-      setJobFormError(err instanceof Error ? err.message : 'Could not create job in the database.')
+      setJobFormError(err instanceof Error ? err.message : 'Could not publish this job. Please try again.')
       setPortalSyncNote('')
     }
   }
@@ -558,7 +614,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   async function handleDeleteJob(job: EmployerJob) {
     if (isOptimisticJobId(job.id) || deletingJobId) return
     const ok = window.confirm(
-      `Delete “${job.title}”?\n\nThis removes the job posting from your dashboard and the database. Application links for this opening will stop working.`,
+      `Delete “${job.title}”?\n\nThis removes the job posting from your account. Application links for this opening will stop working.`,
     )
     if (!ok) return
 
@@ -569,7 +625,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     try {
       await ensureApiSession()
       if (!(await apiHealth())) {
-        throw new Error('API is offline. Start the backend to delete jobs from the database.')
+        throw new Error('We cannot delete this job right now. Please try again shortly.')
       }
       await markVendorJobDeletedForCandidates(job.id)
       await deleteVendorJob(job.id)
@@ -667,7 +723,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       <div className={styles.shell}>
         {portalLoading && (
           <p className={styles.portalSyncNote} role="status">
-            Loading from database…
+            Loading candidates…
           </p>
         )}
         {portalError ? (
@@ -680,7 +736,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             <motion.div className={styles.heroCard} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               <h1 className={styles.heroTitle}>Search HireRight candidates</h1>
               <p className={styles.heroDesc}>
-                Everyone here comes from your database — applicants, shared interviews, and job seekers
+                Your candidates in one place — applicants, shared interviews, and job seekers
                 who completed an AI interview on HireRight.
               </p>
             </motion.div>
@@ -744,7 +800,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               <div className={styles.jobsGrid}>
                 {jobs.length === 0 && !portalLoading && (
                   <p className={styles.portalSyncNote}>
-                    No jobs in the database yet. Create an opening and share the link with candidates.
+                    No job openings yet. Create an opening and share the link with candidates.
                   </p>
                 )}
                 {jobs.map((job) => {
@@ -827,6 +883,34 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
             </motion.div>
 
+            {applicationAlerts.length > 0 ? (
+              <div className={styles.applicationAlertBanner} role="status">
+                <div>
+                  <strong>
+                    New application{applicationAlerts.length > 1 ? 's' : ''}
+                  </strong>
+                  <p>
+                    {applicationAlerts[0].candidateName} applied for{' '}
+                    <strong>{applicationAlerts[0].jobTitle}</strong>.
+                    {applicationAlerts[0].hasInterviewReport
+                      ? ' HireRighttt report is available in the applicant roster.'
+                      : ''}
+                    {applicationAlerts[0].hasResume ? ' Resume is attached.' : ''}
+                  </p>
+                  {applicationAlerts.length > 1 ? (
+                    <p>+{applicationAlerts.length - 1} more recent application(s)</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className={styles.applicationAlertDismiss}
+                  onClick={() => void dismissApplicationAlerts()}
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+
             {portalSyncNote && (
               <p className={styles.portalSyncNote} role="status">
                 {portalSyncNote}
@@ -837,6 +921,32 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {showCandidateTable && (
         <>
+        {applicationAlerts.length > 0 ? (
+          <div className={styles.applicationAlertBanner} role="status">
+            <div>
+              <strong>New application{applicationAlerts.length > 1 ? 's' : ''}</strong>
+              <p>
+                {applicationAlerts[0].candidateName} applied for{' '}
+                <strong>{applicationAlerts[0].jobTitle}</strong>.
+                {applicationAlerts[0].hasInterviewReport
+                  ? ' Open their HireRighttt report or resume from the table below.'
+                  : applicationAlerts[0].hasResume
+                    ? ' Their resume is available below.'
+                    : ''}
+              </p>
+              {applicationAlerts.length > 1 ? (
+                <p>+{applicationAlerts.length - 1} more recent application(s)</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className={styles.applicationAlertDismiss}
+              onClick={() => void dismissApplicationAlerts()}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         {/* Refined Candidate Filters Card (matches SearchCandidatesPanel design) */}
         <motion.div
           className={styles.filterBarCard}
@@ -1055,7 +1165,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     : 'Candidates'}
               </h2>
               <div className={styles.countText}>
-                Showing {filteredApplicants.length} of {applicants.length} from database
+                Showing {filteredApplicants.length} of {applicants.length} candidates
               </div>
             </div>
 
@@ -1082,7 +1192,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             {isCandidatesView ? (
               <CandidatesDirectoryTable
                 rows={filteredApplicants}
-                emptyTitle="No candidates in database"
+                emptyTitle="No candidates yet"
                 emptyBody="No matching profiles yet. Try search or wait for candidates to complete interviews."
                 onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
               />
@@ -1105,7 +1215,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   <tr>
                     <td colSpan={8}>
                       <div className={styles.emptyState}>
-                        <h3>No candidates in database</h3>
+                        <h3>No candidates yet</h3>
                         <p>No applicants or interviews linked to this job yet. Share the apply link.</p>
                       </div>
                     </td>
@@ -1350,7 +1460,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <div>
                   <h2 id="job-roster-title">Applicants · {jobRosterOpen.title}</h2>
                   <div className={styles.countText}>
-                    Showing {jobRosterRows.length} of {jobRosterRows.length} from database
+                    Showing {jobRosterRows.length} of {jobRosterRows.length} candidates
                   </div>
                 </div>
                 <button

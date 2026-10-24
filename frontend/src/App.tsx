@@ -9,6 +9,7 @@ import { WhoItsForPage } from './pages/WhoItsForPage'
 import { WhyPage } from './pages/WhyPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { PricingPage } from './pages/PricingPage'
+import { InterviewRetakePricingPage } from './pages/InterviewRetakePricingPage'
 import { FaqPage } from './pages/FaqPage'
 import { CareerViewPage } from './pages/CareerViewPage'
 import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
@@ -116,6 +117,16 @@ function AnimatedRoutes() {
                 <RequireAuth role="jobseeker">
                   <RequireCandidateOnboardingComplete>
                     <DashboardPage />
+                  </RequireCandidateOnboardingComplete>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/pricing/retake"
+              element={
+                <RequireAuth role="jobseeker">
+                  <RequireCandidateOnboardingComplete>
+                    <InterviewRetakePricingPage />
                   </RequireCandidateOnboardingComplete>
                 </RequireAuth>
               }

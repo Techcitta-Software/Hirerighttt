@@ -6,7 +6,7 @@ import styles from './AppFooter.module.css'
 
 const CANDIDATE_LINKS = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/jobs', label: 'Matches' },
+  { to: '/jobs', label: 'Find jobs' },
   { to: '/applications', label: 'Applications' },
   { to: '/profile', label: 'Profile' },
   { to: '/settings', label: 'Settings' },
@@ -52,7 +52,7 @@ export function AppFooter() {
               dark
               className={styles.brandLink}
             />
-            <p className={styles.tagline}>Fair AI interviews and clear scorecards.</p>
+            <p className={styles.tagline}>Your experience. Your potential. Your next opportunity.</p>
           </div>
           <nav className={styles.nav} aria-label="App footer">
             {links.map((item) => (
@@ -63,7 +63,7 @@ export function AppFooter() {
           </nav>
         </div>
         <div className={styles.bottomRow}>
-          <p className={styles.copyright}>© {year} HireRighttt. All rights reserved.</p>
+          <p className={styles.copyright}>&copy; {year} HireRighttt. All rights reserved.</p>
         </div>
       </div>
     </footer>

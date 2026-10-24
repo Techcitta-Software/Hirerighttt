@@ -824,16 +824,14 @@ export function getInterviewResult(): InterviewResult | null {
     keys.push(`${RESULT_KEY}.${lower}`)
     if (user.email !== lower) keys.push(`${RESULT_KEY}.${user.email}`)
   }
-  keys.push(RESULT_KEY)
+  // Unscoped legacy results have no verified owner. Never attach one to a signed-in account.
+  if (!user?.email) keys.push(RESULT_KEY)
 
   for (const key of keys) {
     const raw = localStorage.getItem(key)
     if (!raw) continue
     try {
       const parsed = normalizeInterviewResult(JSON.parse(raw) as InterviewResult)
-      if (user?.email && key === RESULT_KEY) {
-        localStorage.setItem(interviewResultKey(user.email), JSON.stringify(parsed))
-      }
       return parsed
     } catch {
       continue
@@ -916,6 +914,7 @@ export function applyToJob(job: {
   }
 
   addNotification({
+    kind: 'application',
     title: `Applied to ${job.title}`,
     body: `${job.company} received your application and AI score.`,
     href: '/applications',
@@ -1621,6 +1620,7 @@ export function updateEmployerApplicantStatus(
     localStorage.setItem(EMPLOYER_APPLICANTS_KEY, JSON.stringify(applicants))
     addNotification(
       {
+        kind: 'status',
         title: `Application ${status.toLowerCase()}`,
         body: `${applicants[idx].company} marked you as ${status} for ${applicants[idx].jobTitle}.`,
         href: '/applications',
@@ -1649,6 +1649,8 @@ export type AppNotification = {
   href?: string
   read: boolean
   createdAt: string
+  kind?: 'job_match' | 'application' | 'status' | 'general'
+  jobId?: string
 }
 
 const NOTIF_KEY = 'hireright.notifications'
@@ -1668,13 +1670,17 @@ export function getNotifications(email?: string): AppNotification[] {
 }
 
 export function addNotification(
-  input: Pick<AppNotification, 'title' | 'body' | 'href'>,
+  input: Pick<AppNotification, 'title' | 'body' | 'href' | 'kind' | 'jobId'>,
   email?: string,
 ) {
   const list = getNotifications(email)
+  if (input.jobId && list.some((n) => n.jobId === input.jobId && n.kind === 'job_match')) {
+    return
+  }
   list.unshift({
-    id: uid(),
     ...input,
+    id: uid(),
+    kind: input.kind ?? 'general',
     read: false,
     createdAt: new Date().toISOString(),
   })
@@ -1682,8 +1688,22 @@ export function addNotification(
   window.dispatchEvent(new Event('hireright-auth'))
 }
 
+/** Remove all notifications from the inbox (treated as read/dismissed). */
 export function markNotificationsRead() {
-  const list = getNotifications().map((n) => ({ ...n, read: true }))
+  localStorage.setItem(notifKey(), JSON.stringify([]))
+  window.dispatchEvent(new Event('hireright-auth'))
+}
+
+/** Remove notifications matching predicate from the inbox (treated as read/dismissed). */
+export function markNotificationsReadWhere(predicate: (n: AppNotification) => boolean) {
+  const list = getNotifications().filter((n) => !predicate(n))
+  localStorage.setItem(notifKey(), JSON.stringify(list))
+  window.dispatchEvent(new Event('hireright-auth'))
+}
+
+/** Dismiss a single notification so it no longer appears in the bell. */
+export function markNotificationRead(id: string) {
+  const list = getNotifications().filter((n) => n.id !== id)
   localStorage.setItem(notifKey(), JSON.stringify(list))
   window.dispatchEvent(new Event('hireright-auth'))
 }

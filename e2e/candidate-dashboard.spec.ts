@@ -11,6 +11,7 @@ async function setup(page: import('@playwright/test').Page, options = { empty: f
     localStorage.setItem('hireright.users', JSON.stringify([user]))
     localStorage.setItem('hireright.session', email)
     localStorage.setItem('hireright.apiToken', 'test-token')
+    localStorage.setItem('hireright.cookieConsent', JSON.stringify({version: 1, essential: true, analytics: false, decidedAt: '2026-10-24'}))
     localStorage.setItem(`hireright.profile.${email}`, JSON.stringify(profile))
     if (!empty) localStorage.setItem(`hireright.interviewResult.${email}`, JSON.stringify(interview))
     // A different account's legacy result must never appear.
@@ -41,6 +42,9 @@ test('dashboard displays real data, downloads a PDF and opens job matches', asyn
   const download = await downloadPromise
   expect(download.suggestedFilename()).toBe('maya-patel-career-report.pdf')
   expect(await download.failure()).toBeNull()
+  await page.goto('/dashboard')
+  await expect(page.getByText('Refreshing your dashboard.')).toBeHidden()
+  await expect(page.getByRole('heading', {name: 'Welcome back, Maya.'})).toBeVisible()
   await page.screenshot({ path: 'test-results/candidate-dashboard-desktop.png', fullPage: true })
   await page.getByRole('link', { name: 'Browse all roles', exact: true }).click()
   await expect(page).toHaveURL(/\/jobs$/)
@@ -81,4 +85,25 @@ test('profile updates reach the API and failed saves keep the previous stored pr
   await page.getByTestId('basics-done-btn').click()
   await expect(page.getByTestId('basics-edit-btn')).toBeVisible()
   expect(await page.evaluate(email => JSON.parse(localStorage.getItem(`hireright.profile.${email}`)!).fullName, email)).toBe('Maya Updated')
+})
+
+
+test('missing details link to the right section and job cards scroll on mobile', async ({ page }) => {
+  await setup(page)
+  await page.route('**/api/me', route => route.fulfill({ json: { user, profile: { ...profile, skills: [], updatedAt: '2026-10-25T12:00:00Z' }, interview } }))
+  await page.route('**/api/jobs*', route => route.fulfill({ json: { jobs: Array.from({ length: 6 }, (_, i) => ({ id: `job-${i}`, title: `Developer ${i}`, company: 'Example Company', location: 'Remote', shareableCode: `role-${i}` })) } }))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/dashboard')
+  await expect(page.getByText('Refreshing your dashboard.')).toBeHidden()
+  await expect(page.getByRole('progressbar', { name: 'Profile completion' })).toHaveAttribute('value', '86')
+  await expect(page.getByRole('link', { name: /Skills.*Add details/ })).toHaveAttribute('href', '/profile#skills')
+  const rail = page.getByRole('list', { name: 'Open jobs, scroll horizontally' })
+  await expect(rail.getByRole('listitem')).toHaveCount(6)
+  await page.getByRole('button', { name: 'Next jobs', exact: true }).click()
+  await expect.poll(() => rail.evaluate(el => el.scrollLeft)).toBeGreaterThan(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/candidate-dashboard-mobile-jobs.png', fullPage: true })
+  await page.getByRole('link', { name: /Skills.*Add details/ }).click()
+  await expect(page).toHaveURL(/\/profile#skills$/)
+  await expect(page.getByTestId('skills-edit-btn')).toBeInViewport()
 })

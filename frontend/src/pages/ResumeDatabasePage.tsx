@@ -200,7 +200,7 @@ export function ResumeDatabasePage() {
         >
           <div>
             <motion.div className={styles.kicker} variants={fadeUp}>
-              <HrIcon name="folder" size={18} /> TALENT & RESUME VAULT DATABASE
+              <HrIcon name="folder" size={18} /> YOUR TALENT COLLECTION
             </motion.div>
             <motion.h1 className={styles.title} variants={fadeUp}>
               All Candidate <em>Resumes & Profiles</em>

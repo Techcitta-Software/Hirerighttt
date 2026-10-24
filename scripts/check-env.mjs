@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadEnv, REPO_ROOT } from '../env/loadEnv.mjs'
 import { s3Env, s3StorageConfigured } from '../backend/node/storage/s3ObjectStorage.mjs'
+import { verifyConfiguredS3Bucket } from '../backend/node/storage/s3StartupVerify.mjs'
 
 const deprecated = [
   'backend/node/.env',
@@ -32,6 +33,7 @@ if (!existsSync(rootEnv)) {
 }
 
 loadEnv()
+
 if (s3StorageConfigured()) {
   const { bucket, region } = s3Env()
   const hasKey = Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
@@ -47,7 +49,14 @@ if (s3StorageConfigured()) {
       '[check-env] AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set — OK only if API uses an IAM role',
     )
   }
-  console.log('[check-env] Verify IAM + bucket: npm run s3:test')
+  try {
+    await verifyConfiguredS3Bucket()
+    console.log('[check-env] S3 HeadBucket OK — credentials target this bucket only (not Neon bucket column)')
+  } catch (err) {
+    console.error('[check-env]', err instanceof Error ? err.message : err)
+    process.exitCode = 1
+  }
+  console.log('[check-env] Verify IAM upload: npm run s3:test')
 } else {
   console.warn(
     '[check-env] S3 not configured — set AWS_REGION + S3_BUCKET in repo-root .env (see s3.md)',

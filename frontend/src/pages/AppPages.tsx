@@ -12,14 +12,15 @@ import {
   type InterviewResult,
   getProfile,
   getUser,
-  markNotificationsRead,
+  markNotificationsReadWhere,
   rankPostedJobs,
   resolveInterviewOverall,
   saveApplications,
   profileKey,
 
 } from '../lib/store'
-import { pullInterviewFromApi, pullProfileFromApi } from '../lib/apiSync'
+import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
+import { missingProfileFields, profileCompletionPercent } from '../lib/profileCompletion'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import {
@@ -31,17 +32,46 @@ import { uploadInterviewReportPdfToS3, waitForStoredReportPdf } from '../lib/int
 import { apiListApplications, apiSaveProfile, apiWithdrawApplication } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
+import { syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import { slugifyCompany } from '../lib/jobLink'
+import { HrIcon } from '../components/HrIcon'
 import styles from './AppPages.module.css'
 
 export { DashboardPage } from './CandidateDashboard'
 
 /** Full scorecard + PDF download (`/dashboard/report`). */
+function formatProfileDate(value?: string) {
+  const date = value ? new Date(value) : null
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : null
+}
+
 export function InterviewReportPage() {
   const user = getUser()
-  const interview = getInterviewResult()
-  const profile = getProfile()
+  const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
+  const [profile, setProfile] = useState(() => getProfile())
+  const [reportLoading, setReportLoading] = useState(true)
   const name = firstName()
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setReportLoading(true)
+      await syncSessionFromApi()
+      const [remoteInterview, remoteProfile] = await Promise.all([
+        pullInterviewFromApi(),
+        pullProfileFromApi(),
+      ])
+      if (cancelled) return
+      setInterview(remoteInterview ?? getInterviewResult())
+      setProfile(remoteProfile ?? getProfile())
+      setReportLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.email])
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -98,6 +128,18 @@ export function InterviewReportPage() {
 
   if (user?.role === 'employer') {
     return <Navigate to="/employer/dashboard" replace />
+  }
+
+  if (reportLoading) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.shell}>
+          <main className={styles.main}>
+            <p className={styles.muted} role="status">Loading your interview report…</p>
+          </main>
+        </div>
+      </div>
+    )
   }
 
   if (!interview) {
@@ -195,18 +237,47 @@ interface JobMatchRole {
   bullets: string[]
   shareableCode?: string
   companySlug?: string
+  postedAt?: string
+  skillTags: string[]
+}
+
+function formatPostedAgo(iso?: string) {
+  if (!iso) return 'Posted recently'
+  const then = new Date(iso).getTime()
+  if (!Number.isFinite(then)) return 'Posted recently'
+  const diffMs = Date.now() - then
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+  if (days <= 0) return 'Today'
+  if (days === 1) return '1 day ago'
+  if (days < 7) return `${days} days ago`
+  const weeks = Math.floor(days / 7)
+  if (weeks === 1) return '1 week ago'
+  if (weeks < 5) return `${weeks} weeks ago`
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+function companyLogoStyle(name: string) {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  const hues = [245, 210, 165, 200, 280, 320]
+  const hue = hues[Math.abs(hash) % hues.length]
+  return {
+    bg: `hsl(${hue} 55% 94%)`,
+    color: `hsl(${hue} 45% 38%)`,
+  }
 }
 
 export function JobsPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const highlightJobId = searchParams.get('job')
   const [toast, setToast] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [locationFilter, setLocationFilter] = useState('Hyderabad')
   const [workModeFilter, setWorkModeFilter] = useState('Any')
-  const [minSalaryFilter, setMinSalaryFilter] = useState('₹10 LPA')
-  const [minMatchFilter, setMinMatchFilter] = useState('70%')
+  const [minMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
-  const [selectedJobId, setSelectedJobId] = useState<string>('1')
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [jobScope, setJobScope] = useState<'matched' | 'all'>('matched')
   const [jobsListMeta, setJobsListMeta] = useState<{
     totalOpen?: number
@@ -255,6 +326,9 @@ export function JobsPage() {
           message: listRes.message,
         })
         const rawJobs = listRes.jobs ?? []
+        syncJobMatchNotifications(
+          rawJobs.map((j) => ({ id: j.id, title: j.title, company: j.company })),
+        )
         if (rawJobs.length === 0) {
           setEmployerJobs([])
           setJobsBoardState('ready')
@@ -264,6 +338,7 @@ export function JobsPage() {
         const mapped: JobMatchRole[] = ranked.map((j, idx) => {
           const raw = rawJobs.find((rj) => rj.id === j.id)
           const reqSkills = raw?.requiredSkills?.length ? raw.requiredSkills : ['Skills in job description']
+          const logoStyle = companyLogoStyle(j.company)
           const jd = raw?.jobDescription || j.jobDescription || ''
           const jdBullets = jd
             .split(/\n/)
@@ -273,8 +348,8 @@ export function JobsPage() {
           return {
             id: j.id || `emp-${idx}`,
             logo: j.company.slice(0, 2).toUpperCase(),
-            logoColor: '#6366f1',
-            logoBg: '#ede9fe',
+            logoColor: logoStyle.color,
+            logoBg: logoStyle.bg,
             title: j.title,
             company: j.company,
             location: j.location || 'Remote',
@@ -286,7 +361,9 @@ export function JobsPage() {
             badgeType: idx === 0 ? 'topPick' : 'new',
             matchedSkills: reqSkills.slice(0, 2),
             gapSkills: reqSkills.slice(2, 4),
-            posted: raw?.createdAt ? 'Posted recently' : 'Open role',
+            posted: formatPostedAgo(raw?.createdAt),
+            postedAt: raw?.createdAt,
+            skillTags: reqSkills.slice(0, 10),
             applicants: 'Apply with your resume',
             match: j.match || 85,
             minScore: 70,
@@ -312,7 +389,7 @@ export function JobsPage() {
       } catch {
         if (!cancelled) {
           setJobsBoardState('error')
-          setJobsBoardError('Could not load employer jobs. Check that the backend is running.')
+          setJobsBoardError('We could not load job openings. Please try again in a moment.')
           setEmployerJobs([])
         }
       }
@@ -322,6 +399,13 @@ export function JobsPage() {
       cancelled = true
     }
   }, [jobScope])
+
+  useEffect(() => {
+    if (!highlightJobId) return
+    if (employerJobs.some((j) => j.id === highlightJobId)) {
+      setSelectedJobId(highlightJobId)
+    }
+  }, [highlightJobId, employerJobs])
 
   const allRoles = useMemo(() => employerJobs, [employerJobs])
 
@@ -346,16 +430,24 @@ export function JobsPage() {
       if (workModeFilter !== 'Any' && !job.mode.toLowerCase().includes(workModeFilter.toLowerCase())) {
         return false
       }
+      const minMatch = parseInt(minMatchFilter, 10)
+      if (Number.isFinite(minMatch) && job.match < minMatch) {
+        return false
+      }
       return true
     })
-  }, [allRoles, searchTerm, locationFilter, workModeFilter])
+  }, [allRoles, searchTerm, locationFilter, workModeFilter, minMatchFilter])
 
   const sortedRoles = useMemo(() => {
     const list = [...filteredRoles]
     if (sortBy === 'Highest salary') {
       list.sort((a, b) => b.salary.localeCompare(a.salary))
     } else if (sortBy === 'Most recent') {
-      list.sort((a, b) => a.posted.localeCompare(b.posted))
+      list.sort((a, b) => {
+        const ta = new Date(a.postedAt || 0).getTime()
+        const tb = new Date(b.postedAt || 0).getTime()
+        return tb - ta
+      })
     } else {
       list.sort((a, b) => b.match - a.match)
     }
@@ -365,12 +457,13 @@ export function JobsPage() {
   const visibleRoles = sortedRoles
 
   const selectedJob = useMemo(() => {
-    return sortedRoles.find((j) => j.id === selectedJobId) || sortedRoles[0] || null
+    if (!selectedJobId) return null
+    return sortedRoles.find((j) => j.id === selectedJobId) || null
   }, [sortedRoles, selectedJobId])
 
   useEffect(() => {
-    if (sortedRoles.length > 0 && !sortedRoles.some((j) => j.id === selectedJobId)) {
-      setSelectedJobId(sortedRoles[0].id)
+    if (selectedJobId && !sortedRoles.some((j) => j.id === selectedJobId)) {
+      setSelectedJobId(null)
     }
   }, [sortedRoles, selectedJobId])
 
@@ -440,6 +533,7 @@ export function JobsPage() {
       const synced = await apiListApplications()
       saveApplications(synced)
       addNotification({
+        kind: 'application',
         title: `Applied to ${job.title}`,
         body: `${job.company} received your application and AI score.`,
         href: '/applications',
@@ -473,447 +567,261 @@ export function JobsPage() {
     window.setTimeout(() => setToast(''), 2500)
   }
 
+  const jobsHeadline =
+    jobsBoardState === 'loading'
+      ? 'Loading roles…'
+      : sortedRoles.length === 0
+        ? 'No jobs found'
+        : `${sortedRoles.length} job${sortedRoles.length === 1 ? '' : 's'}`
+
   return (
-    <div className={styles.page}>
-      <div className={styles.shell}>
-        <motion.main
-          className={styles.main}
-          variants={staggerContainer}
-          initial="hidden"
-          animate="show"
-        >
-          {/* Header */}
-          <motion.header className={styles.head} variants={fadeUp}>
-            <div>
-              <span className={styles.eyebrow}>
-                {jobScope === 'matched' ? 'ROLES FOR YOU' : 'ALL OPEN ROLES'}
-              </span>
-              <h1>
-                {jobsBoardState === 'loading'
-                  ? 'Loading employer roles…'
-                  : sortedRoles.length === 0
-                    ? jobScope === 'matched'
-                      ? 'No matching roles for your profile yet'
-                      : 'No open employer roles yet'
-                    : jobScope === 'matched'
-                      ? `${sortedRoles.length} role${sortedRoles.length === 1 ? '' : 's'} matching your profile`
-                      : `${sortedRoles.length} open employer role${sortedRoles.length === 1 ? '' : 's'}`}
-              </h1>
-              <p>
-                {jobsBoardError ||
-                  (jobScope === 'matched'
-                    ? jobsListMeta.personalized && jobsListMeta.candidateRoleHints?.length
-                      ? `Showing postings aligned with ${jobsListMeta.candidateRoleHints.slice(0, 2).join(' · ')}. Ranked by interview score when available.`
-                      : jobsListMeta.message ||
-                        'Add your current role on your profile to personalize matches, or view all postings.'
-                    : 'Every active employer posting on HireRight. Ranked by your interview score when available.')}
+    <div className={styles.pageCandidateBleed}>
+      <div className={`${styles.page} ${styles.pageCandidate} ${styles.pageJobsBoard}`}>
+        <div className={`${styles.shell} ${styles.jobsBoardShell}`}>
+          <motion.main
+            className={`${styles.main} ${styles.jobsBoardMain}`}
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+          >
+            <motion.div className={styles.jobsBoardToolbar} variants={fadeUp}>
+              <div className={styles.jobsSearchWrap}>
+                <HrIcon name="search" size={18} className={styles.jobsSearchIcon} />
+                <input
+                  type="search"
+                  className={styles.jobsSearchInput}
+                  placeholder="Search jobs here"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  aria-label="Search jobs"
+                />
+              </div>
+              <div className={styles.jobsToolbarFilters}>
+                <select
+                  className={styles.jobsToolbarSelect}
+                  value={locationFilter}
+                  onChange={(e) => setLocationFilter(e.target.value)}
+                  aria-label="Location"
+                >
+                  <option value="Hyderabad">Hyderabad</option>
+                  <option value="Bengaluru">Bengaluru</option>
+                  <option value="Pune">Pune</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Any">Any location</option>
+                </select>
+                <select
+                  className={styles.jobsToolbarSelect}
+                  value={workModeFilter}
+                  onChange={(e) => setWorkModeFilter(e.target.value)}
+                  aria-label="Work mode"
+                >
+                  <option value="Any">Any mode</option>
+                  <option value="Remote">Remote</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="On-site">On-site</option>
+                </select>
+                <select
+                  className={styles.jobsToolbarSelect}
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  aria-label="Sort jobs"
+                >
+                  <option value="Best match">Best match</option>
+                  <option value="Most recent">Most recent</option>
+                  <option value="Highest salary">Salary</option>
+                </select>
+              </div>
+            </motion.div>
+
+            <motion.div className={styles.jobsScopeRow} variants={fadeUp}>
+              <button
+                type="button"
+                className={jobScope === 'matched' ? styles.jobsScopeChipActive : styles.jobsScopeChip}
+                onClick={() => setJobScope('matched')}
+              >
+                For you
+              </button>
+              <button
+                type="button"
+                className={jobScope === 'all' ? styles.jobsScopeChipActive : styles.jobsScopeChip}
+                onClick={() => setJobScope('all')}
+              >
+                All jobs
+                {jobsListMeta.totalOpen != null ? ` (${jobsListMeta.totalOpen})` : ''}
+              </button>
+              <span className={styles.jobsResultCount}>{jobsHeadline}</span>
+              {!unlocked ? (
+                <span className={styles.jobsScoreHint}>Complete interview to apply with your report</span>
+              ) : (
+                <span className={styles.jobsScoreHint}>Interview score {candidateScoreLabel}</span>
+              )}
+            </motion.div>
+
+            {jobsBoardError ? (
+              <p className={styles.jobsBoardMessage} role="alert">
+                {jobsBoardError}
               </p>
-            </div>
-            <div className={styles.headerBadgesWrap}>
-              {jobScope === 'matched' &&
-              jobsListMeta.totalOpen != null &&
-              jobsListMeta.totalOpen > sortedRoles.length ? (
-                <button
-                  type="button"
-                  className={styles.loadMoreMatchesBtn}
-                  onClick={() => setJobScope('all')}
-                >
-                  View all job postings ({jobsListMeta.totalOpen})
-                </button>
-              ) : null}
-              {jobScope === 'all' ? (
-                <button
-                  type="button"
-                  className={styles.loadMoreMatchesBtn}
-                  onClick={() => setJobScope('matched')}
-                >
-                  Show roles for my profile
-                </button>
-              ) : null}
-              {sortedRoles.length > 0 ? (
-                <span className={styles.badgeSubtlePill}>{sortedRoles.length} live posting(s)</span>
-              ) : null}
-              <span className={styles.badgeScoreFitPill}>
-                Interview score {candidateScoreLabel}
-                {unlocked && sortedRoles.length > 0
-                  ? ` · ${sortedRoles.filter((j) => j.match >= 70).length} meet 70%+ match`
-                  : ''}
-              </span>
-            </div>
-          </motion.header>
+            ) : null}
+            {!jobsBoardError && jobScope === 'matched' && jobsListMeta.message ? (
+              <p className={styles.jobsBoardMessage}>{jobsListMeta.message}</p>
+            ) : null}
 
-          {toast && <div className={styles.toast}>{toast}</div>}
+            {toast ? <div className={styles.toast}>{toast}</div> : null}
 
-          {/* Filter Bar */}
-          <motion.div className={styles.filterBar} variants={fadeUp}>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>SEARCH</label>
-              <input
-                type="text"
-                className={styles.filterInput}
-                placeholder="Role, company or skill"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>LOCATION</label>
-              <select
-                className={styles.filterSelect}
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-              >
-                <option value="Hyderabad">Hyderabad</option>
-                <option value="Bengaluru">Bengaluru</option>
-                <option value="Pune">Pune</option>
-                <option value="Remote">Remote</option>
-                <option value="Any">Any location</option>
-              </select>
-            </div>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>WORK MODE</label>
-              <select
-                className={styles.filterSelect}
-                value={workModeFilter}
-                onChange={(e) => setWorkModeFilter(e.target.value)}
-              >
-                <option value="Any">Any</option>
-                <option value="Remote">Remote</option>
-                <option value="Hybrid">Hybrid</option>
-                <option value="On-site">On-site</option>
-              </select>
-            </div>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>MIN SALARY</label>
-              <select
-                className={styles.filterSelect}
-                value={minSalaryFilter}
-                onChange={(e) => setMinSalaryFilter(e.target.value)}
-              >
-                <option value="₹10 LPA">₹10 LPA</option>
-                <option value="₹12 LPA">₹12 LPA</option>
-                <option value="₹14 LPA">₹14 LPA</option>
-                <option value="₹16 LPA">₹16 LPA</option>
-                <option value="Any">Any</option>
-              </select>
-            </div>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>MIN MATCH</label>
-              <select
-                className={styles.filterSelect}
-                value={minMatchFilter}
-                onChange={(e) => setMinMatchFilter(e.target.value)}
-              >
-                <option value="70%">70%</option>
-                <option value="75%">75%</option>
-                <option value="80%">80%</option>
-                <option value="85%">85%</option>
-              </select>
-            </div>
-            <div className={styles.filterField}>
-              <label className={styles.filterLabel}>SORT BY</label>
-              <select
-                className={styles.filterSelect}
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="Best match">Best match</option>
-                <option value="Highest salary">Highest salary</option>
-                <option value="Most recent">Most recent</option>
-              </select>
-            </div>
-          </motion.div>
+            <motion.div className={styles.jobsFeedList} variants={fadeUp}>
+              {jobsBoardState === 'loading'
+                ? Array.from({ length: 4 }).map((_, i) => (
+                    <div key={`sk-${i}`} className={`${styles.naukriJobCard} ${styles.jobFeedSkeleton}`} />
+                  ))
+                : null}
 
-          {/* Master - Detail Layout */}
-          <motion.div className={styles.matchesLayout} variants={fadeUp}>
-            {/* Left Column: Job Cards List */}
-            <div className={styles.matchCardList}>
-              {jobsBoardState === 'loading' ? (
-                <p className={styles.muted}>Loading jobs from employers…</p>
-              ) : null}
               {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
-                <p className={styles.muted}>
-                  When a vendor creates a job in the employer dashboard, it appears here. You can apply with
-                  your resume on the apply form.
-                </p>
+                <div className={styles.jobsEmptyCard}>
+                  <strong>No open roles yet</strong>
+                  <p>
+                    When employers post jobs on HireRighttt, they appear here. Complete your profile and
+                    interview to apply with your AI report.
+                  </p>
+                  {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
+                    <button
+                      type="button"
+                      className={styles.primary}
+                      onClick={() => setJobScope('all')}
+                    >
+                      Browse all {jobsListMeta.totalOpen} postings
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
+
               {visibleRoles.map((job) => {
-                const isSelected = selectedJob?.id === job.id
+                const isOpen = selectedJob?.id === job.id
+                const locationLine =
+                  job.mode && job.mode !== 'Hybrid'
+                    ? `${job.mode} · ${job.location}`
+                    : `${job.mode} - ${job.location}`
                 return (
                   <article
                     key={job.id}
-                    className={`${styles.matchItemCard} ${isSelected ? styles.matchItemActive : ''}`}
-                    onClick={() => setSelectedJobId(job.id)}
+                    className={`${styles.naukriJobCard} ${isOpen ? styles.naukriJobCardOpen : ''}`}
                   >
-                    <div className={styles.matchCardLeft}>
-                      <div
-                        className={styles.companyAvatar}
-                        style={{ background: job.logoBg, color: job.logoColor }}
-                      >
-                        {job.logo}
-                      </div>
-                      <div>
-                        <div className={styles.matchCardTitleRow}>
-                          <span className={styles.matchCardRole}>{job.title}</span>
-                          {job.badge && (
-                            <span
-                              className={
-                                job.badgeType === 'topPick'
-                                  ? styles.badgeTopPick
-                                  : job.badgeType === 'new'
-                                  ? styles.badgeNew
-                                  : styles.badgeOpen
-                              }
-                            >
-                              {job.badge}
-                            </span>
-                          )}
+                    <button
+                      type="button"
+                      className={styles.naukriJobCardHit}
+                      onClick={() => setSelectedJobId(isOpen ? null : job.id)}
+                      aria-expanded={isOpen}
+                    >
+                      <div className={styles.naukriCardTop}>
+                        <div className={styles.naukriCardHeadline}>
+                          <h2 className={styles.naukriJobTitle}>{job.title}</h2>
+                          <div className={styles.naukriCompanyRow}>
+                            <span className={styles.naukriCompanyName}>{job.company}</span>
+                            {unlocked ? (
+                              <span className={styles.naukriRating}>
+                                <HrIcon name="star" size={14} className={styles.naukriStar} />
+                                {job.match}% profile match
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                        <div className={styles.matchCardSub}>
-                          {job.company} · {job.location} · {job.mode}
-                        </div>
-                        <div className={styles.matchCardSalary}>{job.salary}</div>
-                        <div className={styles.matchCardSkills}>
-                          Matched: {job.matchedSkills.join(', ')} · Gap: {job.gapSkills.join(', ')}
-                        </div>
-                        <div className={styles.matchCardFooter}>
-                          {job.posted} · {job.applicants}
+                        <div
+                          className={styles.naukriLogoBox}
+                          style={{ background: job.logoBg, color: job.logoColor }}
+                          aria-hidden
+                        >
+                          {job.logo}
                         </div>
                       </div>
-                    </div>
-                    <div className={styles.matchScorePill}>
-                      <span className={styles.matchScoreNum}>{job.match}%</span>
-                      <span className={styles.matchScoreLabel}>match</span>
-                    </div>
+
+                      <div className={styles.naukriMetaRow}>
+                        <span className={styles.naukriMetaItem}>
+                          <HrIcon name="briefcase" size={15} />
+                          {job.experience}
+                        </span>
+                        <span className={styles.naukriMetaSep} aria-hidden>
+                          |
+                        </span>
+                        <span className={styles.naukriMetaItem}>
+                          <span className={styles.naukriRupee} aria-hidden>
+                            ₹
+                          </span>
+                          {job.salary === 'Employer listed' ? 'Not disclosed' : job.salary}
+                        </span>
+                        <span className={styles.naukriMetaSep} aria-hidden>
+                          |
+                        </span>
+                        <span className={styles.naukriMetaItem}>
+                          <HrIcon name="map-pin" size={15} />
+                          {locationLine}
+                        </span>
+                      </div>
+
+                      <p className={styles.naukriSkillsLine}>{job.skillTags.join(' · ')}</p>
+
+                      <div className={styles.naukriCardFoot}>
+                        <span className={styles.naukriPosted}>{job.posted}</span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className={
+                            savedJobIds.has(job.id) ? styles.naukriSaveActive : styles.naukriSave
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSave(job)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              handleSave(job)
+                            }
+                          }}
+                        >
+                          <HrIcon name="document" size={16} />
+                          {savedJobIds.has(job.id) ? 'Saved' : 'Save'}
+                        </span>
+                      </div>
+                    </button>
+
+                    {isOpen ? (
+                      <div className={styles.naukriJobExpand}>
+                        <p className={styles.naukriAbout}>{job.about}</p>
+                        {job.bullets.length > 0 ? (
+                          <ul className={styles.naukriBullets}>
+                            {job.bullets.map((b, idx) => (
+                              <li key={idx}>{b}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <div className={styles.naukriExpandActions}>
+                          <button
+                            type="button"
+                            className={styles.naukriApplyBtn}
+                            disabled={applyingJobId === job.id}
+                            onClick={() => void handleApply(job)}
+                          >
+                            {applyingJobId === job.id ? 'Applying…' : 'Apply with my report'}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.naukriSecondaryBtn}
+                            onClick={() => handleNotForMe(job)}
+                          >
+                            Not for me
+                          </button>
+                        </div>
+                        <p className={styles.naukriApplyNote}>
+                          Applying shares your HireRighttt interview report and resume with this employer.
+                        </p>
+                      </div>
+                    ) : null}
                   </article>
                 )
               })}
-
-              {jobScope === 'matched' && sortedRoles.length === 0 && (jobsListMeta.totalOpen ?? 0) > 0 ? (
-                <button
-                  type="button"
-                  className={styles.loadMoreMatchesBtn}
-                  onClick={() => setJobScope('all')}
-                >
-                  View all job postings ({jobsListMeta.totalOpen})
-                </button>
-              ) : null}
-            </div>
-
-            {/* Right Column: Sticky Detail Pane */}
-            {selectedJob && (
-              <aside className={styles.detailStickyPane}>
-                <div className={styles.detailHeader}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    <div
-                      className={styles.companyAvatar}
-                      style={{
-                        background: selectedJob.logoBg,
-                        color: selectedJob.logoColor,
-                        width: 44,
-                        height: 44,
-                        fontSize: '1rem',
-                      }}
-                    >
-                      {selectedJob.logo}
-                    </div>
-                    <div>
-                      <h2
-                        style={{
-                          fontSize: '1.25rem',
-                          fontWeight: 700,
-                          color: '#0f172a',
-                          margin: 0,
-                        }}
-                      >
-                        {selectedJob.title}
-                      </h2>
-                      <div className={styles.matchCardSub} style={{ marginTop: 2 }}>
-                        {selectedJob.company} · {selectedJob.location} · {selectedJob.mode}
-                      </div>
-                      <div className={styles.matchCardSub} style={{ marginTop: 2, fontWeight: 600 }}>
-                        {selectedJob.salary} · {selectedJob.jobType} · {selectedJob.experience}
-                      </div>
-                    </div>
-                  </div>
-                  <div className={styles.detailScoreWrap}>
-                    <div className={styles.detailScoreBig}>{selectedJob.match}%</div>
-                    <div className={styles.matchScoreLabel}>overall match</div>
-                  </div>
-                </div>
-
-                <div className={styles.scoreReqAlert}>
-                  Employer requires an interview score of {selectedJob.minScore} or more. Yours is{' '}
-                  {candidateScoreLabel}.
-                </div>
-
-                {/* Why you match */}
-                <div>
-                  <h3
-                    style={{
-                      fontSize: '0.95rem',
-                      fontWeight: 700,
-                      color: '#0f172a',
-                      margin: '18px 0 10px',
-                    }}
-                  >
-                    Why you match
-                  </h3>
-                  <div className={styles.fitProgressList}>
-                    <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>Interview fit</span>
-                      <div className={styles.fitProgressBarWrap}>
-                        <div
-                          className={styles.fitProgressBarFill}
-                          style={{ width: `${selectedJob.breakdown.interviewFit}%` }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 700, color: '#0f172a', width: 24, textAlign: 'right' }}>
-                        {selectedJob.breakdown.interviewFit}
-                      </span>
-                    </div>
-                    <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>Résumé fit</span>
-                      <div className={styles.fitProgressBarWrap}>
-                        <div
-                          className={styles.fitProgressBarFill}
-                          style={{ width: `${selectedJob.breakdown.resumeFit}%` }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 700, color: '#0f172a', width: 24, textAlign: 'right' }}>
-                        {selectedJob.breakdown.resumeFit}
-                      </span>
-                    </div>
-                    <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>Skills fit</span>
-                      <div className={styles.fitProgressBarWrap}>
-                        <div
-                          className={styles.fitProgressBarFill}
-                          style={{ width: `${selectedJob.breakdown.skillsFit}%` }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 700, color: '#0f172a', width: 24, textAlign: 'right' }}>
-                        {selectedJob.breakdown.skillsFit}
-                      </span>
-                    </div>
-                    <div className={styles.fitProgressRow}>
-                      <span style={{ width: 100, color: '#475569' }}>Experience fit</span>
-                      <div className={styles.fitProgressBarWrap}>
-                        <div
-                          className={styles.fitProgressBarFill}
-                          style={{ width: `${selectedJob.breakdown.experienceFit}%` }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 700, color: '#0f172a', width: 24, textAlign: 'right' }}>
-                        {selectedJob.breakdown.experienceFit}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Skills Compare */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, margin: '16px 0' }}>
-                  <div>
-                    <div className={styles.skillsCompareTitle}>You have</div>
-                    <div>
-                      {selectedJob.youHave.map((sk) => (
-                        <span key={sk} className={styles.skillPillHave}>
-                          {sk}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className={styles.skillsCompareTitle}>Close the gap</div>
-                    <div>
-                      {selectedJob.closeGap.map((sk) => (
-                        <span key={sk} className={styles.skillPillGap}>
-                          {sk}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* About the role */}
-                <div style={{ marginTop: 20 }}>
-                  <h3
-                    style={{
-                      fontSize: '0.95rem',
-                      fontWeight: 700,
-                      color: '#0f172a',
-                      marginBottom: 8,
-                    }}
-                  >
-                    About the role
-                  </h3>
-                  <p
-                    style={{
-                      fontSize: '0.825rem',
-                      color: '#475569',
-                      lineHeight: 1.55,
-                      margin: 0,
-                    }}
-                  >
-                    {selectedJob.about}
-                  </p>
-                  <ul
-                    style={{
-                      margin: '10px 0 0',
-                      paddingLeft: 18,
-                      fontSize: '0.8125rem',
-                      color: '#475569',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    {selectedJob.bullets.map((b, idx) => (
-                      <li key={idx}>{b}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                {/* Action buttons */}
-                <div className={styles.detailActionsRow}>
-                  <button
-                    type="button"
-                    className={styles.primary}
-                    disabled={!selectedJob || applyingJobId === selectedJob.id}
-                    onClick={() => selectedJob && void handleApply(selectedJob)}
-                  >
-                    {selectedJob && applyingJobId === selectedJob.id
-                      ? 'Submitting application…'
-                      : 'Apply with my report'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnOutline}
-                    onClick={() => handleSave(selectedJob)}
-                  >
-                    {savedJobIds.has(selectedJob.id) ? 'Saved ✓' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnGhost}
-                    onClick={() => handleNotForMe(selectedJob)}
-                  >
-                    Not for me
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    fontSize: '0.72rem',
-                    color: '#94a3b8',
-                    marginTop: 12,
-                    lineHeight: 1.45,
-                  }}
-                >
-                  Applying shares your AI interview report with this employer. You can withdraw any time.
-                </div>
-              </aside>
-            )}
-          </motion.div>
-        </motion.main>
+            </motion.div>
+          </motion.main>
+        </div>
       </div>
     </div>
   )
@@ -921,9 +829,6 @@ export function JobsPage() {
 
 function profileSkillsToList(skills: string[] | undefined) {
   const names = (skills ?? []).map((s) => s.trim()).filter(Boolean)
-  if (!names.length) {
-    return [{ name: 'Add your skills', level: 'Basic' as const }]
-  }
   return names.map((name) => ({ name, level: 'Good' as const }))
 }
 
@@ -1018,9 +923,16 @@ function ProfileSectionHeader({
 }
 
 export function ProfilePage() {
+  const profileLocation = useLocation()
+  useEffect(() => {
+    const section = profileLocation.hash.slice(1)
+    if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' })
+  }, [profileLocation.hash])
   const user = getUser()
-  const profile = getProfile()
+  const [liveProfile, setLiveProfile] = useState(() => getProfile())
+  const profile = liveProfile
   const interview = getInterviewResult()
+  const [profileLoading, setProfileLoading] = useState(true)
 
   const [toast, setToast] = useState('')
 
@@ -1089,6 +1001,59 @@ export function ProfilePage() {
   const [shareRecording, setShareRecording] = useState(false)
   const [emailAlerts, setEmailAlerts] = useState(true)
 
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      setProfileLoading(true)
+      await syncSessionFromApi()
+      const remote = await pullProfileFromApi()
+      if (cancelled) return
+      const next = remote ?? getProfile()
+      setLiveProfile(next)
+      if (next) {
+        const extras = next as typeof next & {
+          currentCompanyTitle?: string
+          highestEducation?: string
+          contactPhone?: string
+          linkedin?: string
+          github?: string
+          portfolio?: string
+          jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean }
+        }
+        setFullName(next.fullName || getUser()?.name || '')
+        setPhone(getUser()?.phone || extras.contactPhone || '')
+        setCity(next.currentLocation || '')
+        setTargetRole(next.currentRole || '')
+        setExperience(next.totalExperience || '')
+        setCompanyTitle(extras.currentCompanyTitle || '')
+        setHighestEducation(extras.highestEducation || '')
+        setSkillsList(profileSkillsToList(next.skills))
+        setExpectedCtc(next.salaryExpectation || '')
+        setNoticePeriod(next.noticePeriod || '')
+        setPrefLocations(
+          next.preferredLocations?.length ? next.preferredLocations.join(', ') : '',
+        )
+        setWorkModes({
+          remote: next.workMode?.includes('Remote') ?? false,
+          hybrid: next.workMode?.includes('Hybrid') ?? false,
+          onsite: next.workMode?.includes('On-site') ?? false,
+        })
+        setJobTypes(extras.jobTypes ?? { fullTime: false, contract: false, internship: false })
+        setLinkedin(extras.linkedin || '')
+        setGithub(extras.github || '')
+        setPortfolio(extras.portfolio || '')
+      }
+      setProfileLoading(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.email])
+
+  const profileMissing = missingProfileFields(profile, user)
+  const completionPct = profileCompletionPercent(profile, user)
+  const profileUpdatedLabel = formatProfileDate(profile?.updatedAt)
+
   function handleAddSkill() {
     const trimmed = newSkillInput.trim()
     if (!trimmed || skillsSaving) return
@@ -1097,7 +1062,7 @@ export function ProfilePage() {
       setTimeout(() => setToast(''), 2000)
       return
     }
-    setSkillsList((prev) => prev.filter((s) => s.name !== 'Add your skills').concat([{ name: trimmed, level: 'Good' }]))
+    setSkillsList((prev) => prev.concat([{ name: trimmed, level: 'Good' }]))
     setNewSkillInput('')
     setToast(`Added skill "${trimmed}"`)
     setTimeout(() => setToast(''), 2000)
@@ -1122,7 +1087,7 @@ export function ProfilePage() {
   function currentSkillNames() {
     return skillsList
       .map((s) => s.name.trim())
-      .filter((n) => n && n !== 'Add your skills')
+      .filter(Boolean)
   }
 
   function buildMergedProfile(skillNames: string[]) {
@@ -1182,6 +1147,7 @@ export function ProfilePage() {
       const mergedProfile = buildMergedProfile(options.skillNames)
       const saved = await apiSaveProfile({ ...mergedProfile, completedSteps: profile?.completedSteps ?? 5 })
       localStorage.setItem(profileKey(user?.email), JSON.stringify(saved.profile))
+      setLiveProfile(saved.profile as ReturnType<typeof getProfile>)
       options.onSuccess()
       setToast(options.successMessage)
       setTimeout(() => setToast(''), 3000)
@@ -1295,10 +1261,34 @@ export function ProfilePage() {
             <motion.header className={styles.head} variants={fadeUp}>
               <div>
                 <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
-                <h1>Keep your profile sharp</h1>
-                <p>Employers and your job matches use this information. Last updated 13 Oct 2026.</p>
+                <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
+                <p>
+                  {profileLoading
+                    ? 'Loading your saved profile…'
+                    : profileUpdatedLabel
+                      ? `Employers and job matches use this information. Last updated ${profileUpdatedLabel}.`
+                      : 'Employers and job matches use this information from your account.'}
+                  {!profileLoading && completionPct < 100
+                    ? ` ${completionPct}% complete — finish only the sections marked below.`
+                    : ''}
+                </p>
               </div>
             </motion.header>
+
+            {profileMissing.length > 0 && !profileLoading ? (
+              <div className={styles.toast} role="status" style={{ borderLeft: '4px solid #7047ff' }}>
+                <strong style={{ display: 'block', marginBottom: 6 }}>Still needed for better matches</strong>
+                {profileMissing.map((item) => (
+                  <Link
+                    key={item.label}
+                    to={`/profile#${item.section}`}
+                    style={{ display: 'inline-block', marginRight: 12, fontWeight: 600 }}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
 
             {toast && <div className={styles.toast}>{toast}</div>}
 
@@ -1452,7 +1442,7 @@ export function ProfilePage() {
               <section id="skills" className={styles.card} aria-busy={skillsSaving}>
                 <ProfileSectionHeader
                   title="Skills"
-                  subtitle={`${skillsList.filter((s) => s.name !== 'Add your skills').length} on file`}
+                  subtitle={`${skillsList.length} on file`}
                   editing={skillsEditing}
                   saving={skillsSaving}
                   editLabel="Edit skills"
@@ -1466,6 +1456,11 @@ export function ProfilePage() {
                 />
 
                 <div style={{ marginTop: 16, opacity: skillsSaving ? 0.65 : 1 }}>
+                  {!skillsList.length && !skillsEditing ? (
+                    <p className={styles.muted} style={{ margin: 0 }}>
+                      No skills saved yet. Edit skills to add what matches your target roles.
+                    </p>
+                  ) : null}
                   {skillsList.map((skill) => (
                     <span
                       key={skill.name}
@@ -1480,7 +1475,7 @@ export function ProfilePage() {
                     >
                       {skill.name}
                       <span className={styles.skillTagLevel}>{skill.level}</span>
-                      {skillsEditing && skill.name !== 'Add your skills' && !skillsSaving && (
+                      {skillsEditing && !skillsSaving && (
                         <button
                           type="button"
                           className={styles.skillPillRemove}
@@ -1532,73 +1527,45 @@ export function ProfilePage() {
               <section id="resume" className={styles.card}>
                 <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Résumé</h2>
 
-                <div className={styles.resumeUploadBox}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div className={styles.pdfBadge}>PDF</div>
-                    <div className={styles.resumeFileDetails}>
-                      <span className={styles.resumeFileName}>
-                        {profile?.resumeName || ''}
-                      </span>
-                      <span className={styles.resumeFileMeta}>
-                        Uploaded 12 Oct 2026 · 2 pages · 184 KB
-                      </span>
+                {profile?.resumeName ? (
+                  <div className={styles.resumeUploadBox}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div className={styles.pdfBadge}>PDF</div>
+                      <div className={styles.resumeFileDetails}>
+                        <span className={styles.resumeFileName}>{profile.resumeName}</span>
+                        <span className={styles.resumeFileMeta}>
+                          {profileUpdatedLabel ? `Updated ${profileUpdatedLabel}` : 'On file in your account'}
+                          {profile.resumeText ? ' · Text extracted for interviews' : ''}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles.resumeActionBtns}>
+                      <Link to="/onboarding" className={styles.primary} style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}>
+                        Replace
+                      </Link>
+                      {profile.resumeUrl ? (
+                        <a
+                          href={profile.resumeUrl}
+                          className={styles.btnOutline}
+                          style={{ height: 34, padding: '0 14px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center' }}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Download
+                        </a>
+                      ) : null}
                     </div>
                   </div>
-                  <div className={styles.resumeActionBtns}>
-                    <Link to="/onboarding" className={styles.primary} style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}>
-                      Replace
+                ) : (
+                  <div className={styles.empty} style={{ padding: '12px 0' }}>
+                    <p className={styles.muted} style={{ marginTop: 0 }}>
+                      No résumé on file yet. Upload one so employers and AI interviews can use your background.
+                    </p>
+                    <Link to="/onboarding" className={styles.primary} style={{ marginTop: 8, display: 'inline-flex' }}>
+                      Upload résumé
                     </Link>
-                    <button
-                      type="button"
-                      className={styles.btnOutline}
-                      style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}
-                      onClick={() => {
-                        setToast('Downloading résumé...')
-                        setTimeout(() => setToast(''), 2000)
-                      }}
-                    >
-                      Download
-                    </button>
                   </div>
-                </div>
-
-                {/* ATS Score widget */}
-                <div className={styles.atsBreakdownBox}>
-                  <div className={styles.atsScoreCol}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                      ATS score
-                    </div>
-                    <div style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.1, marginTop: 4 }}>
-                      71<span style={{ fontSize: '1rem', color: '#94a3b8', fontWeight: 500 }}>/100</span>
-                    </div>
-                  </div>
-                  <div className={styles.atsCheckList}>
-                    <div className={styles.atsCheckRow}>
-                      <span>Summary</span>
-                      <span className={styles.atsStatusFound}>Found</span>
-                    </div>
-                    <div className={styles.atsCheckRow}>
-                      <span>Work experience</span>
-                      <span className={styles.atsStatusFound}>Found</span>
-                    </div>
-                    <div className={styles.atsCheckRow}>
-                      <span>Education</span>
-                      <span className={styles.atsStatusFound}>Found</span>
-                    </div>
-                    <div className={styles.atsCheckRow}>
-                      <span>Skills</span>
-                      <span className={styles.atsStatusFound}>Found</span>
-                    </div>
-                    <div className={styles.atsCheckRow}>
-                      <span>Projects</span>
-                      <span className={styles.atsStatusWarn}>Add 2 projects</span>
-                    </div>
-                    <div className={styles.atsCheckRow}>
-                      <span>Certifications</span>
-                      <span className={styles.atsStatusMissing}>Missing</span>
-                    </div>
-                  </div>
-                </div>
+                )}
               </section>
 
               {/* Card 5: Job preferences */}
@@ -1873,7 +1840,7 @@ export function ApplicationsPage() {
   const interview = getInterviewResult()
 
   useEffect(() => {
-    markNotificationsRead()
+    markNotificationsReadWhere((n) => n.kind === 'application' || n.kind === 'status' || n.href === '/applications')
     let cancelled = false
     void (async () => {
       setAppsLoading(true)
@@ -1923,7 +1890,8 @@ export function ApplicationsPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={styles.pageCandidateBleed}>
+    <div className={`${styles.page} ${styles.pageCandidate}`}>
       <div className={styles.shell}>
         <motion.main
           className={styles.main}
@@ -2019,6 +1987,7 @@ export function ApplicationsPage() {
           ) : null}
         </motion.main>
       </div>
+    </div>
     </div>
   )
 }

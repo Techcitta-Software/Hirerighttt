@@ -8,6 +8,7 @@ import { loadEnv } from '../loadEnv.mjs'
 import pg from 'pg'
 import { loadDb, dbPool } from '../db/store.mjs'
 import { generateAndPersistInterviewReportPdf } from '../reports/generateInterviewReportPdf.mjs'
+import { activeS3BucketName } from '../storage/s3ActiveBucketGate.mjs'
 import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 
 loadEnv()
@@ -32,6 +33,7 @@ async function main() {
   const db = await loadDb(databaseUrl)
   const pool = dbPool(databaseUrl)
 
+  const activeBucket = activeS3BucketName()
   const missing = await inspectPool.query(
     `
     SELECT ir.email,
@@ -41,13 +43,14 @@ async function main() {
     LEFT JOIN interview_artifacts ia
       ON ia.interview_id = ir.data->>'sessionId'
      AND ia.artifact_type = 'report'
+     AND ia.bucket = $2
     WHERE ir.data->>'sessionId' IS NOT NULL
       AND ir.data->>'sessionId' <> ''
       AND ia.id IS NULL
       AND ($1 = '' OR lower(ir.email) = $1)
     ORDER BY ir.updated_at DESC
     `,
-    [onlyEmail],
+    [onlyEmail, activeBucket],
   )
 
   if (!missing.rowCount) {

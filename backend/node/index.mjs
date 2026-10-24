@@ -4,6 +4,7 @@ import { createExpressApp } from './server/createApp.mjs'
 import { geminiKeyFormatWarning, llmConfigured } from './interviewAgent.mjs'
 import { resolveGeminiApiKey } from './geminiClient.mjs'
 import { s3Env, s3StorageConfigured } from './storage/s3ObjectStorage.mjs'
+import { verifyConfiguredS3Bucket } from './storage/s3StartupVerify.mjs'
 import { supabaseStorageConfigured } from './resumeStorage.mjs'
 
 assertProductionConfig()
@@ -20,14 +21,23 @@ try {
 const app = createExpressApp(ctx)
 const PORT = ctx.PORT
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
   console.log(`HIRERIGHT API v2 [Express] [${ctx.config.environment}] on http://localhost:${PORT}`)
   console.log('Storage: PostgreSQL (Neon)')
   if (s3StorageConfigured()) {
     const { bucket, region } = s3Env()
-    console.log(
-      `Object storage: Amazon S3 (bucket=${bucket}, region=${region}) — resumes, transcripts, reports, recordings under tenants/`,
-    )
+    try {
+      await verifyConfiguredS3Bucket()
+      console.log(
+        `Object storage: Amazon S3 ONLY (bucket=${bucket}, region=${region}) — all Put/Get use env S3_BUCKET; Neon stores keys only`,
+      )
+    } catch (verifyErr) {
+      console.error('[s3]', verifyErr instanceof Error ? verifyErr.message : verifyErr)
+      if (ctx.config.environment === 'production') {
+        process.exit(1)
+      }
+      console.warn('[s3] Dev mode: API started but S3 may be misconfigured — fix .env and restart')
+    }
   } else if (supabaseStorageConfigured()) {
     console.log('Object storage: Supabase (resume files)')
   } else {

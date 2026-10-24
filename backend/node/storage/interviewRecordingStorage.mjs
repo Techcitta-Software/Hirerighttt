@@ -5,6 +5,8 @@ import {
   buildInterviewRecordingObjectKey,
   resolveTenantId,
 } from './s3KeyLayout.mjs'
+import { resolveCandidateStorageId } from './s3Namespace.mjs'
+import { activeS3BucketName, rejectUnlessActiveS3Bucket } from './s3ActiveBucketGate.mjs'
 import {
   createS3ObjectStorage,
   defaultS3ObjectStorage,
@@ -95,10 +97,15 @@ export async function authorizeInterviewRecordingUpload(opts) {
     user: opts.account,
     sessionOrganizationId: session.organizationId,
   })
-  const candidateId = opts.account?.id || session.userId || email.replace(/[^a-z0-9._-]+/g, '_')
+  const candidateId = resolveCandidateStorageId({
+    account: opts.account,
+    session,
+    email,
+  })
   const objectKey = buildInterviewRecordingObjectKey({
     tenantId,
     interviewId: sessionId,
+    candidateId,
     originalFilename: filename,
     contentType,
   })
@@ -124,6 +131,7 @@ export async function authorizeInterviewRecordingUpload(opts) {
     err.status = 503
     throw err
   }
+  // Browser PUT cannot sign optional x-amz-meta-* without matching client headers — metadata lives in Neon.
   const presigned = await s3.presignUpload({
     key: objectKey,
     contentType,
@@ -188,6 +196,7 @@ export async function completeInterviewRecordingUpload(opts) {
  * }} opts
  */
 async function presignRecordingPlayback(row, s3Inject) {
+  rejectUnlessActiveS3Bucket(row, 'Interview recording is not available in current storage.')
   const s3 = s3Inject || defaultS3ObjectStorage
   const head = await s3.headObject({ key: row.s3_object_key })
   if (!head) {
@@ -239,7 +248,11 @@ export async function resolveInterviewRecordingDownload(opts) {
  */
 export async function resolveEmployerCandidateRecordingPlayback(opts) {
   assertVendorMayViewCandidateDocuments(opts.db, opts.organizationId, opts.candidateEmail)
-  const row = await getLatestInterviewRecordingForCandidate(opts.pool, opts.candidateEmail)
+  const row = await getLatestInterviewRecordingForCandidate(
+    opts.pool,
+    opts.candidateEmail,
+    activeS3BucketName() || null,
+  )
   if (!employerCanReviewRecording(opts.db, opts.organizationId, opts.candidateEmail, row)) {
     const err = new Error('Interview recording not found.')
     err.status = 404

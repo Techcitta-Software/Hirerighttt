@@ -57,7 +57,18 @@ test('retries are idempotent and preserve candidate explanations', () => {
 })
 
 test('recording access denies candidate ownership and other tenants before signing', async () => {
-  const row = { tenant_id: 'vendor-a', candidate_email: 'candidate@test.com', status: 'uploaded' }
+  const activeBucket = (process.env.S3_BUCKET || 'unit-test-bucket').trim()
+  process.env.AWS_REGION = process.env.AWS_REGION || 'us-east-1'
+  process.env.S3_BUCKET = activeBucket
+  const row = {
+    tenant_id: 'vendor-a',
+    candidate_email: 'candidate@test.com',
+    status: 'uploaded',
+    bucket: activeBucket,
+    s3_object_key: 'tenants/vendor-a/interviews/s1/recordings/recording_abcd.webm',
+    original_filename: 'interview.webm',
+    content_type: 'video/webm',
+  }
   const pool = { query: async () => ({ rows: [row] }) }
   let signed = false
   const s3 = { headObject: async () => ({}), presignDownload: async () => { signed = true; return { url: 'private' } } }

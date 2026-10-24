@@ -39,6 +39,9 @@ export type VendorApplicant = {
     roleTrack?: string
     resumeName?: string
     resumeText?: string
+    resumeStoragePath?: string
+    resumeFileId?: string
+    resumeUrl?: string
     candidatePhone?: string
     candidateRole?: string
   }
@@ -75,6 +78,37 @@ export type OpenJobsResponse = {
   personalized?: boolean
   message?: string
   minMatchScore?: number
+}
+
+export async function fetchCandidateJobAlerts() {
+  const res = await apiFetch('/api/candidate/job-alerts')
+  return parse<{ alerts: Array<{ jobId: string; title: string; company: string }> }>(res)
+}
+
+export type EmployerApplicationAlert = {
+  id: string
+  applicationId: string
+  jobId: string
+  jobTitle: string
+  candidateName: string
+  candidateEmail: string
+  hasInterviewReport: boolean
+  hasResume: boolean
+  createdAt: string
+  read: boolean
+}
+
+export async function fetchEmployerApplicationAlerts() {
+  const res = await apiFetch('/api/vendor/application-alerts')
+  return parse<{ alerts: EmployerApplicationAlert[]; total: number }>(res)
+}
+
+export async function markEmployerApplicationAlertsRead(ids?: string[]) {
+  const res = await apiFetch('/api/vendor/application-alerts/read', {
+    method: 'POST',
+    body: JSON.stringify({ ids: ids ?? null }),
+  })
+  return parse<{ ok: boolean }>(res)
 }
 
 export async function fetchOpenJobs(options?: {

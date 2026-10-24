@@ -2,7 +2,8 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #fafaff;
+  background: #eeecf8;
+  overflow-x: clip;
 }
 
 .main {
@@ -10,4 +11,5 @@
   width: 100%;
   box-sizing: border-box;
   padding: var(--app-main-padding-y) var(--app-main-padding-x) var(--space-8);
+  background: transparent;
 }

@@ -55,6 +55,9 @@
 /* Logged-in app shell: full-width bar, logo at gutter, actions at opposite gutter */
 .navbarApp {
   width: 100%;
+  background: rgba(235, 231, 255, 0.92);
+  border-bottom-color: rgba(112, 71, 255, 0.1);
+  box-shadow: none;
 }
 
 .innerApp {

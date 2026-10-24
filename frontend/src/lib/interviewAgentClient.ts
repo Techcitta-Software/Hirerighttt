@@ -400,23 +400,23 @@ async function scoreWithGeminiDirect(options: {
   }))
 
   const system = `You are Ava, HireRight's chief AI assessment evaluator powered by Google Gemini.
-Evaluate the candidate for role ${options.role} (${options.level}) using three rubrics (0–100 each):
-- Answer Correctness (AI): accuracy vs question + resume; penalize invented facts
+Evaluate the candidate for role ${options.role} (${options.level}) using three internal rubrics (0–100 each):
+- Correctness vs question + resume (penalize invented facts)
 - Depth: tools, trade-offs, metrics, ownership
 - Communication: clarity and STAR-style structure (not grammar/accent)
 
 Per-answer weights vary: technical/skill questions weight correctness+depth ~80% total; project/behavioral questions weight communication higher.
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON. Use candidate-facing category labels (NOT internal rubric names):
 {
   "overall": 85,
   "categories": [
-    {"label": "Answer Correctness", "score": 88},
-    {"label": "Depth", "score": 82},
-    {"label": "Communication", "score": 86}
+    {"label": "Role fit", "score": 88},
+    {"label": "Impact & examples", "score": 82},
+    {"label": "Clarity", "score": 86}
   ],
-  "strengths": ["...", "...", "..."],
-  "improvements": ["...", "..."],
+  "strengths": ["Specific, personalized bullets from THIS interview only"],
+  "improvements": ["Specific, personalized growth bullets from THIS interview only"],
   "resumeFitScore": 88,
   "feedback": "Comprehensive summary evaluation of candidate's technical capability...",
   "answerFeedback": [
@@ -468,9 +468,9 @@ Return ONLY valid JSON matching this schema:
     const categories = Array.isArray(parsed.categories) && parsed.categories.length >= 3
       ? parsed.categories.slice(0, 3)
       : [
-          { label: 'Answer Correctness', score: overall },
-          { label: 'Depth', score: overall },
-          { label: 'Communication', score: overall },
+          { label: 'Role fit', score: overall },
+          { label: 'Impact & examples', score: overall },
+          { label: 'Clarity', score: overall },
         ]
 
     const strengths = Array.isArray(parsed.strengths) ? parsed.strengths.map(String) : []

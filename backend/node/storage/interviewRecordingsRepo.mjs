@@ -97,19 +97,25 @@ export async function updateInterviewRecording(pool, id, patch) {
  * @param {import('pg').Pool} pool
  * @param {string} candidateEmail
  */
-export async function getLatestInterviewRecordingForCandidate(pool, candidateEmail) {
+export async function getLatestInterviewRecordingForCandidate(pool, candidateEmail, activeBucket = null) {
   const email = String(candidateEmail || '').trim().toLowerCase()
   if (!email) return null
+  const params = [email]
+  let bucketSql = ''
+  if (activeBucket) {
+    params.push(activeBucket)
+    bucketSql = ` AND bucket = $${params.length}`
+  }
   const res = await pool.query(
     `SELECT id, tenant_id, interview_id, candidate_id, candidate_email,
             s3_object_key, bucket, original_filename, content_type,
             file_size_bytes, duration_seconds, status, created_at, updated_at
      FROM interview_recordings
      WHERE lower(candidate_email) = $1
-       AND status IN ('uploaded', 'completed')
+       AND status IN ('uploaded', 'completed')${bucketSql}
      ORDER BY created_at DESC
      LIMIT 1`,
-    [email],
+    params,
   )
   return res.rows[0] || null
 }

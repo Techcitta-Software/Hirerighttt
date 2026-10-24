@@ -32,6 +32,8 @@
     "check:env": "node scripts/check-env.mjs",
     "s3:test": "node backend/node/scripts/test-s3-resume-storage.mjs",
     "s3:test:recording": "node backend/node/scripts/test-s3-recording-upload.mjs",
+    "s3:smoke-samples": "node backend/node/scripts/s3-upload-smoke-samples.mjs",
+    "s3:verify": "node backend/node/scripts/verify-s3-data.mjs",
     "test:interview-api": "node backend/node/scripts/test-interview-api-flow.mjs",
     "test:scorecard-report": "node --test backend/node/tests/scorecard-report.test.mjs",
     "s3:cors": "node backend/node/scripts/apply-s3-cors.mjs",

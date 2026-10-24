@@ -71,6 +71,8 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     experienceYears: a.data.experienceYears || '',
     resumeName: a.data.resumeName || null,
     resumeText: a.data.resumeText,
+    ...(a.data.resumeStoragePath ? { resumeStoragePath: a.data.resumeStoragePath } : {}),
+    ...(a.data.resumeFileId ? { resumeFileId: a.data.resumeFileId } : {}),
     interviewResult,
     aiScore: overallFromInterview,
     atsScore: a.data.atsScore,
@@ -131,7 +133,13 @@ export function resumeDisplayLabel(app: EmployerApplicant): string {
 }
 
 export function hasResumeContent(app: EmployerApplicant): boolean {
-  return Boolean(app.resumeName?.trim() || app.resumeText?.trim())
+  const extra = app as EmployerApplicant & { resumeStoragePath?: string; resumeFileId?: string }
+  return Boolean(
+    app.resumeName?.trim() ||
+      app.resumeText?.trim() ||
+      extra.resumeStoragePath?.trim() ||
+      extra.resumeFileId?.trim(),
+  )
 }
 
 export function hasHireRightReport(app: EmployerApplicant): boolean {

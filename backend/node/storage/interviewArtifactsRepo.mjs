@@ -47,13 +47,19 @@ export async function upsertInterviewArtifact(pool, row) {
  * @param {string} interviewId
  * @param {string} artifactType
  */
-export async function getInterviewArtifact(pool, interviewId, artifactType) {
+export async function getInterviewArtifact(pool, interviewId, artifactType, activeBucket = null) {
+  const params = [interviewId, artifactType]
+  let bucketSql = ''
+  if (activeBucket) {
+    params.push(activeBucket)
+    bucketSql = ` AND bucket = $${params.length}`
+  }
   const res = await pool.query(
     `SELECT id, tenant_id, interview_id, candidate_email, artifact_type,
             s3_object_key, bucket, content_type, byte_size, status
      FROM interview_artifacts
-     WHERE interview_id = $1 AND artifact_type = $2 AND status = 'ready'`,
-    [interviewId, artifactType],
+     WHERE interview_id = $1 AND artifact_type = $2 AND status = 'ready'${bucketSql}`,
+    params,
   )
   return res.rows[0] || null
 }
@@ -63,15 +69,26 @@ export async function getInterviewArtifact(pool, interviewId, artifactType) {
  * @param {string} candidateEmail
  * @param {'transcript' | 'report' | 'audio'} artifactType
  */
-export async function getLatestInterviewArtifactForCandidate(pool, candidateEmail, artifactType) {
+export async function getLatestInterviewArtifactForCandidate(
+  pool,
+  candidateEmail,
+  artifactType,
+  activeBucket = null,
+) {
+  const params = [String(candidateEmail || '').trim(), artifactType]
+  let bucketSql = ''
+  if (activeBucket) {
+    params.push(activeBucket)
+    bucketSql = ` AND bucket = $${params.length}`
+  }
   const res = await pool.query(
     `SELECT id, tenant_id, interview_id, candidate_email, artifact_type,
             s3_object_key, bucket, content_type, byte_size, status, updated_at
      FROM interview_artifacts
-     WHERE lower(candidate_email) = lower($1) AND artifact_type = $2 AND status = 'ready'
+     WHERE lower(candidate_email) = lower($1) AND artifact_type = $2 AND status = 'ready'${bucketSql}
      ORDER BY updated_at DESC NULLS LAST, created_at DESC
      LIMIT 1`,
-    [String(candidateEmail || '').trim(), artifactType],
+    params,
   )
   return res.rows[0] || null
 }

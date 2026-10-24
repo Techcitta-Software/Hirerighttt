@@ -4,6 +4,11 @@ import {
   resolveTenantId,
 } from './s3KeyLayout.mjs'
 import {
+  buildS3UserMetadata,
+  resolveCandidateStorageId,
+  S3_OBJECT_PURPOSES,
+} from './s3Namespace.mjs'
+import {
   createS3ObjectStorage,
   defaultS3ObjectStorage,
   s3Env,
@@ -15,6 +20,7 @@ import {
   getLatestInterviewArtifactForCandidate,
   upsertInterviewArtifact,
 } from './interviewArtifactsRepo.mjs'
+import { activeS3BucketName, rejectUnlessActiveS3Bucket } from './s3ActiveBucketGate.mjs'
 
 const MAX_REPORT_BYTES = Number(process.env.S3_MAX_REPORT_BYTES || 12_000_000)
 
@@ -44,9 +50,15 @@ export async function persistInterviewTranscriptToS3(opts) {
     user: opts.account,
     sessionOrganizationId: session.organizationId,
   })
+  const candidateId = resolveCandidateStorageId({
+    account: opts.account,
+    session,
+    email,
+  })
   const objectKey = buildInterviewTranscriptObjectKey({
     tenantId,
     interviewId: opts.sessionId,
+    candidateId,
   })
   const payload = {
     sessionId: opts.sessionId,
@@ -67,7 +79,12 @@ export async function persistInterviewTranscriptToS3(opts) {
     key: objectKey,
     buffer,
     contentType: 'application/json',
-    metadata: { purpose: 'transcript', interview: opts.sessionId.slice(0, 32) },
+    metadata: buildS3UserMetadata({
+      purpose: S3_OBJECT_PURPOSES.interview_transcript,
+      tenantId,
+      candidateId,
+      interviewId: opts.sessionId,
+    }),
   })
   try {
     await upsertInterviewArtifact(opts.pool, {
@@ -146,16 +163,27 @@ export async function persistInterviewReportPdfBuffer(opts) {
     user: opts.account,
     sessionOrganizationId: session.organizationId,
   })
+  const candidateId = resolveCandidateStorageId({
+    account: opts.account,
+    session,
+    email,
+  })
   const objectKey = buildInterviewReportObjectKey({
     tenantId,
     interviewId: opts.sessionId,
+    candidateId,
   })
   const s3 = opts.s3 || defaultS3ObjectStorage
   const { bucket } = await s3.uploadObject({
     key: objectKey,
     buffer,
     contentType: 'application/pdf',
-    metadata: { purpose: 'report', interview: opts.sessionId.slice(0, 32) },
+    metadata: buildS3UserMetadata({
+      purpose: S3_OBJECT_PURPOSES.interview_report,
+      tenantId,
+      candidateId,
+      interviewId: opts.sessionId,
+    }),
   })
   try {
     await upsertInterviewArtifact(opts.pool, {
@@ -207,7 +235,12 @@ export async function persistInterviewReportPdfToS3(opts) {
  * }} opts
  */
 export async function resolveInterviewArtifactDownload(opts) {
-  const row = await getInterviewArtifact(opts.pool, opts.sessionId, opts.artifactType)
+  const row = await getInterviewArtifact(
+    opts.pool,
+    opts.sessionId,
+    opts.artifactType,
+    activeS3BucketName() || null,
+  )
   if (!canAccessInterviewArtifact(opts.requesterEmail, row)) {
     const err = new Error('Artifact not found.')
     err.status = 404
@@ -226,7 +259,12 @@ export async function resolveInterviewArtifactDownload(opts) {
  * }} opts
  */
 export async function resolveCandidateInterviewReportDownload(opts) {
-  const row = await getLatestInterviewArtifactForCandidate(opts.pool, opts.candidateEmail, 'report')
+  const row = await getLatestInterviewArtifactForCandidate(
+    opts.pool,
+    opts.candidateEmail,
+    'report',
+    activeS3BucketName() || null,
+  )
   if (!row) {
     const err = new Error('Interview report not found in storage.')
     err.status = 404
@@ -239,6 +277,7 @@ export async function resolveCandidateInterviewReportDownload(opts) {
  * @param {{ s3_object_key: string, candidate_email?: string }} row
  */
 async function presignInterviewArtifactRow(row, artifactType, s3Inject, inline = false) {
+  rejectUnlessActiveS3Bucket(row, 'Interview artifact is not available in current storage.')
   const s3 = s3Inject || defaultS3ObjectStorage
   const head = await s3.headObject({ key: row.s3_object_key })
   if (!head) {

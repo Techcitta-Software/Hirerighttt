@@ -10,6 +10,8 @@ import {
   isLegacyResumeObjectKey,
   resolveTenantId,
 } from './s3KeyLayout.mjs'
+import { buildS3UserMetadata, resolveCandidateStorageId, S3_OBJECT_PURPOSES } from './s3Namespace.mjs'
+import { neonRowUsesActiveS3Bucket } from './s3ActiveBucketGate.mjs'
 import {
   canAccessStoredFile,
   countStoredFileVersions,
@@ -46,7 +48,10 @@ export async function uploadResumeToObjectStorage(opts) {
 
   if (s3StorageConfigured()) {
     const s3 = opts.s3 || defaultS3ObjectStorage
-    const candidateId = opts.ownerUserId || email.replace(/[^a-z0-9._-]+/g, '_')
+    const candidateId = resolveCandidateStorageId({
+      account: opts.ownerUserId ? { id: opts.ownerUserId } : null,
+      email,
+    })
     const tenantId = resolveTenantId({
       user: {
         id: opts.ownerUserId,
@@ -74,10 +79,11 @@ export async function uploadResumeToObjectStorage(opts) {
       key: objectKey,
       buffer: opts.buffer,
       contentType,
-      metadata: {
-        purpose: 'resume',
-        owner: email.replace(/[^a-z0-9._-]+/g, '_'),
-      },
+      metadata: buildS3UserMetadata({
+        purpose: S3_OBJECT_PURPOSES.resume,
+        tenantId,
+        candidateId,
+      }),
     })
     let fileId = null
     try {
@@ -175,6 +181,11 @@ export async function resolveResumeDownloadFromProfile(profile, pool, options = 
       throw err
     }
     if (row.storage_provider === 's3') {
+      if (!neonRowUsesActiveS3Bucket(row)) {
+        const err = new Error('Resume file is not available in current storage.')
+        err.status = 404
+        throw err
+      }
       const s3 = options.s3 || defaultS3ObjectStorage
       const head = await s3.headObject({ key: row.object_key })
       if (!head) {

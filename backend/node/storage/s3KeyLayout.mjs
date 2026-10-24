@@ -86,14 +86,31 @@ export function buildCandidateCertificateObjectKey(opts) {
  * @param {{
  *   tenantId: string,
  *   interviewId: string,
+ *   candidateId?: string,
+ * }} opts
+ */
+export function buildInterviewSessionPrefix(opts) {
+  const tid = sanitizePathSegment(opts.tenantId)
+  const iid = sanitizePathSegment(opts.interviewId)
+  const cid = opts.candidateId ? sanitizePathSegment(opts.candidateId) : ''
+  if (cid) {
+    return `tenants/${tid}/candidates/${cid}/interviews/${iid}`
+  }
+  return `tenants/${tid}/interviews/${iid}`
+}
+
+/**
+ * @param {{
+ *   tenantId: string,
+ *   interviewId: string,
+ *   candidateId?: string,
  *   segmentId?: string,
  *   originalFilename?: string,
  *   contentType?: string,
  * }} opts
  */
 export function buildInterviewRecordingObjectKey(opts) {
-  const tid = sanitizePathSegment(opts.tenantId)
-  const iid = sanitizePathSegment(opts.interviewId)
+  const prefix = buildInterviewSessionPrefix(opts)
   let ext = extensionFromFilename(opts.originalFilename || '')
   if (!ext) {
     const ct = String(opts.contentType || '').toLowerCase()
@@ -101,33 +118,33 @@ export function buildInterviewRecordingObjectKey(opts) {
     else ext = '.webm'
   }
   const unique = randomUUID().slice(0, 8)
-  return `tenants/${tid}/interviews/${iid}/recordings/interview_video_${unique}${ext}`
+  return `${prefix}/recordings/recording_${unique}${ext}`
 }
 
 /**
  * @param {{
  *   tenantId: string,
  *   interviewId: string,
+ *   candidateId?: string,
  *   artifactId?: string,
  * }} opts
  */
 export function buildInterviewTranscriptObjectKey(opts) {
-  const tid = sanitizePathSegment(opts.tenantId)
-  const iid = sanitizePathSegment(opts.interviewId)
+  const prefix = buildInterviewSessionPrefix(opts)
   const suffix = opts.artifactId ? `_${sanitizePathSegment(opts.artifactId)}` : ''
-  return `tenants/${tid}/interviews/${iid}/transcripts/transcript${suffix}.json`
+  return `${prefix}/transcripts/transcript${suffix}.json`
 }
 
 /**
  * @param {{
  *   tenantId: string,
  *   interviewId: string,
+ *   candidateId?: string,
  *   reportId?: string,
  * }} opts
  */
 export function buildInterviewReportObjectKey(opts) {
-  const tid = sanitizePathSegment(opts.tenantId)
-  const iid = sanitizePathSegment(opts.interviewId)
+  const prefix = buildInterviewSessionPrefix(opts)
   const suffix = opts.reportId ? `_${sanitizePathSegment(opts.reportId)}` : ''
-  return `tenants/${tid}/interviews/${iid}/reports/interview_report${suffix}.pdf`
+  return `${prefix}/reports/interview_report${suffix}.pdf`
 }

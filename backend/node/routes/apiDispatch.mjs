@@ -78,6 +78,12 @@ import {
   publicJobPayload,
 } from '../vendor/jobs.mjs'
 import { applyCandidateJobScope } from '../vendor/jobRoleMatch.mjs'
+import { listCandidateJobAlerts, queueCandidateJobAlerts } from '../vendor/candidateJobAlerts.mjs'
+import {
+  listEmployerApplicationAlerts,
+  markEmployerApplicationAlertsRead,
+  queueEmployerApplicationAlert,
+} from '../vendor/employerApplicationAlerts.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
 import {
   assertVendorMayViewCandidateDocuments,
@@ -208,6 +214,17 @@ export function createApiDispatchMiddleware(ctx) {
       vaultTenantId = tenant.organization.id
     }
     /** Jobs actually posted by employer accounts. No static catalog. */
+    if (req.method === 'GET' && path === '/api/candidate/job-alerts') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const db = loadDb()
+      const user = db.users.find((u) => u.email === email)
+      if (user?.role === 'employer') {
+        return json(res, 403, { error: 'Candidates only.' })
+      }
+      return json(res, 200, { alerts: listCandidateJobAlerts(db, email) })
+    }
+
     if (req.method === 'GET' && path === '/api/jobs') {
       const email = await requireAuth(req, res)
       if (!email) return
@@ -291,6 +308,21 @@ export function createApiDispatchMiddleware(ctx) {
         roleTitle: job.roleTrack,
       })
       const profile = db.profiles[sessionEmail] || {}
+      if (!db.interviews?.[sessionEmail] && config.databaseUrl) {
+        try {
+          const pool = dbPool(config.databaseUrl)
+          const { rows } = await pool.query(
+            'SELECT email, data FROM interview_results WHERE lower(email) = lower($1) LIMIT 1',
+            [sessionEmail],
+          )
+          if (rows[0]?.data) {
+            db.interviews = db.interviews || {}
+            db.interviews[rows[0].email || sessionEmail] = rows[0].data
+          }
+        } catch (err) {
+          console.warn('[apply] interview_results lookup:', err?.message || err)
+        }
+      }
       const { application, created, ats } = createJobApplication(db, job, {
         candidateName: body.candidateName || profile.fullName || profile.name || u?.name,
         candidatePhone: body.candidatePhone || profile.contactPhone || u?.phone,
@@ -305,7 +337,11 @@ export function createApiDispatchMiddleware(ctx) {
       attachCandidateReportToApplication(db, application, sessionEmail, {
         candidateRole: body.candidateRole || profile.currentRole || '',
         attachInterviewReport: body.attachInterviewReport !== false,
+        interview: db.interviews?.[sessionEmail] || null,
       })
+      if (created) {
+        queueEmployerApplicationAlert(db, job, application, true)
+      }
       const candidateApplication = recordCandidateJobApplication(db, sessionEmail, job, application, {
         match: typeof body.match === 'number' ? body.match : Number(body.match) || null,
       })
@@ -347,12 +383,16 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const body = await readBody(req)
       const job = createVendorJob(db, ctx.tenant.organization.id, ctx.user.id, body)
+      const matchAlertEmails = queueCandidateJobAlerts(db, job)
       await upsertJobRecord(config.databaseUrl, job)
       await saveDb(db)
       if (config.databaseUrl) {
         await syncOpenJobsFromDatabase(config.databaseUrl, db)
       }
-      return json(res, 201, { job: publicJobPayload(job) })
+      return json(res, 201, {
+        job: publicJobPayload(job),
+        matchAlertsQueued: matchAlertEmails.length,
+      })
     }
 
     if (req.method === 'GET' && path === '/api/vendor/jobs') {
@@ -442,6 +482,27 @@ export function createApiDispatchMiddleware(ctx) {
         const status = err.status || 500
         return json(res, status, { error: err.message || 'Could not delete job.' })
       }
+    }
+
+    if (req.method === 'GET' && path === '/api/vendor/application-alerts') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const orgId = ctx.tenant.organization.id
+      const alerts = listEmployerApplicationAlerts(db, orgId, { unreadOnly: true })
+      return json(res, 200, { alerts, total: alerts.length })
+    }
+
+    if (req.method === 'POST' && path === '/api/vendor/application-alerts/read') {
+      const db = loadDb()
+      const ctx = await requireEmployerTenant(req, res, db)
+      if (!ctx) return
+      const body = await readBody(req)
+      const orgId = ctx.tenant.organization.id
+      const ids = Array.isArray(body?.ids) ? body.ids.map(String) : null
+      markEmployerApplicationAlertsRead(db, orgId, ids)
+      await saveDb(db)
+      return json(res, 200, { ok: true })
     }
 
     if (req.method === 'GET' && path.startsWith('/api/vendor/jobs/') && path.endsWith('/applicants')) {

@@ -348,8 +348,20 @@ export function attachCandidateReportToApplication(db, application, candidateEma
       options.candidateRole || profile.currentRole || '',
     ).trim()
   }
+  if (profile.resumeName && !application.data.resumeName) {
+    application.data.resumeName = profile.resumeName
+  }
+  if (profile.resumeStoragePath && !application.data.resumeStoragePath) {
+    application.data.resumeStoragePath = profile.resumeStoragePath
+  }
+  if (profile.resumeFileId && !application.data.resumeFileId) {
+    application.data.resumeFileId = profile.resumeFileId
+  }
+  if (profile.resumeUrl && !application.data.resumeUrl) {
+    application.data.resumeUrl = profile.resumeUrl
+  }
   if (options.attachInterviewReport === false) return application
-  const interview = db.interviews?.[email]
+  const interview = options.interview || db.interviews?.[email]
   if (!interview) return application
   application.data.interviewResult = interview
   if (typeof interview.overall === 'number') {

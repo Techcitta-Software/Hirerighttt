@@ -850,7 +850,7 @@ export function InterviewPage() {
       setRecordingNote('')
       setRecordingUrl(null)
       setShowTypeFallback(!speechSupported)
-      if (recordingConsent && !sessionIdRef.current) throw new Error('A connected backend session is required to save a vendor recording.')
+      if (recordingConsent && !sessionIdRef.current) throw new Error('We could not connect to your interview. Please reconnect before starting a recording.')
       setStage('interview')
       reviewRef.current = new ReviewEventTracker()
       interviewStartedAtRef.current = Date.now()

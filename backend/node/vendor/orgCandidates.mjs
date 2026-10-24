@@ -473,13 +473,15 @@ async function attachInterviewRecordingFlags(databaseUrl, candidates) {
   const emails = [...new Set(candidates.map((c) => String(c.candidateEmail || '').toLowerCase()).filter(Boolean))]
   if (!emails.length) return candidates
   try {
+    const activeBucket = (process.env.S3_BUCKET || '').trim()
     const res = await dbPool(databaseUrl).query(
       `SELECT lower(candidate_email) AS email
        FROM interview_recordings
        WHERE lower(candidate_email) = ANY($1::text[])
          AND status IN ('uploaded', 'completed')
+         AND ($2 = '' OR bucket = $2)
        GROUP BY lower(candidate_email)`,
-      [emails],
+      [emails, activeBucket],
     )
     const withRecording = new Set(res.rows.map((r) => r.email))
     return candidates.map((c) => ({
