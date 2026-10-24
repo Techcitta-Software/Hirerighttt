@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { EmployerApplicant } from '../lib/store'
+import type { IntegrityLogEvent } from '../lib/store'
 import {
   fetchVendorCandidateRecordingDocument,
   fetchVendorCandidateReportDocument,
   fetchVendorCandidateResumeDocument,
+  fetchVendorInterviewReview,
   type VendorCandidateDocumentLink,
   type VendorCandidateRecordingLink,
 } from '../lib/vendorApi'
+import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
 import { HrIcon } from './HrIcon'
 import styles from './EmployerCandidateDocumentModal.module.css'
 
@@ -24,12 +27,20 @@ function isPdfDocument(link: VendorCandidateDocumentLink): boolean {
   return type.includes('pdf') || name.endsWith('.pdf')
 }
 
+function pdfViewUrl(viewUrl: string): string {
+  const hash = 'toolbar=1&navpanes=0&scrollbar=1&view=FitH'
+  return viewUrl.includes('#') ? viewUrl : `${viewUrl}#${hash}`
+}
+
 export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [documentLink, setDocumentLink] = useState<VendorCandidateDocumentLink | null>(null)
   const [recordingLink, setRecordingLink] = useState<VendorCandidateRecordingLink | null>(null)
+  const [recordingLoading, setRecordingLoading] = useState(false)
   const [recordingError, setRecordingError] = useState('')
+  const [reviewEvents, setReviewEvents] = useState<IntegrityLogEvent[]>([])
+  const [reviewSessionId, setReviewSessionId] = useState<string | null>(null)
 
   const isResume = kind === 'resume'
   const title = isResume
@@ -43,31 +54,58 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     setDocumentLink(null)
     setRecordingLink(null)
     setRecordingError('')
+    setReviewEvents([])
+    setReviewSessionId(null)
+    setRecordingLoading(false)
+
     void (async () => {
       try {
-        if (isResume) {
-          const link = await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
-          if (!cancelled) setDocumentLink(link)
-          return
-        }
-        const [reportSettled, recordingSettled] = await Promise.allSettled([
-          fetchVendorCandidateReportDocument(applicant.candidateEmail),
-          fetchVendorCandidateRecordingDocument(applicant.candidateEmail),
-        ])
+        const primary = isResume
+          ? await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
+          : await fetchVendorCandidateReportDocument(applicant.candidateEmail)
+
         if (cancelled) return
-        if (reportSettled.status === 'fulfilled') {
-          setDocumentLink(reportSettled.value)
-        } else {
-          setLoadError(
-            reportSettled.reason instanceof Error
-              ? reportSettled.reason.message
-              : 'Could not load report.',
+        setDocumentLink(primary)
+
+        const sessionHint = primary.sessionId || null
+        setRecordingLoading(true)
+        try {
+          const rec = await fetchVendorCandidateRecordingDocument(
+            applicant.candidateEmail,
+            sessionHint,
           )
-        }
-        if (recordingSettled.status === 'fulfilled') {
-          setRecordingLink(recordingSettled.value)
-        } else if (applicant.interviewRecordingAvailable) {
-          setRecordingError('Interview video is temporarily unavailable.')
+          if (cancelled) return
+
+          setRecordingLink(rec)
+          const sid = rec.sessionId || sessionHint
+          setReviewSessionId(sid)
+
+          if (sid) {
+            const review = await fetchVendorInterviewReview(sid, applicant.candidateEmail)
+            if (!cancelled) setReviewEvents(review.events || [])
+          }
+        } catch (recErr) {
+          if (!cancelled) {
+            const msg =
+              recErr instanceof Error ? recErr.message : 'Interview video is unavailable.'
+            if (sessionHint) {
+              try {
+                const review = await fetchVendorInterviewReview(
+                  sessionHint,
+                  applicant.candidateEmail,
+                )
+                if (!cancelled) {
+                  setReviewSessionId(sessionHint)
+                  setReviewEvents(review.events || [])
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+            setRecordingError(msg)
+          }
+        } finally {
+          if (!cancelled) setRecordingLoading(false)
         }
       } catch (err) {
         if (!cancelled) {
@@ -77,10 +115,11 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
         if (!cancelled) setLoading(false)
       }
     })()
+
     return () => {
       cancelled = true
     }
-  }, [isResume, applicant.candidateEmail, applicant.interviewRecordingAvailable])
+  }, [isResume, applicant.candidateEmail, applicant.candidateName])
 
   function handleDownload() {
     if (!documentLink?.downloadUrl) return
@@ -113,7 +152,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
           </button>
         </div>
 
-        <div className={styles.body}>
+        <div className={styles.bodyScroll}>
           {loading ? (
             <p className={styles.loading}>Loading document from secure storage…</p>
           ) : loadError && !documentLink ? (
@@ -121,40 +160,68 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
               {loadError}
             </p>
           ) : (
-            <>
-              {pdfReady ? (
-                <iframe className={styles.docFrame} title={title} src={documentLink!.viewUrl} />
-              ) : documentLink ? (
-                <div className={styles.fallbackLink}>
-                  <p>This file is not a PDF preview in the browser.</p>
-                  <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
-                    Open {documentLink.filename || 'file'}
-                  </button>
-                </div>
-              ) : !loadError ? (
-                <p className={styles.empty}>No document available.</p>
-              ) : null}
-              {!isResume && playbackUrl ? (
+            <div className={styles.scrollStack}>
+              <section className={styles.resumeSection} aria-label={isResume ? 'Resume preview' : 'Report preview'}>
+                {pdfReady ? (
+                  <>
+                    <p className={styles.sectionHint}>
+                      {isResume
+                        ? 'Scroll down for the interview recording when available.'
+                        : 'HireRighttt scorecard PDF — scroll down for this candidate’s original interview video.'}
+                    </p>
+                    <iframe
+                      className={styles.docFrameTwoPage}
+                      title={title}
+                      src={pdfViewUrl(documentLink!.viewUrl)}
+                    />
+                  </>
+                ) : documentLink ? (
+                  <div className={styles.fallbackLink}>
+                    <p>This file is not a PDF preview in the browser.</p>
+                    <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
+                      Open {documentLink.filename || 'file'}
+                    </button>
+                  </div>
+                ) : !loadError ? (
+                  <p className={styles.empty}>No document available.</p>
+                ) : null}
+              </section>
+
+              {!isResume || playbackUrl || recordingLoading || recordingError ? (
                 <section className={styles.videoSection} aria-label="Interview recording">
                   <div className={styles.videoSectionHeader}>
-                    <HrIcon name="video" size={16} />
-                    <span>Interview recording (streamed from secure storage)</span>
+                    <HrIcon name="video" size={18} />
+                    <div>
+                      <h3 className={styles.videoTitle}>Original interview video</h3>
+                      <p className={styles.videoSubtitle}>
+                        {applicant.candidateName} · {applicant.candidateEmail}
+                        {reviewSessionId ? ` · session ${reviewSessionId.slice(0, 8)}…` : ''}
+                      </p>
+                      <p className={styles.videoSubtitle}>
+                        Red marks on the timeline = MediaPipe integrity flags (face / gaze deviations).
+                        Scroll the flag list below the player to jump to each moment.
+                      </p>
+                    </div>
                   </div>
-                  <video
-                    className={styles.interviewVideo}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    src={playbackUrl}
-                  >
-                    Your browser does not support video playback.
-                  </video>
+
+                  {recordingLoading ? (
+                    <p className={styles.loading}>Loading interview video…</p>
+                  ) : playbackUrl ? (
+                    <InterviewRecordingPlayer
+                      playbackUrl={playbackUrl}
+                      events={reviewEvents}
+                      durationHint={recordingLink?.durationSeconds}
+                    />
+                  ) : recordingError ? (
+                    <p className={styles.recordingNote} role="status">
+                      {recordingError}
+                    </p>
+                  ) : (
+                    <p className={styles.recordingNote}>No interview recording on file for this candidate.</p>
+                  )}
                 </section>
               ) : null}
-              {!isResume && !playbackUrl && recordingError ? (
-                <p className={styles.recordingNote}>{recordingError}</p>
-              ) : null}
-            </>
+            </div>
           )}
         </div>
 

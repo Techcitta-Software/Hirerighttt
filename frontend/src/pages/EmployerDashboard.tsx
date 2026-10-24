@@ -35,11 +35,10 @@ import {
   fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
-  markEmployerApplicationAlertsRead,
   patchApplicantStatus,
   sendApplicantInterviewInvite,
-  type EmployerApplicationAlert,
 } from '../lib/vendorApi'
+import { syncEmployerApplicationNotifications } from '../lib/employerApplicationNotifications'
 import styles from './EmployerDashboard.module.css'
 
 function getInitials(name: string): string {
@@ -229,7 +228,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobSkills, setNewJobSkills] = useState('React, TypeScript, Node.js')
   const [jobFormError, setJobFormError] = useState('')
   const [portalSyncNote, setPortalSyncNote] = useState('')
-  const [applicationAlerts, setApplicationAlerts] = useState<EmployerApplicationAlert[]>([])
   const seenApplicationAlertIdsRef = useRef(new Set<string>())
 
   const [jobRosterOpen, setJobRosterOpen] = useState<{ jobId: string; title: string } | null>(
@@ -345,10 +343,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         await ensureApiSession()
         const { alerts } = await fetchEmployerApplicationAlerts()
         if (cancelled) return
+        syncEmployerApplicationNotifications(alerts)
         const fresh = alerts.filter((a) => !seenApplicationAlertIdsRef.current.has(a.id))
         if (fresh.length) {
           fresh.forEach((a) => seenApplicationAlertIdsRef.current.add(a.id))
-          setApplicationAlerts(alerts)
           for (const alert of fresh) {
             try {
               const { total, applicants: roster } = await fetchJobApplicants(alert.jobId)
@@ -360,8 +358,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           if (isCandidatesView) {
             void loadOrgCandidatesFromApi()
           }
-        } else if (alerts.length) {
-          setApplicationAlerts(alerts)
         }
       } catch {
         /* polling is best-effort */
@@ -375,17 +371,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       window.clearInterval(interval)
     }
   }, [user?.email, user?.role, isCandidatesView])
-
-  async function dismissApplicationAlerts() {
-    const ids = applicationAlerts.map((a) => a.id)
-    try {
-      await ensureApiSession()
-      await markEmployerApplicationAlertsRead(ids.length ? ids : undefined)
-    } catch {
-      /* still clear local banner */
-    }
-    setApplicationAlerts([])
-  }
 
   const showCandidateTable = isCandidatesView
 
@@ -719,6 +704,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }
 
   return (
+    <div className={styles.pageBleed}>
     <div className={styles.page}>
       <div className={styles.shell}>
         {portalLoading && (
@@ -883,34 +869,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
             </motion.div>
 
-            {applicationAlerts.length > 0 ? (
-              <div className={styles.applicationAlertBanner} role="status">
-                <div>
-                  <strong>
-                    New application{applicationAlerts.length > 1 ? 's' : ''}
-                  </strong>
-                  <p>
-                    {applicationAlerts[0].candidateName} applied for{' '}
-                    <strong>{applicationAlerts[0].jobTitle}</strong>.
-                    {applicationAlerts[0].hasInterviewReport
-                      ? ' HireRighttt report is available in the applicant roster.'
-                      : ''}
-                    {applicationAlerts[0].hasResume ? ' Resume is attached.' : ''}
-                  </p>
-                  {applicationAlerts.length > 1 ? (
-                    <p>+{applicationAlerts.length - 1} more recent application(s)</p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className={styles.applicationAlertDismiss}
-                  onClick={() => void dismissApplicationAlerts()}
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : null}
-
             {portalSyncNote && (
               <p className={styles.portalSyncNote} role="status">
                 {portalSyncNote}
@@ -921,32 +879,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {showCandidateTable && (
         <>
-        {applicationAlerts.length > 0 ? (
-          <div className={styles.applicationAlertBanner} role="status">
-            <div>
-              <strong>New application{applicationAlerts.length > 1 ? 's' : ''}</strong>
-              <p>
-                {applicationAlerts[0].candidateName} applied for{' '}
-                <strong>{applicationAlerts[0].jobTitle}</strong>.
-                {applicationAlerts[0].hasInterviewReport
-                  ? ' Open their HireRighttt report or resume from the table below.'
-                  : applicationAlerts[0].hasResume
-                    ? ' Their resume is available below.'
-                    : ''}
-              </p>
-              {applicationAlerts.length > 1 ? (
-                <p>+{applicationAlerts.length - 1} more recent application(s)</p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className={styles.applicationAlertDismiss}
-              onClick={() => void dismissApplicationAlerts()}
-            >
-              Dismiss
-            </button>
-          </div>
-        ) : null}
         {/* Refined Candidate Filters Card (matches SearchCandidatesPanel design) */}
         <motion.div
           className={styles.filterBarCard}
@@ -1661,6 +1593,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }

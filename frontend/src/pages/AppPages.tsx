@@ -277,7 +277,7 @@ export function JobsPage() {
   const highlightJobId = searchParams.get('job')
   const [toast, setToast] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
-  const [locationFilter, setLocationFilter] = useState('Hyderabad')
+  const [locationFilter, setLocationFilter] = useState('Any')
   const [workModeFilter, setWorkModeFilter] = useState('Any')
   const [minMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
@@ -424,12 +424,21 @@ export function JobsPage() {
       ) {
         return false
       }
+      if (jobScope === 'all') {
+        return true
+      }
+      const loc = job.location.toLowerCase()
+      const mode = job.mode.toLowerCase()
+      const remoteFriendly = mode.includes('remote') || loc.includes('remote')
       if (
         locationFilter !== 'Any' &&
-        locationFilter !== 'All locations' &&
-        !job.location.toLowerCase().includes(locationFilter.toLowerCase())
+        locationFilter !== 'All locations'
       ) {
-        return false
+        if (locationFilter.toLowerCase() === 'remote') {
+          if (!remoteFriendly) return false
+        } else if (!loc.includes(locationFilter.toLowerCase()) && !remoteFriendly) {
+          return false
+        }
       }
       if (workModeFilter !== 'Any' && !job.mode.toLowerCase().includes(workModeFilter.toLowerCase())) {
         return false
@@ -440,7 +449,7 @@ export function JobsPage() {
       }
       return true
     })
-  }, [allRoles, searchTerm, locationFilter, workModeFilter, minMatchFilter])
+  }, [allRoles, searchTerm, locationFilter, workModeFilter, minMatchFilter, jobScope])
 
   const sortedRoles = useMemo(() => {
     const list = [...filteredRoles]
@@ -651,7 +660,11 @@ export function JobsPage() {
                 onClick={() => setJobScope('all')}
               >
                 All jobs
-                {jobsListMeta.totalOpen != null ? ` (${jobsListMeta.totalOpen})` : ''}
+                {jobScope === 'all' && employerJobs.length > 0
+                  ? ` (${employerJobs.length})`
+                  : jobsListMeta.totalOpen != null
+                    ? ` (${jobsListMeta.totalOpen})`
+                    : ''}
               </button>
               <span className={styles.jobsResultCount}>{jobsHeadline}</span>
               {!unlocked ? (
@@ -681,20 +694,43 @@ export function JobsPage() {
 
               {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
                 <div className={styles.jobsEmptyCard}>
-                  <strong>No open roles yet</strong>
-                  <p>
-                    When employers post jobs on HireRighttt, they appear here. Complete your profile and
-                    interview to apply with your AI report.
-                  </p>
-                  {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      className={styles.primary}
-                      onClick={() => setJobScope('all')}
-                    >
-                      Browse all {jobsListMeta.totalOpen} postings
-                    </button>
-                  ) : null}
+                  {employerJobs.length > 0 ? (
+                    <>
+                      <strong>No jobs match your filters</strong>
+                      <p>
+                        Try &quot;Any location&quot; in the toolbar, clear search, or switch work mode to
+                        &quot;Any mode&quot;.
+                      </p>
+                      <button
+                        type="button"
+                        className={styles.primary}
+                        onClick={() => {
+                          setLocationFilter('Any')
+                          setWorkModeFilter('Any')
+                          setSearchTerm('')
+                        }}
+                      >
+                        Reset filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <strong>No open roles yet</strong>
+                      <p>
+                        When employers post jobs on HireRighttt, they appear here. Complete your profile
+                        and interview to apply with your AI report.
+                      </p>
+                      {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
+                        <button
+                          type="button"
+                          className={styles.primary}
+                          onClick={() => setJobScope('all')}
+                        >
+                          Browse all {jobsListMeta.totalOpen} postings
+                        </button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               ) : null}
 

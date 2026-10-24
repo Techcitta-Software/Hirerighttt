@@ -2,7 +2,12 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import ts from 'typescript'
-import { mergeReviewEvents, canReviewRecording, employerCanReviewRecording } from '../interviewReview.mjs'
+import {
+  mergeReviewEvents,
+  canReviewRecording,
+  employerCanReviewRecording,
+  vendorMayViewInterviewSession,
+} from '../interviewReview.mjs'
 import { resolveInterviewRecordingDownload } from '../storage/interviewRecordingStorage.mjs'
 
 const source = await readFile(new URL('../../../frontend/src/lib/reviewEventTracker.ts', import.meta.url), 'utf8')
@@ -80,6 +85,15 @@ test('recording access denies candidate ownership and other tenants before signi
   assert.equal(signed, false)
   await resolveInterviewRecordingDownload({ pool, s3, recordingId: 'one', tenantId: 'vendor-a' })
   assert.equal(signed, true)
+})
+
+test('vendorMayViewInterviewSession requires matching candidate email and org or platform', () => {
+  const platformSession = { email: 'seeker@test.com', organizationId: 'platform' }
+  const orgSession = { email: 'seeker@test.com', organizationId: 'org-vendor-1' }
+  assert.equal(vendorMayViewInterviewSession(platformSession, 'org-vendor-1', 'seeker@test.com'), true)
+  assert.equal(vendorMayViewInterviewSession(orgSession, 'org-vendor-1', 'seeker@test.com'), true)
+  assert.equal(vendorMayViewInterviewSession(orgSession, 'org-other', 'seeker@test.com'), false)
+  assert.equal(vendorMayViewInterviewSession(platformSession, 'org-vendor-1', 'wrong@test.com'), false)
 })
 
 test('employerCanReviewRecording allows platform practice interviews for roster job seekers', () => {

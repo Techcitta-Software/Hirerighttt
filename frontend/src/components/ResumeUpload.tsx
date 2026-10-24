@@ -5,7 +5,11 @@ import {
   resumeExtractToProfilePatch,
   type ResumeExtract,
 } from '../lib/resumeParser'
-import { getPendingResume, clearPendingResume } from '../lib/pendingResume'
+import {
+  getPendingResume,
+  clearPendingResume,
+  shouldAttachPendingResumeOnboarding,
+} from '../lib/pendingResume'
 import { uploadResumeViaApiWithStatus, type ResumeUploadResult } from '../lib/resumeUploadApi'
 import { syncProfileToApi } from '../lib/apiSession'
 import { getProfile, saveProfile } from '../lib/store'
@@ -65,18 +69,25 @@ export function ResumeUpload({
   const [parsing, setParsing] = useState(false)
   const [showWhy, setShowWhy] = useState(false)
 
-  // Automatically load and parse resume selected before signup/login
+  // Only attach a homepage-selected resume when the user explicitly picked a file before auth.
   useEffect(() => {
     let active = true
     async function loadPending() {
       if (file) return
+      if (!shouldAttachPendingResumeOnboarding()) {
+        await clearPendingResume()
+        return
+      }
       try {
         const pending = await getPendingResume()
         if (pending && active) {
           void validateAndSet(pending, { fromPending: true })
+        } else if (active) {
+          await clearPendingResume()
         }
       } catch (err) {
         console.warn('Could not auto-load pending resume in onboarding', err)
+        await clearPendingResume()
       }
     }
     void loadPending()

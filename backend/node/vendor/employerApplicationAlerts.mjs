@@ -1,3 +1,5 @@
+import { jobVisibleToRecruiter } from './jobs.mjs'
+
 /**
  * In-memory alerts when a candidate applies to an org's job (shown on vendor dashboard).
  * @param {import('../db/store.mjs').DbShape} db
@@ -54,7 +56,15 @@ export function ensureEmployerApplicationAlertsFromApplications(db, organization
 export function listEmployerApplicationAlerts(db, organizationId, options = {}) {
   ensureEmployerApplicationAlertsFromApplications(db, organizationId)
   const unreadOnly = options.unreadOnly !== false
-  const list = db.employerApplicationAlerts?.[organizationId] || []
+  let list = db.employerApplicationAlerts?.[organizationId] || []
+  if (options.createdByUserId) {
+    list = list.filter((a) => {
+      const job = (db.jobs || []).find(
+        (j) => j.id === a.jobId && j.organizationId === organizationId,
+      )
+      return jobVisibleToRecruiter(job || {}, options)
+    })
+  }
   return unreadOnly ? list.filter((a) => !a.read) : list
 }
 

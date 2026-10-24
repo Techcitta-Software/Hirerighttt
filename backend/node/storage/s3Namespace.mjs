@@ -1,7 +1,7 @@
 import { isLegacyResumeObjectKey, sanitizePathSegment } from './s3KeyLayout.mjs'
 
 /** Bump when key layout or required metadata changes (see .env.example). */
-export const S3_LAYOUT_VERSION = 2
+export const S3_LAYOUT_VERSION = 3
 
 export const TENANTS_PREFIX = 'tenants'
 
@@ -15,30 +15,34 @@ export const S3_OBJECT_PURPOSES = Object.freeze({
 })
 
 /**
- * Production layout (single bucket, private, server-side encryption on PutObject).
+ * Layout v3 (current writes) — one folder per asset type under each tenant:
  *
- * tenants/{tenantId}/candidates/{candidateId}/resumes/…
- * tenants/{tenantId}/candidates/{candidateId}/certificates/…
- * tenants/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/transcripts/transcript.json
- * tenants/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/reports/interview_report.pdf
- * tenants/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/recordings/recording_*.webm
+ * tenants/{tenantId}/resumes/{candidateId}/resume_v{n}_{uuid}.ext
+ * tenants/{tenantId}/videos/{sessionId}/recording_{uuid8}.ext
+ * tenants/{tenantId}/reports/{sessionId}/interview_report.pdf
+ * tenants/{tenantId}/transcripts/{sessionId}/transcript.json
+ * tenants/{tenantId}/certificates/{candidateId}/{documentId}.ext
  *
- * Legacy (read-only; no new writes): resumes/{email}/…
- * Legacy flat interviews (existing rows in DB): tenants/{tenantId}/interviews/{sessionId}/…
+ * Legacy (read until purged):
+ * - resumes/{email}/…
+ * - tenants/{tenantId}/candidates/{candidateId}/… (v2)
+ * - tenants/{tenantId}/interviews/{sessionId}/… (v1 flat)
  */
 export function describeS3Layout() {
   return {
     version: S3_LAYOUT_VERSION,
     singleBucketEnv: 'S3_BUCKET',
     rootPrefix: `${TENANTS_PREFIX}/`,
-    tenantResolution: 'session organizationId → user primaryOrganizationId → S3_DEFAULT_TENANT_ID (platform)',
+    tenantResolution:
+      'session organizationId → user primaryOrganizationId → S3_DEFAULT_TENANT_ID (platform)',
     paths: {
-      resume: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/resumes/resume_v{n}_{uuid}.{ext}`,
-      certificate: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/certificates/{documentId}.{ext}`,
-      interviewTranscript: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/transcripts/transcript.json`,
-      interviewReport: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/reports/interview_report.pdf`,
-      interviewRecording: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/interviews/{sessionId}/recordings/recording_{uuid8}.{ext}`,
+      resume: `${TENANTS_PREFIX}/{tenantId}/resumes/{candidateId}/resume_v{n}_{uuid}.{ext}`,
+      certificate: `${TENANTS_PREFIX}/{tenantId}/certificates/{candidateId}/{documentId}.{ext}`,
+      interviewRecording: `${TENANTS_PREFIX}/{tenantId}/videos/{sessionId}/recording_{uuid8}.{ext}`,
+      interviewReport: `${TENANTS_PREFIX}/{tenantId}/reports/{sessionId}/interview_report.pdf`,
+      interviewTranscript: `${TENANTS_PREFIX}/{tenantId}/transcripts/{sessionId}/transcript.json`,
       legacyResume: 'resumes/{sanitizedEmail}/{uuid}.{ext}',
+      legacyV2CandidateTree: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/…`,
       legacyInterviewFlat: `${TENANTS_PREFIX}/{tenantId}/interviews/{sessionId}/…`,
     },
     metadata: ['purpose', 'layout', 'tenant', 'candidate', 'interview'],
@@ -118,6 +122,60 @@ export function parseTenantObjectKey(key) {
     return { kind: 'unknown', key: k }
   }
   const tenantId = parts[1]
+
+  // v3 type-first
+  if (parts[2] === 'resumes' && parts.length >= 4) {
+    return {
+      kind: 'resume',
+      layout: 'type_first',
+      tenantId,
+      candidateId: parts[3],
+      category: 'resumes',
+      key: k,
+    }
+  }
+  if (parts[2] === 'videos' && parts.length >= 4) {
+    return {
+      kind: 'interview_artifact',
+      layout: 'type_first',
+      tenantId,
+      interviewId: parts[3],
+      artifactFolder: 'videos',
+      key: k,
+    }
+  }
+  if (parts[2] === 'reports' && parts.length >= 4) {
+    return {
+      kind: 'interview_artifact',
+      layout: 'type_first',
+      tenantId,
+      interviewId: parts[3],
+      artifactFolder: 'reports',
+      key: k,
+    }
+  }
+  if (parts[2] === 'transcripts' && parts.length >= 4) {
+    return {
+      kind: 'interview_artifact',
+      layout: 'type_first',
+      tenantId,
+      interviewId: parts[3],
+      artifactFolder: 'transcripts',
+      key: k,
+    }
+  }
+  if (parts[2] === 'certificates' && parts.length >= 4) {
+    return {
+      kind: 'certificate',
+      layout: 'type_first',
+      tenantId,
+      candidateId: parts[3],
+      category: 'certificates',
+      key: k,
+    }
+  }
+
+  // v2 candidate tree
   if (parts[2] === 'candidates' && parts.length >= 5) {
     const candidateId = parts[3]
     if (parts[4] === 'interviews' && parts.length >= 6) {

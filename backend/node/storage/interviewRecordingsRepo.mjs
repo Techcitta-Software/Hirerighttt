@@ -97,6 +97,37 @@ export async function updateInterviewRecording(pool, id, patch) {
  * @param {import('pg').Pool} pool
  * @param {string} candidateEmail
  */
+/** Recording for a specific interview session — ensures video matches session integrity events. */
+export async function getInterviewRecordingForSession(
+  pool,
+  interviewId,
+  candidateEmail,
+  activeBucket = null,
+) {
+  const iid = String(interviewId || '').trim()
+  const email = String(candidateEmail || '').trim().toLowerCase()
+  if (!iid || !email) return null
+  const params = [iid, email]
+  let bucketSql = ''
+  if (activeBucket) {
+    params.push(activeBucket)
+    bucketSql = ` AND bucket = $${params.length}`
+  }
+  const res = await pool.query(
+    `SELECT id, tenant_id, interview_id, candidate_id, candidate_email,
+            s3_object_key, bucket, original_filename, content_type,
+            file_size_bytes, duration_seconds, status, created_at, updated_at
+     FROM interview_recordings
+     WHERE interview_id = $1
+       AND lower(candidate_email) = $2
+       AND status IN ('uploaded', 'completed')${bucketSql}
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    params,
+  )
+  return res.rows[0] || null
+}
+
 export async function getLatestInterviewRecordingForCandidate(pool, candidateEmail, activeBucket = null) {
   const email = String(candidateEmail || '').trim().toLowerCase()
   if (!email) return null

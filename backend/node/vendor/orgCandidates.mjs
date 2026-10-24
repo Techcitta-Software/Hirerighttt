@@ -1,4 +1,4 @@
-import { listJobApplications } from './jobs.mjs'
+import { listJobApplications, listOrgJobs } from './jobs.mjs'
 import { listOrganizationTalentUserIds, searchCandidateTalent } from '../db/talentIndex.mjs'
 import { dbPool } from '../db/store.mjs'
 
@@ -362,8 +362,24 @@ function matchesFilters(row, filters, db, organizationId) {
  * @param {string} [databaseUrl]
  * @param {Record<string, string>} [filters]
  */
-export async function listOrganizationCandidates(db, organizationId, databaseUrl, filters = {}) {
+/**
+ * @param {import('../db/store.mjs').DbShape} db
+ * @param {string} organizationId
+ * @param {string} [databaseUrl]
+ * @param {Record<string, string>} [filters]
+ * @param {{ createdByUserId?: string, createdByEmail?: string }} [recruiterScope]
+ */
+export async function listOrganizationCandidates(
+  db,
+  organizationId,
+  databaseUrl,
+  filters = {},
+  recruiterScope = null,
+) {
   const recruiterEmails = buildRecruiterTeamEmailSet(db)
+  const recruiterJobIds = recruiterScope?.createdByUserId
+    ? new Set(listOrgJobs(db, organizationId, recruiterScope).map((j) => j.id))
+    : null
   const byKey = new Map()
 
   const add = (row) => {
@@ -378,6 +394,7 @@ export async function listOrganizationCandidates(db, organizationId, databaseUrl
 
   for (const app of db.employerApplications || []) {
     if (app.organizationId !== organizationId) continue
+    if (recruiterJobIds && app.jobId && !recruiterJobIds.has(app.jobId)) continue
     add(withStoredInterview(db, recordFromApplication(app)))
   }
 
@@ -457,6 +474,7 @@ export async function listOrganizationCandidates(db, organizationId, databaseUrl
   candidates = candidates.filter(
     (row) =>
       !isEmployerOrRecruiterAccount(db, row.candidateEmail, row.candidateUserId, recruiterEmails) &&
+      (!recruiterJobIds || !row.jobId || recruiterJobIds.has(row.jobId)) &&
       matchesFilters(row, filters, db, organizationId),
   )
   candidates.sort((a, b) => String(b.appliedAt).localeCompare(String(a.appliedAt)))

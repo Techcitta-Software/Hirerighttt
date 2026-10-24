@@ -1,6 +1,9 @@
 import { canReviewRecording, employerCanReviewRecording } from '../interviewReview.mjs'
 import { assertVendorMayViewCandidateDocuments } from '../vendor/candidateDocuments.mjs'
-import { getLatestInterviewRecordingForCandidate } from './interviewRecordingsRepo.mjs'
+import {
+  getInterviewRecordingForSession,
+  getLatestInterviewRecordingForCandidate,
+} from './interviewRecordingsRepo.mjs'
 import {
   buildInterviewRecordingObjectKey,
   resolveTenantId,
@@ -243,16 +246,23 @@ export async function resolveInterviewRecordingDownload(opts) {
  *   db: import('../db/store.mjs').DbShape,
  *   organizationId: string,
  *   candidateEmail: string,
+ *   interviewId?: string,
+ *   recruiterScope?: { createdByUserId?: string, createdByEmail?: string },
  *   s3?: ReturnType<typeof createS3ObjectStorage>,
  * }} opts
  */
 export async function resolveEmployerCandidateRecordingPlayback(opts) {
-  assertVendorMayViewCandidateDocuments(opts.db, opts.organizationId, opts.candidateEmail)
-  const row = await getLatestInterviewRecordingForCandidate(
-    opts.pool,
+  assertVendorMayViewCandidateDocuments(
+    opts.db,
+    opts.organizationId,
     opts.candidateEmail,
-    activeS3BucketName() || null,
+    opts.recruiterScope || null,
   )
+  const bucket = activeS3BucketName() || null
+  const sessionId = String(opts.interviewId || '').trim()
+  const row = sessionId
+    ? await getInterviewRecordingForSession(opts.pool, sessionId, opts.candidateEmail, bucket)
+    : await getLatestInterviewRecordingForCandidate(opts.pool, opts.candidateEmail, bucket)
   if (!employerCanReviewRecording(opts.db, opts.organizationId, opts.candidateEmail, row)) {
     const err = new Error('Interview recording not found.')
     err.status = 404

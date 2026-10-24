@@ -4,6 +4,7 @@ import { handleLoginNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getUser, isLoggedIn } from '../lib/store'
 import { CandidateNotificationBell } from './CandidateNotificationBell'
+import { EmployerNotificationBell } from './EmployerNotificationBell'
 import { openSignOutModal } from '../lib/signOutModal'
 import { BrandLogo } from './BrandLogo'
 import styles from './SiteNav.module.css'
@@ -201,7 +202,11 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   Dashboard
                 </Link>
               )}
-              {user?.role !== 'employer' && <CandidateNotificationBell />}
+              {user?.role === 'employer' ? (
+                <EmployerNotificationBell />
+              ) : (
+                <CandidateNotificationBell />
+              )}
 
               {/* User profile avatar icon & dropdown menu (both candidate and employer) */}
               <div className={styles.profileMenuWrap} ref={profileMenuRef}>

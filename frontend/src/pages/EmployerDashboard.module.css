@@ -1,25 +1,46 @@
+/* Cancel AppShell main padding — edge-to-edge employer workspace (jobs + candidates). */
+.pageBleed {
+  margin: calc(-1 * var(--app-main-padding-y, 1.75rem)) calc(-1 * var(--app-main-padding-x, 1rem))
+    calc(-1 * var(--space-8, 2rem));
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .page {
-  min-height: 100vh;
-  background: var(--bg-page, #f8fafc);
-  color: var(--color-text-primary);
+  --employer-accent: #4f46e5;
+  --employer-surface: #ffffff;
+  --employer-muted: #64748b;
+  --employer-navy: #0f172a;
+
+  min-height: calc(100vh - var(--nav-height, 64px));
+  width: 100%;
+  overflow-x: clip;
+  box-sizing: border-box;
+  color: var(--color-text-primary, var(--employer-navy));
   font-family: var(--font-sans);
+  background:
+    radial-gradient(ellipse 85% 55% at 50% -15%, rgba(79, 70, 229, 0.12), transparent),
+    linear-gradient(180deg, #ebe7ff 0%, #faf9ff 220px, #eeecf8 100%);
 }
 
 .shell {
   max-width: 1360px;
-  width: 94%;
+  width: 100%;
   margin: 0 auto;
-  padding-bottom: var(--app-page-padding-bottom);
+  padding: clamp(16px, 2.5vw, 28px) clamp(16px, 3vw, 40px) var(--space-12, 48px);
+  box-sizing: border-box;
 }
 
 /* Hero Section */
 .heroCard {
-  margin-top: var(--space-6);
-  background: #ffffff;
+  margin-top: 0;
+  background: var(--employer-surface);
   border: 1px solid #e2e8f0;
   border-radius: 16px;
-  padding: var(--space-8) var(--space-8);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  padding: clamp(20px, 3vw, 32px);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 28px rgba(15, 23, 42, 0.05);
 }
 
 .heroBadge {
@@ -55,8 +76,8 @@
 
 /* Filter Candidates Card - same size, border-radius, padding & shadow as SearchCandidatesPanel */
 .filterBarCard {
-  margin-top: 24px;
-  margin-bottom: 24px;
+  margin-top: 16px;
+  margin-bottom: 16px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
@@ -323,7 +344,7 @@
 
 /* Candidates Card */
 .candidatesCard {
-  margin-top: 18px;
+  margin-top: 16px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
@@ -651,7 +672,7 @@
 
 /* Secondary Openings Section */
 .jobsSection {
-  margin-top: 24px;
+  margin-top: 16px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;

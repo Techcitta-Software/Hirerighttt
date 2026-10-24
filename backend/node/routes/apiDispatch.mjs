@@ -1,4 +1,4 @@
-import { mergeReviewEvents } from '../interviewReview.mjs'
+import { mergeReviewEvents, vendorMayViewInterviewSession } from '../interviewReview.mjs'
 import { randomBytes } from 'node:crypto'
 import { evaluateResumeAgainstJd, generateVendorAssessmentSheet, vendorReportNeedsRefresh } from '../vendor/aiEvaluation.mjs'
 import {
@@ -70,7 +70,9 @@ import {
   listOpenJobsPage,
   publicJobListPayload,
   getOrgJob,
+  getOrgJobForRecruiter,
   getOrgApplication,
+  getOrgApplicationForRecruiter,
   createJobApplication,
   attachCandidateReportToApplication,
   listJobApplications,
@@ -156,6 +158,12 @@ async function resolveVendorJobForInterview(db, body, email, databaseUrl) {
   }
   return { job: null, application: null }
 }
+
+/** Per-recruiter SaaS scope: vendor users only manage jobs they created. */
+function vendorRecruiterScope(ctx) {
+  return { createdByUserId: ctx.user.id, createdByEmail: ctx.user.email }
+}
+
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
 export function createApiDispatchMiddleware(ctx) {
   const {
@@ -419,7 +427,7 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const jobId = path.split('/')[4]
       const orgId = ctx.tenant.organization.id
-      const job = getOrgJob(db, orgId, jobId)
+      const job = getOrgJobForRecruiter(db, orgId, jobId, vendorRecruiterScope(ctx))
       if (!job) {
         return json(res, 404, { error: 'Job not found.' })
       }
@@ -453,7 +461,7 @@ export function createApiDispatchMiddleware(ctx) {
       const jobId = path.split('/')[4]
       const orgId = ctx.tenant.organization.id
       try {
-        const job = getOrgJob(db, orgId, jobId)
+        const job = getOrgJobForRecruiter(db, orgId, jobId, vendorRecruiterScope(ctx))
         const marked = job
           ? markCandidateJobApplicationsDeleted(db, jobId, {
               title: job.title,
@@ -489,7 +497,10 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const orgId = ctx.tenant.organization.id
-      const alerts = listEmployerApplicationAlerts(db, orgId, { unreadOnly: true })
+      const alerts = listEmployerApplicationAlerts(db, orgId, {
+        unreadOnly: true,
+        ...vendorRecruiterScope(ctx),
+      })
       return json(res, 200, { alerts, total: alerts.length })
     }
 
@@ -513,7 +524,12 @@ export function createApiDispatchMiddleware(ctx) {
         await syncEmployerApplicationsFromDatabase(config.databaseUrl, db)
       }
       const jobId = path.split('/')[4]
-      const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
+      const job = getOrgJobForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        jobId,
+        vendorRecruiterScope(ctx),
+      )
       if (!job) return json(res, 404, { error: 'Job not found.' })
       const applicants = listJobApplications(db, ctx.tenant.organization.id, jobId).map((app) =>
         attachCandidateReportToApplication(db, app, app.candidateEmail, {
@@ -539,7 +555,13 @@ export function createApiDispatchMiddleware(ctx) {
         keywords: url.searchParams.get('keywords') || url.searchParams.get('q') || '',
         jobId: url.searchParams.get('jobId') || '',
       }
-      const roster = await listOrganizationCandidates(db, orgId, config.databaseUrl, filters)
+      const roster = await listOrganizationCandidates(
+        db,
+        orgId,
+        config.databaseUrl,
+        filters,
+        vendorRecruiterScope(ctx),
+      )
       return json(res, 200, {
         organizationId: orgId,
         ...roster,
@@ -552,7 +574,12 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const candidateEmail = String(url.searchParams.get('email') || '').trim()
       try {
-        assertVendorMayViewCandidateDocuments(db, ctx.tenant.organization.id, candidateEmail)
+        assertVendorMayViewCandidateDocuments(
+          db,
+          ctx.tenant.organization.id,
+          candidateEmail,
+          vendorRecruiterScope(ctx),
+        )
         const profile = candidateProfileForDocuments(db, candidateEmail)
         const pool = dbPool(config.databaseUrl)
         const signed = await resolveResumeDownloadFromProfile(profile, pool, { inline: true })
@@ -576,13 +603,24 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const candidateEmail = String(url.searchParams.get('email') || '').trim()
+      const interviewId = String(
+        url.searchParams.get('sessionId') || url.searchParams.get('interviewId') || '',
+      ).trim()
       try {
+        assertVendorMayViewCandidateDocuments(
+          db,
+          ctx.tenant.organization.id,
+          candidateEmail,
+          vendorRecruiterScope(ctx),
+        )
         const pool = dbPool(config.databaseUrl)
         const signed = await resolveEmployerCandidateRecordingPlayback({
           pool,
           db,
           organizationId: ctx.tenant.organization.id,
           candidateEmail,
+          interviewId: interviewId || undefined,
+          recruiterScope: vendorRecruiterScope(ctx),
         })
         res.setHeader('Cache-Control', 'no-store')
         return json(res, 200, {
@@ -593,6 +631,7 @@ export function createApiDispatchMiddleware(ctx) {
           contentType: signed.contentType,
           filename: signed.filename,
           sessionId: signed.interviewId,
+          candidateEmail: candidateEmail.toLowerCase(),
           durationSeconds: signed.durationSeconds,
           fileSizeBytes: signed.fileSizeBytes,
         })
@@ -609,7 +648,12 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const candidateEmail = String(url.searchParams.get('email') || '').trim()
       try {
-        assertVendorMayViewCandidateDocuments(db, ctx.tenant.organization.id, candidateEmail)
+        assertVendorMayViewCandidateDocuments(
+          db,
+          ctx.tenant.organization.id,
+          candidateEmail,
+          vendorRecruiterScope(ctx),
+        )
         const pool = dbPool(config.databaseUrl)
         const signed = await resolveCandidateInterviewReportDownload({
           pool,
@@ -643,7 +687,12 @@ export function createApiDispatchMiddleware(ctx) {
         await syncEmployerApplicationsFromDatabase(config.databaseUrl, db)
       }
       const jobId = path.split('/')[4]
-      const job = getOrgJob(db, ctx.tenant.organization.id, jobId)
+      const job = getOrgJobForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        jobId,
+        vendorRecruiterScope(ctx),
+      )
       if (!job) return json(res, 404, { error: 'Job not found.' })
       const filters = {
         name: url.searchParams.get('name') || '',
@@ -661,9 +710,19 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const appId = path.split('/')[4]
-      const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
+      const app = getOrgApplicationForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        appId,
+        vendorRecruiterScope(ctx),
+      )
       if (!app) return json(res, 404, { error: 'Applicant not found.' })
-      const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
+      const job = getOrgJobForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        app.jobId,
+        vendorRecruiterScope(ctx),
+      )
       const forceRefresh = url.searchParams.get('refresh') === '1'
       if (!vendorReportNeedsRefresh(app.data, forceRefresh) && app.data?.vendorReport) {
         return json(res, 200, { report: app.data.vendorReport, application: app })
@@ -696,9 +755,19 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const appId = path.split('/')[4]
-      const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
+      const app = getOrgApplicationForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        appId,
+        vendorRecruiterScope(ctx),
+      )
       if (!app) return json(res, 404, { error: 'Applicant not found.' })
-      const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
+      const job = getOrgJobForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        app.jobId,
+        vendorRecruiterScope(ctx),
+      )
       const jobDescription = String(job?.jobDescription || '')
       const requiredSkills = job?.requiredSkills || app.data?.primarySkills || []
       const profile = {
@@ -749,9 +818,19 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const appId = path.split('/')[4]
       const body = await readBody(req)
-      const app = getOrgApplication(db, ctx.tenant.organization.id, appId)
+      const app = getOrgApplicationForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        appId,
+        vendorRecruiterScope(ctx),
+      )
       if (!app) return json(res, 404, { error: 'Applicant not found.' })
-      const job = getOrgJob(db, ctx.tenant.organization.id, app.jobId)
+      const job = getOrgJobForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        app.jobId,
+        vendorRecruiterScope(ctx),
+      )
       const scheduledStartRaw = body.scheduledStart || body.scheduledAt
       const start = new Date(scheduledStartRaw)
       if (Number.isNaN(start.getTime())) {
@@ -828,8 +907,11 @@ export function createApiDispatchMiddleware(ctx) {
       if (!ctx) return
       const appId = path.replace('/api/vendor/applicants/', '').split('/')[0]
       const body = await readBody(req)
-      const app = (db.employerApplications || []).find(
-        (a) => a.id === appId && a.organizationId === ctx.tenant.organization.id,
+      const app = getOrgApplicationForRecruiter(
+        db,
+        ctx.tenant.organization.id,
+        appId,
+        vendorRecruiterScope(ctx),
       )
       if (!app) return json(res, 404, { error: 'Applicant not found.' })
       if (body.status) app.status = String(body.status)
@@ -1712,10 +1794,43 @@ export function createApiDispatchMiddleware(ctx) {
       const access = await requireEmployerTenant(req, res, db)
       if (!access) return
       if (access.user.status === 'disabled' || access.tenant.organization.status !== 'active' || !['owner', 'admin', 'recruiter'].includes(access.tenant.membership?.role)) return json(res, 403, { error: 'Reviewer access required.' })
-      const sessionId = String(url.searchParams.get('sessionId') || '')
-      const session = db.interviewSessions?.[sessionId]
+      const sessionId = String(url.searchParams.get('sessionId') || '').trim()
+      const candidateEmail = String(url.searchParams.get('email') || '').trim().toLowerCase()
+      if (!sessionId || !candidateEmail) {
+        return json(res, 400, { error: 'sessionId and email are required.' })
+      }
       const tenantId = access.tenant.organization.id
-      if (!session || session.organizationId !== tenantId) return json(res, 404, { error: 'Interview not found.' })
+      try {
+        assertVendorMayViewCandidateDocuments(
+          db,
+          tenantId,
+          candidateEmail,
+          vendorRecruiterScope(access),
+        )
+      } catch (err) {
+        return json(res, err.status || 404, {
+          error: err instanceof Error ? err.message : 'Candidate not found.',
+        })
+      }
+
+      let session = db.interviewSessions?.[sessionId]
+      if (!session && config.databaseUrl) {
+        const pool = dbPool(config.databaseUrl)
+        const row = await pool.query(
+          `SELECT email, data FROM interview_sessions WHERE session_id = $1`,
+          [sessionId],
+        )
+        if (row.rows[0]) {
+          session = row.rows[0].data || {}
+          if (!session.email) session.email = row.rows[0].email
+          db.interviewSessions = db.interviewSessions || {}
+          db.interviewSessions[sessionId] = session
+        }
+      }
+      if (!session || !vendorMayViewInterviewSession(session, tenantId, candidateEmail)) {
+        return json(res, 404, { error: 'Interview not found for this candidate.' })
+      }
+
       let videoUrl = null
       let recordingStatus = 'No recording available'
       if (config.databaseUrl && s3StorageConfigured()) {
@@ -1725,7 +1840,9 @@ export function createApiDispatchMiddleware(ctx) {
             pool,
             db,
             organizationId: tenantId,
-            candidateEmail: String(session.email || ''),
+            candidateEmail,
+            interviewId: sessionId,
+            recruiterScope: vendorRecruiterScope(access),
           })
           videoUrl = signed.url
           recordingStatus = 'Recording available'
@@ -1734,7 +1851,13 @@ export function createApiDispatchMiddleware(ctx) {
         }
       }
       res.setHeader('Cache-Control', 'no-store')
-      return json(res, 200, { events: session.reviewEvents || [], videoUrl, recordingStatus })
+      return json(res, 200, {
+        events: session.reviewEvents || [],
+        videoUrl,
+        recordingStatus,
+        sessionId,
+        candidateEmail,
+      })
     }
 
     /** Record integrity ping (face count) during interview */

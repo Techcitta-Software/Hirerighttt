@@ -175,22 +175,32 @@ export function listOpenJobsPage(db, limit, offset) {
 }
 
 /**
+ * Whether a job belongs to this recruiter (SaaS: each vendor user sees only their postings).
+ * @param {import('../db/store.mjs').SaasJob | Record<string, unknown>} job
+ * @param {{ createdByUserId?: string, createdByEmail?: string }} [options]
+ */
+export function jobVisibleToRecruiter(job, options = {}) {
+  if (!job) return false
+  const userId = options.createdByUserId ? String(options.createdByUserId) : ''
+  if (!userId) return true
+  if (String(job.createdByUserId || '') === userId) return true
+  const userEmail = String(options.createdByEmail || '').trim().toLowerCase()
+  const creatorEmail = String(job.createdByEmail || '').trim().toLowerCase()
+  if (!job.createdByUserId && userEmail && creatorEmail === userEmail) return true
+  return false
+}
+
+/**
  * @param {import('../db/store.mjs').DbShape} db
  * @param {{ createdByUserId?: string, createdByEmail?: string }} [options]
  */
 export function listOrgJobs(db, organizationId, options = {}) {
   const orgId = String(organizationId || '')
-  const userId = options.createdByUserId ? String(options.createdByUserId) : ''
-  const userEmail = String(options.createdByEmail || '').trim().toLowerCase()
   return (db.jobs || [])
     .filter((j) => {
       if (String(j.organizationId) !== orgId) return false
       if (j.status === 'archived' || j.status === 'deleted') return false
-      if (!userId) return true
-      if (String(j.createdByUserId || '') === userId) return true
-      const creatorEmail = String(j.createdByEmail || '').trim().toLowerCase()
-      if (!j.createdByUserId && userEmail && creatorEmail === userEmail) return true
-      return false
+      return jobVisibleToRecruiter(j, options)
     })
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
 }
@@ -198,6 +208,25 @@ export function listOrgJobs(db, organizationId, options = {}) {
 /** @param {import('../db/store.mjs').DbShape} db */
 export function getOrgJob(db, organizationId, jobId) {
   return (db.jobs || []).find((j) => j.id === jobId && j.organizationId === organizationId)
+}
+
+/**
+ * Org job the current recruiter may manage (404 if missing or owned by another recruiter).
+ * @param {import('../db/store.mjs').DbShape} db
+ * @param {{ createdByUserId?: string, createdByEmail?: string }} [options]
+ */
+export function getOrgJobForRecruiter(db, organizationId, jobId, options = {}) {
+  const job = getOrgJob(db, organizationId, jobId)
+  if (!job || !jobVisibleToRecruiter(job, options)) return null
+  return job
+}
+
+/** @param {import('../db/store.mjs').DbShape} db */
+export function getOrgApplicationForRecruiter(db, organizationId, applicationId, options = {}) {
+  const app = getOrgApplication(db, organizationId, applicationId)
+  if (!app?.jobId) return app || null
+  const job = getOrgJobForRecruiter(db, organizationId, app.jobId, options)
+  return job ? app : null
 }
 
 /**

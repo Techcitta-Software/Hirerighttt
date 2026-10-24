@@ -1,4 +1,5 @@
 import { isEmployerOrRecruiterAccount } from './orgCandidates.mjs'
+import { listOrgJobs } from './jobs.mjs'
 
 function buildRecruiterTeamEmailSet(db) {
   const emails = new Set()
@@ -19,7 +20,15 @@ function buildRecruiterTeamEmailSet(db) {
  * Vendor may view stored resume/report for job seekers visible in their talent roster
  * or linked to their organization via applications / interviews.
  */
-export function assertVendorMayViewCandidateDocuments(db, organizationId, candidateEmail) {
+/**
+ * @param {{ createdByUserId?: string, createdByEmail?: string }} [recruiterScope]
+ */
+export function assertVendorMayViewCandidateDocuments(
+  db,
+  organizationId,
+  candidateEmail,
+  recruiterScope = null,
+) {
   const email = String(candidateEmail || '').trim().toLowerCase()
   if (!email) {
     const err = new Error('Candidate email is required.')
@@ -33,16 +42,21 @@ export function assertVendorMayViewCandidateDocuments(db, organizationId, candid
     throw err
   }
 
-  const linkedApplication = (db.employerApplications || []).some(
-    (app) =>
-      String(app.organizationId || '') === String(organizationId || '') &&
-      String(app.candidateEmail || '').toLowerCase() === email,
-  )
-  const linkedSession = Object.values(db.interviewSessions || {}).some(
-    (session) =>
-      String(session.organizationId || '') === String(organizationId || '') &&
-      String(session.email || '').toLowerCase() === email,
-  )
+  const recruiterJobIds = recruiterScope?.createdByUserId
+    ? new Set(listOrgJobs(db, organizationId, recruiterScope).map((j) => j.id))
+    : null
+  const linkedApplication = (db.employerApplications || []).some((app) => {
+    if (String(app.organizationId || '') !== String(organizationId || '')) return false
+    if (String(app.candidateEmail || '').toLowerCase() !== email) return false
+    if (recruiterJobIds && app.jobId && !recruiterJobIds.has(app.jobId)) return false
+    return true
+  })
+  const linkedSession = Object.values(db.interviewSessions || {}).some((session) => {
+    if (String(session.organizationId || '') !== String(organizationId || '')) return false
+    if (String(session.email || '').toLowerCase() !== email) return false
+    if (recruiterJobIds && session.jobId && !recruiterJobIds.has(session.jobId)) return false
+    return true
+  })
   const jobSeekerUser = (db.users || []).find(
     (u) => String(u.email || '').toLowerCase() === email && u.role !== 'employer',
   )

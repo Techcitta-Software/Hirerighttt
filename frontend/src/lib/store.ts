@@ -1659,6 +1659,8 @@ export type AppNotification = {
   createdAt: string
   kind?: 'job_match' | 'application' | 'status' | 'general'
   jobId?: string
+  /** Employer application alert id (dedupe bell entries). */
+  alertId?: string
 }
 
 const NOTIF_KEY = 'hireright.notifications'
@@ -1678,11 +1680,14 @@ export function getNotifications(email?: string): AppNotification[] {
 }
 
 export function addNotification(
-  input: Pick<AppNotification, 'title' | 'body' | 'href' | 'kind' | 'jobId'>,
+  input: Pick<AppNotification, 'title' | 'body' | 'href' | 'kind' | 'jobId' | 'alertId'>,
   email?: string,
 ) {
   const list = getNotifications(email)
   if (input.jobId && list.some((n) => n.jobId === input.jobId && n.kind === 'job_match')) {
+    return
+  }
+  if (input.alertId && list.some((n) => n.alertId === input.alertId)) {
     return
   }
   list.unshift({

@@ -1,0 +1,132 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.video {
+  width: 100%;
+  max-height: min(40vh, 400px);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #0f172a;
+}
+
+.timelineLabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.timelineClock {
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: #334155;
+}
+
+.timelineTrack {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.timelinePlayed {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #94a3b8, #cbd5e1);
+  pointer-events: none;
+  border-radius: 999px 0 0 999px;
+}
+
+.timelineFlag {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: #ef4444;
+  box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.35);
+  cursor: pointer;
+  min-width: 4px;
+  z-index: 2;
+}
+
+.timelineFlag:hover {
+  background: #dc2626;
+  filter: brightness(1.05);
+}
+
+.flagList {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.flagRow {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.flagRow:last-child {
+  border-bottom: none;
+}
+
+.flagRow:hover {
+  background: #fff5f5;
+}
+
+.flagDot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.flagTime {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+}
+
+.flagMsg {
+  font-size: 0.82rem;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.noFlags {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}

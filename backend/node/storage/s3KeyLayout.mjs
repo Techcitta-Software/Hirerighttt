@@ -47,6 +47,7 @@ export function isLegacyResumeObjectKey(key) {
 }
 
 /**
+ * Layout v3: type-first folders under each tenant (easy to browse in S3 console).
  * @param {{
  *   tenantId: string,
  *   candidateId: string,
@@ -63,7 +64,7 @@ export function buildCandidateResumeObjectKey(opts) {
       ? Math.floor(opts.versionNumber)
       : 1
   const unique = randomUUID()
-  return `tenants/${tid}/candidates/${cid}/resumes/resume_v${ver}_${unique}${ext}`
+  return `tenants/${tid}/resumes/${cid}/resume_v${ver}_${unique}${ext}`
 }
 
 /**
@@ -79,16 +80,10 @@ export function buildCandidateCertificateObjectKey(opts) {
   const cid = sanitizePathSegment(opts.candidateId)
   const docId = sanitizePathSegment(opts.documentId)
   const ext = extensionFromFilename(opts.originalFilename) || '.pdf'
-  return `tenants/${tid}/candidates/${cid}/certificates/${docId}${ext}`
+  return `tenants/${tid}/certificates/${cid}/${docId}${ext}`
 }
 
-/**
- * @param {{
- *   tenantId: string,
- *   interviewId: string,
- *   candidateId?: string,
- * }} opts
- */
+/** @deprecated v2 nested path — only for parsing legacy keys. */
 export function buildInterviewSessionPrefix(opts) {
   const tid = sanitizePathSegment(opts.tenantId)
   const iid = sanitizePathSegment(opts.interviewId)
@@ -100,6 +95,7 @@ export function buildInterviewSessionPrefix(opts) {
 }
 
 /**
+ * All interview videos for a tenant live under tenants/{tenant}/videos/{sessionId}/.
  * @param {{
  *   tenantId: string,
  *   interviewId: string,
@@ -110,7 +106,8 @@ export function buildInterviewSessionPrefix(opts) {
  * }} opts
  */
 export function buildInterviewRecordingObjectKey(opts) {
-  const prefix = buildInterviewSessionPrefix(opts)
+  const tid = sanitizePathSegment(opts.tenantId)
+  const iid = sanitizePathSegment(opts.interviewId)
   let ext = extensionFromFilename(opts.originalFilename || '')
   if (!ext) {
     const ct = String(opts.contentType || '').toLowerCase()
@@ -118,7 +115,7 @@ export function buildInterviewRecordingObjectKey(opts) {
     else ext = '.webm'
   }
   const unique = randomUUID().slice(0, 8)
-  return `${prefix}/recordings/recording_${unique}${ext}`
+  return `tenants/${tid}/videos/${iid}/recording_${unique}${ext}`
 }
 
 /**
@@ -130,9 +127,10 @@ export function buildInterviewRecordingObjectKey(opts) {
  * }} opts
  */
 export function buildInterviewTranscriptObjectKey(opts) {
-  const prefix = buildInterviewSessionPrefix(opts)
+  const tid = sanitizePathSegment(opts.tenantId)
+  const iid = sanitizePathSegment(opts.interviewId)
   const suffix = opts.artifactId ? `_${sanitizePathSegment(opts.artifactId)}` : ''
-  return `${prefix}/transcripts/transcript${suffix}.json`
+  return `tenants/${tid}/transcripts/${iid}/transcript${suffix}.json`
 }
 
 /**
@@ -144,7 +142,8 @@ export function buildInterviewTranscriptObjectKey(opts) {
  * }} opts
  */
 export function buildInterviewReportObjectKey(opts) {
-  const prefix = buildInterviewSessionPrefix(opts)
+  const tid = sanitizePathSegment(opts.tenantId)
+  const iid = sanitizePathSegment(opts.interviewId)
   const suffix = opts.reportId ? `_${sanitizePathSegment(opts.reportId)}` : ''
-  return `${prefix}/reports/interview_report${suffix}.pdf`
+  return `tenants/${tid}/reports/${iid}/interview_report${suffix}.pdf`
 }

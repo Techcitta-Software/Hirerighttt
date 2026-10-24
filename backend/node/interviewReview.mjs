@@ -33,6 +33,19 @@ export function canReviewRecording(tenantId, row) {
  * for candidates visible in their roster.
  * @param {import('./db/store.mjs').DbShape} db
  */
+/** Employer may load integrity events for this session (org interview or platform practice). */
+export function vendorMayViewInterviewSession(session, organizationId, candidateEmail) {
+  if (!session) return false
+  const expected = String(candidateEmail || '').trim().toLowerCase()
+  const sessionEmail = String(session.email || '').trim().toLowerCase()
+  if (!expected || !sessionEmail || sessionEmail !== expected) return false
+  const platform = (process.env.S3_DEFAULT_TENANT_ID || 'platform').trim() || 'platform'
+  const sessionOrg = session.organizationId ? String(session.organizationId).trim() : platform
+  const orgId = String(organizationId || '').trim()
+  if (!orgId) return false
+  return sessionOrg === orgId || sessionOrg === platform
+}
+
 export function employerCanReviewRecording(db, organizationId, candidateEmail, row) {
   if (!row) return false
   if (row.status !== 'uploaded' && row.status !== 'completed') return false

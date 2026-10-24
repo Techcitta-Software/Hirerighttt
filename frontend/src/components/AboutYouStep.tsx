@@ -62,7 +62,7 @@ export function AboutYouStep({
       <MotionItem>
         <ResumeUpload
           file={data.resumeFile}
-          existingFileName={data.resumeName}
+          existingFileName={data.resumeFile ? data.resumeName : null}
           onFileChange={(file) => {
             onChange('resumeFile', file)
             onChange('resumeName', file ? file.name : null)

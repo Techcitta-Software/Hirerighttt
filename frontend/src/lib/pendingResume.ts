@@ -1,9 +1,9 @@
 /**
  * Pending Resume Persistence Utility
  *
- * Temporarily persists a candidate's selected resume across the authentication
- * flow (Home -> Sign Up -> Login -> Onboarding) so the file is automatically
- * attached and parsed in Onboarding without asking the user to upload again.
+ * Temporarily persists a resume when the user picks a file on the homepage before
+ * sign-up/login. Onboarding attaches it only when `hireright.consumePendingResume`
+ * is set (see markPendingResumeForAttachOnboarding). Otherwise stale copies are cleared.
  */
 
 const DB_NAME = 'hireright_storage'
@@ -13,6 +13,33 @@ const KEY = 'pending_resume'
 
 const META_STORAGE_KEY = 'hireright.pendingResumeMeta'
 const BASE64_STORAGE_KEY = 'hireright.pendingResumeBase64'
+
+/** Set when the user explicitly chose a file on the homepage before auth; cleared after attach. */
+export const CONSUME_PENDING_RESUME_KEY = 'hireright.consumePendingResume'
+
+export function markPendingResumeForAttachOnboarding() {
+  try {
+    sessionStorage.setItem(CONSUME_PENDING_RESUME_KEY, '1')
+  } catch {
+    // ignore
+  }
+}
+
+export function clearPendingResumeAttachFlag() {
+  try {
+    sessionStorage.removeItem(CONSUME_PENDING_RESUME_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+export function shouldAttachPendingResumeOnboarding(): boolean {
+  try {
+    return sessionStorage.getItem(CONSUME_PENDING_RESUME_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 interface PendingMeta {
   name: string
@@ -63,6 +90,7 @@ function base64ToBlob(dataUrl: string, fallbackType: string): Blob {
  * Store the chosen resume file into IndexedDB and fallback sessionStorage.
  */
 export async function setPendingResume(file: File): Promise<void> {
+  markPendingResumeForAttachOnboarding()
   const meta: PendingMeta = {
     name: file.name,
     type: file.type || 'application/pdf',
@@ -165,6 +193,7 @@ export async function getPendingResume(): Promise<File | null> {
  * Clear the pending resume after it has been safely loaded into onboarding.
  */
 export async function clearPendingResume(): Promise<void> {
+  clearPendingResumeAttachFlag()
   try {
     sessionStorage.removeItem(META_STORAGE_KEY)
     sessionStorage.removeItem(BASE64_STORAGE_KEY)

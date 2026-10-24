@@ -38,14 +38,15 @@ test('uploadObject and presignDownload use injected client', async () => {
     }),
   })
 
+  const tenantKey = 'tenants/platform/resumes/user-1/resume_v1_test.pdf'
   await storage.uploadObject({
-    key: 'resumes/a@test.com/id.pdf',
+    key: tenantKey,
     buffer: Buffer.from('pdf'),
     contentType: 'application/pdf',
   })
   assert.ok(calls.includes('PutObjectCommand'))
 
-  const head = await storage.headObject({ key: 'resumes/a@test.com/id.pdf' })
+  const head = await storage.headObject({ key: tenantKey })
   assert.equal(head.ContentLength, 10)
 
   process.env.AWS_REGION = prevRegion

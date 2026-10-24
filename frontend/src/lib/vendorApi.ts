@@ -1,4 +1,5 @@
 import { apiFetch } from './api'
+import type { IntegrityLogEvent } from './store'
 
 export type VendorJob = {
   id: string
@@ -224,10 +225,26 @@ export async function fetchVendorCandidateReportDocument(candidateEmail: string)
 }
 
 /** Presigned S3 URL for HTML5 streaming (byte-range requests handled by S3). */
-export async function fetchVendorCandidateRecordingDocument(candidateEmail: string) {
+export async function fetchVendorCandidateRecordingDocument(
+  candidateEmail: string,
+  sessionId?: string | null,
+) {
   const qs = new URLSearchParams({ email: candidateEmail })
+  if (sessionId) qs.set('sessionId', sessionId)
   const res = await apiFetch(`/api/vendor/candidate-documents/recording?${qs}`)
   return parse<VendorCandidateRecordingLink>(res)
+}
+
+export type VendorInterviewReviewPayload = {
+  events: IntegrityLogEvent[]
+  videoUrl: string | null
+  recordingStatus: string
+}
+
+export async function fetchVendorInterviewReview(sessionId: string, candidateEmail: string) {
+  const qs = new URLSearchParams({ sessionId, email: candidateEmail })
+  const res = await apiFetch(`/api/vendor/interview-review?${qs}`)
+  return parse<VendorInterviewReviewPayload>(res)
 }
 
 export async function fetchOrganizationCandidates(params?: {
