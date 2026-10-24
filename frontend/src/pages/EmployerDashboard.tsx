@@ -23,6 +23,11 @@ import {
   type EmployerDocumentKind,
 } from '../components/EmployerCandidateDocumentModal'
 import {
+  DEFAULT_JOB_ROLE,
+  JOB_ROLE_GROUPS,
+  suggestRoleFromTitle,
+} from '../data/jobRoles'
+import {
   createVendorJob,
   deleteVendorJob,
   markVendorJobDeletedForCandidates,
@@ -214,7 +219,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
   // New Job Form State
   const [newJobTitle, setNewJobTitle] = useState('')
-  const [newJobRoleTrack, setNewJobRoleTrack] = useState('Frontend Developer')
+  const [newJobRoleTrack, setNewJobRoleTrack] = useState(DEFAULT_JOB_ROLE)
   const [newJobExp, setNewJobExp] = useState('3-5 years')
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
@@ -502,6 +507,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setNewJobTitle('')
     setNewJobDescription('')
     setNewJobSkills('React, TypeScript, Node.js')
+    setNewJobRoleTrack(DEFAULT_JOB_ROLE)
+    setNewJobExp('3-5 years')
+    setNewJobLocation('Hyderabad / Remote')
     setPortalError('')
     setPortalSyncNote(`Creating “${title}”…`)
 
@@ -1241,22 +1249,30 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     placeholder="e.g. Senior Frontend Developer"
                     value={newJobTitle}
                     onChange={(e) => setNewJobTitle(e.target.value)}
+                    onBlur={() => {
+                      const suggested = suggestRoleFromTitle(newJobTitle)
+                      if (suggested) setNewJobRoleTrack(suggested)
+                    }}
                   />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div className={styles.formGroup}>
-                    <label>Role Track</label>
+                    <label htmlFor="employer-job-role-track">Role Track</label>
                     <select
+                      id="employer-job-role-track"
                       value={newJobRoleTrack}
                       onChange={(e) => setNewJobRoleTrack(e.target.value)}
                     >
-                      <option value="Frontend Developer">Frontend Developer</option>
-                      <option value="Full Stack Engineer">Full Stack Engineer</option>
-                      <option value="Backend Engineer">Backend Engineer</option>
-                      <option value="QA Engineer">QA Engineer</option>
-                      <option value="DevOps Engineer">DevOps Engineer</option>
-                      <option value="Product Manager">Product Manager</option>
+                      {JOB_ROLE_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.roles.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
                     </select>
                   </div>
 

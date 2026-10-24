@@ -77,6 +77,7 @@ import {
   updateApplicationInterview,
   publicJobPayload,
 } from '../vendor/jobs.mjs'
+import { applyCandidateJobScope } from '../vendor/jobRoleMatch.mjs'
 import { listJobCandidates, listOrganizationCandidates } from '../vendor/orgCandidates.mjs'
 import {
   assertVendorMayViewCandidateDocuments,
@@ -215,21 +216,30 @@ export function createApiDispatchMiddleware(ctx) {
         await syncOpenJobsFromDatabase(config.databaseUrl, db)
       }
       const summary = url.searchParams.get('summary') === '1'
+      const scopeParam = url.searchParams.get('scope') === 'all' ? 'all' : 'matched'
       const limitRaw = url.searchParams.get('limit')
       const offsetRaw = url.searchParams.get('offset')
       const mapJob = summary
         ? (job) => publicJobListPayload(job)
         : (job) => publicJobPayload(job)
+      let openJobs = listOpenJobs(db)
+      const scoped = applyCandidateJobScope(db, email, openJobs, scopeParam)
+      openJobs = scoped.jobs
+      const jobMeta = scoped.meta
       if (limitRaw != null && limitRaw !== '') {
-        const { jobs, total, limit, offset } = listOpenJobsPage(
-          db,
-          limitRaw,
-          offsetRaw ?? 0,
-        )
-        return json(res, 200, { jobs: jobs.map(mapJob), total, limit, offset })
+        const safeLimit = Math.max(1, Math.min(50, Number(limitRaw) || 4))
+        const safeOffset = Math.max(0, Number(offsetRaw) || 0)
+        const page = openJobs.slice(safeOffset, safeOffset + safeLimit)
+        return json(res, 200, {
+          jobs: page.map(mapJob),
+          total: openJobs.length,
+          limit: safeLimit,
+          offset: safeOffset,
+          ...jobMeta,
+        })
       }
-      const jobs = listOpenJobs(db).map(mapJob)
-      return json(res, 200, { jobs, total: jobs.length })
+      const jobs = openJobs.map(mapJob)
+      return json(res, 200, { jobs, total: jobs.length, ...jobMeta })
     }
 
     /** Public: resolve shareable job link (no auth) — /api/jobs/public/:code or /api/jobs/public/:companySlug/:code */

@@ -19,7 +19,7 @@ import {
   profileKey,
 
 } from '../lib/store'
-import { pullInterviewFromApi } from '../lib/apiSync'
+import { pullInterviewFromApi, pullProfileFromApi } from '../lib/apiSync'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import {
@@ -207,7 +207,13 @@ export function JobsPage() {
   const [minMatchFilter, setMinMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
   const [selectedJobId, setSelectedJobId] = useState<string>('1')
-  const [showAllMatches, setShowAllMatches] = useState(false)
+  const [jobScope, setJobScope] = useState<'matched' | 'all'>('matched')
+  const [jobsListMeta, setJobsListMeta] = useState<{
+    totalOpen?: number
+    candidateRoleHints?: string[]
+    personalized?: boolean
+    message?: string
+  }>({})
   const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
   const [applyingJobId, setApplyingJobId] = useState<string | null>(null)
   const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
@@ -239,9 +245,16 @@ export function JobsPage() {
           }
           return
         }
-        const { jobs } = await fetchOpenJobs({ summary: true })
+        await pullProfileFromApi()
+        const listRes = await fetchOpenJobs({ summary: true, scope: jobScope })
         if (cancelled) return
-        const rawJobs = jobs ?? []
+        setJobsListMeta({
+          totalOpen: listRes.totalOpen ?? listRes.total,
+          candidateRoleHints: listRes.candidateRoleHints,
+          personalized: listRes.personalized,
+          message: listRes.message,
+        })
+        const rawJobs = listRes.jobs ?? []
         if (rawJobs.length === 0) {
           setEmployerJobs([])
           setJobsBoardState('ready')
@@ -308,7 +321,7 @@ export function JobsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [jobScope])
 
   const allRoles = useMemo(() => employerJobs, [employerJobs])
 
@@ -349,7 +362,7 @@ export function JobsPage() {
     return list
   }, [filteredRoles, sortBy])
 
-  const visibleRoles = showAllMatches ? sortedRoles : sortedRoles.slice(0, 6)
+  const visibleRoles = sortedRoles
 
   const selectedJob = useMemo(() => {
     return sortedRoles.find((j) => j.id === selectedJobId) || sortedRoles[0] || null
@@ -472,20 +485,51 @@ export function JobsPage() {
           {/* Header */}
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
-              <span className={styles.eyebrow}>RANKED JOB MATCHES</span>
+              <span className={styles.eyebrow}>
+                {jobScope === 'matched' ? 'ROLES FOR YOU' : 'ALL OPEN ROLES'}
+              </span>
               <h1>
                 {jobsBoardState === 'loading'
                   ? 'Loading employer roles…'
                   : sortedRoles.length === 0
-                    ? 'No open employer roles yet'
-                    : `${sortedRoles.length} employer role${sortedRoles.length === 1 ? '' : 's'} for you`}
+                    ? jobScope === 'matched'
+                      ? 'No matching roles for your profile yet'
+                      : 'No open employer roles yet'
+                    : jobScope === 'matched'
+                      ? `${sortedRoles.length} role${sortedRoles.length === 1 ? '' : 's'} matching your profile`
+                      : `${sortedRoles.length} open employer role${sortedRoles.length === 1 ? '' : 's'}`}
               </h1>
               <p>
                 {jobsBoardError ||
-                  'Roles posted by vendors on HireRight. Ranked by your interview score when available.'}
+                  (jobScope === 'matched'
+                    ? jobsListMeta.personalized && jobsListMeta.candidateRoleHints?.length
+                      ? `Showing postings aligned with ${jobsListMeta.candidateRoleHints.slice(0, 2).join(' · ')}. Ranked by interview score when available.`
+                      : jobsListMeta.message ||
+                        'Add your current role on your profile to personalize matches, or view all postings.'
+                    : 'Every active employer posting on HireRight. Ranked by your interview score when available.')}
               </p>
             </div>
             <div className={styles.headerBadgesWrap}>
+              {jobScope === 'matched' &&
+              jobsListMeta.totalOpen != null &&
+              jobsListMeta.totalOpen > sortedRoles.length ? (
+                <button
+                  type="button"
+                  className={styles.loadMoreMatchesBtn}
+                  onClick={() => setJobScope('all')}
+                >
+                  View all job postings ({jobsListMeta.totalOpen})
+                </button>
+              ) : null}
+              {jobScope === 'all' ? (
+                <button
+                  type="button"
+                  className={styles.loadMoreMatchesBtn}
+                  onClick={() => setJobScope('matched')}
+                >
+                  Show roles for my profile
+                </button>
+              ) : null}
               {sortedRoles.length > 0 ? (
                 <span className={styles.badgeSubtlePill}>{sortedRoles.length} live posting(s)</span>
               ) : null}
@@ -645,15 +689,15 @@ export function JobsPage() {
                 )
               })}
 
-              {sortedRoles.length > 6 && (
+              {jobScope === 'matched' && sortedRoles.length === 0 && (jobsListMeta.totalOpen ?? 0) > 0 ? (
                 <button
                   type="button"
                   className={styles.loadMoreMatchesBtn}
-                  onClick={() => setShowAllMatches((prev) => !prev)}
+                  onClick={() => setJobScope('all')}
                 >
-                  {showAllMatches ? 'Show fewer matches' : 'Show 6 more matches'}
+                  View all job postings ({jobsListMeta.totalOpen})
                 </button>
-              )}
+              ) : null}
             </div>
 
             {/* Right Column: Sticky Detail Pane */}

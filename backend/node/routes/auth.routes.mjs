@@ -100,7 +100,10 @@ export function createAuthRouter(ctx) {
       await pool.query(
         `INSERT INTO profiles (email, user_id, data, updated_at)
          VALUES ($1, $2, '{"completedSteps":0}'::jsonb, NOW())
-         ON CONFLICT (email) DO NOTHING`,
+         ON CONFLICT (email) DO UPDATE SET
+           user_id = EXCLUDED.user_id,
+           data = '{"completedSteps":0}'::jsonb,
+           updated_at = NOW()`,
         [email, user.id],
       )
     }

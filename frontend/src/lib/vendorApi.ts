@@ -68,15 +68,26 @@ export type OpenJobsResponse = {
   total?: number
   limit?: number
   offset?: number
+  scope?: 'matched' | 'all'
+  totalOpen?: number
+  matchedCount?: number
+  candidateRoleHints?: string[]
+  personalized?: boolean
+  message?: string
+  minMatchScore?: number
 }
 
 export async function fetchOpenJobs(options?: {
   summary?: boolean
+  /** matched = profile role track (default); all = every open posting */
+  scope?: 'matched' | 'all'
   limit?: number
   offset?: number
 }) {
   const qs = new URLSearchParams()
   if (options?.summary) qs.set('summary', '1')
+  if (options?.scope === 'all') qs.set('scope', 'all')
+  else if (options?.scope === 'matched') qs.set('scope', 'matched')
   if (options?.limit != null) qs.set('limit', String(options.limit))
   if (options?.offset != null) qs.set('offset', String(options.offset))
   const suffix = qs.toString() ? `?${qs.toString()}` : ''

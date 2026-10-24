@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
+import { pgConnectConfig } from './db/pgConnectConfig.mjs'
 import { uniqueOrgSlug } from './db/saasHelpers.mjs'
 
 export class UniqueAccountError extends Error {
@@ -11,13 +12,6 @@ export class UniqueAccountError extends Error {
   }
 }
 
-function pgSsl(databaseUrl) {
-  if (/sslmode=require|neon\.tech|amazonaws\.com/i.test(databaseUrl)) {
-    return { rejectUnauthorized: false }
-  }
-  return undefined
-}
-
 /**
  * Create one SaaS account in Postgres (unique email + phone). Employer gets org + trial in the same transaction.
  * @param {string} databaseUrl
@@ -27,7 +21,7 @@ export async function registerAccount(databaseUrl, input) {
   const url = String(databaseUrl || '').trim()
   if (!url) throw new Error('DATABASE_URL is required for signup.')
 
-  const client = new pg.Client({ connectionString: url, ssl: pgSsl(url) })
+  const client = new pg.Client(await pgConnectConfig(url))
   await client.connect()
 
   try {

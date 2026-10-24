@@ -524,6 +524,11 @@ export function profileKey(email?: string) {
   return e ? `${PROFILE_KEY}.${e}` : PROFILE_KEY
 }
 
+/** Drop cached wizard profile for an email (e.g. fresh signup). */
+export function clearProfileForEmail(email: string) {
+  localStorage.removeItem(profileKey(email.trim().toLowerCase()))
+}
+
 export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedProfile {
   const user = getUser()
   const saved: SavedProfile = {

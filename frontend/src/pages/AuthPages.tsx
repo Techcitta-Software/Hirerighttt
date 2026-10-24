@@ -6,6 +6,7 @@ import { HrIcon } from '../components/HrIcon'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {
+  clearProfileForEmail,
   findUserByEmail,
   getAccountPrefs,
   getProfile,
@@ -351,6 +352,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   }
 
   function finishSignupAndShowLogin(email: string, password: string) {
+    clearProfileForEmail(email)
     setApiToken(null)
     logout()
     clearSessionValidationCache()
