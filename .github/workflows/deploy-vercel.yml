@@ -1,7 +1,10 @@
 name: Deploy Frontend to Vercel
 
-# Production deploys from main on bharath-techcitta/HireRighttt-backend only.
-# Requires GitHub Actions secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID.
+# Production: push to main (paths below) runs build + optional Vercel deploy.
+# To enable deploy, add repository secrets (Settings → Secrets → Actions):
+#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+# VERCEL_TOKEN: https://vercel.com/account/tokens
+# VERCEL_ORG_ID / VERCEL_PROJECT_ID: Vercel project Settings, or .vercel/project.json after `vercel link`
 
 on:
   push:
@@ -49,11 +52,7 @@ jobs:
     name: Deploy to Vercel (production)
     needs: build
     runs-on: ubuntu-latest
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      secrets.VERCEL_TOKEN != '' &&
-      secrets.VERCEL_ORG_ID != '' &&
-      secrets.VERCEL_PROJECT_ID != ''
+    if: github.ref == 'refs/heads/main'
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -67,32 +66,36 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Check Vercel secrets
+        id: vercel_secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::VERCEL_TOKEN, VERCEL_ORG_ID, or VERCEL_PROJECT_ID is not set in GitHub Actions secrets."
+            echo "Build already passed. Add the three secrets or rely on Vercel Git integration."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Vercel CLI
+        if: steps.vercel_secrets.outputs.ready == 'true'
         run: npm install --global vercel@41
 
       - name: Pull Vercel Environment Information
+        if: steps.vercel_secrets.outputs.ready == 'true'
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project Artifacts
+        if: steps.vercel_secrets.outputs.ready == 'true'
         env:
           VITE_API_URL: ''
           VITE_AUTH_PROVIDER: api
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy Project Artifacts to Vercel
-        id: deploy
+        if: steps.vercel_secrets.outputs.ready == 'true'
         run: |
           url=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
-          echo "deployment_url=$url" >> "$GITHUB_OUTPUT"
           echo "Production URL: $url"
-
-  deploy-skipped:
-    name: Vercel deploy skipped (no secrets)
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && (secrets.VERCEL_TOKEN == '' || secrets.VERCEL_ORG_ID == '' || secrets.VERCEL_PROJECT_ID == '')
-    steps:
-      - name: Explain skipped deploy
-        run: |
-          echo "::warning::Vercel GitHub Action deploy skipped — VERCEL_TOKEN, VERCEL_ORG_ID, or VERCEL_PROJECT_ID is not configured."
-          echo "Build verification passed. Link the repo in Vercel or add the three secrets to enable Action-based production deploys."
