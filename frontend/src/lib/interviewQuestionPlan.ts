@@ -1,59 +1,12 @@
 /** Six-turn plan shared in behavior with backend/node/interviewQuestionPlan.mjs. */
 import type { Question } from './interviewEngine'
 import type { SavedProfile } from './store'
+import { ROLE_SKILL_LIBRARY } from './roleSkillLibrary'
 export type PlanContext = { skills?: string[]; jobs?: string[]; achievements?: string[]; resumeSnippet?: string; certs?: string[]; role?: string }
 const clean = (s: unknown): string => String(s ?? '').trim()
 const unique = (values: string[]): string[] => [...new Set(values.filter(Boolean))]
 const spokenLead = (first: string, text: string) => first && first !== 'there' ? `${first}, ${text}` : text.charAt(0).toUpperCase() + text.slice(1)
 type StructuredRaw = Question & { focus?: string }
-const ROLE_SKILL_LIBRARY: { test: RegExp; skills: string[] }[] = [
-  { test: /python.*(?:developer|engineer)|django|fastapi/i, skills: ['Python', 'SQL'] },
-  { test: /java\b.*(?:developer|engineer)|spring/i, skills: ['Java', 'SQL'] },
-  { test: /data analyst|business analyst/i, skills: ['SQL', 'Statistics'] },
-  { test: /nurs|healthcare/i, skills: ['Patient assessment', 'Infection prevention'] },
-  { test: /accountant|finance/i, skills: ['Financial accounting', 'Financial analysis'] },
-  { test: /sales|business development/i, skills: ['Customer discovery', 'Negotiation'] },
-  { test: /recruit|human resources|talent acquisition/i, skills: ['Candidate assessment', 'Structured interviewing'] },
-  { test: /mechanical|manufacturing/i, skills: ['Engineering mechanics', 'Quality control'] },
-  { test: /civil|construction/i, skills: ['Structural mechanics', 'Construction materials'] },
-  { test: /design|ux|ui\b/i, skills: ['User research', 'Interaction design'] },
-  {
-    test: /\bfull[\s-]?stack|mern|mean\b/i,
-    skills: ['React.js', 'Node.js', 'TypeScript', 'REST APIs', 'SQL', 'MongoDB', 'System Design', 'Git'],
-  },
-  {
-    test: /\bfront[\s-]?end|frontend\b/i,
-    skills: ['React.js', 'TypeScript', 'JavaScript', 'HTML5 & CSS3', 'TailwindCSS', 'Next.js', 'Redux', 'REST APIs'],
-  },
-  {
-    test: /\bback[\s-]?end|backend\b/i,
-    skills: ['Node.js', 'Python', 'Java', 'PostgreSQL', 'REST APIs', 'System Design', 'Docker', 'Redis'],
-  },
-  {
-    test: /\bsoftware engineer|software developer\b/i,
-    skills: ['JavaScript', 'Python', 'Git', 'SQL', 'REST APIs', 'System Design', 'Agile', 'Problem Solving'],
-  },
-  {
-    test: /\bdata scientist|machine learning|ml engineer|ai engineer\b/i,
-    skills: ['Python', 'AI / ML', 'SQL', 'Statistics', 'Data Structures', 'TensorFlow', 'Pandas', 'Communication'],
-  },
-  {
-    test: /\bdevops|sre|platform engineer\b/i,
-    skills: ['Docker', 'Kubernetes', 'AWS', 'CI/CD', 'Linux', 'Terraform', 'Monitoring', 'Git'],
-  },
-  {
-    test: /\bmobile|android|ios|flutter\b/i,
-    skills: ['Flutter', 'React Native', 'Kotlin', 'Swift', 'REST APIs', 'Git', 'UI/UX', 'Firebase'],
-  },
-  {
-    test: /\bqa|quality assurance|test engineer\b/i,
-    skills: ['Selenium', 'Test Automation', 'API Testing', 'Agile', 'Git', 'SQL', 'Communication', 'Problem Solving'],
-  },
-  {
-    test: /\bproduct manager|product owner\b/i,
-    skills: ['Agile', 'Communication', 'Leadership', 'Analytics', 'Roadmapping', 'Stakeholder Management', 'SQL', 'Problem Solving'],
-  },
-]
 
 
 export function resolveExactInterviewRole(profile: SavedProfile | null, roleOverride = ''): string {

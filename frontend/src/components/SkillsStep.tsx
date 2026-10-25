@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   EMPLOYMENT_TYPE_OPTIONS,
@@ -13,6 +13,10 @@ import { HrIcon } from './HrIcon'
 import { MotionButton } from '../motion/MotionButton'
 import { MotionItem, MotionStack } from '../motion/MotionStack'
 import { SelectField } from './SelectField'
+import {
+  profileHasRoleContextForSkills,
+  suggestSkillsForProfile,
+} from '../lib/roleSkillSuggestions'
 import styles from './SkillsStep.module.css'
 
 interface SkillsStepProps {
@@ -50,18 +54,46 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
       ).slice(0, 8)
     : []
 
-  const availableSuggestions = (
-    trimmedDraft
-      ? SKILL_OPTIONS.filter(
-          (skill) =>
-            skill.toLowerCase().includes(trimmedDraft) &&
-            !data.skills.some((item) => item.toLowerCase() === skill.toLowerCase()),
-        )
+  const roleBasedSuggestions = useMemo(
+    () => suggestSkillsForProfile(data, SKILL_OPTIONS, 14),
+    [
+      data.currentRole,
+      data.preferredRoles,
+      data.workExperiences,
+      data.resumeText,
+      data.skills,
+    ],
+  )
+
+  const hasRoleContext = useMemo(
+    () => profileHasRoleContextForSkills(data),
+    [
+      data.currentRole,
+      data.preferredRoles,
+      data.workExperiences,
+      data.resumeText,
+    ],
+  )
+
+  const idleSuggestions = useMemo(() => {
+    const pool = hasRoleContext
+      ? roleBasedSuggestions
       : SUGGESTED_SKILLS.filter(
           (skill) =>
-            !data.skills.some((item) => item.toLowerCase() === skill.toLowerCase()),
+            !data.skills.some(
+              (item) => item.toLowerCase() === skill.toLowerCase(),
+            ),
         )
-  ).slice(0, 14)
+    return pool.slice(0, 14)
+  }, [hasRoleContext, roleBasedSuggestions, data.skills])
+
+  const availableSuggestions = trimmedDraft
+    ? SKILL_OPTIONS.filter(
+        (skill) =>
+          skill.toLowerCase().includes(trimmedDraft) &&
+          !data.skills.some((item) => item.toLowerCase() === skill.toLowerCase()),
+      ).slice(0, 14)
+    : idleSuggestions
 
   const experienceOptions =
     data.totalExperience && !EXPERIENCE_OPTIONS.includes(data.totalExperience)
@@ -238,7 +270,11 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
         {availableSuggestions.length > 0 && (
           <div className={styles.suggestions}>
             <p className={styles.suggestLabel}>
-              {trimmedDraft ? 'Matching Suggestions' : 'Suggested'}
+              {trimmedDraft
+                ? 'Matching Suggestions'
+                : hasRoleContext
+                  ? 'Suggested for your roles'
+                  : 'Suggested'}
             </p>
             <div className={styles.suggestRow}>
               {availableSuggestions.map((skill) => (

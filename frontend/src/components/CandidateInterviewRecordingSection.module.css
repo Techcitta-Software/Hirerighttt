@@ -1,0 +1,27 @@
+.section {
+  margin: 24px 0 32px;
+  padding: 20px 22px;
+  border-radius: 16px;
+  border: 1px solid #e8e0d4;
+  background: #fffdfa;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #171d2d;
+}
+
+.lead {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  color: #5c6577;
+  line-height: 1.45;
+}
+
+.status {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #64748b;
+}

@@ -4,7 +4,6 @@ import { motion } from 'framer-motion'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
-import { SearchCandidatesPanel, type CandidateSearchQuery } from '../components/SearchCandidatesPanel'
 import { apiHealth } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
@@ -242,9 +241,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [inviteFeedback, setInviteFeedback] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
 
-  // Advanced Search Candidates Query (Image 2)
-  const [candidateSearchQuery, setCandidateSearchQuery] = useState<CandidateSearchQuery | null>(null)
-
   /** Ignore in-flight job list fetches after optimistic create/delete. */
   const jobsLoadSeqRef = useRef(0)
 
@@ -382,9 +378,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     setScoreFilter('')
     setIntegrityFilter('')
     setStatusFilter('')
-    if (candidateSearchQuery) {
-      setCandidateSearchQuery(null)
-    }
   }
 
   const hasActiveFilters = Boolean(
@@ -410,34 +403,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
   const filteredApplicants = useMemo(() => {
     return applicants.filter((app) => {
-      // Image 2 Search Candidates Panel filters
-      if (candidateSearchQuery) {
-        if (candidateSearchQuery.candidateName?.trim()) {
-          const q = candidateSearchQuery.candidateName.trim().toLowerCase()
-          const match =
-            app.candidateName.toLowerCase().includes(q) ||
-            app.candidateEmail.toLowerCase().includes(q)
-          if (!match) return false
-        }
-
-        if (candidateSearchQuery.client?.trim()) {
-          const q = candidateSearchQuery.client.trim().toLowerCase()
-          const targetStr = [app.company, app.jobTitle, app.role, ...(app.primarySkills || [])].filter(Boolean).join(' ').toLowerCase()
-          if (!targetStr.includes(q)) return false
-        }
-
-        const activeKeywords = candidateSearchQuery.keywords.filter((k) =>
-          candidateSearchQuery.allMandatory ? true : k.isMandatory,
-        )
-        if (activeKeywords.length > 0) {
-          const appText = `${app.role || ''} ${app.jobTitle} ${app.resumeName || ''}`.toLowerCase()
-          const hasKeyword = activeKeywords.some((k) =>
-            appText.includes(k.text.toLowerCase()),
-          )
-          if (!hasKeyword) return false
-        }
-      }
-
       // Search: name, email, or phone
       if (searchFilter.trim()) {
         const q = searchFilter.trim().toLowerCase()
@@ -490,7 +455,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
       return true
     })
-  }, [applicants, candidateSearchQuery, searchFilter, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
+  }, [applicants, searchFilter, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
 
   async function handleStatusChange(id: string, newStatus: EmployerApplicant['status']) {
     setApplicants((prev) =>
@@ -726,21 +691,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 who completed an AI interview on HireRight.
               </p>
             </motion.div>
-
-            <SearchCandidatesPanel
-              embedded
-              initialQuery={candidateSearchQuery}
-              onSearch={(query) => {
-                setCandidateSearchQuery(query)
-                if (query.candidateName?.trim()) {
-                  setSearchFilter(query.candidateName.trim())
-                }
-              }}
-              onClear={() => {
-                setCandidateSearchQuery(null)
-                setSearchFilter('')
-              }}
-            />
           </>
         )}
         {!isCandidatesView && (

@@ -37,6 +37,34 @@ const ALLOWED_RECORDING_TYPES = new Set([
  * @param {string} contentType
  * @param {string} filename
  */
+/**
+ * @param {import('../db/store.mjs').DbShape} db
+ * @param {import('pg').Pool | null | undefined} pool
+ * @param {string} sessionId
+ * @param {string} requesterEmail
+ */
+export async function ensureInterviewSessionForCandidate(db, pool, sessionId, requesterEmail) {
+  const sid = String(sessionId || '').trim()
+  const email = String(requesterEmail || '').trim().toLowerCase()
+  if (!sid || !email) return null
+  const cached = /** @type {any} */ (db.interviewSessions?.[sid])
+  if (cached && String(cached.email || '').toLowerCase() === email) {
+    return cached
+  }
+  if (!pool) return null
+  const row = await pool.query(
+    `SELECT email, data FROM interview_sessions WHERE session_id = $1`,
+    [sid],
+  )
+  if (!row.rows[0]) return null
+  const session = row.rows[0].data || {}
+  if (!session.email) session.email = row.rows[0].email
+  if (String(session.email || '').toLowerCase() !== email) return null
+  db.interviewSessions = db.interviewSessions || {}
+  db.interviewSessions[sid] = session
+  return session
+}
+
 export function inferRecordingContentType(contentType, filename) {
   const ct = String(contentType || '').split(';')[0].trim().toLowerCase()
   if (ALLOWED_RECORDING_TYPES.has(ct)) {
@@ -77,8 +105,13 @@ export async function authorizeInterviewRecordingUpload(opts) {
   }
   const email = String(opts.requesterEmail || '').toLowerCase()
   const sessionId = String(opts.sessionId || '').trim()
-  const session = sessionId ? /** @type {any} */ (opts.db.interviewSessions?.[sessionId]) : null
-  if (!session || String(session.email || '').toLowerCase() !== email) {
+  const session = await ensureInterviewSessionForCandidate(
+    opts.db,
+    opts.pool,
+    sessionId,
+    email,
+  )
+  if (!session) {
     const err = new Error('Interview session not found.')
     err.status = 404
     throw err
@@ -251,6 +284,50 @@ export async function resolveInterviewRecordingDownload(opts) {
  *   s3?: ReturnType<typeof createS3ObjectStorage>,
  * }} opts
  */
+/**
+ * Candidate playback for their own interview session (full video from S3).
+ * @param {{
+ *   pool: import('pg').Pool,
+ *   db: import('../db/store.mjs').DbShape,
+ *   requesterEmail: string,
+ *   sessionId: string,
+ *   s3?: ReturnType<typeof createS3ObjectStorage>,
+ * }} opts
+ */
+export async function resolveCandidateInterviewRecordingPlayback(opts) {
+  const email = String(opts.requesterEmail || '').toLowerCase()
+  const sessionId = String(opts.sessionId || '').trim()
+  const session = await ensureInterviewSessionForCandidate(
+    opts.db,
+    opts.pool,
+    sessionId,
+    email,
+  )
+  if (!session) {
+    const err = new Error('Interview session not found.')
+    err.status = 404
+    throw err
+  }
+  if (!s3StorageConfigured()) {
+    const err = new Error('Interview recording storage is not configured (S3).')
+    err.status = 503
+    throw err
+  }
+  const bucket = activeS3BucketName() || null
+  const row = await getInterviewRecordingForSession(opts.pool, sessionId, email, bucket)
+  if (!row || !canAccessInterviewRecording(email, row)) {
+    const err = new Error('Interview recording not found.')
+    err.status = 404
+    throw err
+  }
+  if (row.status !== 'uploaded' && row.status !== 'completed') {
+    const err = new Error('Recording is not ready for playback.')
+    err.status = 409
+    throw err
+  }
+  return presignRecordingPlayback(row, opts.s3)
+}
+
 export async function resolveEmployerCandidateRecordingPlayback(opts) {
   assertVendorMayViewCandidateDocuments(
     opts.db,

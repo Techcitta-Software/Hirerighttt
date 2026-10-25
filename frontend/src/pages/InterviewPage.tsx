@@ -190,8 +190,8 @@ export function InterviewPage() {
   const [interviewBanned, setInterviewBanned] = useState(false)
   const [banMessage, setBanMessage] = useState('')
   const [isRecording, setIsRecording] = useState(false)
-  const [, setRecordingNote] = useState('')
-  const [, setRecordingUrl] = useState<string | null>(null)
+  const [recordingNote, setRecordingNote] = useState('')
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
   const reviewRef = useRef(new ReviewEventTracker())
   const [reviewSyncError, setReviewSyncError] = useState('')
   const recordingConsent = true
@@ -1005,6 +1005,15 @@ export function InterviewPage() {
     void submitAnswer()
   }
 
+  function attachRecordingPreview(blob: Blob) {
+    if (recordingBlobUrlRef.current) {
+      URL.revokeObjectURL(recordingBlobUrlRef.current)
+    }
+    const url = URL.createObjectURL(blob)
+    recordingBlobUrlRef.current = url
+    setRecordingUrl(url)
+  }
+
   function finish(finalAnswers: string[], banned: boolean, banReason?: string) {
     reviewRef.current.finish((Date.now() - interviewStartedAtRef.current) / 1000)
     integrityRef.current.logs = reviewRef.current.events
@@ -1020,6 +1029,14 @@ export function InterviewPage() {
       integrityRef.current.banReason = reason
       integrityRef.current.singlePersonOk = false
     }
+    void (async () => {
+      const clip = pendingClipRef.current || (await recorderRef.current.stop())
+      pendingClipRef.current = clip
+      if (clip?.blob) {
+        attachRecordingPreview(clip.blob)
+        setRecordingNote('Uploading your full interview video to secure storage…')
+      }
+    })()
     window.setTimeout(() => {
       void (async () => {
         const integrity = { ...integrityRef.current }
@@ -1037,19 +1054,32 @@ export function InterviewPage() {
         try {
           const clip = pendingClipRef.current || (await recorderRef.current.stop())
           pendingClipRef.current = clip
+          if (clip?.blob && !recordingBlobUrlRef.current) {
+            attachRecordingPreview(clip.blob)
+          }
           if (clip && serverSessionId) {
-            recordingNoteLocal = 'Recording captured — scoring your answers.'
-            const { uploadInterviewRecordingToS3 } = await import(
-              '../lib/interviewRecordingUpload'
-            )
+            recordingNoteLocal = 'Uploading full interview video…'
+            const { uploadInterviewRecordingToS3, fetchInterviewRecordingPlayback } =
+              await import('../lib/interviewRecordingUpload')
             const cloud = await uploadInterviewRecordingToS3({
               sessionId: serverSessionId,
               blob: clip.blob,
               durationMs: clip.durationMs,
             })
             if (cloud.ok) {
-              recordingNoteLocal = 'Recording saved to secure cloud storage (S3).'
-              pendingClipRef.current = null
+              recordingNoteLocal = 'Interview video saved to secure cloud storage (S3).'
+              try {
+                const playback = await fetchInterviewRecordingPlayback(serverSessionId)
+                if (playback?.playbackUrl) {
+                  setRecordingUrl(playback.playbackUrl)
+                  if (recordingBlobUrlRef.current) {
+                    URL.revokeObjectURL(recordingBlobUrlRef.current)
+                    recordingBlobUrlRef.current = null
+                  }
+                }
+              } catch {
+                /* local preview remains */
+              }
             } else if (cloud.skipped) {
               recordingNoteLocal =
                 'Cloud recording storage is not configured — your scorecard will still be generated.'
@@ -1669,39 +1699,58 @@ export function InterviewPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className={styles.analyzeCard}>
-              <motion.div
-                className={styles.analyzeOrb}
-                animate={{ rotate: 360 }}
-                transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-              />
-              <h2>Scoring your interview</h2>
-              <p>Ava is scoring communication, resume fit, and role accuracy.</p>
-              <ul>
-                {[
-                  'Matching answers to your resume',
-                  'Scoring structure & specificity',
-                  'Checking single-person integrity',
-                  'Building your talent report',
-                ].map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ul>
-              <div className={styles.analyzeSteps}>
-                {[
-                  'Syncing video transcript',
-                  'Evaluating answer depth',
-                  'Benchmarking to your role',
-                ].map((step, i) => (
-                  <motion.p
-                    key={step}
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.4 + i * 0.7 }}
-                  >
-                    {step}
-                  </motion.p>
-                ))}
+            <div className={styles.analyzeLayout}>
+              {recordingUrl ? (
+                <div className={styles.analyzeVideoPanel}>
+                  <h2 className={styles.analyzeVideoTitle}>Your interview recording</h2>
+                  <video
+                    className={styles.analyzeRecording}
+                    src={recordingUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                  />
+                  {recordingNote ? (
+                    <p className={styles.analyzeRecordingNote} role="status">
+                      {recordingNote}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <div className={styles.analyzeCard}>
+                <motion.div
+                  className={styles.analyzeOrb}
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
+                />
+                <h2>Scoring your interview</h2>
+                <p>Ava is scoring communication, resume fit, and role accuracy.</p>
+                <ul>
+                  {[
+                    'Matching answers to your resume',
+                    'Scoring structure & specificity',
+                    'Checking single-person integrity',
+                    'Building your talent report',
+                  ].map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+                <div className={styles.analyzeSteps}>
+                  {[
+                    'Saving full interview video to cloud storage',
+                    'Evaluating answer depth',
+                    'Benchmarking to your role',
+                  ].map((step, i) => (
+                    <motion.p
+                      key={step}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 + i * 0.7 }}
+                    >
+                      {step}
+                    </motion.p>
+                  ))}
+                </div>
               </div>
             </div>
           </motion.section>

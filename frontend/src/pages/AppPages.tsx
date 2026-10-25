@@ -200,6 +200,12 @@ export function InterviewReportPage() {
             candidateRole={profile?.currentRole || interview.role}
             candidateExperience={profile?.totalExperience || interview.level}
             skills={profile?.skills ?? []}
+            interviewSessionId={
+              interview.sessionId ||
+              (typeof sessionStorage !== 'undefined'
+                ? sessionStorage.getItem('hireright.lastInterviewSessionId')
+                : null)
+            }
             onRetake={() => navigate('/interview')}
             onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
           />

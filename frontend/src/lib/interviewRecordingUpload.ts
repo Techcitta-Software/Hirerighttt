@@ -5,6 +5,19 @@ export type RecordingUploadOutcome =
   | { ok: true; recordingId: string; objectKey: string }
   | { ok: false; error: string; skipped?: boolean }
 
+export type InterviewRecordingPlayback = {
+  playbackUrl: string
+  durationSeconds?: number | null
+  contentType?: string
+}
+
+export function interviewRecordingFilename(sessionId: string, blob: Blob): string {
+  const base = `interview_${sessionId.slice(0, 8)}`
+  const type = (blob.type || '').toLowerCase()
+  if (type.includes('mp4')) return `${base}.mp4`
+  return `${base}.webm`
+}
+
 /**
  * Direct presigned PUT to S3 (auth + session validated on upload-url).
  * Falls back gracefully when S3 is not configured.
@@ -18,7 +31,8 @@ export async function uploadInterviewRecordingToS3(opts: {
   if (!(await ensureApiSession())) {
     return { ok: false, error: 'Sign in is required to save your interview recording.' }
   }
-  const filename = opts.filename || `interview_${opts.sessionId.slice(0, 8)}.webm`
+  const filename =
+    opts.filename || interviewRecordingFilename(opts.sessionId, opts.blob)
   const initRes = await apiFetch('/api/interview/recordings/upload-url', {
     method: 'POST',
     body: JSON.stringify({
@@ -70,5 +84,34 @@ export async function uploadInterviewRecordingToS3(opts: {
     ok: true,
     recordingId: init.recordingId,
     objectKey: done.objectKey || init.objectKey || '',
+  }
+}
+
+/** Presigned GET for the candidate’s own full interview video (S3). */
+export async function fetchInterviewRecordingPlayback(
+  sessionId: string,
+): Promise<InterviewRecordingPlayback | null> {
+  if (!(await ensureApiSession()) || !sessionId.trim()) return null
+  const res = await apiFetch(
+    `/api/interview/recordings/playback?sessionId=${encodeURIComponent(sessionId)}`,
+  )
+  const data = (await res.json().catch(() => ({}))) as {
+    playbackUrl?: string
+    viewUrl?: string
+    durationSeconds?: number
+    contentType?: string
+    error?: string
+    skipped?: boolean
+  }
+  if (res.status === 404 || (res.status === 503 && data.skipped)) return null
+  if (!res.ok) {
+    throw new Error(data.error || `Could not load recording (${res.status}).`)
+  }
+  const playbackUrl = data.playbackUrl || data.viewUrl
+  if (!playbackUrl) return null
+  return {
+    playbackUrl,
+    durationSeconds: data.durationSeconds,
+    contentType: data.contentType,
   }
 }

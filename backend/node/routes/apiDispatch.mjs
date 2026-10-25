@@ -31,6 +31,7 @@ import {
   authorizeInterviewRecordingUpload,
   completeInterviewRecordingUpload,
   resolveInterviewRecordingDownload,
+  resolveCandidateInterviewRecordingPlayback,
   resolveEmployerCandidateRecordingPlayback,
 } from '../storage/interviewRecordingStorage.mjs'
 import {
@@ -1558,6 +1559,45 @@ export function createApiDispatchMiddleware(ctx) {
       } catch (err) {
         return json(res, err.status || 500, {
           error: err instanceof Error ? err.message : 'Could not generate download link.',
+        })
+      }
+    }
+
+    if (req.method === 'GET' && path === '/api/interview/recordings/playback') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      const url = new URL(req.url || '', 'http://localhost')
+      const sessionId = String(url.searchParams.get('sessionId') || '').trim()
+      if (!sessionId) {
+        return json(res, 400, { error: 'sessionId is required.' })
+      }
+      if (!s3StorageConfigured()) {
+        return json(res, 503, {
+          error: 'Recording storage is not configured (S3).',
+          skipped: true,
+        })
+      }
+      res.setHeader('Cache-Control', 'no-store')
+      try {
+        const db = loadDb()
+        const pool = dbPool(config.databaseUrl)
+        const signed = await resolveCandidateInterviewRecordingPlayback({
+          pool,
+          db,
+          requesterEmail: email,
+          sessionId,
+        })
+        return json(res, 200, {
+          playbackUrl: signed.url,
+          viewUrl: signed.url,
+          expiresInSeconds: signed.expiresInSeconds,
+          contentType: signed.contentType,
+          durationSeconds: signed.durationSeconds,
+          sessionId,
+        })
+      } catch (err) {
+        return json(res, err.status || 500, {
+          error: err instanceof Error ? err.message : 'Could not load interview recording.',
         })
       }
     }

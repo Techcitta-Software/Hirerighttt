@@ -3,6 +3,7 @@
  * Usage (API running): node backend/node/scripts/test-interview-api-flow.mjs
  */
 import { loadEnv } from '../loadEnv.mjs'
+import { defaultS3ObjectStorage, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 
 loadEnv()
 
@@ -145,7 +146,36 @@ if (uploadUrl.res.status === 503 && uploadUrl.data.skipped) {
     console.error('[interview-flow] recording complete failed', complete.res.status, complete.data.error)
     process.exit(1)
   }
-  console.log('[interview-flow] recording S3 path OK', complete.data.objectKey || uploadUrl.data.objectKey)
+  const objectKey = complete.data.objectKey || uploadUrl.data.objectKey
+  console.log('[interview-flow] recording S3 path OK', objectKey)
+
+  if (s3StorageConfigured() && objectKey) {
+    const head = await defaultS3ObjectStorage.headObject({ key: objectKey })
+    if (!head) {
+      console.error('[interview-flow] S3 HeadObject: object missing after complete —', objectKey)
+      process.exit(1)
+    }
+    console.log(
+      '[interview-flow] S3 HeadObject OK —',
+      head.ContentLength,
+      'bytes,',
+      head.ContentType || 'video/webm',
+    )
+  }
+
+  const playback = await req(
+    `/api/interview/recordings/playback?sessionId=${encodeURIComponent(sessionId)}`,
+    { token },
+  )
+  if (!playback.res.ok || !playback.data.playbackUrl) {
+    console.error(
+      '[interview-flow] candidate playback failed',
+      playback.res.status,
+      playback.data.error,
+    )
+    process.exit(1)
+  }
+  console.log('[interview-flow] candidate playback URL OK (presigned GET)')
 }
 
 const score = await req('/api/interview/score', {

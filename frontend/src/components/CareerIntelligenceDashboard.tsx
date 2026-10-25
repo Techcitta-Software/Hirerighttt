@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { InterviewResult } from '../lib/store'
+import { CandidateInterviewRecordingSection } from './CandidateInterviewRecordingSection'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import { openStoredScorecardPdf } from '../lib/interviewReportUpload'
 import { buildQaRowsFromInterview } from '../lib/scorecardQaRows'
@@ -20,6 +21,8 @@ interface Props {
   skills?: string[]
   onRetake?: () => void
   onContinue?: () => void
+  /** When set, loads full interview video from S3 for candidate review. */
+  interviewSessionId?: string | null
 }
 
 function hashString(str: string): number {
@@ -39,6 +42,7 @@ export function CareerIntelligenceDashboard({
   skills = [],
   onRetake,
   onContinue,
+  interviewSessionId,
 }: Props) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
@@ -232,6 +236,13 @@ export function CareerIntelligenceDashboard({
             {downloadError ? <p className={styles.downloadError}>{downloadError}</p> : null}
           </div>
         </div>
+
+        {interviewSessionId || result.sessionId ? (
+          <CandidateInterviewRecordingSection
+            sessionId={interviewSessionId || result.sessionId}
+            reviewEvents={result.integrity?.logs ?? []}
+          />
+        ) : null}
 
         <div className={styles.candidateProfileRow}>
           <div className={styles.candidateLeftBlock}>
