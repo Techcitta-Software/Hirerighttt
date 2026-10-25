@@ -1,23 +1,24 @@
 /**
  * Download Playwright Chromium after npm install so scorecard PDFs can upload to S3.
  * Skip: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
- * CI skip unless: PLAYWRIGHT_INSTALL_CHROMIUM=1
+ * CI / Render skip unless: PLAYWRIGHT_INSTALL_CHROMIUM=1
  */
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const skipDownload = process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === '1'
 const ci = process.env.CI === 'true'
-const forceInCi = process.env.PLAYWRIGHT_INSTALL_CHROMIUM === '1'
+const onRender = process.env.RENDER === 'true'
+const forceInstall = process.env.PLAYWRIGHT_INSTALL_CHROMIUM === '1'
 
 if (skipDownload) {
   console.log('[playwright] PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 — skipping Chromium.')
   process.exit(0)
 }
 
-if (ci && !forceInCi) {
+if ((ci || onRender) && !forceInstall) {
   console.log(
-    '[playwright] CI detected — skipping Chromium (~300MB). Set PLAYWRIGHT_INSTALL_CHROMIUM=1 to install.',
+    '[playwright] CI/Render detected — skipping Chromium (~300MB). Set PLAYWRIGHT_INSTALL_CHROMIUM=1 to install.',
   )
   process.exit(0)
 }

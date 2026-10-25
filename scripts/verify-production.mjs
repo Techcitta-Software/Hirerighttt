@@ -2,7 +2,10 @@
  * Compare local vs production API shape (detect stale Render deploy).
  * Usage: node scripts/verify-production.mjs
  */
-const RENDER = 'https://hireright-backend-ykln.onrender.com/api/health'
+const RENDER =
+  process.env.RENDER_API_URL?.replace(/\/$/, '') ||
+  'https://hireright-backend-ykln.onrender.com'
+const RENDER_HEALTH = `${RENDER}/api/health`
 const VERCEL = 'https://hire-rightt.vercel.app/api/health'
 const LOCAL = 'http://127.0.0.1:8787/api/health'
 
@@ -32,7 +35,7 @@ function analyze(label, data) {
 }
 
 const [render, vercel, local] = await Promise.all([
-  fetchJson(RENDER),
+  fetchJson(RENDER_HEALTH),
   fetchJson(VERCEL),
   fetchJson(LOCAL),
 ])
@@ -45,7 +48,7 @@ const lOk = analyze('Local', local)
 if (!rOk) {
   console.log(`
 Render is still on OLD code or failed to boot new code.
-Fix in Render Dashboard → hireright-backend-ykln:
+Fix in Render Dashboard → your backend web service:
   1. Settings → Build: Root Directory = backend/node
   2. Branch = main, Build = npm install, Start = node index.mjs
   3. Environment: DATABASE_URL, GEMINI_API_KEY, SESSION_SECRET (32+ chars),
