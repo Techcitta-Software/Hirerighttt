@@ -335,7 +335,7 @@ export function extractNameFromText(text: string): string | null {
 
   for (const rawLine of lines.slice(0, 10)) {
     // 1. Check if line explicitly has "Name: John Doe" or "Full Name: John Doe"
-    const namePrefixMatch = rawLine.match(/(?:^|\b)(?:full\s*name|name)\s*[:\-]\s*([A-Za-z.'-]+(?:\s+[A-Za-z.'-]+){1,3})/i)
+    const namePrefixMatch = rawLine.match(/(?:^|\b)(?:full\s*name|name)\s*[:-]\s*([A-Za-z.'-]+(?:\s+[A-Za-z.'-]+){1,3})/i)
     if (namePrefixMatch) {
       return namePrefixMatch[1].trim()
     }
@@ -347,6 +347,7 @@ export function extractNameFromText(text: string): string | null {
 
     // 3. Take segment before pipes, bullet points, emails, numbers, or dashes
     const cleanSegment = line
+      // eslint-disable-next-line eslint/no-useless-escape -- `[`/`]` must stay escaped in this character class for oxlint/parser compatibility
       .split(/[@|•·,;–—()\[\]\d+]/)[0]
       .trim()
 
@@ -717,7 +718,7 @@ function parseDateToMonthYear(str: string): string {
 }
 
 function extractCredentialId(str: string): string {
-  const match = str.match(/(?:credential\s*id|license(?:\s*no\.?|\s*id)?|verification(?:\s*id)?)\s*[:#\-]?\s*([A-Za-z0-9_-]{5,40})/i)
+  const match = str.match(/(?:credential\s*id|license(?:\s*no\.?|\s*id)?|verification(?:\s*id)?)\s*[:#-]?\s*([A-Za-z0-9_-]{5,40})/i)
   return match ? match[1].trim() : ''
 }
 
@@ -747,7 +748,7 @@ const KNOWN_CERT_ISSUERS = [
 export function pickCertifications(text: string): Certification[] {
   if (!text || typeof text !== 'string') return []
 
-  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:\-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests)\b|$)/i
+  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests)\b|$)/i
 
   const match = text.match(sectionHeaderRegex)
   const body = match ? match[1].trim() : ''
@@ -788,7 +789,7 @@ export function pickCertifications(text: string): Certification[] {
 
     const credId = extractCredentialId(item)
     if (credId) {
-      item = item.replace(/(?:credential\s*id|license(?:\s*no\.?|\s*id)?|verification(?:\s*id)?)\s*[:#\-]?\s*[A-Za-z0-9_-]{5,40}/i, '').trim()
+      item = item.replace(/(?:credential\s*id|license(?:\s*no\.?|\s*id)?|verification(?:\s*id)?)\s*[:#-]?\s*[A-Za-z0-9_-]{5,40}/i, '').trim()
     }
 
     const dateEarned = parseDateToMonthYear(item)
@@ -979,7 +980,7 @@ export function cleanAndParseJson<T = Record<string, unknown>>(raw: string): T |
   } catch {
     // Attempt common LLM JSON repairs:
     // A. Remove trailing commas before } or ]
-    jsonString = jsonString.replace(/,\s*([\}\]])/g, '$1')
+    jsonString = jsonString.replace(/,\s*([}\]])/g, '$1')
     // B. Replace unescaped literal newlines / carriage returns inside strings
     jsonString = jsonString.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/g, (m) =>
       m.replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t'),

@@ -123,16 +123,20 @@ export function CareerIntelligenceDashboard({
 
   const skillPills = skills.length > 0 ? skills.slice(0, 10) : []
 
-  const donuts = result.categories?.length
-    ? result.categories.map((c) => ({
-        label: c.label,
-        score: c.score,
-        tag: tagFor(c.score),
-        color: colorFor(c.score),
-      }))
-    : sc?.donuts ?? [
-        { label: 'Overall', score: overall, tag: tagFor(overall), color: colorFor(overall) },
-      ]
+  const donuts = useMemo(
+    () =>
+      result.categories?.length
+        ? result.categories.map((c) => ({
+            label: c.label,
+            score: c.score,
+            tag: tagFor(c.score),
+            color: colorFor(c.score),
+          }))
+        : sc?.donuts ?? [
+            { label: 'Overall', score: overall, tag: tagFor(overall), color: colorFor(overall) },
+          ],
+    [result.categories, sc?.donuts, overall],
+  )
 
   const healthMetrics = useMemo(() => {
     if (sc?.healthMetrics) {
@@ -163,9 +167,13 @@ export function CareerIntelligenceDashboard({
 
   const qaRows = sc?.qaRows?.length ? sc.qaRows : buildQaRowsFromInterview(result)
 
-  const radarAxes = result.categories?.length
-    ? result.categories.map((c) => ({ label: c.label, val: c.score }))
-    : sc?.radarAxes ?? [{ label: 'Overall', val: overall }]
+  const radarAxes = useMemo(
+    () =>
+      result.categories?.length
+        ? result.categories.map((c) => ({ label: c.label, val: c.score }))
+        : sc?.radarAxes ?? [{ label: 'Overall', val: overall }],
+    [result.categories, sc?.radarAxes, overall],
+  )
 
   const coachNotes =
     sc?.coachNotes ??

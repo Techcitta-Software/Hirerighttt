@@ -4,6 +4,11 @@
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
+  "build": {
+    "env": {
+      "VITE_AUTH_PROVIDER": "api"
+    }
+  },
   "cleanUrls": true,
   "rewrites": [
     {
