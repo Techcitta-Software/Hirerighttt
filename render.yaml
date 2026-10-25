@@ -11,9 +11,12 @@ services:
     rootDir: backend/node
     buildCommand: npm install && node -e "console.log('render build ok')"
     startCommand: node index.mjs
+    # Skip ~300MB Playwright Chromium on Render build (free tier timeouts). PDF upload needs PLAYWRIGHT_INSTALL_CHROMIUM=1 on paid plans or generate PDFs elsewhere.
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
       - key: NODE_ENV
         value: production
       - key: ENVIRONMENT
