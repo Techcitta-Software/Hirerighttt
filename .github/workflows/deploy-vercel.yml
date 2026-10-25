@@ -2,7 +2,8 @@ name: Deploy Frontend to Vercel
 
 # Production: push to main (paths below) runs build + optional Vercel deploy.
 # To enable deploy, add repository secrets (Settings → Secrets → Actions):
-#   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+#   VERCEL_TOKEN, VERCEL_PROJECT_ID (required)
+#   VERCEL_ORG_ID (optional — auto-filled for personal accounts)
 # VERCEL_TOKEN: https://vercel.com/account/tokens
 # VERCEL_ORG_ID / VERCEL_PROJECT_ID: Vercel project Settings, or .vercel/project.json after `vercel link`
 
@@ -70,14 +71,31 @@ jobs:
         id: vercel_secrets
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::VERCEL_TOKEN, VERCEL_ORG_ID, or VERCEL_PROJECT_ID is not set in GitHub Actions secrets."
-            echo "Build already passed. Add the three secrets or rely on Vercel Git integration."
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Set VERCEL_TOKEN and VERCEL_PROJECT_ID in GitHub Actions secrets."
+            exit 0
           fi
+
+          ORG_ID="$VERCEL_ORG_ID"
+          if [ -z "$ORG_ID" ]; then
+            echo "VERCEL_ORG_ID not set — resolving owner id from Vercel API (personal accounts)."
+            ORG_ID=$(curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}" \
+              | node -e "let b='';process.stdin.on('data',c=>b+=c);process.stdin.on('end',()=>{try{const j=JSON.parse(b);process.stdout.write(String(j.accountId||j.teamId||''));}catch{process.stdout.write('');}})")
+          fi
+
+          if [ -z "$ORG_ID" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Could not resolve VERCEL_ORG_ID. Add it manually (Vercel project Settings → General, owner/account id)."
+            exit 0
+          fi
+
+          echo "VERCEL_ORG_ID=$ORG_ID" >> "$GITHUB_ENV"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "Using Vercel org/account id: $ORG_ID"
 
       - name: Install Vercel CLI
         if: steps.vercel_secrets.outputs.ready == 'true'
