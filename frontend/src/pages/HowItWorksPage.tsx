@@ -50,7 +50,7 @@ export function HowItWorksPage() {
           Page Header
           ==================================================================== */}
       <section className={styles.pageHeader}>
-        <div className={styles.shell}>
+        <div className={styles.pageHeaderContent}>
           <motion.p
             className={styles.overline}
             initial={{ opacity: 0, y: -10 }}
@@ -85,6 +85,7 @@ export function HowItWorksPage() {
           ==================================================================== */}
       <section className={styles.stepsSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           {/* Top 3 Steps */}
           <div className={styles.stepsGridTop}>
             {STEPS_TOP.map((step, index) => (
@@ -123,6 +124,7 @@ export function HowItWorksPage() {
               START MY 15-MINUTE DISCOVERY
             </Link>
           </div>
+          </div>
         </div>
       </section>
 
@@ -131,6 +133,7 @@ export function HowItWorksPage() {
           ==================================================================== */}
       <section className={styles.helpSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           <motion.h2
             className={styles.helpHeading}
             initial={{ opacity: 0, y: 20 }}
@@ -157,6 +160,7 @@ export function HowItWorksPage() {
               </motion.article>
             ))}
           </div>
+          </div>
         </div>
       </section>
 
@@ -165,6 +169,7 @@ export function HowItWorksPage() {
           ==================================================================== */}
       <section className={styles.ctaSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           <motion.div
             className={styles.ctaCard}
             initial={{ opacity: 0, y: 25 }}
@@ -182,6 +187,7 @@ export function HowItWorksPage() {
               No resume required to get started • Personalized AI-powered guidance
             </p>
           </motion.div>
+          </div>
         </div>
       </section>
 

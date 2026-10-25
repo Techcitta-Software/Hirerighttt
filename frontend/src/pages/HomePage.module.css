@@ -4,6 +4,7 @@
    ========================================================================== */
 
 .page {
+  composes: marketingPage from '../styles/marketingShared.module.css';
   --primary-purple: #4f46e5;
   --primary-purple-dark: #4338ca;
   --primary-purple-light: #6366f1;
@@ -33,13 +34,7 @@
 }
 
 .shell {
-  width: 100%;
-  max-width: 100%;
-  padding-left: var(--layout-gutter-wide);
-  padding-right: var(--layout-gutter-wide);
-  margin-left: auto;
-  margin-right: auto;
-  box-sizing: border-box;
+  composes: shell from '../styles/marketingShared.module.css';
 }
 
 /* ==========================================================================
@@ -60,9 +55,7 @@
 }
 
 .heroCenteredShell {
-  width: 100%;
-  max-width: 1040px;
-  margin: 0 auto;
+  composes: contentColumn from '../styles/marketingShared.module.css';
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -78,22 +71,13 @@
 }
 
 .heroKickerCentered {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #2563eb;
-  margin: 0 0 1rem 0;
+  composes: overline from '../styles/marketingShared.module.css';
 }
 
 .heroHeadingCentered {
-  font-size: clamp(2.85rem, 5vw, 4.15rem);
-  font-weight: 800;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-  margin: 0 0 1.15rem 0;
+  composes: heading from '../styles/marketingShared.module.css';
   text-align: center;
+  margin-bottom: 1.15rem;
 }
 
 .heroHeadingBlue {
@@ -102,16 +86,8 @@
 }
 
 .heroSubheadingCentered {
-  font-size: clamp(1.2rem, 2.1vw, 1.45rem);
-  font-weight: 500;
-  color: #1e293b;
-  margin: 0 0 1.75rem 0;
-  line-height: 1.45;
-}
-
-.heroSubheadingCentered strong {
-  font-weight: 800;
-  color: #0f172a;
+  composes: subheading from '../styles/marketingShared.module.css';
+  margin-bottom: 1.75rem;
 }
 
 /* Floating Dual Upload Capsule Bar */
@@ -404,7 +380,7 @@
    ========================================================================== */
 
 .potentialSection {
-  padding: clamp(2.5rem, 4.5vw, 3.75rem) 0;
+  composes: marketingSection from '../styles/marketingShared.module.css';
   text-align: center;
   background: #ffffff;
   border-top: 1px solid rgba(220, 215, 254, 0.35);
@@ -412,29 +388,17 @@
 }
 
 .potentialHeading {
-  font-size: clamp(2rem, 4vw, 2.85rem);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: -0.025em;
-  color: #181236;
-  margin: 0 auto 1.25rem;
-  max-width: 960px;
+  composes: sectionTitle from '../styles/marketingShared.module.css';
+  margin-bottom: 1.25rem;
 }
 
 .potentialParagraph {
-  font-size: clamp(1rem, 1.8vw, 1.08rem);
-  line-height: 1.75;
-  color: var(--text-muted);
-  max-width: 880px;
-  margin: 0 auto 1.5rem;
+  composes: sectionBody from '../styles/marketingShared.module.css';
+  margin-bottom: 1.5rem;
 }
 
 .potentialHighlight {
-  font-size: clamp(1.15rem, 2.2vw, 1.35rem);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--teal-accent);
-  margin: 0;
+  composes: sectionHighlight from '../styles/marketingShared.module.css';
 }
 
 /* ==========================================================================
@@ -442,7 +406,8 @@
    ========================================================================== */
 
 .howItWorksSection {
-  padding: clamp(3.5rem, 6vw, 4.75rem) 0 clamp(4rem, 6.5vw, 5.25rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
+  padding-bottom: 75px;
   background: linear-gradient(180deg, #fdfcff 0%, #f7f6fc 100%);
   position: relative;
   overflow: hidden;
@@ -459,12 +424,8 @@
 }
 
 .howItWorksTitle {
-  font-size: clamp(2rem, 3.8vw, 2.75rem);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  color: #181236;
+  composes: sectionTitle from '../styles/marketingShared.module.css';
   margin: 0 0 10px 0;
-  line-height: 1.2;
 }
 
 .howItWorksRedBar {
@@ -621,19 +582,14 @@
    ========================================================================== */
 
 .portalSection {
-  padding: clamp(2.5rem, 4.5vw, 3.75rem) 0 clamp(2.25rem, 3.5vw, 3rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
   text-align: center;
   background: #ffffff;
 }
 
 .portalHeading {
-  font-size: clamp(2rem, 3.8vw, 2.85rem);
-  font-weight: 800;
-  line-height: 1.22;
-  letter-spacing: -0.025em;
-  color: #181236;
-  margin: 0 auto 1.25rem;
-  max-width: 960px;
+  composes: sectionTitle from '../styles/marketingShared.module.css';
+  margin-bottom: 1.25rem;
 }
 
 .portalParagraph {
@@ -657,7 +613,8 @@
    ========================================================================== */
 
 .ctaSection {
-  padding: clamp(2rem, 4vw, 3.5rem) 0 clamp(4.5rem, 7vw, 6.5rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
+  padding-bottom: 75px;
   background: #ffffff;
 }
 

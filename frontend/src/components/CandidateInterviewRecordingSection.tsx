@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { IntegrityLogEvent } from '../lib/store'
 import { fetchInterviewRecordingPlayback } from '../lib/interviewRecordingUpload'
 import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
 import styles from './CandidateInterviewRecordingSection.module.css'
@@ -8,14 +7,12 @@ type Props = {
   sessionId?: string | null
   /** Local blob URL while S3 upload finishes (post-interview analyzing). */
   localPreviewUrl?: string | null
-  reviewEvents?: IntegrityLogEvent[]
   title?: string
 }
 
 export function CandidateInterviewRecordingSection({
   sessionId,
   localPreviewUrl,
-  reviewEvents = [],
   title = 'Your interview recording',
 }: Props) {
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null)
@@ -26,42 +23,60 @@ export function CandidateInterviewRecordingSection({
   const playbackUrl = remoteUrl || localPreviewUrl || null
 
   useEffect(() => {
-    if (!sessionId?.trim()) return
+    const sid = sessionId?.trim() ?? ''
+    if (!sid) return
     let cancelled = false
-    setLoading(true)
-    setNote('')
-    void fetchInterviewRecordingPlayback(sessionId)
-      .then((link) => {
+    let attempts = 0
+    let found = false
+    const maxAttempts = 10
+
+    async function loadPlayback() {
+      if (cancelled) return
+      setLoading(true)
+      if (attempts === 0) setNote('')
+      try {
+        const link = await fetchInterviewRecordingPlayback(sid)
         if (cancelled) return
         if (link?.playbackUrl) {
+          found = true
           setRemoteUrl(link.playbackUrl)
           setDurationHint(link.durationSeconds ?? null)
+          setNote('')
+          setLoading(false)
+          return
         }
-      })
-      .catch((err) => {
-        if (!cancelled && !localPreviewUrl) {
+      } catch (err) {
+        if (!cancelled && !localPreviewUrl && attempts >= maxAttempts - 1) {
           setNote(err instanceof Error ? err.message : 'Recording not available yet.')
         }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      }
+      attempts += 1
+      if (attempts < maxAttempts && !cancelled && !found) {
+        setNote('Loading your interview video from secure storage…')
+        window.setTimeout(() => void loadPlayback(), 2000)
+        return
+      }
+      if (!cancelled && !localPreviewUrl && !found) {
+        setNote(
+          'Interview video is not ready yet. If you just finished, wait a moment and refresh this page.',
+        )
+      }
+      if (!cancelled) setLoading(false)
+    }
+
+    void loadPlayback()
     return () => {
       cancelled = true
     }
   }, [sessionId, localPreviewUrl])
 
-  if (!playbackUrl && !loading && !note && !sessionId) {
+  if (!sessionId?.trim() && !playbackUrl) {
     return null
   }
 
   return (
     <section className={styles.section} aria-label={title}>
       <h2 className={styles.title}>{title}</h2>
-      <p className={styles.lead}>
-        Full camera and microphone capture from your session. Stored securely in cloud storage when
-        upload succeeds.
-      </p>
       {loading && !playbackUrl ? (
         <p className={styles.status} role="status">
           Loading your interview video…
@@ -70,7 +85,7 @@ export function CandidateInterviewRecordingSection({
       {playbackUrl ? (
         <InterviewRecordingPlayer
           playbackUrl={playbackUrl}
-          events={reviewEvents}
+          events={[]}
           durationHint={durationHint}
         />
       ) : note ? (

@@ -237,13 +237,6 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
 
-        {interviewSessionId || result.sessionId ? (
-          <CandidateInterviewRecordingSection
-            sessionId={interviewSessionId || result.sessionId}
-            reviewEvents={result.integrity?.logs ?? []}
-          />
-        ) : null}
-
         <div className={styles.candidateProfileRow}>
           <div className={styles.candidateLeftBlock}>
             <div className={styles.avatarBox}>
@@ -313,6 +306,13 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
       </header>
+
+      {interviewSessionId || result.sessionId ? (
+        <CandidateInterviewRecordingSection
+          sessionId={interviewSessionId || result.sessionId}
+          title="Your interview video"
+        />
+      ) : null}
 
       {/* Row 1: Career Score Gauge, Score Band Explanation, Donut Distribution */}
       <section className={styles.rowGridThree}>

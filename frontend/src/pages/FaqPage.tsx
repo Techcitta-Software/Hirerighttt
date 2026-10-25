@@ -62,7 +62,7 @@ export function FaqPage() {
           Page Header
           ==================================================================== */}
       <section className={styles.pageHeader}>
-        <div className={styles.shell}>
+        <div className={styles.pageHeaderContent}>
           <motion.p
             className={styles.overline}
             initial={{ opacity: 0, y: -10 }}
@@ -87,6 +87,7 @@ export function FaqPage() {
           ==================================================================== */}
       <section className={styles.accordionSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           <div className={styles.accordionList}>
             {FAQS.map((faq, index) => {
               const isOpen = openIndices.includes(index)
@@ -139,6 +140,7 @@ export function FaqPage() {
               START MY CAREER DISCOVERY
             </Link>
           </motion.div>
+          </div>
         </div>
       </section>
 

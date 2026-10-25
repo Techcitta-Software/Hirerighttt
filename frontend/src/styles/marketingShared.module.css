@@ -1,0 +1,130 @@
+/**
+ * Shared marketing page shell + hero typography (aligned with HomePage).
+ * Section vertical rhythm: 75px between stacked sections on home + marketing pages.
+ */
+
+.marketingPage {
+  --marketing-section-gap: 75px;
+}
+
+.marketingSection {
+  padding-top: var(--marketing-section-gap);
+  box-sizing: border-box;
+}
+
+.marketingSectionLast {
+  padding-bottom: var(--marketing-section-gap);
+}
+
+.shell {
+  width: 100%;
+  max-width: 100%;
+  padding-left: var(--layout-gutter-wide);
+  padding-right: var(--layout-gutter-wide);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+.contentColumn {
+  width: 100%;
+  max-width: 1040px;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+}
+
+/* Outer band — matches HomePage `.heroSection` padding + background (no full-viewport min-height). */
+.pageHeader {
+  position: relative;
+  padding: 12px;
+  box-sizing: border-box;
+  text-align: center;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    rgba(238, 242, 255, 0.7) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+}
+
+/* Inner column — matches home hero content offset below the nav. */
+.pageHeaderContent {
+  width: 100%;
+  max-width: 1040px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--layout-gutter-wide);
+  padding-right: var(--layout-gutter-wide);
+  padding-top: clamp(2.75rem, 4.5vw, 3.75rem);
+  padding-bottom: 0;
+  box-sizing: border-box;
+}
+
+.overline {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #2563eb;
+  margin: 0 0 1rem 0;
+}
+
+.heading {
+  font-size: clamp(2.85rem, 5vw, 4.15rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: #0f172a;
+  margin: 0 auto 1.15rem;
+  max-width: 1040px;
+}
+
+.subheading {
+  font-size: clamp(1.2rem, 2.1vw, 1.45rem);
+  font-weight: 500;
+  color: #1e293b;
+  margin: 0 auto;
+  max-width: 1040px;
+  line-height: 1.45;
+}
+
+.subheading strong {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.gradientText {
+  background: linear-gradient(135deg, #4338ca 0%, #6366f1 55%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  display: inline-block;
+}
+
+.sectionTitle {
+  font-size: clamp(2rem, 3.8vw, 2.75rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #181236;
+  line-height: 1.2;
+  margin: 0 auto;
+  max-width: 1040px;
+  text-align: center;
+}
+
+.sectionBody {
+  font-size: clamp(1rem, 1.8vw, 1.08rem);
+  line-height: 1.75;
+  color: #64748b;
+  max-width: 880px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.sectionHighlight {
+  font-size: clamp(1.15rem, 2.2vw, 1.35rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #059669;
+  margin: 0;
+}

@@ -6,6 +6,8 @@ type Props = {
   playbackUrl: string
   events: IntegrityLogEvent[]
   durationHint?: number | null
+  /** When false, only the video element is shown (no session / MediaPipe UI). */
+  showProctorTimeline?: boolean
 }
 
 function formatClock(sec: number): string {
@@ -15,7 +17,12 @@ function formatClock(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export function InterviewRecordingPlayer({ playbackUrl, events, durationHint }: Props) {
+export function InterviewRecordingPlayer({
+  playbackUrl,
+  events,
+  durationHint,
+  showProctorTimeline = false,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [duration, setDuration] = useState(durationHint && durationHint > 0 ? durationHint : 0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -81,6 +88,8 @@ export function InterviewRecordingPlayer({ playbackUrl, events, durationHint }: 
         Your browser does not support video playback.
       </video>
 
+      {!showProctorTimeline ? null : (
+        <>
       <div className={styles.timelineLabel}>
         <span>MediaPipe integrity timeline</span>
         <span className={styles.timelineClock}>
@@ -137,6 +146,8 @@ export function InterviewRecordingPlayer({ playbackUrl, events, durationHint }: 
         </ul>
       ) : (
         <p className={styles.noFlags}>No MediaPipe integrity flags for this interview.</p>
+      )}
+        </>
       )}
     </div>
   )

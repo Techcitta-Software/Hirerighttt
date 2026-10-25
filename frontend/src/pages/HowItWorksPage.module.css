@@ -4,6 +4,7 @@
    ========================================================================== */
 
 .page {
+  composes: marketingPage from '../styles/marketingShared.module.css';
   --primary-purple: #4f46e5;
   --primary-purple-dark: #4338ca;
   --primary-purple-light: #6366f1;
@@ -31,57 +32,35 @@
 }
 
 .shell {
-  width: 100%;
-  max-width: 100%;
-  padding-left: var(--layout-gutter-wide);
-  padding-right: var(--layout-gutter-wide);
-  margin-left: auto;
-  margin-right: auto;
-  box-sizing: border-box;
+  composes: shell from '../styles/marketingShared.module.css';
 }
 
-/* ==========================================================================
-   Page Header
-   ========================================================================== */
+.contentColumn {
+  composes: contentColumn from '../styles/marketingShared.module.css';
+}
 
 .pageHeader {
-  padding: clamp(3.5rem, 6vw, 5rem) 0 clamp(2.5rem, 4vw, 3.5rem);
-  text-align: center;
+  composes: pageHeader from '../styles/marketingShared.module.css';
+}
+
+.pageHeaderContent {
+  composes: pageHeaderContent from '../styles/marketingShared.module.css';
 }
 
 .overline {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--primary-purple);
-  margin: 0 0 1.25rem 0;
+  composes: overline from '../styles/marketingShared.module.css';
 }
 
 .heading {
-  font-size: clamp(2.3rem, 4.8vw, 3.6rem);
-  font-weight: 800;
-  line-height: 1.18;
-  letter-spacing: -0.03em;
-  color: #181236;
-  margin: 0 auto 1.25rem;
-  max-width: 1000px;
+  composes: heading from '../styles/marketingShared.module.css';
 }
 
 .gradientText {
-  background: linear-gradient(135deg, #4338ca 0%, #6366f1 55%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: inline-block;
+  composes: gradientText from '../styles/marketingShared.module.css';
 }
 
 .subheading {
-  font-size: clamp(1.05rem, 2vw, 1.25rem);
-  font-weight: 400;
-  color: var(--text-muted);
-  margin: 0 auto;
-  max-width: 880px;
-  line-height: 1.6;
+  composes: subheading from '../styles/marketingShared.module.css';
 }
 
 /* ==========================================================================
@@ -89,7 +68,7 @@
    ========================================================================== */
 
 .stepsSection {
-  padding: 0.5rem 0 clamp(3.5rem, 6vw, 5rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
 }
 
 .stepsGridTop {
@@ -196,20 +175,15 @@
    ========================================================================== */
 
 .helpSection {
-  padding: clamp(4.5rem, 7vw, 6.5rem) 0 clamp(3.5rem, 5vw, 4.5rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
   text-align: center;
   background: #ffffff;
   border-top: 1px solid rgba(220, 215, 254, 0.35);
 }
 
 .helpHeading {
-  font-size: clamp(2.1rem, 4.2vw, 3.1rem);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: -0.025em;
-  color: #181236;
-  margin: 0 auto clamp(2.5rem, 4vw, 3.5rem);
-  max-width: 960px;
+  composes: sectionTitle from '../styles/marketingShared.module.css';
+  margin-bottom: clamp(2.5rem, 4vw, 3.5rem);
 }
 
 .helpGrid {
@@ -254,7 +228,8 @@
    ========================================================================== */
 
 .ctaSection {
-  padding: clamp(3rem, 5vw, 4.5rem) 0 clamp(4.5rem, 7vw, 6.5rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
+  padding-bottom: 75px;
   background: #ffffff;
 }
 

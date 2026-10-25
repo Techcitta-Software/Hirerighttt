@@ -1,9 +1,11 @@
 .section {
   margin: 24px 0 32px;
-  padding: 20px 22px;
+  padding: 20px 22px 24px;
   border-radius: 16px;
   border: 1px solid #e8e0d4;
   background: #fffdfa;
+  width: 100%;
+  max-width: none;
 }
 
 .title {

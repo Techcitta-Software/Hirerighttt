@@ -4,6 +4,7 @@
    ========================================================================== */
 
 .page {
+  composes: marketingPage from '../styles/marketingShared.module.css';
   --primary-purple: #4f46e5;
   --primary-purple-dark: #4338ca;
   --primary-purple-light: #6366f1;
@@ -30,47 +31,31 @@
 }
 
 .shell {
-  width: 100%;
-  max-width: 100%;
-  padding-left: var(--layout-gutter-wide);
-  padding-right: var(--layout-gutter-wide);
-  margin-left: auto;
-  margin-right: auto;
-  box-sizing: border-box;
+  composes: shell from '../styles/marketingShared.module.css';
 }
 
-/* ==========================================================================
-   Header Section
-   ========================================================================== */
+.contentColumn {
+  composes: contentColumn from '../styles/marketingShared.module.css';
+}
 
 .pageHeader {
-  padding: clamp(3.5rem, 6vw, 5rem) 0 clamp(2.5rem, 4vw, 3.5rem);
-  text-align: center;
+  composes: pageHeader from '../styles/marketingShared.module.css';
+}
+
+.pageHeaderContent {
+  composes: pageHeaderContent from '../styles/marketingShared.module.css';
 }
 
 .overline {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--primary-purple);
-  margin: 0 0 1.25rem 0;
+  composes: overline from '../styles/marketingShared.module.css';
 }
 
 .heading {
-  font-size: clamp(2.3rem, 4.8vw, 3.6rem);
-  font-weight: 800;
-  line-height: 1.18;
-  letter-spacing: -0.03em;
-  color: #181236;
-  margin: 0 auto;
+  composes: heading from '../styles/marketingShared.module.css';
 }
 
 .gradientText {
-  background: linear-gradient(135deg, #4338ca 0%, #6366f1 55%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  display: inline-block;
+  composes: gradientText from '../styles/marketingShared.module.css';
 }
 
 /* ==========================================================================
@@ -78,7 +63,8 @@
    ========================================================================== */
 
 .accordionSection {
-  padding: 0.5rem 0 clamp(3.5rem, 6vw, 4.5rem);
+  composes: marketingSection from '../styles/marketingShared.module.css';
+  padding-bottom: 75px;
 }
 
 .accordionList {

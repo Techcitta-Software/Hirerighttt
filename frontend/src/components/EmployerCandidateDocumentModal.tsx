@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type { EmployerApplicant } from '../lib/store'
-import type { IntegrityLogEvent } from '../lib/store'
 import {
   fetchVendorCandidateRecordingDocument,
   fetchVendorCandidateReportDocument,
@@ -39,9 +38,6 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   const [recordingLink, setRecordingLink] = useState<VendorCandidateRecordingLink | null>(null)
   const [recordingLoading, setRecordingLoading] = useState(false)
   const [recordingError, setRecordingError] = useState('')
-  const [reviewEvents, setReviewEvents] = useState<IntegrityLogEvent[]>([])
-  const [reviewSessionId, setReviewSessionId] = useState<string | null>(null)
-
   const isResume = kind === 'resume'
   const title = isResume
     ? `Resume — ${applicant.candidateName}`
@@ -54,8 +50,6 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     setDocumentLink(null)
     setRecordingLink(null)
     setRecordingError('')
-    setReviewEvents([])
-    setReviewSessionId(null)
     setRecordingLoading(false)
 
     void (async () => {
@@ -67,42 +61,74 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
         if (cancelled) return
         setDocumentLink(primary)
 
-        const sessionHint = primary.sessionId || null
+        const sessionHint =
+          primary.sessionId ||
+          applicant.interviewResult?.sessionId ||
+          null
+
         setRecordingLoading(true)
         try {
-          const rec = await fetchVendorCandidateRecordingDocument(
+          const recordingPromise = fetchVendorCandidateRecordingDocument(
             applicant.candidateEmail,
             sessionHint,
           )
+          const reviewPromise = sessionHint
+            ? fetchVendorInterviewReview(sessionHint, applicant.candidateEmail)
+            : null
+
+          let rec: VendorCandidateRecordingLink | null = null
+          try {
+            rec = await recordingPromise
+          } catch {
+            rec = null
+          }
+
+          let review: Awaited<ReturnType<typeof fetchVendorInterviewReview>> | null = null
+          if (reviewPromise) {
+            try {
+              review = await reviewPromise
+            } catch {
+              review = null
+            }
+          } else if (rec?.sessionId) {
+            try {
+              review = await fetchVendorInterviewReview(
+                rec.sessionId,
+                applicant.candidateEmail,
+              )
+            } catch {
+              review = null
+            }
+          }
+
           if (cancelled) return
 
-          setRecordingLink(rec)
-          const sid = rec.sessionId || sessionHint
-          setReviewSessionId(sid)
+          const sid = rec?.sessionId || sessionHint || null
+          const playbackFromRecording = rec?.playbackUrl || rec?.viewUrl
+          const playbackFromReview = review?.videoUrl || null
 
-          if (sid) {
-            const review = await fetchVendorInterviewReview(sid, applicant.candidateEmail)
-            if (!cancelled) setReviewEvents(review.events || [])
+          if (playbackFromRecording) {
+            setRecordingLink(rec)
+          } else if (playbackFromReview) {
+            setRecordingLink({
+              viewUrl: playbackFromReview,
+              downloadUrl: playbackFromReview,
+              playbackUrl: playbackFromReview,
+              expiresInSeconds: null,
+              contentType: 'video/webm',
+              filename: 'interview_recording.webm',
+              sessionId: sid || undefined,
+            })
+          } else if (!isResume) {
+            setRecordingError(
+              'No interview video found for this session yet. If they just finished, wait a minute and reopen the report.',
+            )
           }
         } catch (recErr) {
-          if (!cancelled) {
-            const msg =
-              recErr instanceof Error ? recErr.message : 'Interview video is unavailable.'
-            if (sessionHint) {
-              try {
-                const review = await fetchVendorInterviewReview(
-                  sessionHint,
-                  applicant.candidateEmail,
-                )
-                if (!cancelled) {
-                  setReviewSessionId(sessionHint)
-                  setReviewEvents(review.events || [])
-                }
-              } catch {
-                /* ignore */
-              }
-            }
-            setRecordingError(msg)
+          if (!cancelled && !isResume) {
+            setRecordingError(
+              recErr instanceof Error ? recErr.message : 'Interview video is unavailable.',
+            )
           }
         } finally {
           if (!cancelled) setRecordingLoading(false)
@@ -119,7 +145,12 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     return () => {
       cancelled = true
     }
-  }, [isResume, applicant.candidateEmail, applicant.candidateName])
+  }, [
+    isResume,
+    applicant.candidateEmail,
+    applicant.candidateName,
+    applicant.interviewResult?.sessionId,
+  ])
 
   function handleDownload() {
     if (!documentLink?.downloadUrl) return
@@ -187,21 +218,11 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                 ) : null}
               </section>
 
-              {!isResume || playbackUrl || recordingLoading || recordingError ? (
-                <section className={styles.videoSection} aria-label="Interview recording">
+              {!isResume ? (
+                <section className={styles.videoSection} aria-label="Interview video">
                   <div className={styles.videoSectionHeader}>
                     <HrIcon name="video" size={18} />
-                    <div>
-                      <h3 className={styles.videoTitle}>Original interview video</h3>
-                      <p className={styles.videoSubtitle}>
-                        {applicant.candidateName} · {applicant.candidateEmail}
-                        {reviewSessionId ? ` · session ${reviewSessionId.slice(0, 8)}…` : ''}
-                      </p>
-                      <p className={styles.videoSubtitle}>
-                        Red marks on the timeline = MediaPipe integrity flags (face / gaze deviations).
-                        Scroll the flag list below the player to jump to each moment.
-                      </p>
-                    </div>
+                    <h3 className={styles.videoTitle}>Interview video</h3>
                   </div>
 
                   {recordingLoading ? (
@@ -209,7 +230,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   ) : playbackUrl ? (
                     <InterviewRecordingPlayer
                       playbackUrl={playbackUrl}
-                      events={reviewEvents}
+                      events={[]}
                       durationHint={recordingLink?.durationSeconds}
                     />
                   ) : recordingError ? (

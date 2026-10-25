@@ -10,8 +10,8 @@
 }
 
 .modalWide {
-  width: min(920px, 100%);
-  max-height: min(94vh, 980px);
+  width: min(1120px, 96vw);
+  max-height: min(96vh, 1080px);
   background: #ffffff;
   border-radius: 16px;
   border: 1px solid #e2e8f0;
@@ -111,15 +111,16 @@
 
 .videoSection {
   flex-shrink: 0;
-  padding-top: 8px;
+  padding-top: 12px;
   border-top: 2px solid #e2e8f0;
   scroll-margin-top: 12px;
+  width: 100%;
 }
 
 .videoSectionHeader {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 14px;
   color: #334155;
 }

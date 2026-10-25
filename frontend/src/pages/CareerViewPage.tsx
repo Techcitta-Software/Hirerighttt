@@ -76,7 +76,7 @@ export function CareerViewPage() {
           Page Header
           ==================================================================== */}
       <section className={styles.pageHeader}>
-        <div className={styles.shell}>
+        <div className={styles.pageHeaderContent}>
           <motion.p
             className={styles.overline}
             initial={{ opacity: 0, y: -10 }}
@@ -111,6 +111,7 @@ export function CareerViewPage() {
           ==================================================================== */}
       <section className={styles.pillarsSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           <div className={styles.pillarsGrid}>
             {PILLARS.map((item, index) => (
               <motion.article
@@ -128,6 +129,7 @@ export function CareerViewPage() {
               </motion.article>
             ))}
           </div>
+          </div>
         </div>
       </section>
 
@@ -136,6 +138,7 @@ export function CareerViewPage() {
           ==================================================================== */}
       <section className={styles.reportPreviewSection}>
         <div className={styles.shell}>
+          <div className={styles.contentColumn}>
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -236,6 +239,7 @@ export function CareerViewPage() {
           <Link to="/signup" className={styles.ctaBtn}>
             START MY CAREER DISCOVERY
           </Link>
+          </div>
         </div>
       </section>
 
