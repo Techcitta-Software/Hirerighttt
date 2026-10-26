@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { fadeUp, staggerContainer } from '../motion/variants'
@@ -17,9 +17,12 @@ import {
   resolveInterviewOverall,
   saveApplications,
   profileKey,
+  interviewResultKey,
 
 } from '../lib/store'
 import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
+import { parseResumeFile } from '../lib/resumeParser'
+import { replaceResumeViaApi } from '../lib/replaceResumeApi'
 import {
   missingProfileFields,
   profileCheckHref,
@@ -981,6 +984,48 @@ export function ProfilePage() {
   const [profileLoading, setProfileLoading] = useState(true)
 
   const [toast, setToast] = useState('')
+  const resumeFileInputRef = useRef<HTMLInputElement>(null)
+  const [resumeReplaceStatus, setResumeReplaceStatus] = useState<
+    'idle' | 'updating' | 'updated'
+  >('idle')
+  const [resumeReplaceError, setResumeReplaceError] = useState('')
+
+  useEffect(() => {
+    if (resumeReplaceStatus !== 'updated') return
+    const t = window.setTimeout(() => setResumeReplaceStatus('idle'), 2000)
+    return () => window.clearTimeout(t)
+  }, [resumeReplaceStatus])
+
+  async function handleResumeFilePicked(file: File) {
+    setResumeReplaceError('')
+    setResumeReplaceStatus('updating')
+    try {
+      const extract = await parseResumeFile(file)
+      const outcome = await replaceResumeViaApi(file, extract)
+      if (!outcome.ok) {
+        setResumeReplaceStatus('idle')
+        setResumeReplaceError(outcome.error)
+        return
+      }
+      const userEmail = getUser()?.email
+      if (userEmail) {
+        localStorage.setItem(profileKey(userEmail), JSON.stringify(outcome.profile))
+        localStorage.removeItem(interviewResultKey(userEmail))
+      }
+      setLiveProfile(outcome.profile)
+      setSkillsList(profileSkillsToList(outcome.profile.skills))
+      setTargetRole(outcome.profile.currentRole || targetRole)
+      setExperience(outcome.profile.totalExperience || experience)
+      setResumeReplaceStatus('updated')
+    } catch (err) {
+      setResumeReplaceStatus('idle')
+      setResumeReplaceError(
+        err instanceof Error ? err.message : 'Could not update your résumé.',
+      )
+    } finally {
+      if (resumeFileInputRef.current) resumeFileInputRef.current.value = ''
+    }
+  }
 
   // Form state initialized from the candidate profile
   const profileExtras = profile as
@@ -1571,8 +1616,18 @@ export function ProfilePage() {
               </section>
 
               {/* Card 4: Résumé */}
-              <section id="resume" className={styles.card}>
+              <section id="resume" className={styles.card} aria-busy={resumeReplaceStatus === 'updating'}>
                 <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Résumé</h2>
+                <input
+                  ref={resumeFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void handleResumeFilePicked(file)
+                  }}
+                />
 
                 {profile?.resumeName ? (
                   <div className={styles.resumeUploadBox}>
@@ -1581,15 +1636,29 @@ export function ProfilePage() {
                       <div className={styles.resumeFileDetails}>
                         <span className={styles.resumeFileName}>{profile.resumeName}</span>
                         <span className={styles.resumeFileMeta}>
-                          {profileUpdatedLabel ? `Updated ${profileUpdatedLabel}` : 'On file in your account'}
-                          {profile.resumeText ? ' · Text extracted for interviews' : ''}
+                          {resumeReplaceStatus === 'updating'
+                            ? 'Updating résumé…'
+                            : resumeReplaceStatus === 'updated'
+                              ? 'Updated résumé'
+                              : profileUpdatedLabel
+                                ? `Updated ${profileUpdatedLabel}`
+                                : 'On file in your account'}
+                          {resumeReplaceStatus === 'idle' && profile.resumeText
+                            ? ' · Text extracted for interviews'
+                            : ''}
                   </span>
                       </div>
                     </div>
                     <div className={styles.resumeActionBtns}>
-                      <Link to="/onboarding" className={styles.primary} style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}>
-                        Replace
-                      </Link>
+                      <button
+                        type="button"
+                        className={styles.primary}
+                        style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}
+                        disabled={resumeReplaceStatus === 'updating'}
+                        onClick={() => resumeFileInputRef.current?.click()}
+                      >
+                        {resumeReplaceStatus === 'updating' ? 'Updating…' : 'Replace'}
+                      </button>
                       {profile.resumeUrl ? (
                         <a
                           href={profile.resumeUrl}
@@ -1602,6 +1671,11 @@ export function ProfilePage() {
                         </a>
                       ) : null}
                     </div>
+                    {resumeReplaceError ? (
+                      <p className={styles.muted} style={{ margin: '10px 0 0', color: '#b91c1c' }}>
+                        {resumeReplaceError}
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className={styles.empty} style={{ padding: '12px 0' }}>

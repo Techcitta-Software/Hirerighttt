@@ -117,6 +117,10 @@ import {
   callLlmApi,
 } from '../interviewAgent.mjs'
 import { resolveGeminiModelId } from '../llmModels.mjs'
+import {
+  publicReplaceResumeError,
+  replaceCandidateResume,
+} from '../resume/replaceCandidateResume.mjs'
 import { buildJdCoveragePlan, generateVendorJobQuestion } from '../prompts/vendorJobInterview.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
@@ -1506,6 +1510,29 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, status, {
           error: publicObjectStorageError(err, 'Resume upload failed. Please try again.'),
         })
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/resume/replace') {
+      const email = await requireAuth(req, res)
+      if (!email) return
+      if (!rateLimit(`resume-replace:${email}`, 8, 60_000)) {
+        return json(res, 429, { error: 'Too many resume updates. Try again shortly.' })
+      }
+      const body = await readBody(req)
+      try {
+        const db = loadDb()
+        const result = await replaceCandidateResume({ config, email, body, db, saveDb })
+        return json(res, 200, {
+          ok: true,
+          profile: result.profile,
+          purged: result.purged,
+          storagePath: result.storagePath,
+        })
+      } catch (err) {
+        const mapped = publicReplaceResumeError(err)
+        console.warn('[resume-replace] failed', email, err instanceof Error ? err.message : err)
+        return json(res, mapped.status, mapped.body)
       }
     }
 
