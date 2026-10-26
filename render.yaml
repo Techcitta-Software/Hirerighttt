@@ -9,7 +9,8 @@ services:
     plan: free
     region: oregon
     rootDir: backend/node
-    buildCommand: npm install && node -e "console.log('render build ok')"
+    # Render sets PORT automatically — do not override. CI=true skips Chromium unless forced below.
+    buildCommand: PLAYWRIGHT_INSTALL_CHROMIUM=1 npm install
     startCommand: node index.mjs
     healthCheckPath: /api/health
     autoDeploy: true
@@ -18,9 +19,12 @@ services:
         value: production
       - key: ENVIRONMENT
         value: production
-      - key: PORT
-        value: 8787
+      - key: TRUST_PROXY
+        value: "true"
+      - key: DISABLE_SUPABASE
+        value: "true"
       - key: CORS_ORIGINS
+        # Replace with your exact Vercel production URL (and preview URLs if needed)
         value: "https://hire-rightt.vercel.app,http://localhost:5173"
       - key: ALLOW_DEMO_ACCOUNTS
         value: "false"
@@ -36,8 +40,18 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
+      - key: GROQ_API_KEY
+        sync: false
       - key: INVITE_JOIN_WINDOW_MINUTES
         value: "5"
       - key: SMTP_HOST
