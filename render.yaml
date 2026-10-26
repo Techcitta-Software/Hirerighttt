@@ -1,7 +1,9 @@
+# HireRight Node API — Render Blueprint (repo: backend/node)
+# Apply: Render Dashboard → New → Blueprint → branch main
+# Set every `sync: false` key from repo-root `.env` (never commit secrets here).
+# Do NOT add VITE_* vars here — those belong on Vercel only.
+
 services:
-  # -------------------------------------------------------------
-  # HIRE RIGHT - BACKEND NODE.JS API WEB SERVICE ON RENDER
-  # -------------------------------------------------------------
   - type: web
     name: hireright-backend
     runtime: node
@@ -10,47 +12,109 @@ services:
     rootDir: backend/node
     buildCommand: npm install && node -e "console.log('render build ok')"
     startCommand: node index.mjs
-    # Skip ~300MB Playwright Chromium on Render build (free tier timeouts). PDF upload needs PLAYWRIGHT_INSTALL_CHROMIUM=1 on paid plans or generate PDFs elsewhere.
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
+      # ─── Build / runtime ───
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+      # Server PDFs need Chromium; on free tier keep disabled or set PLAYWRIGHT_INSTALL_CHROMIUM=1 on paid + remove skip.
+      - key: SCORECARD_PDF_DISABLED
         value: "1"
       - key: NODE_ENV
         value: production
       - key: ENVIRONMENT
         value: production
       - key: PORT
-        value: 8787
+        value: "8787"
+      - key: TRUST_PROXY
+        value: "true"
+
+      # ─── Auth & API ───
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
       - key: CORS_ORIGINS
         value: "https://hire-rightt.vercel.app,http://localhost:5173"
       - key: ALLOW_DEMO_ACCOUNTS
         value: "false"
       - key: SIGNUP_ENABLED
         value: "true"
-      - key: SESSION_SECRET
-        generateValue: true
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
       - key: INVITE_JOIN_WINDOW_MINUTES
         value: "5"
-      - key: SMTP_HOST
-        value: smtp.sendgrid.net
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_SECURE
+      - key: MAX_REQUEST_BYTES
+        value: "3000000"
+      # Optional: set true to hard-fail boot on missing GEMINI / SESSION / CORS
+      - key: STRICT_PRODUCTION_CONFIG
         value: "false"
-      - key: SMTP_USER
-        value: apikey
-      - key: SMTP_PASS
+
+      # ─── Storage: Neon + S3 (matches local DISABLE_SUPABASE=true) ───
+      - key: DISABLE_SUPABASE
+        value: "true"
+      - key: AWS_REGION
         sync: false
-      - key: SMTP_FROM
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_SESSION_TOKEN
+        sync: false
+      # Optional safety pin — must match S3_BUCKET if set
+      - key: S3_EXPECTED_BUCKET
+        sync: false
+      - key: S3_DEFAULT_TENANT_ID
+        value: platform
+      - key: S3_PRESIGN_EXPIRES_SECONDS
+        value: "900"
+      - key: S3_MAX_RECORDING_BYTES
+        value: "104857600"
+      - key: S3_MAX_REPORT_BYTES
+        value: "12000000"
+      # Neon backup script (optional; not required for web service boot)
+      - key: S3_BACKUP_BUCKET
+        sync: false
+      - key: S3_BACKUP_PREFIX
+        value: neon/hireright/
+
+      # ─── AI (server-side interview / resume) ───
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PRIMARY_MODEL
+        value: gemini-3.5-flash-lite
+      - key: FAST_MODEL
+        value: gemini-3.5-flash-lite
+      - key: FALLBACK_MODEL
+        value: gemini-3.5-flash-lite
+      - key: OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+      # ─── Groq Whisper (server STT — never expose to Vite) ───
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_WHISPER_MODEL
+        value: whisper-large-v3-turbo
+      - key: GROQ_WHISPER_LANGUAGE
+        value: en
+
+      # ─── Email (Gmail App Password — same as mailer.mjs / local .env) ───
+      - key: SMTP_EMAIL
+        sync: false
+      - key: SMTP_APP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # ─── Optional ops / labeling ───
+      - key: API_BUILD_ID
+        value: hireright-neon-2026-10-16
+      - key: DNS_SERVERS
         sync: false

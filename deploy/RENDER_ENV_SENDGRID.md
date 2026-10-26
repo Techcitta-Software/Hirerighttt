@@ -1,65 +1,53 @@
-# Render environment — copy into Dashboard
+# Render environment — manual dashboard copy
 
-**Service:** `hireright-backend` (ID `exs-db6tb9ou01pc73bhfe3g`)  
-**Path:** Render → your service → **Environment** → Add / Edit → **Save Changes** → **Manual Deploy**
+> **Note:** The API uses **Gmail** (`SMTP_EMAIL` + `SMTP_APP_PASSWORD`), not SendGrid.  
+> Source of truth for Blueprint deploys: root [`render.yaml`](../render.yaml).
 
-Paste each **Key** / **Value** below. Secrets must be your real values (not placeholders).
+Render → your web service → **Environment** → paste from repo-root `.env` where noted.
 
-## Already set / non-secret (use these exact values)
+## Non-secret (production)
 
 | Key | Value |
 |-----|--------|
 | `NODE_ENV` | `production` |
 | `ENVIRONMENT` | `production` |
 | `PORT` | `8787` |
+| `TRUST_PROXY` | `true` |
+| `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | `1` |
+| `SCORECARD_PDF_DISABLED` | `1` |
+| `DISABLE_SUPABASE` | `true` |
 | `CORS_ORIGINS` | `https://hire-rightt.vercel.app,http://localhost:5173` |
 | `ALLOW_DEMO_ACCOUNTS` | `false` |
 | `SIGNUP_ENABLED` | `true` |
 | `PUBLIC_APP_URL` | `https://hire-rightt.vercel.app` |
 | `INVITE_JOIN_WINDOW_MINUTES` | `5` |
-| `SMTP_HOST` | `smtp.sendgrid.net` |
-| `SMTP_PORT` | `587` |
-| `SMTP_SECURE` | `false` |
-| `SMTP_USER` | `apikey` |
+| `PRIMARY_MODEL` / `FAST_MODEL` / `FALLBACK_MODEL` | `gemini-3.5-flash-lite` |
+| `OPENAI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `GROQ_WHISPER_MODEL` | `whisper-large-v3-turbo` |
+| `GROQ_WHISPER_LANGUAGE` | `en` |
+| `S3_DEFAULT_TENANT_ID` | `platform` |
+| `S3_PRESIGN_EXPIRES_SECONDS` | `900` |
+| `S3_MAX_RECORDING_BYTES` | `104857600` |
+| `S3_MAX_REPORT_BYTES` | `12000000` |
 
-## Secrets (you fill in)
+## Secrets (copy from local `.env`)
 
-| Key | Value |
+| Key | Source |
 |-----|--------|
-| `DATABASE_URL` | Your Neon PostgreSQL connection string (same as local `.env`) |
-| `SESSION_SECRET` | 32+ random characters (keep existing if already set) |
-| `GEMINI_API_KEY` | Your Google AI Studio key |
-| `SMTP_PASS` | SendGrid API key (starts with `SG.`) |
-| `SMTP_FROM` | Verified sender, e.g. `HireRight <hello@yourdomain.com>` |
+| `DATABASE_URL` | Neon URI |
+| `SESSION_SECRET` | 32+ chars (do not reuse local dev string in prod) |
+| `GEMINI_API_KEY` | Same as local |
+| `AWS_REGION` | e.g. `ap-south-2` |
+| `S3_BUCKET` | e.g. your `hirerighttt-*` bucket |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | IAM S3 user |
+| `GROQ_API_KEY` | Optional STT |
+| `SMTP_EMAIL` / `SMTP_APP_PASSWORD` / `EMAIL_FROM` | Gmail app password |
 
-## After manual deploy
-
-```bash
-curl "https://hireright-backend-ykln.onrender.com/api/mail/status"
-curl "https://hireright-backend-ykln.onrender.com/api/mail/status?verify=1"
-```
-
-Expected (after latest API deploy):
-
-```json
-{
-  "smtpConfigured": true,
-  "smtpPassSet": true,
-  "smtpFrom": "HireRight <your-verified@email.com>",
-  "publicAppUrl": "https://hire-rightt.vercel.app",
-  "verify": { "ok": true }
-}
-```
-
-Local test (repo root, after filling `.env`):
+## Verify
 
 ```bash
-npm run mail:test
-MAIL_TEST_TO=your@email.com npm run mail:test
+curl "https://YOUR-SERVICE.onrender.com/api/health"
+curl "https://YOUR-SERVICE.onrender.com/api/mail/status?verify=1"
 ```
 
-## SendGrid reminder
-
-1. Create API key: SendGrid → Settings → API Keys.  
-2. Verify sender: Settings → Sender Authentication (Single Sender or domain).  
-3. `SMTP_FROM` email must match that verified sender.
+Health should show `objectStorage.configured: true` when S3 vars are set.

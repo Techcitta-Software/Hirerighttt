@@ -12,7 +12,7 @@ Uses root [`render.yaml`](../render.yaml) (includes `PLAYWRIGHT_SKIP_BROWSER_DOW
 4. When prompted, set **secret** env vars (same values as local repo-root `.env`):
    - **`DATABASE_URL`** — Neon Postgres URI (required)
    - **`GEMINI_API_KEY`** — required for production interviews
-   - **`SMTP_PASS`** / **`SMTP_FROM`** — if you use SendGrid invites
+   - **`SMTP_EMAIL`**, **`SMTP_APP_PASSWORD`**, **`EMAIL_FROM`** — Gmail (same as local `.env`)
    - Optional S3: **`AWS_REGION`**, **`S3_BUCKET`**, **`AWS_ACCESS_KEY_ID`**, **`AWS_SECRET_ACCESS_KEY`**
 5. Wait for **Build** → **Live**. Copy the service URL, e.g. `https://hireright-backend-xxxx.onrender.com`.
 
@@ -45,8 +45,14 @@ Uses root [`render.yaml`](../render.yaml) (includes `PLAYWRIGHT_SKIP_BROWSER_DOW
 | `PUBLIC_APP_URL` | `https://hire-rightt.vercel.app` |
 | `ALLOW_DEMO_ACCOUNTS` | `false` |
 | `SIGNUP_ENABLED` | `true` |
+| `DISABLE_SUPABASE` | `true` |
+| `AWS_REGION` | e.g. `ap-south-2` (match your bucket) |
+| `S3_BUCKET` | your private bucket name |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | IAM user with S3 access |
+| `GROQ_API_KEY` | optional server STT |
+| `SMTP_EMAIL` / `SMTP_APP_PASSWORD` / `EMAIL_FROM` | Gmail app password |
 
-SMTP (optional): see [RENDER_ENV_SENDGRID.md](./RENDER_ENV_SENDGRID.md).
+Full list: root **`render.yaml`** (Blueprint) or mirror keys from repo-root **`.env.example`**.
 
 ---
 
