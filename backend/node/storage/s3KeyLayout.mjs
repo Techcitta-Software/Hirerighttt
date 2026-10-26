@@ -147,3 +147,14 @@ export function buildInterviewReportObjectKey(opts) {
   const suffix = opts.reportId ? `_${sanitizePathSegment(opts.reportId)}` : ''
   return `tenants/${tid}/reports/${iid}/interview_report${suffix}.pdf`
 }
+
+/**
+ * Proctoring evidence frame for a flagged interval during interview recording.
+ * @param {{ tenantId?: string, sessionId: string, flagId: string }} opts
+ */
+export function buildFlagSnapshotS3Key(opts) {
+  const tid = sanitizePathSegment(opts.tenantId || PLATFORM_TENANT_ID)
+  const sid = sanitizePathSegment(opts.sessionId)
+  const fid = sanitizePathSegment(opts.flagId)
+  return `tenants/${tid}/videos/${sid}/flags/${fid}.jpg`
+}

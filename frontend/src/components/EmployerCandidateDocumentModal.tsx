@@ -38,6 +38,12 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   const [recordingLink, setRecordingLink] = useState<VendorCandidateRecordingLink | null>(null)
   const [recordingLoading, setRecordingLoading] = useState(false)
   const [recordingError, setRecordingError] = useState('')
+  const [reviewProctoring, setReviewProctoring] = useState<
+    import('../lib/store').InterviewProctoringSummary | null
+  >(null)
+  const [reviewEvents, setReviewEvents] = useState<
+    import('../lib/store').IntegrityLogEvent[]
+  >([])
   const isResume = kind === 'resume'
   const title = isResume
     ? `Resume — ${applicant.candidateName}`
@@ -51,6 +57,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     setRecordingLink(null)
     setRecordingError('')
     setRecordingLoading(false)
+    setReviewProctoring(null)
+    setReviewEvents([])
 
     void (async () => {
       try {
@@ -102,6 +110,9 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
           }
 
           if (cancelled) return
+
+          if (review?.proctoring) setReviewProctoring(review.proctoring)
+          if (review?.events?.length) setReviewEvents(review.events)
 
           const sid = rec?.sessionId || sessionHint || null
           const playbackFromRecording = rec?.playbackUrl || rec?.viewUrl
@@ -230,8 +241,18 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   ) : playbackUrl ? (
                     <InterviewRecordingPlayer
                       playbackUrl={playbackUrl}
-                      events={[]}
+                      events={
+                        reviewEvents.length
+                          ? reviewEvents
+                          : applicant.interviewResult?.integrity?.logs ?? []
+                      }
+                      proctoring={
+                        reviewProctoring ??
+                        applicant.interviewResult?.integrity?.proctoring ??
+                        null
+                      }
                       durationHint={recordingLink?.durationSeconds}
+                      employerReview
                     />
                   ) : recordingError ? (
                     <p className={styles.recordingNote} role="status">

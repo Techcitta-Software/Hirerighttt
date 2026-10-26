@@ -237,6 +237,7 @@ export async function fetchVendorCandidateRecordingDocument(
 
 export type VendorInterviewReviewPayload = {
   events: IntegrityLogEvent[]
+  proctoring?: import('./store').InterviewProctoringSummary | null
   videoUrl: string | null
   recordingStatus: string
 }

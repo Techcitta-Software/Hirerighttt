@@ -21,6 +21,9 @@ import {
   FaceTracker,
   type FaceTrackStatus,
 } from '../lib/faceTracker'
+import { InterviewProctorEngine } from '../lib/interviewProctorEngine'
+import { stripProctoringForCandidateView } from '../lib/candidateInterviewResult'
+import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
 import {
   isServerInterviewSession,
   processInterviewTurn,
@@ -204,6 +207,8 @@ export function InterviewPage() {
     tooFarWarnings: 0,
   })
   const faceTrackerRef = useRef<FaceTracker | null>(null)
+  const proctorRef = useRef<InterviewProctorEngine | null>(null)
+  const proctorStoppedRef = useRef(false)
   const multiBanRef = useRef(0)
   const currentRef = useRef(0)
   const recorderRef = useRef(new InterviewRecorder())
@@ -421,6 +426,39 @@ export function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamReady, skipCamera, stage, interviewBanned])
 
+  // Section-level proctoring (debounced flags for employer review — not shown on candidate scorecard).
+  useEffect(() => {
+    if (stage !== 'interview' || interviewBanned) return
+    let cancelled = false
+    proctorStoppedRef.current = false
+    void (async () => {
+      const engine = new InterviewProctorEngine()
+      await engine.init()
+      if (cancelled || !engine) return
+      proctorRef.current = engine
+      const q = questions[currentRef.current]
+      engine.setTurnContext(currentRef.current + 1, q?.text ?? '')
+      const video = roomVideoRef.current
+      if (video) {
+        engine.start(video, interviewStartedAtRef.current)
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (!proctorStoppedRef.current) {
+        proctorRef.current?.stop()
+      }
+      proctorRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, interviewBanned])
+
+  useEffect(() => {
+    if (stage !== 'interview') return
+    const q = questions[current]
+    proctorRef.current?.setTurnContext(current + 1, q?.text ?? '')
+  }, [stage, current, questions])
+
   function attachStream(video: HTMLVideoElement | null) {
     if (!video || !streamRef.current) return
     if (video.srcObject !== streamRef.current) {
@@ -435,6 +473,9 @@ export function InterviewPage() {
     roomVideoRef.current = el
     if (el && streamRef.current && stageRef.current === 'interview') {
       attachStream(el)
+      if (proctorRef.current && interviewStartedAtRef.current) {
+        proctorRef.current.start(el, interviewStartedAtRef.current)
+      }
     }
   }, [])
 
@@ -1017,6 +1058,20 @@ export function InterviewPage() {
   function finish(finalAnswers: string[], banned: boolean, banReason?: string) {
     reviewRef.current.finish((Date.now() - interviewStartedAtRef.current) / 1000)
     integrityRef.current.logs = reviewRef.current.events
+    if (proctorRef.current && !proctorStoppedRef.current) {
+      proctorStoppedRef.current = true
+      let sections = proctorRef.current.stop()
+      if (!sections.length && reviewRef.current.events.length) {
+        sections = reviewEventsToFlagSections(reviewRef.current.events, questions)
+      }
+      integrityRef.current.flaggedSections = sections
+      proctorRef.current = null
+    } else if (!integrityRef.current.flaggedSections?.length && reviewRef.current.events.length) {
+      integrityRef.current.flaggedSections = reviewEventsToFlagSections(
+        reviewRef.current.events,
+        questions,
+      )
+    }
     setStage('analyzing')
     setIsRecording(false)
     const reason =
@@ -1133,7 +1188,8 @@ export function InterviewPage() {
         }
         scored.sessionId = sessionIdRef.current || undefined
         scored.integrity = { ...integrity, logs: reviewRef.current.events }
-        saveInterviewResult(scored)
+        const candidateResult = stripProctoringForCandidateView(scored)
+        saveInterviewResult(candidateResult)
         await markCandidateOnboardingCompleteAfterInterview()
         if (targetJobRaw?.applicationId) {
           attachInterviewToApplicant(targetJobRaw.applicationId, scored)
@@ -1155,7 +1211,7 @@ export function InterviewPage() {
         if (sessionIdRef.current) {
           sessionStorage.setItem('hireright.lastInterviewSessionId', sessionIdRef.current)
         }
-        setResult(scored)
+        setResult(candidateResult)
         goToInterviewReportAfterCompletion(navigate, { uploadReport: true })
       })().catch((err) => {
         finishingRef.current = false
@@ -1554,7 +1610,6 @@ export function InterviewPage() {
                 </div>
 
                 <div className={styles.ccBox}>
-                  <span className={styles.ccTag}>Ava asks · Gemini 2.5 Flash / Luna</span>
                   <p>{question.text}</p>
                 </div>
 

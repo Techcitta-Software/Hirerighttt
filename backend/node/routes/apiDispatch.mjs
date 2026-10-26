@@ -41,6 +41,10 @@ import {
   resolveCandidateInterviewReportDownload,
 } from '../storage/interviewArtifactStorage.mjs'
 import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
+import { resolveTenantId } from '../storage/s3KeyLayout.mjs'
+import { persistProctoringFlags } from '../proctoring/persistProctoringFlags.mjs'
+import { reviewLogsToFlagSections } from '../proctoring/reviewLogsToFlagSections.mjs'
+import { stripInterviewResultForCandidate } from '../proctoring/stripProctoringForCandidate.mjs'
 import { generateAndPersistInterviewReportPdf } from '../reports/generateInterviewReportPdf.mjs'
 import { publicObjectStorageError } from '../storage/storageErrors.mjs'
 import {
@@ -1890,9 +1894,16 @@ export function createApiDispatchMiddleware(ctx) {
           recordingStatus = 'No recording available'
         }
       }
+      const storedInterview = db.interviews?.[candidateEmail]
+      const proctoring =
+        session.result?.integrity?.proctoring ||
+        storedInterview?.integrity?.proctoring ||
+        null
+
       res.setHeader('Cache-Control', 'no-store')
       return json(res, 200, {
         events: session.reviewEvents || [],
+        proctoring,
         videoUrl,
         recordingStatus,
         sessionId,
@@ -1975,19 +1986,75 @@ export function createApiDispatchMiddleware(ctx) {
       const startedAt = session?.startedAt ? new Date(session.startedAt).getTime() : Date.now()
       const durationMinutes = Math.max(1, Math.round((Date.now() - startedAt) / 60000))
 
+      const scoredUserEarly = db.users.find((u) => u.email === email)
+      const clientIntegrity =
+        body.integrity && typeof body.integrity === 'object' ? body.integrity : {}
+
       const result = await scoreInterviewSession({
         role,
         level,
         questions: scoredQuestions,
         answers: scoredAnswers,
         profile,
-        integrity: {},
-        accountName: db.users.find((u) => u.email === email)?.name,
+        integrity: clientIntegrity,
+        accountName: scoredUserEarly?.name,
         durationMinutes,
       })
 
       result.sessionId = sessionId
-      result.integrity = { faceViolations: 0, singlePersonOk: true, maxFacesSeen: 1, logs: session.reviewEvents || [] }
+
+      let proctoring = null
+      try {
+        const tenantId = resolveTenantId({
+          sessionOrganizationId: session?.organizationId,
+          user: scoredUserEarly,
+        })
+        let flaggedSections = Array.isArray(clientIntegrity.flaggedSections)
+          ? clientIntegrity.flaggedSections
+          : []
+        if (!flaggedSections.length) {
+          flaggedSections = reviewLogsToFlagSections(
+            clientIntegrity.logs || session.reviewEvents || [],
+          )
+        }
+        proctoring = await persistProctoringFlags({
+          tenantId,
+          sessionId,
+          flaggedSections,
+        })
+      } catch (proctorErr) {
+        console.warn('[proctoring] persist failed:', proctorErr?.message || proctorErr)
+        proctoring = {
+          integrityScore: 100,
+          status: 'CLEAR',
+          counts: { total: 0, lookingSide: 0, multiplePeople: 0, noFace: 0 },
+          flaggedSections: [],
+        }
+      }
+
+      const proctorFaceCount = (proctoring.flaggedSections || []).reduce(
+        (max, f) => Math.max(max, Number(f.peakMetrics?.faceCount) || 1),
+        1,
+      )
+      const faceViolations = Math.max(
+        Number(clientIntegrity.faceViolations) || 0,
+        Number(proctoring.counts?.total) || 0,
+      )
+
+      result.integrity = {
+        faceViolations,
+        singlePersonOk:
+          clientIntegrity.singlePersonOk !== false &&
+          (proctoring.counts?.multiplePeople || 0) === 0 &&
+          !clientIntegrity.banned,
+        maxFacesSeen: Math.max(Number(clientIntegrity.maxFacesSeen) || 1, proctorFaceCount),
+        banned: clientIntegrity.banned,
+        banReason: clientIntegrity.banReason,
+        sideLookWarnings: clientIntegrity.sideLookWarnings,
+        tooFarWarnings: clientIntegrity.tooFarWarnings,
+        logs: session.reviewEvents || clientIntegrity.logs || [],
+        proctoring,
+      }
 
       const employerInterviewContext =
         session?.questionMode === 'employer' ||
@@ -2155,7 +2222,10 @@ export function createApiDispatchMiddleware(ctx) {
             )
           })
       }
-      return json(res, 200, { interview: result, sessionId })
+      return json(res, 200, {
+        interview: stripInterviewResultForCandidate(result),
+        sessionId,
+      })
     }
 
     if (req.method === 'POST' && path === '/api/interview') {

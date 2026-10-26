@@ -105,6 +105,37 @@ export type CareerScorecard = {
   }
 }
 
+export type InterviewFlagSection = {
+  id: string
+  type: 'LOOKING_SIDE' | 'MULTI_FACE' | 'NO_FACE'
+  severity: 'medium' | 'high'
+  turnIndex: number
+  questionText: string
+  startSec: number
+  endSec: number
+  durationSec: number
+  reason: string
+  peakMetrics?: {
+    yawDeg?: number
+    pitchDeg?: number
+    eyeGazeScore?: number
+    faceCount?: number
+  }
+  snapshotS3Key?: string
+}
+
+export type InterviewProctoringSummary = {
+  integrityScore: number
+  status: 'FLAGGED' | 'CLEAR'
+  counts: {
+    total: number
+    lookingSide: number
+    multiplePeople: number
+    noFace: number
+  }
+  flaggedSections: InterviewFlagSection[]
+}
+
 export type InterviewResult = {
   sessionId?: string
   role: string
@@ -127,6 +158,7 @@ export type InterviewResult = {
     sideLookWarnings?: number
     tooFarWarnings?: number
     logs?: IntegrityLogEvent[]
+    proctoring?: InterviewProctoringSummary
   }
 }
 

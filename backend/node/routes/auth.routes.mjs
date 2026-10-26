@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { randomBytes } from 'node:crypto'
 import { dbPool, loadDb as reloadDbFromStore } from '../db/store.mjs'
 import { upsertCandidateTalent } from '../db/talentIndex.mjs'
+import { stripInterviewResultForCandidate } from '../proctoring/stripProctoringForCandidate.mjs'
 
 /** @param {ReturnType<import('../server/appContext.mjs').createAppContext>} ctx */
 export function createAuthRouter(ctx) {
@@ -198,7 +199,7 @@ export function createAuthRouter(ctx) {
           }
         : null,
       profile: db.profiles[email] || null,
-      interview: db.interviews[email] || null,
+      interview: stripInterviewResultForCandidate(db.interviews[email] || null),
       applications: db.applications[email] || [],
     })
   })

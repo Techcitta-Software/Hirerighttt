@@ -1105,16 +1105,6 @@
   backdrop-filter: blur(10px);
 }
 
-.ccTag {
-  display: inline-block;
-  margin-bottom: 6px;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #7047ff;
-}
-
 .resumeAnchorTag {
   display: inline-flex;
   align-items: center;
