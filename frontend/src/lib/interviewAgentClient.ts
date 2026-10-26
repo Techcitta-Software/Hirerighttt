@@ -83,7 +83,7 @@ export type IntegritySnapshot = {
   tooFarWarnings?: number
   logs?: IntegrityLogEvent[]
   /** Sent to API on score; processed into integrity.proctoring server-side. */
-  flaggedSections?: import('./interviewProctorEngine').InterviewFlagSection[]
+  flaggedSections?: import('./store').InterviewFlagSection[]
 }
 
 /** Check whether Gemini is live and operational */

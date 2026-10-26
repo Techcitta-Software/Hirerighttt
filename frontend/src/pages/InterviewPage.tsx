@@ -57,7 +57,6 @@ import {
   collectInterviewPairs,
   hasSubstantiveInterviewProgress,
 } from '../lib/interviewFinish'
-import { apiHealthInfo } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import {
   goToCandidateDashboardAfterInterview,
@@ -66,9 +65,17 @@ import {
   markCandidateOnboardingCompleteAfterInterview,
 } from '../lib/completeOnboardingAfterInterview'
 import {
-  createGroqVadSttController,
-  type GroqVadSttController,
-} from '../lib/groqVadStt'
+  createMoonshineVadSttController,
+  type MoonshineVadSttController,
+} from '../lib/moonshineVadStt'
+import { moonshineStt, type MoonshineState } from '../lib/moonshineStt'
+import {
+  isLobbyLocalSttReady,
+  lobbyEnterButtonLabel,
+  lobbyLocalSttBlockedReason,
+  waitForLobbyLocalStt,
+  type LobbySttSnapshot,
+} from '../lib/interviewLobbySttGate'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
@@ -156,6 +163,8 @@ export function InterviewPage() {
   const [mediaBusy, setMediaBusy] = useState(false)
   const [checklist, setChecklist] = useState([false, false, false])
   const [starting, setStarting] = useState(false)
+  const [waitingForLocalStt, setWaitingForLocalStt] = useState(false)
+  const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
 
   useEffect(() => {
@@ -219,13 +228,15 @@ export function InterviewPage() {
   const finishingRef = useRef(false)
   const draftRef = useRef('')
   const recognitionRef = useRef<SpeechRecognition | null>(null)
-  const groqVadRef = useRef<GroqVadSttController | null>(null)
-  const groqWhisperEnabledRef = useRef(false)
-  const [groqWhisperEnabled, setGroqWhisperEnabled] = useState(false)
-  const [groqVadReady, setGroqVadReady] = useState(false)
-  const [groqInitFailed, setGroqInitFailed] = useState(false)
-  /** Groq path: idle | capturing (Silero) | transcribing (Whisper). Web Speech uses capturing when interim text exists. */
-  const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
+  const moonshineVadRef = useRef<MoonshineVadSttController | null>(null)
+  const lobbySttSnapshotRef = useRef<LobbySttSnapshot>({
+    moonshineStatus: 'idle',
+    vadReady: false,
+  })
+  const [moonshineVadReady, setMoonshineVadReady] = useState(false)
+  const [moonshineInitFailed, setMoonshineInitFailed] = useState(false)
+  const [sttState, setSttState] = useState<MoonshineState>(() => moonshineStt.getState())
+  /** Moonshine path: idle | capturing (Silero) | transcribing (local WASM). Web Speech fallback when init fails. */
   const baseDraftRef = useRef('')
   const transcriptCommittedRef = useRef('')
   const streamRef = useRef<MediaStream | null>(null)
@@ -246,12 +257,33 @@ export function InterviewPage() {
   const submitAnswerRef = useRef<() => void>(() => {})
   const bargeCooldownRef = useRef(0)
 
+  const sttReadyRef = useRef(false)
+  /** When Moonshine/VAD misses a segment, keep using browser speech for the rest of the session. */
+  const webSpeechFallbackRef = useRef(false)
+  const [webSpeechFallback, setWebSpeechFallback] = useState(false)
+
+  function markWebSpeechFallback() {
+    if (webSpeechFallbackRef.current) return
+    webSpeechFallbackRef.current = true
+    setWebSpeechFallback(true)
+  }
+
   const question = questions[current]
   const webSpeechSupported = isSpeechRecognitionSupported()
-  const groqSttPreferred = groqWhisperEnabled && !groqInitFailed
-  const speechSupported =
-    groqVadReady || (webSpeechSupported && !groqSttPreferred) || (groqSttPreferred && groqInitFailed && webSpeechSupported)
-  const groqSttLoading = groqSttPreferred && streamReady && !groqVadReady && !groqInitFailed
+  const moonshineSttReady = sttState.status === 'ready'
+  const useSileroMoonshineStt =
+    moonshineVadReady &&
+    moonshineSttReady &&
+    !moonshineInitFailed &&
+    sttState.status !== 'error' &&
+    !webSpeechFallback
+  const speechSupported = useSileroMoonshineStt || webSpeechSupported
+  const moonshineSttLoading =
+    streamReady &&
+    !moonshineInitFailed &&
+    !webSpeechFallback &&
+    sttState.status !== 'error' &&
+    (!moonshineVadReady || sttState.status === 'downloading' || sttState.status === 'idle')
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
   const [savedReport] = useState<InterviewResult | null>(() => getInterviewResult())
@@ -297,16 +329,22 @@ export function InterviewPage() {
   }, [listening])
 
   useEffect(() => {
-    groqWhisperEnabledRef.current = groqWhisperEnabled
-  }, [groqWhisperEnabled])
-
-  useEffect(() => {
-    void apiHealthInfo().then((health) => {
-      const enabled = Boolean(health?.features?.groqWhisper)
-      setGroqWhisperEnabled(enabled)
-      groqWhisperEnabledRef.current = enabled
+    moonshineStt.startGradualPreloadAfterLogin(0)
+    return moonshineStt.subscribe((s) => {
+      sttReadyRef.current = s.status === 'ready'
+      setSttState(s)
+      if (s.status === 'error' && stageRef.current === 'interview') {
+        markWebSpeechFallback()
+      }
     })
   }, [])
+
+  useEffect(() => {
+    lobbySttSnapshotRef.current = {
+      moonshineStatus: sttState.status,
+      vadReady: moonshineVadReady,
+    }
+  }, [sttState.status, moonshineVadReady])
 
   useEffect(() => {
     if (stage !== 'results' || !result || !sessionIdRef.current) return
@@ -353,44 +391,56 @@ export function InterviewPage() {
   }
 
   useEffect(() => {
-    if (!groqWhisperEnabled || !streamReady) {
-      setGroqVadReady(false)
-      setGroqInitFailed(false)
+    if (!streamReady) {
+      setMoonshineVadReady(false)
+      setMoonshineInitFailed(false)
       return
     }
     let cancelled = false
-    setGroqVadReady(false)
-    setGroqInitFailed(false)
-    void createGroqVadSttController({
+    setMoonshineVadReady(false)
+    setMoonshineInitFailed(false)
+    void createMoonshineVadSttController({
       getStream: () => streamRef.current,
       isAiSpeaking: () => aiSpeakingRef.current,
       onSpeechCaptureStart: () => setSttPhase('capturing'),
       onTranscribing: (active) => setSttPhase(active ? 'transcribing' : 'idle'),
       onSegmentText: (text) => applyTranscriptSegmentRef.current(text),
       onError: (message) => {
-        console.warn('[groq-vad-stt]', message)
+        console.warn('[moonshine-vad-stt]', message)
         setSttPhase('idle')
+      },
+      onTranscriptionMiss: (reason) => {
+        setDeviceError(
+          `${reason} You can type your answer below or keep speaking.`,
+        )
+        setShowTypeFallback(true)
+        if (webSpeechSupported) {
+          markWebSpeechFallback()
+          if (listeningRef.current && micOnRef.current && !aiSpeakingRef.current) {
+            stopListening()
+            startWebSpeechListening()
+          }
+        }
       },
     }).then((controller) => {
       if (cancelled) {
         void controller?.dispose()
         return
       }
-      groqVadRef.current = controller
+      moonshineVadRef.current = controller
       const ok = Boolean(controller)
-      setGroqVadReady(ok)
-      setGroqInitFailed(!ok)
+      setMoonshineVadReady(ok)
+      setMoonshineInitFailed(!ok)
     })
     return () => {
       cancelled = true
-      setGroqVadReady(false)
-      setGroqInitFailed(false)
-      void groqVadRef.current?.dispose()
-      groqVadRef.current = null
+      setMoonshineVadReady(false)
+      setMoonshineInitFailed(false)
+      void moonshineVadRef.current?.dispose()
+      moonshineVadRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groqWhisperEnabled, streamReady])
-
+  }, [streamReady])
 
   // Continuous face tracking in lobby + full interview room
   useEffect(() => {
@@ -495,7 +545,7 @@ export function InterviewPage() {
   }
 
   function stopListening() {
-    void groqVadRef.current?.stop()
+    void moonshineVadRef.current?.stop()
     try {
       recognitionRef.current?.stop()
     } catch {
@@ -605,27 +655,16 @@ export function InterviewPage() {
     listenAfterTtsRef.current = true
   }
 
-  function startListening() {
-    if (!speechSupported || !micOnRef.current) return
-    if (aiSpeakingRef.current) return
-    stopListening()
-    baseDraftRef.current = draftRef.current.trim()
-    transcriptCommittedRef.current = baseDraftRef.current
+  function shouldUseMoonshineVad(): boolean {
+    return Boolean(
+      moonshineVadRef.current &&
+        sttReadyRef.current &&
+        !moonshineInitFailed &&
+        !webSpeechFallbackRef.current,
+    )
+  }
 
-    if (groqVadRef.current) {
-      void groqVadRef.current
-        .start()
-        .then(() => {
-          setListening(true)
-          listeningRef.current = true
-        })
-        .catch(() => {
-          setListening(false)
-          listeningRef.current = false
-        })
-      return
-    }
-
+  function startWebSpeechListening() {
     const recognition = getSpeechRecognition()
     if (!recognition) return
     configureInterviewRecognition(recognition)
@@ -691,6 +730,40 @@ export function InterviewPage() {
     }
   }
 
+  function startListening() {
+    if (!speechSupported || !micOnRef.current) return
+    if (aiSpeakingRef.current) return
+    stopListening()
+    baseDraftRef.current = draftRef.current.trim()
+    transcriptCommittedRef.current = baseDraftRef.current
+
+    if (shouldUseMoonshineVad()) {
+      void moonshineVadRef.current!
+        .start()
+        .then(() => {
+          setListening(true)
+          listeningRef.current = true
+        })
+        .catch(() => {
+          markWebSpeechFallback()
+          setDeviceError('Silero voice detection failed — using browser speech instead.')
+          startWebSpeechListening()
+        })
+      return
+    }
+
+    startWebSpeechListening()
+  }
+
+  useEffect(() => {
+    if (stage !== 'interview' || !moonshineSttReady || !moonshineVadReady) return
+    if (webSpeechFallbackRef.current || !listeningRef.current || !micOnRef.current) return
+    if (aiSpeakingRef.current || recognitionRef.current) return
+    if (!shouldUseMoonshineVad()) return
+    stopListening()
+    startListening()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, moonshineSttReady, moonshineVadReady])
   useEffect(() => {
     if (stage !== 'interview' || !question) return
 
@@ -814,7 +887,10 @@ export function InterviewPage() {
   }, [stage])
 
   async function startInterview() {
-    if (!streamReady && !skipCamera) return
+    if (!streamReady) {
+      setDeviceError('Allow microphone access before joining the interview room.')
+      return
+    }
     if (!skipCamera) {
       if (faceStatus.issue === 'multi_person' || faceStatus.severity === 'ban') {
         setDeviceError('More than one person detected — clear the frame to only you before joining.')
@@ -830,6 +906,7 @@ export function InterviewPage() {
       }
     }
     setStarting(true)
+    setDeviceError('')
     finishingRef.current = false
     setInterviewBanned(false)
     setBanMessage('')
@@ -845,6 +922,24 @@ export function InterviewPage() {
     }
     stopAllSpeech()
     try {
+      const lobbySttReady = isLobbyLocalSttReady(lobbySttSnapshotRef.current)
+      if (!lobbySttReady) {
+        setWaitingForLocalStt(true)
+        const gate = await waitForLobbyLocalStt(
+          () => lobbySttSnapshotRef.current,
+          {
+            waitMoonshine: (maxMs) => moonshineStt.waitUntilReady(maxMs),
+            waitVad: async () => true,
+            pollMs: 250,
+          },
+        )
+        setWaitingForLocalStt(false)
+        if (!gate.ok) {
+          setDeviceError(gate.reason)
+          return
+        }
+      }
+
       const freshProfile = getProfile()
       const inviteCtx = readInviteInterviewContext()
       const baseProfile = freshProfile ?? profile
@@ -1273,8 +1368,15 @@ export function InterviewPage() {
   const canStart =
     checklist.every(Boolean) &&
     !starting &&
+    !waitingForLocalStt &&
     scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
+  const lobbyLocalSttReady = isLobbyLocalSttReady({
+    moonshineStatus: sttState.status,
+    vadReady: moonshineVadReady,
+  })
+  const lobbySttPreparing =
+    streamReady && !lobbyLocalSttReady && sttState.status !== 'error'
   const callStatus = advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
@@ -1288,8 +1390,12 @@ export function InterviewPage() {
             : 'Live call with Ava'
 
   const canSubmit =
-    Boolean(draft.trim()) && !aiSpeaking && !faceBlocks && !interviewBanned && !advancing
-
+    draft.trim().length >= 1 &&
+    !aiSpeaking &&
+    !faceBlocks &&
+    !interviewBanned &&
+    !advancing &&
+    sttPhase !== 'transcribing'
   return (
     <div className={styles.page}>
       <header className={styles.appBar}>
@@ -1378,12 +1484,16 @@ export function InterviewPage() {
                     Camera
                   </span>
                   <span className={streamReady && micOn ? styles.ok : styles.off}>Mic</span>
-                  <span className={speechSupported || groqSttLoading ? styles.ok : styles.warn}>
-                    {groqVadReady
-                      ? 'Groq STT'
-                      : groqSttLoading
-                        ? 'Loading STT…'
-                        : 'Speech'}
+                  <span className={speechSupported || moonshineSttLoading ? styles.ok : styles.warn}>
+                    {webSpeechFallback
+                      ? 'Browser speech'
+                      : useSileroMoonshineStt
+                        ? 'Silero + Moonshine'
+                        : moonshineSttLoading
+                          ? 'Loading local STT…'
+                          : speechSupported
+                            ? 'Browser speech'
+                            : 'Speech unavailable'}
                   </span>
                   <span className={ttsSupported ? styles.ok : styles.warn}>AI voice</span>
                 </div>
@@ -1477,6 +1587,34 @@ export function InterviewPage() {
                   ))}
                 </div>
 
+                {lobbySttPreparing && (
+                  <div className={styles.lobbySttGate} aria-live="polite">
+                    <p className={styles.lobbySttGateText}>
+                      {waitingForLocalStt
+                        ? 'Downloading voice AI in your browser — you will enter automatically when ready.'
+                        : lobbyLocalSttBlockedReason({
+                            moonshineStatus: sttState.status,
+                            vadReady: moonshineVadReady,
+                          })}
+                    </p>
+                    <div className={styles.progressTrack}>
+                      <div
+                        className={styles.progressFill}
+                        style={{
+                          width: `${
+                            sttState.status === 'ready'
+                              ? 100
+                              : Math.max(4, sttState.percent)
+                          }%`,
+                        }}
+                      />
+                    </div>
+                    {sttState.stage && sttState.status !== 'ready' && (
+                      <span className={styles.lobbySttStage}>{sttState.stage}</span>
+                    )}
+                  </div>
+                )}
+
                 <motion.button
                   type="button"
                   className={styles.joinBtn}
@@ -1485,7 +1623,11 @@ export function InterviewPage() {
                   whileHover={canStart ? { scale: 1.02 } : undefined}
                   whileTap={canStart ? { scale: 0.98 } : undefined}
                 >
-                  {starting ? 'Ava is preparing questions…' : 'Enter interview room'}
+                  {lobbyEnterButtonLabel({
+                    starting,
+                    waitingForLocalStt,
+                    sttPercent: sttState.percent,
+                  })}
                 </motion.button>
                 {savedReport && (
                   <button
@@ -1515,21 +1657,26 @@ export function InterviewPage() {
                     <HrIcon name="chart" size={18} /> View Last 360° Career Intelligence Report
                   </button>
                 )}
-                {!canStart && (
+                {!canStart && !waitingForLocalStt && (
                   <p className={styles.joinHint}>
                     {scheduledInviteAccess?.status === 'too_early'
                       ? 'Your scheduled link opens at the exact slot start time. Use the email link when the countdown reaches zero.'
                       : scheduledInviteAccess?.status === 'expired'
                         ? 'Your interview window has ended. Ask your recruiter for a new invite link.'
-                        : faceBlocks
-                      ? faceStatus.issue === 'multi_person'
-                        ? 'Only one person may be in the camera — clear others to join.'
-                        : faceStatus.issue === 'looking_away'
-                          ? 'Face the camera straight-on before joining.'
-                          : faceStatus.issue === 'no_face'
-                            ? 'Move into view (closer if you are far) so your face is detected.'
-                            : 'Fix the face check to join.'
-                      : `Complete the checklist${!streamReady ? ' and enable camera' : ''} to join.`}
+                        : sttState.status === 'error'
+                          ? lobbyLocalSttBlockedReason({
+                              moonshineStatus: sttState.status,
+                              vadReady: moonshineVadReady,
+                            })
+                          : faceBlocks
+                            ? faceStatus.issue === 'multi_person'
+                              ? 'Only one person may be in the camera — clear others to join.'
+                              : faceStatus.issue === 'looking_away'
+                                ? 'Face the camera straight-on before joining.'
+                                : faceStatus.issue === 'no_face'
+                                  ? 'Move into view (closer if you are far) so your face is detected.'
+                                  : 'Fix the face check to join.'
+                            : `Complete the checklist${!streamReady ? ' and enable camera' : ''} to join.`}
                   </p>
                 )}
               </div>
@@ -1576,6 +1723,26 @@ export function InterviewPage() {
             )}
 
             <div className={styles.callStage}>
+            <div className={styles.moonshineSttPill} aria-live="polite">
+              {webSpeechFallback && webSpeechSupported && 'Captions: browser speech (local model fallback)'}
+              {!webSpeechFallback && sttState.status === 'downloading' &&
+                `Preloading voice AI: ${sttState.percent}% (${sttState.stage})${
+                  webSpeechSupported ? ' · browser speech active meanwhile' : ''
+                }`}
+              {!webSpeechFallback && sttState.status === 'ready' &&
+                `Silero VAD + Moonshine ready${
+                  sttState.lastLatencyMs ? ` · last turn ${sttState.lastLatencyMs}ms` : ''
+                }`}
+              {!webSpeechFallback && sttState.status === 'error' &&
+                'Local STT unavailable — browser speech fallback'}
+              {!webSpeechFallback &&
+                sttState.status === 'idle' &&
+                moonshineSttLoading &&
+                `Starting local speech model…${
+                  webSpeechSupported ? ' · browser speech active meanwhile' : ''
+                }`}
+            </div>
+
               {/* Main: your webcam (recorded live) */}
               <div className={`${styles.mainTile} ${styles.youMain}`}>
                 {streamReady && camOn ? (

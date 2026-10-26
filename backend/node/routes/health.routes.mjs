@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import { pingDatabase } from '../db/store.mjs'
 import { llmConfigured, publicModelConfig } from '../interviewAgent.mjs'
-import { groqWhisperConfigured } from '../groqWhisper.mjs'
 import { supabaseStorageConfigured } from '../resumeStorage.mjs'
 import { objectStorageConfigured } from '../storage/resumeObjectStorage.mjs'
 import { describeS3Layout, s3Env, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
@@ -45,8 +44,10 @@ export function createHealthRouter(ctx) {
         adaptiveScoring: true,
         faceIntegrityClient: true,
         openrouterActive: Boolean(process.env.OPENROUTER_API_KEY),
-        groqWhisper: groqWhisperConfigured(),
-        sileroVad: groqWhisperConfigured(),
+        /** Server Groq Whisper removed — STT is Moonshine + Silero in the browser. */
+        groqWhisper: false,
+        sileroVadClient: true,
+        moonshineSttClient: true,
       },
       objectStorage: {
         configured: objectStorageConfigured(),

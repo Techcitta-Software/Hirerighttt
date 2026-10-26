@@ -4,28 +4,11 @@
  */
 
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision'
+import type { InterviewFlagSection } from './store'
 
-export type FlagType = 'LOOKING_SIDE' | 'MULTI_FACE' | 'NO_FACE'
+export type { InterviewFlagSection } from './store'
 
-export interface InterviewFlagSection {
-  id: string
-  type: FlagType
-  severity: 'medium' | 'high'
-  turnIndex: number
-  questionText: string
-  startSec: number
-  endSec: number
-  durationSec: number
-  reason: string
-  peakMetrics: {
-    yawDeg?: number
-    pitchDeg?: number
-    eyeGazeScore?: number
-    faceCount?: number
-  }
-  snapshotDataUrl?: string
-  snapshotS3Key?: string
-}
+export type FlagType = InterviewFlagSection['type']
 
 interface ActiveIncident {
   type: FlagType
@@ -70,8 +53,10 @@ export class InterviewProctorEngine {
   private completedFlags: InterviewFlagSection[] = []
   private snapshotCount = 0
   private offscreenCanvas: HTMLCanvasElement
+  private onFlagCreated?: (flag: InterviewFlagSection) => void
 
-  constructor(private onFlagCreated?: (flag: InterviewFlagSection) => void) {
+  constructor(onFlagCreated?: (flag: InterviewFlagSection) => void) {
+    this.onFlagCreated = onFlagCreated
     this.offscreenCanvas = document.createElement('canvas')
     this.offscreenCanvas.width = 320
     this.offscreenCanvas.height = 180

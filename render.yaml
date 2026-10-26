@@ -50,8 +50,6 @@ services:
         sync: false
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
-      - key: GROQ_API_KEY
-        sync: false
       - key: INVITE_JOIN_WINDOW_MINUTES
         value: "5"
       - key: SMTP_HOST

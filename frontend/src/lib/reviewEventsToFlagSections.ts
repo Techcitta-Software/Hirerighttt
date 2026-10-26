@@ -36,6 +36,7 @@ export function reviewEventsToFlagSections(
       endSec: Number(endSec.toFixed(1)),
       durationSec,
       reason: e.message || type.replaceAll('_', ' ').toLowerCase(),
+      peakMetrics: {},
     })
   }
   return out

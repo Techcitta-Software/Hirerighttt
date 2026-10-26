@@ -19,7 +19,6 @@ import {
 } from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
 import { sendMail } from '../mail.mjs'
-import { groqWhisperConfigured, transcribeWithGroqWhisper } from '../groqWhisper.mjs'
 import { parseResumeUploadBody } from '../storage/resumeUploadValidation.mjs'
 import {
   objectStorageConfigured,
@@ -1377,38 +1376,10 @@ export function createApiDispatchMiddleware(ctx) {
     if (req.method === 'POST' && path === '/api/interview/transcribe') {
       const email = await requireAuth(req, res)
       if (!email) return
-      if (!groqWhisperConfigured()) {
-        return json(res, 503, { error: 'Groq Whisper STT is not configured on the server.' })
-      }
-      if (!rateLimit(`ivstt:${email}`, 45)) {
-        return json(res, 429, { error: 'Transcription rate limited. Slow down and try again.' })
-      }
-      const body = await readBody(req)
-      const audioBase64 = String(body.audioBase64 || body.audio || '').trim()
-      if (!audioBase64) {
-        return json(res, 400, { error: 'audioBase64 is required.' })
-      }
-      let audioBuffer
-      try {
-        audioBuffer = Buffer.from(audioBase64, 'base64')
-      } catch {
-        return json(res, 400, { error: 'Invalid audioBase64.' })
-      }
-      const maxBytes = Math.min(config.maxBodyBytes, 2_500_000)
-      if (!audioBuffer.length || audioBuffer.length > maxBytes) {
-        return json(res, 400, { error: 'Audio clip is empty or too large.' })
-      }
-      try {
-        const result = await transcribeWithGroqWhisper(audioBuffer, {
-          filename: String(body.filename || 'speech.wav'),
-          mimeType: String(body.mimeType || 'audio/wav'),
-        })
-        return json(res, 200, { text: result.text, model: result.model, language: result.language })
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Transcription failed.'
-        console.warn('[groq-whisper]', message)
-        return json(res, 502, { error: message })
-      }
+      return json(res, 410, {
+        error:
+          'Server-side transcription was removed. The interview app uses on-device Moonshine STT (Silero VAD + WASM).',
+      })
     }
 
     if (req.method === 'POST' && path === '/api/interview/turn') {

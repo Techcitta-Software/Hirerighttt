@@ -121,6 +121,7 @@ export type InterviewFlagSection = {
     eyeGazeScore?: number
     faceCount?: number
   }
+  snapshotDataUrl?: string
   snapshotS3Key?: string
 }
 

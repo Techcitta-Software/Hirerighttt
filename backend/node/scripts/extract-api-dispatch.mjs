@@ -14,7 +14,6 @@ import { evaluateResumeAgainstJd, generateVendorAssessmentSheet, vendorReportNee
 import { pingDatabase, appendInterviewHistory, upsertJobRecord, deleteJobRecord, dbPool, loadDb as reloadDbFromStore } from '../db/store.mjs'
 import { smtpConfigured, smtpConfigSummary, verifySmtpConnection, publicAppOrigin } from '../mail.mjs'
 import { sendMail } from '../mail.mjs'
-import { groqWhisperConfigured, transcribeWithGroqWhisper } from '../groqWhisper.mjs'
 import { supabaseStorageConfigured, uploadResumeToSupabase } from '../resumeStorage.mjs'
 import {
   newInviteToken,

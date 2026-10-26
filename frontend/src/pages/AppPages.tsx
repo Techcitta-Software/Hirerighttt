@@ -135,14 +135,14 @@ export function InterviewReportPage() {
   }
 
   if (reportLoading) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.shell}>
+  return (
+    <div className={styles.page}>
+      <div className={styles.shell}>
           <main className={styles.main}>
             <p className={styles.muted} role="status">Loading your interview report…</p>
           </main>
-        </div>
-      </div>
+            </div>
+            </div>
     )
   }
 
@@ -155,9 +155,9 @@ export function InterviewReportPage() {
             <p className={styles.muted}>Complete your AI interview first to generate a career report.</p>
             <Link to="/interview" className={styles.bannerBtn}>
               Start AI interview
-            </Link>
+              </Link>
           </main>
-        </div>
+                  </div>
       </div>
     )
   }
@@ -168,7 +168,7 @@ export function InterviewReportPage() {
         <main className={styles.main} style={{ paddingTop: 24 }}>
           {fromInterview ? (
             <div style={{ marginBottom: 16 }} role="status">
-              <p className={styles.muted}>
+                  <p className={styles.muted}>
                 {autoContinueDashboard
                   ? 'Your immediate interview is complete. Review your report — we’ll open your dashboard shortly.'
                   : 'Your interview is complete. Review your report below, then continue to your dashboard.'}
@@ -186,7 +186,7 @@ export function InterviewReportPage() {
                   </button>
                 </p>
               )}
-            </div>
+              </div>
           ) : (
             <p style={{ marginBottom: 16 }}>
               <Link to="/dashboard" className={styles.secondary}>
@@ -194,12 +194,12 @@ export function InterviewReportPage() {
               </Link>
             </p>
           )}
-          <CareerIntelligenceDashboard
-            result={interview}
-            candidateName={user?.name || profile?.fullName || name}
-            candidateRole={profile?.currentRole || interview.role}
-            candidateExperience={profile?.totalExperience || interview.level}
-            skills={profile?.skills ?? []}
+            <CareerIntelligenceDashboard
+              result={interview}
+              candidateName={user?.name || profile?.fullName || name}
+              candidateRole={profile?.currentRole || interview.role}
+              candidateExperience={profile?.totalExperience || interview.level}
+              skills={profile?.skills ?? []}
             interviewSessionId={
               interview.sessionId ||
               (typeof sessionStorage !== 'undefined'
@@ -210,7 +210,7 @@ export function InterviewReportPage() {
             onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
           />
         </main>
-      </div>
+          </div>
     </div>
   )
 }
@@ -487,8 +487,8 @@ export function JobsPage() {
   }, [sortedRoles, selectedJobId])
 
   function buildResumeTextForApply() {
-    const user = getUser()
-    const profile = getProfile()
+      const user = getUser()
+      const profile = getProfile()
     const fromResume = profile?.resumeText?.trim() || ''
     if (fromResume.length >= 30) return fromResume.slice(0, 100_000)
     const parts = [
@@ -534,11 +534,11 @@ export function JobsPage() {
     }
     setApplyingJobId(job.id)
     try {
-      await applyToPublicJob(
-        job.shareableCode,
-        {
+        await applyToPublicJob(
+          job.shareableCode,
+          {
           candidateName: profile?.fullName || user?.name || '',
-          candidateEmail: user?.email || '',
+            candidateEmail: user?.email || '',
           candidatePhone: user?.phone || '',
           candidateRole: profile?.currentRole || interview?.role || '',
           experienceYears: profile?.totalExperience || interview?.level || '',
@@ -597,12 +597,12 @@ export function JobsPage() {
     <div className={styles.pageCandidateBleed}>
       <div className={`${styles.page} ${styles.pageCandidate} ${styles.pageJobsBoard}`}>
         <div className={`${styles.shell} ${styles.jobsBoardShell}`}>
-          <motion.main
+        <motion.main
             className={`${styles.main} ${styles.jobsBoardMain}`}
-            variants={staggerContainer}
-            initial="hidden"
-            animate="show"
-          >
+          variants={staggerContainer}
+          initial="hidden"
+          animate="show"
+        >
             <motion.div className={styles.jobsBoardToolbar} variants={fadeUp}>
               <div className={styles.jobsSearchWrap}>
                 <HrIcon name="search" size={18} className={styles.jobsSearchIcon} />
@@ -614,7 +614,7 @@ export function JobsPage() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   aria-label="Search jobs"
                 />
-              </div>
+            </div>
               <div className={styles.jobsToolbarFilters}>
                 <select
                   className={styles.jobsToolbarSelect}
@@ -707,9 +707,9 @@ export function JobsPage() {
                         Try &quot;Any location&quot; in the toolbar, clear search, or switch work mode to
                         &quot;Any mode&quot;.
                       </p>
-                      <button
-                        type="button"
-                        className={styles.primary}
+                    <button
+                      type="button"
+                      className={styles.primary}
                         onClick={() => {
                           setLocationFilter('Any')
                           setWorkModeFilter('Any')
@@ -717,7 +717,7 @@ export function JobsPage() {
                         }}
                       >
                         Reset filters
-                      </button>
+                    </button>
                     </>
                   ) : (
                     <>
@@ -727,13 +727,13 @@ export function JobsPage() {
                         and interview to apply with your AI report.
                       </p>
                       {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
-                        <button
-                          type="button"
-                          className={styles.primary}
+                    <button
+                      type="button"
+                      className={styles.primary}
                           onClick={() => setJobScope('all')}
-                        >
+                    >
                           Browse all {jobsListMeta.totalOpen} postings
-                        </button>
+                    </button>
                       ) : null}
                     </>
                   )}
@@ -768,7 +768,7 @@ export function JobsPage() {
                                 {job.match}% profile match
                               </span>
                             ) : null}
-                          </div>
+          </div>
                         </div>
                         <div
                           className={styles.naukriLogoBox}
@@ -866,8 +866,8 @@ export function JobsPage() {
                 )
               })}
             </motion.div>
-          </motion.main>
-        </div>
+        </motion.main>
+      </div>
       </div>
     </div>
   )
@@ -1304,8 +1304,8 @@ export function ProfilePage() {
         >
           <div className={styles.profileContentColumn}>
             {/* Header */}
-            <motion.header className={styles.head} variants={fadeUp}>
-              <div>
+          <motion.header className={styles.head} variants={fadeUp}>
+            <div>
                 <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
                 <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
                 <p>
@@ -1317,8 +1317,8 @@ export function ProfilePage() {
                   {!profileLoading && completionPct < 100
                     ? ` ${completionPct}% complete — finish only the sections marked below.`
                     : ''}
-                </p>
-              </div>
+              </p>
+            </div>
             </motion.header>
 
             {profileMissing.length > 0 && !profileLoading ? (
@@ -1332,9 +1332,9 @@ export function ProfilePage() {
                   >
                     {item.label}
                     {!item.required ? ' (optional)' : ''}
-                  </Link>
+              </Link>
                 ))}
-              </div>
+            </div>
             ) : null}
 
             {toast && <div className={styles.toast}>{toast}</div>}
@@ -1370,7 +1370,7 @@ export function ProfilePage() {
                       disabled={basicsSaving}
                       data-testid="basics-full-name"
                     />
-                  </div>
+                    </div>
                   <div className={styles.formFieldBlock}>
                     <label>EMAIL</label>
                     <input
@@ -1381,7 +1381,7 @@ export function ProfilePage() {
                       tabIndex={-1}
                       data-testid="basics-email"
                     />
-                  </div>
+                </div>
                   <div className={styles.formFieldBlock}>
                     <label>PHONE</label>
                     <input
@@ -1394,7 +1394,7 @@ export function ProfilePage() {
                       data-testid="basics-phone"
                     />
                   </div>
-                </div>
+                  </div>
 
                 <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: basicsSaving ? 0.65 : 1 }}>
                   <label>CURRENT CITY</label>
@@ -1440,7 +1440,7 @@ export function ProfilePage() {
                       disabled={roleSaving}
                       data-testid="role-target"
                     />
-                  </div>
+                </div>
                   <div className={styles.formFieldBlock}>
                     <label>TOTAL EXPERIENCE</label>
                     <select
@@ -1533,8 +1533,8 @@ export function ProfilePage() {
                         </button>
                       )}
                     </span>
-                  ))}
-                </div>
+              ))}
+            </div>
 
                 {skillsEditing && !skillsSaving && (
                   <div style={{ marginTop: 16 }}>
@@ -1566,8 +1566,8 @@ export function ProfilePage() {
                         Add skill
                       </button>
                     </div>
-                  </div>
-                )}
+              </div>
+            )}
               </section>
 
               {/* Card 4: Résumé */}
@@ -1583,7 +1583,7 @@ export function ProfilePage() {
                         <span className={styles.resumeFileMeta}>
                           {profileUpdatedLabel ? `Updated ${profileUpdatedLabel}` : 'On file in your account'}
                           {profile.resumeText ? ' · Text extracted for interviews' : ''}
-                        </span>
+                  </span>
                       </div>
                     </div>
                     <div className={styles.resumeActionBtns}>
@@ -1611,8 +1611,8 @@ export function ProfilePage() {
                     <Link to="/onboarding" className={styles.primary} style={{ marginTop: 8, display: 'inline-flex' }}>
                       Upload résumé
                     </Link>
-                  </div>
-                )}
+              </div>
+            )}
               </section>
 
               {/* Card 5: Job preferences */}
@@ -1630,7 +1630,7 @@ export function ProfilePage() {
                       value={expectedCtc}
                       onChange={(e) => setExpectedCtc(e.target.value)}
                     />
-                  </div>
+            </div>
                   <div className={styles.formFieldBlock}>
                     <label>NOTICE PERIOD</label>
                     <select
@@ -1857,20 +1857,20 @@ export function ProfilePage() {
               </div>
 
               {/* Career Scorecard report if interview taken */}
-              {interview && (
+          {interview && (
                 <div style={{ marginTop: 20 }}>
-                  <CareerIntelligenceDashboard
-                    result={interview}
-                    candidateName={user?.name ?? profile?.fullName ?? 'Candidate'}
-                    candidateRole={profile?.currentRole ?? interview.role}
-                    candidateExperience={profile?.totalExperience ?? interview.level}
-                    skills={profile?.skills ?? []}
-                    onRetake={() => {
-                      window.location.href = '/interview'
-                    }}
-                  />
+              <CareerIntelligenceDashboard
+                result={interview}
+                candidateName={user?.name ?? profile?.fullName ?? 'Candidate'}
+                candidateRole={profile?.currentRole ?? interview.role}
+                candidateExperience={profile?.totalExperience ?? interview.level}
+                skills={profile?.skills ?? []}
+                onRetake={() => {
+                  window.location.href = '/interview'
+                }}
+              />
                 </div>
-              )}
+          )}
             </div>
           </div>
         </motion.main>
@@ -1994,10 +1994,10 @@ export function ApplicationsPage() {
                     className={`${styles.jobCard} ${jobRemoved ? styles.jobCardEmployerDeleted : ''}`}
                     variants={fadeUp}
                   >
-                    <div>
-                      <h2>{app.title}</h2>
-                      <p>
-                        {app.company} · {app.location}
+                  <div>
+                    <h2>{app.title}</h2>
+                    <p>
+                      {app.company} · {app.location}
                         {app.roleTrack ? ` · ${app.roleTrack}` : ''}
                       </p>
                       {jobRemoved ? (
@@ -2006,28 +2006,28 @@ export function ApplicationsPage() {
                             'This job was removed by the employer. You can withdraw this application.'}
                         </p>
                       ) : null}
-                      <span className={styles.lockTag}>
+                    <span className={styles.lockTag}>
                         {jobRemoved ? 'Job deleted' : app.status} ·{' '}
                         {new Date(app.appliedAt).toLocaleDateString()}
                         {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
-                      </span>
-                    </div>
-                    <div className={styles.jobRight}>
+                    </span>
+                  </div>
+                  <div className={styles.jobRight}>
                       <b>
                         {app.interviewScore != null
                           ? `${app.interviewScore}% Interview`
                           : `${app.match}% Match`}
                       </b>
-                      <button
-                        type="button"
-                        className={styles.secondary}
+                    <button
+                      type="button"
+                      className={styles.secondary}
                         disabled={withdrawingId === app.id}
                         onClick={() => void handleWithdraw(app.id)}
-                      >
+                    >
                         {withdrawingId === app.id ? 'Withdrawing…' : 'Withdraw'}
-                      </button>
-                    </div>
-                  </motion.article>
+                    </button>
+                  </div>
+                </motion.article>
                 )
               })}
             </div>
