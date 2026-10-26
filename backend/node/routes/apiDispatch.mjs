@@ -116,6 +116,7 @@ import {
   scoreInterviewSession,
   callLlmApi,
 } from '../interviewAgent.mjs'
+import { resolveGeminiModelId } from '../llmModels.mjs'
 import { buildJdCoveragePlan, generateVendorJobQuestion } from '../prompts/vendorJobInterview.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
@@ -1771,7 +1772,11 @@ export function createApiDispatchMiddleware(ctx) {
         try {
           const parsed = await parseResumeWithAI(text)
           if (parsed) {
-            return json(res, 200, { ok: true, source: 'gemini-2.5-flash', extract: parsed })
+            return json(res, 200, {
+              ok: true,
+              source: resolveGeminiModelId(),
+              extract: parsed,
+            })
           }
         } catch (err) {
           console.warn('Backend fallback resume parse error:', err)

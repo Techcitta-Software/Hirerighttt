@@ -17,6 +17,9 @@ import { clientLlmAllowed } from './clientLlm'
 
 GlobalWorkerOptions.workerSrc = pdfWorker
 
+const CLIENT_GEMINI_MODEL =
+  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.1-flash-lite'
+
 export type ResumeExtract = Partial<
   Pick<
     ProfileFormData,
@@ -1267,7 +1270,7 @@ ${text.slice(0, 12000)}`
           'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: CLIENT_GEMINI_MODEL,
           messages: [
             {
               role: 'system',
@@ -1309,7 +1312,7 @@ ${text.slice(0, 12000)}`
           'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
-          model: 'gemini-2.5-flash',
+          model: CLIENT_GEMINI_MODEL,
           messages: [
             {
               role: 'system',

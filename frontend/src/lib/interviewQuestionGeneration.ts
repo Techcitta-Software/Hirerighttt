@@ -611,34 +611,31 @@ async function callClientLlm(system: string, user: string, temperature: number):
         'https://generativelanguage.googleapis.com/v1beta/openai'
   ).replace(/\/$/, '')
 
-  const primary = import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.1-flash-lite'
-  const fallback = import.meta.env.VITE_FALLBACK_MODEL || 'gemini-3.5-flash-lite'
+  const model = import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.1-flash-lite'
 
-  for (const model of [primary, fallback]) {
-    try {
-      const res = await fetch(`${base}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
-          'x-goog-api-key': key,
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          temperature,
-        }),
-      })
-      if (!res.ok) continue
-      const data = await res.json()
-      const content = data.choices?.[0]?.message?.content
-      if (typeof content === 'string' && content.trim()) return content
-    } catch {
-      // try next model
-    }
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+        'x-goog-api-key': key,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature,
+      }),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const content = data.choices?.[0]?.message?.content
+    if (typeof content === 'string' && content.trim()) return content
+  } catch {
+    return null
   }
   return null
 }

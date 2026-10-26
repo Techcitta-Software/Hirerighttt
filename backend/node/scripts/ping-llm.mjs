@@ -14,7 +14,7 @@ const models = publicModelConfig()
 const cascade = modelCascadeForTier('fast')
 
 console.log('[ping-llm] provider:', isGemini ? 'gemini' : 'openai-compatible')
-console.log('[ping-llm] cascade:', cascade.map((c) => c.name).join(' → '))
+console.log('[ping-llm] model (no fallback):', cascade.map((c) => c.name).join(', '))
 console.log(
   '[ping-llm] key type:',
   isGeminiAuthKey(apiKey) ? 'AQ. auth (native API)' : apiKey.startsWith('AIza') ? 'AIza standard' : 'other',

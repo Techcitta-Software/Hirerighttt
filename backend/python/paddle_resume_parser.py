@@ -353,7 +353,7 @@ def llm_parse(text):
     )
     is_auth_key = api_key.strip().startswith("AQ.")
     base_url = (os.environ.get("OPENAI_BASE_URL") or ("https://generativelanguage.googleapis.com/v1beta/openai" if is_gemini else "https://api.openai.com/v1")).rstrip("/")
-    model = os.environ.get("GEMINI_MODEL") or os.environ.get("PRIMARY_MODEL") or os.environ.get("OPENAI_MODEL") or ("gemini-2.5-flash" if is_gemini else "gpt-4o-mini")
+    model = os.environ.get("GEMINI_MODEL") or os.environ.get("PRIMARY_MODEL") or os.environ.get("OPENAI_MODEL") or ("gemini-3.1-flash-lite" if is_gemini else "gpt-4o-mini")
 
     prompt = f"""You are an expert HR AI Resume Parser for HireRight powered by Google Gemini. Extract structured profile information from this PaddleOCR extracted resume text into strictly valid JSON only.
 

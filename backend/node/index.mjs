@@ -1,7 +1,7 @@
 import { assertProductionConfig } from './config.mjs'
 import { createAppContext } from './server/appContext.mjs'
 import { createExpressApp } from './server/createApp.mjs'
-import { geminiKeyFormatWarning, llmConfigured } from './interviewAgent.mjs'
+import { geminiKeyFormatWarning, llmConfigured, publicModelConfig } from './interviewAgent.mjs'
 import { resolveGeminiApiKey } from './geminiClient.mjs'
 import { s3Env, s3StorageConfigured } from './storage/s3ObjectStorage.mjs'
 import { verifyConfiguredS3Bucket } from './storage/s3StartupVerify.mjs'
@@ -58,6 +58,10 @@ const server = app.listen(PORT, async () => {
   console.log(
     `Interview agent: ${llmConfigured() && !geminiHint ? `LLM enabled (${authLabel})` : geminiHint ? 'LLM key unrecognized — check GEMINI_API_KEY' : 'local adaptive agent (set GEMINI_API_KEY)'}`,
   )
+  if (llmConfigured() && !geminiHint) {
+    const models = publicModelConfig()
+    console.log(`LLM model (single, no fallback): ${models.model}`)
+  }
   console.log(`Demo accounts: ${ctx.config.allowDemoAccounts ? 'enabled' : 'disabled'}`)
 })
 
