@@ -1,8 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "build": {
+    "env": {
+      "VITE_AUTH_PROVIDER": "api"
+    }
+  },
   "cleanUrls": true,
   "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://hireright-backend-tnxj.onrender.com/api/:path*"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
