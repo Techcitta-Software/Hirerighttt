@@ -9,6 +9,7 @@ import {
 } from './store'
 import { ensureApiSession } from './apiSession'
 import { requireApiForAuth } from './authConfig'
+import { stripProctoringForCandidateView } from './candidateInterviewResult'
 
 /** Pull server profile into localStorage when cloud copy is newer. */
 export async function pullProfileFromApi(): Promise<SavedProfile | null> {
@@ -113,7 +114,7 @@ export async function pullInterviewFromApi(): Promise<InterviewResult | null> {
     const remoteTime = Date.parse(remote.date || '')
     const localTime = local?.date ? Date.parse(local.date) : 0
     if (!local || (Number.isFinite(remoteTime) && remoteTime >= localTime)) {
-      const merged = normalizeInterviewResult(remote)
+      const merged = stripProctoringForCandidateView(normalizeInterviewResult(remote))
       saveInterviewResult(merged)
       return merged
     }

@@ -9,6 +9,7 @@ import {
 } from '../lib/authSession'
 import { ensureApiSession } from '../lib/apiSession'
 import { getUser, type UserRole } from '../lib/store'
+import { moonshineStt } from '../lib/moonshineStt'
 
 type Props = {
   children: ReactNode
@@ -65,6 +66,13 @@ export function RequireAuth({ children, role }: Props) {
     }
     // Validate once per mount; route changes reuse cached /api/me when still fresh.
   }, [])
+
+  useEffect(() => {
+    if (!ready || !allowed) return
+    const user = getUser()
+    if (!user || user.role === 'employer') return
+    moonshineStt.startGradualPreloadAfterLogin(3000)
+  }, [ready, allowed])
 
   if (!ready) {
     return (

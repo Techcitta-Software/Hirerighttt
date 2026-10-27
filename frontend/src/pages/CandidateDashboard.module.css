@@ -428,36 +428,11 @@
 }
 
 .kpiCard {
-  position: relative;
   padding: 22px 22px 20px;
   border-radius: var(--dash-radius-md);
-  background: var(--dash-surface);
+  background: #fff;
   border: 1px solid var(--dash-border);
   box-shadow: var(--dash-shadow);
-  overflow: hidden;
-}
-
-.kpiCard::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--dash-accent), #9d7cff);
-  opacity: 0.85;
-}
-
-.kpiCard:nth-child(2)::before {
-  background: linear-gradient(90deg, #0ea5e9, #6366f1);
-}
-
-.kpiCard:nth-child(3)::before {
-  background: linear-gradient(90deg, #10b981, #14b8a6);
-}
-
-.kpiCard:nth-child(4)::before {
-  background: linear-gradient(90deg, #f59e0b, #7047ff);
 }
 
 .kpiTop {

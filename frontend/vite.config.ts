@@ -9,6 +9,12 @@ export default defineConfig({
   envDir: repoRoot,
   envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [react()],
+  worker: {
+    format: 'es',
+  },
+  optimizeDeps: {
+    exclude: ['@huggingface/transformers'],
+  },
   server: {
     port: 5173,
     host: true,

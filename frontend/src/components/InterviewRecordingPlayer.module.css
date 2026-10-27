@@ -55,7 +55,8 @@
   border-radius: 999px 0 0 999px;
 }
 
-.timelineFlag {
+.timelineFlagHigh,
+.timelineFlagMedium {
   position: absolute;
   top: 1px;
   bottom: 1px;
@@ -63,16 +64,71 @@
   padding: 0;
   border: none;
   border-radius: 3px;
-  background: #ef4444;
-  box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.35);
   cursor: pointer;
   min-width: 4px;
   z-index: 2;
 }
 
-.timelineFlag:hover {
-  background: #dc2626;
-  filter: brightness(1.05);
+.timelineFlagHigh {
+  background: #ef4444;
+  box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.35);
+}
+
+.timelineFlagMedium {
+  background: #f59e0b;
+  box-shadow: 0 0 0 1px rgba(146, 64, 14, 0.35);
+}
+
+.timelineFlagHigh:hover,
+.timelineFlagMedium:hover {
+  filter: brightness(1.08);
+}
+
+.summaryBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.summaryCount {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.summaryMeta {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.flagDotHigh {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.flagDotMedium {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+
+.flagQuestion {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 400;
 }
 
 .flagList {

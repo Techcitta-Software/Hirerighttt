@@ -593,6 +593,18 @@
   color: #d97706;
 }
 
+.proctorFlagBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid #fecaca;
+}
+
 .integrityUnverified {
   color: #64748b;
 }

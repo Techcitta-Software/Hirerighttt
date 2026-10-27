@@ -411,7 +411,7 @@ export async function callLlmApi({ system, user, temperature = 0.3, tier = 'qual
         })
         if (result.ok && result.text.trim()) {
           console.log(
-            `🔥 [${label}${isGeminiAuthKey(apiKey) ? ' native' : ''}] Success! Prompt tokens: ${result.tokenUsage.promptTokens} | Completion: ${result.tokenUsage.completionTokens} | Total: ${result.tokenUsage.totalTokens}`,
+            `🔥 [Gemini LLM] model=${currentModel} tier=${tier}${isGeminiAuthKey(apiKey) ? ' native' : ''} | prompt=${result.tokenUsage.promptTokens} completion=${result.tokenUsage.completionTokens} total=${result.tokenUsage.totalTokens}`,
           )
           return {
             text: result.text,
@@ -421,7 +421,7 @@ export async function callLlmApi({ system, user, temperature = 0.3, tier = 'qual
           }
         }
         console.warn(
-          `[LLM Fallback Trigger] Model "${currentModel}" status ${result.status}. Falling back...`,
+          `[Gemini LLM] model=${currentModel} tier=${tier} failed HTTP ${result.status}:`,
           result.error?.slice(0, 160),
         )
         continue

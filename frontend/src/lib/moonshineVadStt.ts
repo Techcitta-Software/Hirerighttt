@@ -1,60 +1,35 @@
 /**
- * Silero VAD (@ricky0123/vad-web) + Groq Whisper via server `/api/interview/transcribe`.
+ * Silero VAD (@ricky0123/vad-web) + on-device Moonshine Tiny (Transformers.js WASM).
  */
 
-import { MicVAD, utils } from '@ricky0123/vad-web'
-import { apiFetch } from './api'
+import { MicVAD } from '@ricky0123/vad-web'
+import { moonshineStt } from './moonshineStt'
 
 const VAD_PKG_VERSION = '0.0.31'
 const ORT_WASM_VERSION = '1.30.0'
 
-export type GroqVadSttHandlers = {
+export type MoonshineVadSttHandlers = {
   getStream: () => MediaStream | null
   onSegmentText: (text: string) => void
-  /** Silero detected speech (candidate is talking). */
   onSpeechCaptureStart?: () => void
-  /** Speech segment ended — about to send audio to Groq Whisper. */
   onSpeechCaptureEnd?: () => void
-  /** Groq Whisper request in flight for the latest segment. */
   onTranscribing?: (active: boolean) => void
   onSpeechStart?: () => void
-  onBargeIn?: () => void
   isAiSpeaking: () => boolean
   onError?: (message: string) => void
+  /** Moonshine failed or returned no text — UI can fall back to keyboard / Web Speech. */
+  onTranscriptionMiss?: (reason: string) => void
 }
 
-export type GroqVadSttController = {
+export type MoonshineVadSttController = {
   start: () => Promise<void>
   stop: () => Promise<void>
   dispose: () => Promise<void>
 }
 
-async function transcribeWavBlob(blob: Blob): Promise<string> {
-  const buf = await blob.arrayBuffer()
-  const bytes = new Uint8Array(buf)
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  const audioBase64 = btoa(binary)
-
-  const res = await apiFetch('/api/interview/transcribe', {
-    method: 'POST',
-    body: JSON.stringify({
-      audioBase64,
-      mimeType: 'audio/wav',
-      filename: 'speech.wav',
-    }),
-  })
-  const data = (await res.json().catch(() => ({}))) as { text?: string; error?: string }
-  if (!res.ok) throw new Error(data.error || `Transcription failed (${res.status})`)
-  return String(data.text || '').trim()
-}
-
-export async function createGroqVadSttController(
-  handlers: GroqVadSttHandlers,
-): Promise<GroqVadSttController | null> {
+export async function createMoonshineVadSttController(
+  handlers: MoonshineVadSttHandlers,
+): Promise<MoonshineVadSttController | null> {
   try {
     const vad = await MicVAD.new({
       startOnLoad: false,
@@ -67,7 +42,6 @@ export async function createGroqVadSttController(
         }
         return stream
       },
-      /** Shared with interview video — never stop tracks on pause. */
       pauseStream: async () => undefined,
       resumeStream: async (stream: MediaStream) => stream,
       onSpeechStart: () => {
@@ -83,16 +57,18 @@ export async function createGroqVadSttController(
         handlers.onSpeechCaptureEnd?.()
         try {
           if (!audio?.length) return
-          const wavBuffer = utils.encodeWAV(audio)
-          const blob = new Blob([wavBuffer], { type: 'audio/wav' })
-          if (blob.size < 1200) return
           handlers.onTranscribing?.(true)
-          const text = await transcribeWavBlob(blob)
-          if (text) handlers.onSegmentText(text)
+          const { text } = await moonshineStt.transcribeAudio(audio)
+          if (text?.trim()) {
+            handlers.onSegmentText(text)
+          } else {
+            handlers.onTranscriptionMiss?.('No speech detected in that segment.')
+          }
         } catch (err) {
-          handlers.onError?.(
-            err instanceof Error ? err.message : 'Voice transcription failed.',
-          )
+          const message =
+            err instanceof Error ? err.message : 'Voice transcription failed.'
+          handlers.onError?.(message)
+          handlers.onTranscriptionMiss?.(message)
         } finally {
           handlers.onTranscribing?.(false)
         }
@@ -118,6 +94,6 @@ export async function createGroqVadSttController(
   }
 }
 
-export function groqVadSttHint(): string {
-  return 'Voice captions (Silero VAD + Groq Whisper) — pause ~5 seconds when finished to advance.'
+export function moonshineVadSttHint(): string {
+  return 'Voice captions (Silero VAD + Moonshine Tiny) — pause when finished speaking to advance.'
 }

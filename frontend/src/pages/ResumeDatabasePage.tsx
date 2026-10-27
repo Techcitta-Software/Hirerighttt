@@ -604,7 +604,10 @@ export function ResumeDatabasePage() {
                 {selectedCandidate.interviewResult && (
                   <div>
                     <VideoProctorTimeline
+                      sessionId={selectedCandidate.interviewResult.sessionId}
+                      candidateEmail={selectedCandidate.email}
                       logs={selectedCandidate.interviewResult.integrity?.logs}
+                      proctoring={selectedCandidate.interviewResult.integrity?.proctoring}
                     />
                   </div>
                 )}

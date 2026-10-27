@@ -1,6 +1,6 @@
 /**
  * HireRight Interview Agent Client
- * Synchronized with Google Gemini AI (gemini-2.5-flash).
+ * Client-side Gemini helpers (default gemini-3.1-flash-lite; server is source of truth for interviews).
  * Generates interactive, resume-tailored questions and rubric scoring.
  */
 import type { Question } from './interviewEngine'
@@ -50,11 +50,9 @@ const GEMINI_BASE_URL = (
       import.meta.env.VITE_OPENAI_BASE_URL ||
       'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/$/, '')
-const PRIMARY_MODEL =
-  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-2.5-flash'
-const FALLBACK_MODEL =
-  import.meta.env.VITE_FALLBACK_MODEL || 'gemini-1.5-flash'
-const GEMINI_MODEL = PRIMARY_MODEL
+const GEMINI_FLASH_LITE =
+  import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.1-flash-lite'
+const GEMINI_MODEL = GEMINI_FLASH_LITE
 
 export type InterviewStartResponse = {
   sessionId: string | null
@@ -82,6 +80,8 @@ export type IntegritySnapshot = {
   sideLookWarnings?: number
   tooFarWarnings?: number
   logs?: IntegrityLogEvent[]
+  /** Sent to API on score; processed into integrity.proctoring server-side. */
+  flaggedSections?: import('./store').InterviewFlagSection[]
 }
 
 /** Check whether Gemini is live and operational */
@@ -112,34 +112,31 @@ export async function checkLlmStatus(): Promise<{
     }
   }
 
-  const models = [PRIMARY_MODEL, FALLBACK_MODEL]
-  for (const m of models) {
-    try {
-      const directRes = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GEMINI_API_KEY}`,
-          'x-goog-api-key': GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          model: m,
-          messages: [{ role: 'user', content: 'Ping' }],
-          max_tokens: 5,
-        }),
-      })
+  try {
+    const directRes = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${GEMINI_API_KEY}`,
+        'x-goog-api-key': GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        model: GEMINI_FLASH_LITE,
+        messages: [{ role: 'user', content: 'Ping' }],
+        max_tokens: 5,
+      }),
+    })
 
-      if (directRes.ok) {
-        return {
-          active: true,
-          model: m,
-          provider: 'Google Gemini',
-          message: `Google Gemini (${m}) is LIVE and calibrated with candidate profile.`,
-        }
+    if (directRes.ok) {
+      return {
+        active: true,
+        model: GEMINI_FLASH_LITE,
+        provider: 'Google Gemini',
+        message: `Google Gemini (${GEMINI_FLASH_LITE}) is LIVE and calibrated with candidate profile.`,
       }
-    } catch {
-      // try next model
     }
+  } catch {
+    // direct ping failed
   }
 
   return {
@@ -379,7 +376,7 @@ export async function processInterviewTurn(options: {
 }
 
 /**
- * Score interview responses with Google Gemini AI (gemini-2.5-flash)
+ * Score interview responses via HireRight API (server uses gemini-3.1-flash-lite).
  */
 async function scoreWithGeminiDirect(options: {
   role: string

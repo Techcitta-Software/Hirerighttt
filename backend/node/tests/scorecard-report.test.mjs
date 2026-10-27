@@ -130,7 +130,7 @@ test('generateAndPersistInterviewReportPdf uploads via mock S3', async () => {
       candidateName: 'Arjun Sharma',
       s3: mockS3,
     })
-    assert.match(out.objectKey, /reports\/interview_report\.pdf$/)
+    assert.match(out.objectKey, /reports\/[^/]+\/interview_report\.pdf$/)
     assert.equal(uploaded.length, 1)
     assert.equal(uploaded[0].contentType, 'application/pdf')
     assert.ok(uploaded[0].size > 2000)

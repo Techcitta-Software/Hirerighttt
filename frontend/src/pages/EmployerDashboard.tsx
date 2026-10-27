@@ -442,7 +442,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       // Integrity text search
       if (integrityFilter.trim()) {
         const q = integrityFilter.trim().toLowerCase()
-        const integ = app.integrityStatus ?? (app.interviewResult?.integrity?.faceViolations ? 'pending' : 'verified')
+        const integ =
+          app.integrityStatus ??
+          (app.interviewResult?.integrity?.proctoring?.status === 'FLAGGED' ||
+          (app.interviewResult?.integrity?.faceViolations ?? 0) > 0
+            ? 'pending'
+            : 'verified')
         const label = integ === 'verified' ? 'verified candidate' : integ === 'pending' ? 'verification pending' : 'not verified'
         if (!label.includes(q) && !integ.includes(q)) return false
       }
@@ -1115,7 +1120,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             ? styles.scorePurple
                             : styles.scoreAmber
 
-                    const integ = cand.integrityStatus ?? (cand.interviewResult?.integrity?.faceViolations ? 'pending' : 'verified')
+                    const integ =
+                      cand.integrityStatus ??
+                      (cand.interviewResult?.integrity?.proctoring?.status === 'FLAGGED' ||
+                      (cand.interviewResult?.integrity?.faceViolations ?? 0) > 0
+                        ? 'pending'
+                        : 'verified')
+                    const proctorFlagCount =
+                      cand.interviewResult?.integrity?.proctoring?.counts?.total ??
+                      cand.interviewResult?.integrity?.logs?.length ??
+                      0
 
                     return (
                       <tr key={cand.id}>
@@ -1165,6 +1179,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                               {integ === 'pending' && (
                                 <span className={`${styles.integrityText} ${styles.integrityPending}`}>
                                   <HrIcon name="shield-check" size={14} /> Verification pending
+                                  {proctorFlagCount > 0 ? (
+                                    <span className={styles.proctorFlagBadge}>
+                                      {proctorFlagCount} flag{proctorFlagCount === 1 ? '' : 's'}
+                                    </span>
+                                  ) : null}
                                 </span>
                               )}
                               {integ === 'unverified' && (
@@ -1525,7 +1544,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </div>
 
                   <div style={{ marginTop: '20px' }}>
-                    <VideoProctorTimeline sessionId={selectedApplicant.interviewResult.sessionId} logs={selectedApplicant.interviewResult.integrity?.logs} />
+                    <VideoProctorTimeline
+                      sessionId={selectedApplicant.interviewResult.sessionId}
+                      candidateEmail={selectedApplicant.candidateEmail}
+                      logs={selectedApplicant.interviewResult.integrity?.logs}
+                      proctoring={selectedApplicant.interviewResult.integrity?.proctoring}
+                    />
                   </div>
                 </div>
               )}

@@ -1,10 +1,10 @@
 /**
- * Model routing: quality vs fast. Defaults favor low-cost Gemini Flash Lite (works on current AI Studio keys).
+ * Model routing: single Gemini Flash Lite id (no fallback cascade).
  *
- * - PRIMARY_MODEL / gemini-3.5-flash-lite — interviews, resume JSON, scoring
- * - FAST_MODEL — same lite model for pings and short replies
- * - FALLBACK_MODEL — optional second lite id if primary is unavailable
+ * Override with PRIMARY_MODEL / GEMINI_MODEL / FAST_MODEL (all should match for tests).
  */
+
+export const DEFAULT_GEMINI_FLASH_LITE = 'gemini-3.1-flash-lite'
 
 function uniqueModelNames(names) {
   const seen = new Set()
@@ -45,38 +45,35 @@ export function isGeminiProvider() {
   )
 }
 
+/** Resolved Gemini model id for all server LLM calls. */
+export function resolveGeminiModelId() {
+  const fromEnv =
+    process.env.PRIMARY_MODEL ||
+    process.env.GEMINI_MODEL ||
+    process.env.FAST_MODEL ||
+    ''
+  return String(fromEnv).trim() || DEFAULT_GEMINI_FLASH_LITE
+}
+
 /** @param {'quality' | 'fast'} tier */
 export function modelCascadeForTier(tier) {
   const gemini = isGeminiProvider()
-  const lite = gemini ? 'gemini-3.5-flash-lite' : 'gpt-4o-mini'
-  const primary =
-    process.env.PRIMARY_MODEL || process.env.GEMINI_MODEL || lite
-  const fast = process.env.FAST_MODEL || lite
-  const fallback =
-    process.env.FALLBACK_MODEL ||
-    process.env.LITE_FALLBACK_MODEL ||
-    lite
-
-  if (tier === 'fast') {
-    return uniqueModelNames([fast, fallback]).map((name, i) => ({
-      name,
-      label: i === 0 ? (gemini ? 'Gemini Fast' : name) : gemini ? 'Gemini Fallback' : name,
-    }))
+  if (!gemini) {
+    const name = process.env.PRIMARY_MODEL || 'gpt-4o-mini'
+    return [{ name, label: name }]
   }
-  return uniqueModelNames([primary, fallback]).map((name, i) => ({
-    name,
-    label: i === 0 ? (gemini ? 'Gemini Quality' : name) : gemini ? 'Gemini Fallback' : name,
-  }))
+  const name = resolveGeminiModelId()
+  const tierLabel = tier === 'fast' ? 'fast' : 'quality'
+  return [{ name, label: `${name} (${tierLabel})`, tier }]
 }
 
 export function publicModelConfig() {
-  const quality = modelCascadeForTier('quality')
-  const fast = modelCascadeForTier('fast')
+  const name = resolveGeminiModelId()
   return {
     provider: isGeminiProvider() ? 'google-gemini' : 'openai-compatible',
-    quality: quality[0]?.name,
-    qualityFallback: quality[1]?.name,
-    fast: fast[0]?.name,
-    fastFallback: fast[1]?.name,
+    model: name,
+    quality: name,
+    fast: name,
+    fallback: null,
   }
 }
