@@ -1,5 +1,19 @@
-import { useCallback, useMemo, useRef, useState, type MouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react'
+import type { FaceLandmarker } from '@mediapipe/tasks-vision'
 import type { IntegrityLogEvent, InterviewFlagSection, InterviewProctoringSummary } from '../lib/store'
+import {
+  clearOverlayCanvas,
+  drawRedFaceMesh,
+  flagAtTime,
+  getPlaybackFaceLandmarker,
+} from '../lib/proctorPlaybackLandmarks'
 import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
 import styles from './InterviewRecordingPlayer.module.css'
 
@@ -22,7 +36,7 @@ function formatClock(sec: number): string {
 function flagTypeLabel(type: InterviewFlagSection['type']) {
   if (type === 'MULTI_FACE') return 'Multiple people'
   if (type === 'NO_FACE') return 'No face in frame'
-  return 'Looking away'
+  return 'Looking away / gaze deviation'
 }
 
 export function InterviewRecordingPlayer({
@@ -33,8 +47,12 @@ export function InterviewRecordingPlayer({
   employerReview = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const landmarkerRef = useRef<FaceLandmarker | null>(null)
+  const landmarkerTsRef = useRef(-1)
   const [duration, setDuration] = useState(durationHint && durationHint > 0 ? durationHint : 0)
   const [currentTime, setCurrentTime] = useState(0)
+  const [activeFlag, setActiveFlag] = useState<InterviewFlagSection | null>(null)
 
   const flaggedSections = useMemo(() => {
     const fromProctor = proctoring?.flaggedSections ?? []
@@ -78,26 +96,140 @@ export function InterviewRecordingPlayer({
 
   const progressPct = effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0
 
+  useEffect(() => {
+    if (!employerReview) return
+    let cancelled = false
+    void getPlaybackFaceLandmarker().then((lm) => {
+      if (!cancelled) landmarkerRef.current = lm
+    })
+    return () => {
+      cancelled = true
+      landmarkerRef.current?.close()
+      landmarkerRef.current = null
+    }
+  }, [employerReview])
+
+  useEffect(() => {
+    if (!employerReview) return
+    let raf = 0
+    const syncCanvasSize = () => {
+      const video = videoRef.current
+      const canvas = canvasRef.current
+      if (!video || !canvas) return
+      const w = video.clientWidth
+      const h = video.clientHeight
+      if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+        canvas.width = w
+        canvas.height = h
+      }
+    }
+
+    const tick = () => {
+      const video = videoRef.current
+      const canvas = canvasRef.current
+      const lm = landmarkerRef.current
+      syncCanvasSize()
+      if (!video || !canvas) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+
+      const t = video.currentTime
+      const flag = flagAtTime(flaggedSections, t)
+      setActiveFlag(flag)
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        raf = requestAnimationFrame(tick)
+        return
+      }
+
+      clearOverlayCanvas(canvas)
+
+      if (flag && !video.paused && !video.ended && lm && video.readyState >= 2) {
+        let ts = Math.floor(performance.now())
+        if (ts <= landmarkerTsRef.current) ts = landmarkerTsRef.current + 1
+        landmarkerTsRef.current = ts
+        try {
+          const res = lm.detectForVideo(video, ts)
+          const faces = res.faceLandmarks || []
+          if (faces.length === 0 && flag.type === 'NO_FACE') {
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.35)'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.fillStyle = '#fff'
+            ctx.font = '600 14px system-ui, sans-serif'
+            ctx.fillText('No face in frame (flagged interval)', 12, 28)
+          }
+          faces.forEach((faceLm, idx) => {
+            const mode =
+              flag.type === 'MULTI_FACE' && idx > 0
+                ? 'MULTI_FACE'
+                : flag.type === 'NO_FACE'
+                  ? 'NO_FACE'
+                  : flag.type
+            drawRedFaceMesh(ctx, faceLm, canvas.width, canvas.height, mode)
+          })
+        } catch {
+          /* skip frame */
+        }
+      }
+
+      raf = requestAnimationFrame(tick)
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [employerReview, flaggedSections])
+
   return (
     <div className={styles.wrap}>
-      <video
-        ref={videoRef}
-        className={styles.video}
-        controls
-        playsInline
-        preload="metadata"
-        src={playbackUrl}
-        onLoadedMetadata={() => {
-          const d = videoRef.current?.duration
-          if (d && Number.isFinite(d)) setDuration(d)
-        }}
-        onTimeUpdate={() => {
-          const t = videoRef.current?.currentTime
-          if (t != null && Number.isFinite(t)) setCurrentTime(t)
-        }}
+      <div
+        className={`${styles.videoShell} ${activeFlag ? styles.videoShellFlagged : ''}`}
       >
-        Your browser does not support video playback.
-      </video>
+        <video
+          ref={videoRef}
+          className={styles.video}
+          controls
+          playsInline
+          preload="metadata"
+          src={playbackUrl}
+          onLoadedMetadata={() => {
+            const d = videoRef.current?.duration
+            if (d && Number.isFinite(d)) setDuration(d)
+          }}
+          onTimeUpdate={() => {
+            const t = videoRef.current?.currentTime
+            if (t != null && Number.isFinite(t)) setCurrentTime(t)
+          }}
+        >
+          Your browser does not support video playback.
+        </video>
+        {employerReview ? (
+          <canvas ref={canvasRef} className={styles.overlayCanvas} aria-hidden="true" />
+        ) : null}
+        {employerReview && flagCount > 0 ? (
+          <div className={styles.inVideoTimeline} aria-hidden="true">
+            <div className={styles.inVideoProgress} style={{ width: `${progressPct}%` }} />
+            {flaggedSections.map((flag) => {
+              const left = (flag.startSec / effectiveDuration) * 100
+              const width = Math.max(1.2, ((flag.endSec - flag.startSec) / effectiveDuration) * 100)
+              const isHigh = flag.severity === 'high' || flag.type === 'MULTI_FACE'
+              return (
+                <span
+                  key={flag.id}
+                  className={isHigh ? styles.inVideoFlagHigh : styles.inVideoFlagMedium}
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                />
+              )
+            })}
+          </div>
+        ) : null}
+        {activeFlag ? (
+          <div className={styles.liveFlagBadge} role="status">
+            MediaPipe · {flagTypeLabel(activeFlag.type)}
+          </div>
+        ) : null}
+      </div>
 
       {showReviewPanel ? (
         <>
@@ -113,12 +245,15 @@ export function InterviewRecordingPlayer({
             ) : flagCount > 0 ? (
               <span className={styles.summaryMeta}>From live camera review events</span>
             ) : (
-              <span className={styles.summaryMeta}>No sustained flags recorded</span>
+              <span className={styles.summaryMeta}>
+                Red mesh appears on video during flagged intervals (MediaPipe). Take a new interview
+                with camera on if empty.
+              </span>
             )}
           </div>
 
           <div className={styles.timelineLabel}>
-            <span>Flagged sections on timeline</span>
+            <span>Flagged sections — red marks on video when playback hits these times</span>
             <span className={styles.timelineClock}>
               {formatClock(currentTime)} / {formatClock(effectiveDuration)}
             </span>
@@ -184,7 +319,18 @@ export function InterviewRecordingPlayer({
                       <strong>{flagTypeLabel(flag.type)}</strong> · Turn #{flag.turnIndex} ·{' '}
                       {flag.reason}
                       {flag.questionText ? (
-                        <span className={styles.flagQuestion}> — &ldquo;{flag.questionText}&rdquo;</span>
+                        <span className={styles.flagQuestion}>
+                          {' '}
+                          — &ldquo;{flag.questionText}&rdquo;
+                        </span>
+                      ) : null}
+                      {flag.snapshotDataUrl ? (
+                        <img
+                          className={styles.flagSnapshot}
+                          src={flag.snapshotDataUrl}
+                          alt=""
+                          loading="lazy"
+                        />
                       ) : null}
                     </span>
                   </button>
@@ -193,7 +339,9 @@ export function InterviewRecordingPlayer({
             </ul>
           ) : (
             <p className={styles.noFlags}>
-              No side-glances or multi-person intervals met the review threshold for this session.
+              No sustained gaze or head-turn intervals were saved for this session. During the live
+              interview, MediaPipe must run (camera allowed, stable network). Look away for 2+ seconds
+              to generate a flag on a new attempt.
             </p>
           )}
         </>
