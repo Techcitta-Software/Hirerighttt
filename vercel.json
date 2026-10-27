@@ -6,7 +6,8 @@
   "outputDirectory": "frontend/dist",
   "build": {
     "env": {
-      "VITE_AUTH_PROVIDER": "api"
+      "VITE_AUTH_PROVIDER": "api",
+      "VITE_API_URL": "https://hireright-backend-tnxj.onrender.com"
     }
   },
   "cleanUrls": true,
