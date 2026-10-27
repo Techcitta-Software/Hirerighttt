@@ -20,20 +20,29 @@ class MoonshineSttService {
   >()
   private preloadTimer: number | null = null
 
+  /** Start downloading Moonshine immediately (interview lobby / setup). */
+  preloadNow() {
+    if (typeof window === 'undefined') return
+    if (this.state.status === 'ready') return
+    if (this.preloadTimer) {
+      window.clearTimeout(this.preloadTimer)
+      this.preloadTimer = null
+    }
+    this.ensureWorker()
+    if (this.state.status === 'idle') {
+      this.updateState({ status: 'downloading', percent: 0, stage: 'Starting download…' })
+    }
+    this.worker?.postMessage({ action: 'GRADUAL_PRELOAD' })
+  }
+
   startGradualPreloadAfterLogin(delayMs = 3000) {
     if (typeof window === 'undefined') return
     if (this.state.status === 'ready' || this.state.status === 'downloading') return
     if (this.preloadTimer) return
 
     this.preloadTimer = window.setTimeout(() => {
-      const idleRunner =
-        (window as Window & { requestIdleCallback?: (cb: () => void) => number })
-          .requestIdleCallback || ((cb: () => void) => window.setTimeout(cb, 500))
-      idleRunner(() => {
-        this.ensureWorker()
-        this.updateState({ status: 'downloading', percent: 0, stage: 'Starting download…' })
-        this.worker?.postMessage({ action: 'GRADUAL_PRELOAD' })
-      })
+      this.preloadTimer = null
+      this.preloadNow()
     }, delayMs)
   }
 

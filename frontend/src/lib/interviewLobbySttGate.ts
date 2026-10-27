@@ -78,6 +78,9 @@ export async function waitForLobbyLocalStt(
     }
   }
 
+  const vadOk = await options.waitVad(vadMaxMs)
+  if (vadOk && isLobbyLocalSttReady(readSnapshot())) return { ok: true }
+
   const vadDeadline = Date.now() + vadMaxMs
   while (Date.now() < vadDeadline) {
     const snap = readSnapshot()
