@@ -1,15 +1,19 @@
 import { pipeline, env } from '@huggingface/transformers'
+import { onnxWasmThreadCount } from './onnxWasmThreads'
 
 env.useBrowserCache = true
 env.allowLocalModels = false
 
 if (env.backends?.onnx?.wasm) {
-  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2
-  env.backends.onnx.wasm.numThreads = Math.min(2, Math.max(1, cores - 1))
+  env.backends.onnx.wasm.numThreads = onnxWasmThreadCount()
 }
 
 const MODEL_ID = 'onnx-community/moonshine-tiny-ONNX'
 const HF_BASE_URL = `https://huggingface.co/${MODEL_ID}/resolve/main`
+
+/** Silero VAD segments are 16 kHz mono; Moonshine expects the same. */
+const MOONSHINE_SAMPLE_RATE = 16_000
+const MIN_TRANSCRIBE_SAMPLES = 4000
 
 const GRADUAL_FILES = [
   { path: 'config.json', weight: 2 },
@@ -122,7 +126,7 @@ async function initMoonshineTiny(): Promise<void> {
     })
 
     const silentWarmup = new Float32Array(8000)
-    await transcriber(silentWarmup)
+    await transcriber(silentWarmup, { sampling_rate: MOONSHINE_SAMPLE_RATE })
 
     self.postMessage({ type: 'PROGRESS', percent: 100, stage: 'Ready' })
     self.postMessage({ type: 'READY', modelId: MODEL_ID })
@@ -163,7 +167,18 @@ self.onmessage = async (event: MessageEvent) => {
         throw new Error('Moonshine model not loaded')
       }
       const t0 = performance.now()
-      const output = await transcriber(audioFloat32)
+      if (!audioFloat32 || audioFloat32.length < MIN_TRANSCRIBE_SAMPLES) {
+        self.postMessage({
+          type: 'TRANSCRIPT_RESULT',
+          requestId,
+          text: '',
+          latencyMs: 0,
+        })
+        return
+      }
+      const output = await transcriber(audioFloat32, {
+        sampling_rate: MOONSHINE_SAMPLE_RATE,
+      })
       const latencyMs = Math.round(performance.now() - t0)
 
       self.postMessage({

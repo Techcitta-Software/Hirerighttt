@@ -14,15 +14,19 @@
 
 .navbar :global(.brand-logo) {
   align-self: center;
+  overflow: visible;
 }
 
 .navbar :global(.hr-logo--md .hr-logo__wordmark) {
   font-size: 1.4rem;
+  line-height: 1.25;
+  padding-bottom: 0;
 }
 
 .navbar :global(.hr-logo--md .hr-logo__tagline) {
   font-size: var(--logo-tagline-size-sm);
   letter-spacing: 0.28em;
+  margin-top: 0;
 }
 
 .navbarMinimal {
@@ -55,8 +59,8 @@
 /* Logged-in app shell: full-width bar, logo at gutter, actions at opposite gutter */
 .navbarApp {
   width: 100%;
-  background: rgba(235, 231, 255, 0.92);
-  border-bottom-color: rgba(112, 71, 255, 0.1);
+  background: var(--color-bg-app-nav, #ffffff);
+  border-bottom-color: rgba(20, 22, 56, 0.08);
   box-shadow: none;
 }
 

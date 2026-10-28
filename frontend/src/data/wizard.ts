@@ -1,4 +1,4 @@
-export type WizardStep = 1 | 2 | 3 | 4 | 5
+export type WizardStep = 1 | 2 | 3
 
 export interface WorkExperience {
   id: string
@@ -66,27 +66,17 @@ export const STEPS = [
   {
     id: 1 as const,
     label: 'Profile',
-    sublabel: 'Tell us who you are',
+    sublabel: 'Upload resume & review details',
   },
   {
     id: 2 as const,
-    label: 'Resume',
-    sublabel: 'Upload your resume',
+    label: 'AI Interview',
+    sublabel: 'Schedule or start your interview',
   },
   {
     id: 3 as const,
-    label: 'About You',
-    sublabel: 'Your background & goals',
-  },
-  {
-    id: 4 as const,
-    label: 'Availability',
-    sublabel: 'Choose interview slot',
-  },
-  {
-    id: 5 as const,
-    label: 'AI Interview',
-    sublabel: 'Prepare for interview',
+    label: 'All Set',
+    sublabel: 'Confirmation & next steps',
   },
 ]
 

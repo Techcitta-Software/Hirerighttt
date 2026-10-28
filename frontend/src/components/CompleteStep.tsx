@@ -6,7 +6,10 @@ import { finalizePendingJobApplication, getPendingJob } from '../lib/pendingJobA
 import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
 import styles from './CompleteStep.module.css'
 
-interface CompleteStepProps { data: ProfileFormData; onEditStep: (step: 1 | 2 | 3 | 4) => void }
+interface CompleteStepProps {
+  data: ProfileFormData
+  onEditStep: (step: 2 | 3 | 4) => void
+}
 function Icon({ kind }: { kind: 'calendar' | 'clock' | 'video' | 'info' | 'bell' | 'mail' | 'phone' }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     {kind === 'calendar' && <><rect x="3" y="5" width="18" height="17" rx="2" /><path d="M7 2v6m10-6v6M3 11h18M7 15h1m3 0h1m4 0h1M7 18h1m3 0h1" /></>}

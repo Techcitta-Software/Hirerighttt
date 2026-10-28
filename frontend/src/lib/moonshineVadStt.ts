@@ -7,6 +7,8 @@ import { moonshineStt } from './moonshineStt'
 
 const VAD_PKG_VERSION = '0.0.31'
 const ORT_WASM_VERSION = '1.30.0'
+/** Match moonshineStt / Silero VAD output (16 kHz). */
+const MIN_VAD_SAMPLES = 4000
 
 export type MoonshineVadSttHandlers = {
   getStream: () => MediaStream | null
@@ -56,7 +58,7 @@ export async function createMoonshineVadSttController(
         if (handlers.isAiSpeaking()) return
         handlers.onSpeechCaptureEnd?.()
         try {
-          if (!audio?.length) return
+          if (!audio?.length || audio.length < MIN_VAD_SAMPLES) return
           handlers.onTranscribing?.(true)
           const { text } = await moonshineStt.transcribeAudio(audio)
           if (text?.trim()) {

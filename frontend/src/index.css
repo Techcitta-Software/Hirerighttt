@@ -32,13 +32,13 @@
   --space-cyan-300: #7dd3fc;
 
   /* Brand accents */
-  --brand-primary: #2563eb;
-  --brand-hover: #1d4ed8;
-  --brand-active: #1e40af;
-  --brand-light: #eff6ff;
-  --brand-border: #bfdbfe;
-  --brand-gradient: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-  --brand-glow: 0 4px 20px rgba(37, 99, 235, 0.25);
+  --brand-primary: var(--hr-brand-solid);
+  --brand-hover: var(--hr-brand-solid-hover);
+  --brand-active: #3b3bb8;
+  --brand-light: #eef2ff;
+  --brand-border: #c7d2fe;
+  --brand-gradient: var(--hr-brand-gradient);
+  --brand-glow: 0 4px 20px var(--hr-brand-glow);
 
   --purple-50: #f8fafc;
   --purple-100: #f1f5f9;
@@ -57,7 +57,7 @@
   --border-subtle: #f1f5f9;
   --border-default: #e2e8f0;
   --border-strong: #cbd5e1;
-  --border-active: #2563eb;
+  --border-active: var(--hr-brand-solid);
 
   /* Grays */
   --gray-50: #f8fafc;

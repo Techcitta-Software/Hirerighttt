@@ -61,11 +61,11 @@
 }
 
 .overline {
+  composes: hr-brand-gradient-text from global;
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #2563eb;
   margin: 0 0 1rem 0;
 }
 
@@ -94,10 +94,7 @@
 }
 
 .gradientText {
-  background: linear-gradient(135deg, #4338ca 0%, #6366f1 55%, #3b82f6 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  composes: hr-brand-gradient-text from global;
   display: inline-block;
 }
 

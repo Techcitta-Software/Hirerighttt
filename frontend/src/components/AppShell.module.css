@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #eeecf8;
+  background: var(--app-shell-bg, #ffffff);
   overflow-x: clip;
 }
 

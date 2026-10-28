@@ -582,39 +582,13 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
       </MotionItem>
 
       <MotionItem as="section" className={styles.card}>
-        <div className={styles.totalStack}>
-          <div className={styles.totalSelect}>
-            <SelectField
-              label="Total Experience"
-              value={data.totalExperience}
-              options={experienceOptions}
-              placeholder="Select experience"
-              onChange={(value) => onChange('totalExperience', value)}
-            />
-          </div>
-          <motion.aside
-            className={styles.motivate}
-            whileHover={{ y: -3, scale: 1.01 }}
-          >
-            <div className={styles.motivateIcon} aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M4 19V11M10 19V7M16 19V13M22 19H2"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
-            <div>
-              <p className={styles.motivateTitle}>Keep going!</p>
-              <p>
-                You&apos;re doing great. This information helps us find the best
-                opportunities for you.
-              </p>
-            </div>
-          </motion.aside>
-        </div>
+        <SelectField
+          label="Total Experience"
+          value={data.totalExperience}
+          options={experienceOptions}
+          placeholder="Select experience"
+          onChange={(value) => onChange('totalExperience', value)}
+        />
       </MotionItem>
 
     </MotionStack>

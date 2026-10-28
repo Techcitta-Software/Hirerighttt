@@ -82,27 +82,24 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       <span className={styles.calendarIcon}><Icon kind="calendar" /></span>
       <div><h1>{data.resumeFile || getProfile()?.resumeName ? 'Great! Your resume is uploaded successfully! 🎉' : 'Great! Let’s get your AI interview scheduled! 🎉'}</h1><h2>Let&apos;s book your 15-minute AI interview. Choose a time that works best for you.</h2></div>
     </header>
-    <section className={styles.benefits} aria-label="Interview benefits">
-      <span className={styles.sparkles} aria-hidden="true">✦<small>✦</small></span>
-      <div className={styles.benefitCopy}><h2 className={styles.benefitTitle}>Just 15 minutes to open doors to endless opportunities.</h2><h3 className={styles.benefitText}>Our AI interview is designed to understand you better and match you with roles where you can shine.</h3></div>
-      <div className={styles.benefitIcons}>
-        <div><span><Icon kind="clock" /></span><p>15 Min<br />Interview</p></div>
-        <div><span><Icon kind="brain" /></span><p>AI-Powered<br />Assessment</p></div>
-        <div><span><Icon kind="lock" /></span><p>Secure &amp;<br />Private</p></div>
-      </div>
-    </section>
+    <div className={styles.immediateSection}>
+      <h3 className={styles.immediateTitle}>Book an Interview Immediately</h3>
+      <p className={styles.immediateDesc}>
+        Ready right now? Skip scheduling and start your 15-minute live AI interview immediately.
+      </p>
+      <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
+        <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
+        Take interview immediately
+      </button>
+    </div>
+
+    <div className={styles.orDivider} aria-hidden="true">
+      <span>(or)</span>
+    </div>
+
     <section className={styles.bookingSection}>
       <div className={styles.bookingHeading}>
-        <h2>4. Select Your 15-Minute Interview Slot</h2>
-        <div className={styles.bookingHeadingRight}>
-          <span className={styles.durationBadge}>
-            <Icon kind="clock" /> Interview duration: 15 minutes
-          </span>
-          <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
-            <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
-            Take interview immediately
-          </button>
-        </div>
+        <h2>Select Your 15-Minute Interview Slot</h2>
       </div>
       <h3 className={styles.timezone}>All times are shown in <span>(IST) Asia/Kolkata</span></h3>
       <div className={styles.bookingGrid}>
@@ -127,6 +124,5 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
       <div className={styles.assurance}><Icon kind="refresh" /><p>Reschedule or change time anytime</p></div>
       <div className={styles.assurance}><Icon kind="shield" /><p>Smooth, secure and distraction-free experience</p></div>
     </section>
-    <section className={styles.readyCard}><span className={styles.confetti} aria-hidden="true">🎉</span><div><h2>All Set! You&apos;re Good to Go!</h2><h3>We&apos;re looking forward to your interview.<br />Get ready to showcase <strong>your best</strong> self.</h3><p>Use <strong>Save &amp; Submit</strong> below to save your slot and receive your confirmation email.</p></div><span className={styles.readyCheck}><Icon kind="check" /></span></section>
   </div>
 }

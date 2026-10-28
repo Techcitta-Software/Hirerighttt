@@ -68,6 +68,7 @@ import {
   createMoonshineVadSttController,
   type MoonshineVadSttController,
 } from '../lib/moonshineVadStt'
+import { shouldStickToWebSpeechFallback } from '../lib/interviewSttFallback'
 import { moonshineStt, type MoonshineState } from '../lib/moonshineStt'
 import {
   isLobbyLocalSttReady,
@@ -329,7 +330,7 @@ export function InterviewPage() {
   }, [listening])
 
   useEffect(() => {
-    moonshineStt.startGradualPreloadAfterLogin(0)
+    moonshineStt.preloadNow()
     return moonshineStt.subscribe((s) => {
       sttReadyRef.current = s.status === 'ready'
       setSttState(s)
@@ -410,6 +411,9 @@ export function InterviewPage() {
         setSttPhase('idle')
       },
       onTranscriptionMiss: (reason) => {
+        if (!shouldStickToWebSpeechFallback(reason)) {
+          return
+        }
         setDeviceError(
           `${reason} You can type your answer below or keep speaking.`,
         )
@@ -929,7 +933,14 @@ export function InterviewPage() {
           () => lobbySttSnapshotRef.current,
           {
             waitMoonshine: (maxMs) => moonshineStt.waitUntilReady(maxMs),
-            waitVad: async () => true,
+            waitVad: async (maxMs) => {
+              const deadline = Date.now() + maxMs
+              while (Date.now() < deadline) {
+                if (lobbySttSnapshotRef.current.vadReady) return true
+                await new Promise((r) => setTimeout(r, 200))
+              }
+              return lobbySttSnapshotRef.current.vadReady
+            },
             pollMs: 250,
           },
         )

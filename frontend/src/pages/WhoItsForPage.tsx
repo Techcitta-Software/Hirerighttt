@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
@@ -86,16 +85,6 @@ export function WhoItsForPage() {
             ))}
           </div>
 
-          <motion.div
-            className={styles.ctaArea}
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-          >
-            <Link to="/signup" className={styles.ctaBtn}>
-              START MY CAREER DISCOVERY
-            </Link>
-          </motion.div>
           </div>
         </div>
       </section>

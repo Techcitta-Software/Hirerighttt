@@ -53,14 +53,38 @@
   --font-weight-bold: 700;
   --font-weight-extrabold: 800;
 
+  /* ── Page & Dashboard backgrounds (plain white foundation) ── */
+  --color-bg-page: #ffffff;
+  --color-bg-dashboard: #ffffff;
+  --color-bg-surface: #ffffff;
+  --color-bg-app-nav: #ffffff;
+  --dash-bg: #ffffff;
+  --employer-bg: #ffffff;
+  --app-shell-bg: #ffffff;
+
   /* ── Text colors ── */
   --color-text-primary: #141638;
   --color-text-secondary: #334155;
   --color-text-muted: #5f6686;
   --color-text-subtle: #64748b;
   --color-text-inverse: #ffffff;
-  --color-text-accent: #6366f1;
-  --color-text-link: #2563eb;
+  /* Brand gradient (purple → blue) — single source for accents */
+  --hr-brand-gradient-start: #5046e5;
+  --hr-brand-gradient-end: #4f95ff;
+  --hr-brand-gradient-angle: 90deg;
+  --hr-brand-gradient: linear-gradient(
+    var(--hr-brand-gradient-angle),
+    var(--hr-brand-gradient-start) 0%,
+    var(--hr-brand-gradient-end) 100%
+  );
+  --hr-brand-gradient-text: var(--hr-brand-gradient);
+  --hr-brand-gradient-bg: var(--hr-brand-gradient);
+  --hr-brand-solid: var(--hr-brand-gradient-start);
+  --hr-brand-solid-hover: #4338ca;
+  --hr-brand-glow: rgba(80, 70, 229, 0.35);
+
+  --color-text-accent: var(--hr-brand-solid);
+  --color-text-link: var(--hr-brand-solid);
 
   /* Marketing alias (legacy module vars) */
   --text-main: var(--color-text-primary);
@@ -114,8 +138,7 @@
 
   /* Brand wordmark (text logo) */
   --logo-color-hire: #0a1128;
-  /* Matches primary actions (e.g. View Report — #6550ce) */
-  --logo-color-right: #6550ce;
+  --logo-color-right: var(--hr-brand-solid);
   --logo-color-tagline: #6b7280;
   --logo-color-hire-on-dark: #ffffff;
   --logo-color-right-on-dark: #b8acf5;
@@ -277,14 +300,41 @@
   margin-top: var(--space-2);
 }
 
+/* ── Brand gradient utilities ── */
+.hr-brand-gradient-text {
+  background: var(--hr-brand-gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.hr-brand-gradient-bg {
+  background: var(--hr-brand-gradient-bg);
+  color: var(--color-text-inverse);
+}
+
+.hr-brand-gradient-border {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--bg-surface, #ffffff), var(--bg-surface, #ffffff)) padding-box,
+    var(--hr-brand-gradient) border-box;
+  color: var(--hr-brand-solid);
+}
+
+.hr-brand-accent {
+  color: var(--hr-brand-solid);
+}
+
 /* ── Brand wordmark (text logo — no image) ── */
 .hr-logo,
 .brand-logo {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.15rem;
-  line-height: 1;
+  gap: 0.05rem;
+  line-height: 1.25;
+  overflow: visible;
   user-select: none;
   text-decoration: none;
   color: inherit;
@@ -297,14 +347,35 @@
   font-weight: var(--logo-wordmark-weight);
   letter-spacing: var(--logo-wordmark-tracking);
   white-space: nowrap;
+  line-height: 1.25;
+  overflow: visible;
+  padding-bottom: 0;
 }
 
 .hr-logo__hire {
   color: var(--logo-color-hire);
 }
 
+/* Extra wrapper so gradient text (background-clip) keeps full descenders (e.g. “g” in Right). */
+.hr-logo__rightShell {
+  display: inline-block;
+  line-height: 1;
+  vertical-align: baseline;
+  overflow: visible;
+  /* Tight to letters; padding reserves “g” descender without a tall line box */
+  padding-bottom: 0.1em;
+}
+
 .hr-logo__right {
-  color: var(--logo-color-right);
+  display: block;
+  line-height: 1.2;
+  background: var(--hr-brand-gradient-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .hr-logo__tagline {
@@ -319,6 +390,8 @@
   text-align: justify;
   text-align-last: justify;
   line-height: 1.2;
+  margin-top: 0;
+  overflow: visible;
 }
 
 .hr-logo--sm .hr-logo__wordmark {
@@ -360,7 +433,15 @@
 }
 
 .hr-logo--dark .hr-logo__right {
-  color: var(--logo-color-right-on-dark);
+  background: linear-gradient(
+    var(--hr-brand-gradient-angle),
+    #c4b5fd 0%,
+    var(--hr-brand-gradient-end) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .hr-logo--dark .hr-logo__tagline {
