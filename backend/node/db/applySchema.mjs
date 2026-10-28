@@ -11,6 +11,7 @@ export const SCHEMA_FILES = [
   'schema-assessment.sql',
   'schema-interview-invites.sql',
   'schema-files.sql',
+  'schema-role-skills.sql',
 ]
 
 export function readAllSchemaSql() {
@@ -50,4 +51,5 @@ export const EXPECTED_TABLES = [
   'stored_files',
   'interview_recordings',
   'interview_artifacts',
+  'role_skill_library',
 ]

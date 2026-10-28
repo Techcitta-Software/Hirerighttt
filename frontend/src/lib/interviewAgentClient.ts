@@ -10,7 +10,11 @@ import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
 import { candidateFullName } from './store'
 import { generateLocalAdaptiveQuestion, INTERVIEW_TURN_COUNT } from './adaptiveInterview'
-import { generateAdaptiveQuestionClient } from './interviewQuestionGeneration'
+import {
+  generateAdaptiveQuestionClient,
+  resolveInterviewTotalTurns,
+  summarizeProfileForQuestions,
+} from './interviewQuestionGeneration'
 import {
   buildResumeInterviewQuestions,
   runLocalInterviewScore,
@@ -257,6 +261,13 @@ export async function startInterviewSession(
     console.warn('[interview] server start failed — continuing offline (no video/review sync):', err)
   }
 
+  const offlineTotalTurns = resolveInterviewTotalTurns(
+    agentProfile,
+    level,
+    summarizeProfileForQuestions(agentProfile),
+    role,
+  )
+
   // 2. Direct adaptive question (one LLM call — same spec as server)
   if (clientLlmAllowed()) {
     const firstLlm = await generateAdaptiveQuestionClient({
@@ -272,7 +283,7 @@ export async function startInterviewSession(
         sessionId: `gemini-${Date.now().toString(36)}`,
         agent: 'Ava · adaptive LLM (client)',
         llm: true,
-        total: INTERVIEW_TURN_COUNT,
+        total: offlineTotalTurns,
         questions: [firstLlm],
         question: firstLlm,
         offline: true,
@@ -294,7 +305,7 @@ export async function startInterviewSession(
     sessionId: `local-${Date.now().toString(36)}`,
     agent: 'Ava · local adaptive agent',
     llm: false,
-    total: INTERVIEW_TURN_COUNT,
+    total: offlineTotalTurns,
     questions: [firstAdaptive],
     question: firstAdaptive,
     offline: true,

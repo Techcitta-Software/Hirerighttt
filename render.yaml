@@ -1,7 +1,13 @@
-# HireRight Node API — Render Blueprint (repo: backend/node)
-# Apply: Render Dashboard → New → Blueprint → branch main
-# Set every `sync: false` key from repo-root `.env` (never commit secrets here).
-# Do NOT add VITE_* vars here — those belong on Vercel only.
+# HireRight Node API — Render Blueprint
+# Repo layout: service root = backend/node (Express on PORT from Render)
+#
+# Deploy: Dashboard → New → Blueprint → connect repo → pick branch (dev or main)
+# After first sync: Environment → fill every key marked sync: false from repo-root .env
+# Frontend: Vercel (hire-rightt) proxies /api → this service (update vercel.json destination if URL changes)
+#
+# One-time S3 (any machine with AWS + .env): add production frontend to CORS_ORIGINS, then:
+#   npm run s3:cors
+# so browser video PUTs work from https://hire-rightt.vercel.app (not configured by this file).
 
 services:
   - type: web
@@ -10,48 +16,43 @@ services:
     plan: free
     region: oregon
     rootDir: backend/node
-    # Render sets PORT automatically — do not override. CI=true skips Chromium unless forced below.
+    # PLAYWRIGHT_INSTALL_CHROMIUM=1 overrides Render/CI skip in postinstall (~300MB; needs Starter+ if build OOMs on free)
     buildCommand: PLAYWRIGHT_INSTALL_CHROMIUM=1 npm install
     startCommand: node index.mjs
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      # ─── Build / runtime ───
-      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
-        value: "1"
-      # Server PDFs need Chromium; on free tier keep disabled or set PLAYWRIGHT_INSTALL_CHROMIUM=1 on paid + remove skip.
-      - key: SCORECARD_PDF_DISABLED
-        value: "1"
+      # ─── Runtime (aligned with .env.example production) ───
       - key: NODE_ENV
         value: production
       - key: ENVIRONMENT
         value: production
       - key: TRUST_PROXY
         value: "true"
-
-      # ─── Auth & API ───
-      - key: SESSION_SECRET
-        generateValue: true
-      - key: DATABASE_URL
-        sync: false
-      - key: CORS_ORIGINS
-        # Replace with your exact Vercel production URL (and preview URLs if needed)
-        value: "https://hire-rightt.vercel.app,http://localhost:5173"
       - key: ALLOW_DEMO_ACCOUNTS
         value: "false"
       - key: SIGNUP_ENABLED
         value: "true"
+      - key: MAX_REQUEST_BYTES
+        value: "3000000"
+      - key: STRICT_PRODUCTION_CONFIG
+        value: "true"
+
+      # ─── Auth & database ───
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+
+      # ─── Frontend URLs (Express CORS + invite links) ───
+      - key: CORS_ORIGINS
+        value: "https://hire-rightt.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
       - key: INVITE_JOIN_WINDOW_MINUTES
         value: "5"
-      - key: MAX_REQUEST_BYTES
-        value: "3000000"
-      # Optional: set true to hard-fail boot on missing GEMINI / SESSION / CORS
-      - key: STRICT_PRODUCTION_CONFIG
-        value: "false"
 
-      # ─── Storage: Neon + S3 (matches local DISABLE_SUPABASE=true) ───
+      # ─── Storage: Neon metadata + S3 blobs (DISABLE_SUPABASE=true) ───
       - key: DISABLE_SUPABASE
         value: "true"
       - key: AWS_REGION
@@ -64,7 +65,6 @@ services:
         sync: false
       - key: AWS_SESSION_TOKEN
         sync: false
-      # Optional safety pin — must match S3_BUCKET if set
       - key: S3_EXPECTED_BUCKET
         sync: false
       - key: S3_DEFAULT_TENANT_ID
@@ -75,21 +75,23 @@ services:
         value: "104857600"
       - key: S3_MAX_REPORT_BYTES
         value: "12000000"
-      # Neon backup script (optional; not required for web service boot)
       - key: S3_BACKUP_BUCKET
         sync: false
       - key: S3_BACKUP_PREFIX
         value: neon/hireright/
 
-      # ─── AI (server-side interview / resume) ───
+      # ─── Interview report PDFs (Playwright Chromium — installed in buildCommand) ───
+      # Do not set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD or SCORECARD_PDF_DISABLED here.
+
+      # ─── AI — server interview / resume (.env.example) ───
       - key: GEMINI_API_KEY
         sync: false
       - key: PRIMARY_MODEL
-        value: gemini-3.5-flash-lite
+        value: gemini-3.1-flash-lite
       - key: FAST_MODEL
-        value: gemini-3.5-flash-lite
+        value: gemini-3.1-flash-lite
       - key: FALLBACK_MODEL
-        value: gemini-3.5-flash-lite
+        value: gemini-3.1-flash-lite
       - key: OPENAI_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta/openai
       - key: OPENAI_API_KEY
@@ -97,15 +99,7 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
 
-      # ─── Groq Whisper (server STT — never expose to Vite) ───
-      - key: GROQ_API_KEY
-        sync: false
-      - key: GROQ_WHISPER_MODEL
-        value: whisper-large-v3-turbo
-      - key: GROQ_WHISPER_LANGUAGE
-        value: en
-
-      # ─── Email (Gmail App Password — same as mailer.mjs / local .env) ───
+      # ─── Gmail SMTP (mailer.mjs — not SendGrid) ───
       - key: SMTP_EMAIL
         sync: false
       - key: SMTP_APP_PASSWORD
@@ -113,8 +107,8 @@ services:
       - key: EMAIL_FROM
         sync: false
 
-      # ─── Optional ops / labeling ───
+      # ─── Optional ops ───
       - key: API_BUILD_ID
-        value: hireright-neon-2026-10-16
+        value: hireright-render-2026-10-27
       - key: DNS_SERVERS
         sync: false

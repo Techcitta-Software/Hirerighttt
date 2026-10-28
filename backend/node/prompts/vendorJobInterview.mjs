@@ -1,4 +1,4 @@
-import { buildStructuredTurnQuestion, structuredPlanSummary, resolveExactInterviewRole, questionMatchesPlan } from '../interviewQuestionPlan.mjs'
+import { buildStructuredTurnQuestion, structuredPlanSummary, resolveExactInterviewRole, questionMatchesPlan, isTheoryTurnForPlan, selectProjectForInterview } from '../interviewQuestionPlan.mjs'
 import { CATEGORIES, callLlmApi, firstNameFromFull, INTERVIEW_TURN_COUNT } from '../interviewAgent.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
@@ -288,21 +288,24 @@ export async function generateVendorJobQuestion(input, deps = {}) {
   const turnNumber = history.length + 1
   const ctx = input.ctx || { skills: input.profile?.skills || [], jobs: (input.profile?.workExperiences || []).map(w => `${w.jobTitle || ''} at ${w.company || ''}`), certs: (input.profile?.certifications || []).map(c => c.name), achievements: input.profile?.achievements || [], resumeSnippet: input.profile?.resumeText || '' }
   const role = resolveExactInterviewRole(input.profile || {}, input.jobTitle || input.role)
-  const plan = structuredPlanSummary(role, ctx, input.profile || null, input.level || '')
-  const fallback = buildStructuredTurnQuestion({ turnNumber, first: firstNameFromFull(input.candidateName || ctx.name || ''), level: input.level || '', profile: input.profile || null, ctx, roleOverride: role, history })
+  const varietySeed = input.varietySeed || String(Math.random())
+  const plan = structuredPlanSummary(role, ctx, input.profile || null, input.level || '', null, null, varietySeed)
+  const fallback = buildStructuredTurnQuestion({ turnNumber, first: firstNameFromFull(input.candidateName || ctx.name || ''), level: input.level || '', profile: input.profile || null, ctx, roleOverride: role, history, planSummary: plan, varietySeed })
   if (!fallback) throw new Error('The six-question interview is complete.')
-  const theory = plan.fresher ? turnNumber <= 2 : turnNumber === 3 || turnNumber === 4
+  const theory = isTheoryTurnForPlan(plan, turnNumber)
   const system = `You are Ava, the same professional live interviewer. Generate exactly one question as JSON.
-Follow this mandatory six-question plan: ${JSON.stringify(plan.turnPlan)}.
+Follow this mandatory interview plan: ${JSON.stringify(plan.turnPlan)}.
 This is turn ${turnNumber}: ${plan.turnPlan[turnNumber - 1]}. Experience: ${input.profile?.totalExperience || input.level || 'not specified'}.
-Analyze the current role and experience to calibrate depth. The two designated skills are ${plan.recommendedSkills.join(', ')}.
+Analyze the current role and experience to calibrate depth. The designated skills are ${plan.recommendedSkills.join(', ')}.
 For theory slots, ask one clear conceptual question on the assigned skill, never a résumé example, past-work story or coding exercise. Use that skill as topic and omit resumeAnchor.
-For freshers, skill one is a known programming language and skill two is SQL; do not assume employment.
+For freshers, use the assigned role skills at beginner level without assuming past experience; SQL is not a mandatory slot; do not assume employment. Assess the concept in slotExample using fresh wording. Vary concepts across sessions: OOP, functions, collections, control flow, exceptions, testing, keys, aggregation, subqueries, constraints and transactions as appropriate. Never repeat a previously assessed concept even with different wording.
+- Use short sentences and simple words at every experience level. Under 2 years: basics and small implementation steps; 2 to under 5 years: debugging, testing and practical choices; 5+ years: design choices, reliability and consequences. Use the numeric experienceYears and difficulty in the payload; a senior job title alone must not increase difficulty.
+- In project slots, use the supplied projectContext and lastAnswer to ask ONE technical question about how the candidate built, tested or fixed a specific part. Keep the same project for its follow-up. Only mention tools or results present in that project or the answer. If evidence is missing, ask the candidate to choose a real project. Do not invent scale, architecture, employers or outcomes.
 Use supplied work/project/certification evidence only in the relevant slots. Never invent employers, projects or credentials.
 The JD provides role context but must not override the slot or convert a theory question into a personal work question.
-Do not repeat prior questions. Keep a natural conversational tone and one main question.
+Do not repeat prior questions. Use simple, everyday words and short sentences, with one main question. Keep necessary skill names, but avoid unnecessary jargon. Ask neutral questions based on the supplied role and experience; never ask candidates to prove or verify past employment or defend resume claims. Avoid lead-ins such as "you said", "you claim", or "you have worked". Ask what they know or how they would approach a task. Calibrate depth to years: under 2 years fundamentals, 2 to under 5 practical application, 5+ design choices and problem solving. Mentioning a skill must not raise the experience tier.
 Return {"question":{"text":"...","category":"Technical|Experience|Problem Solving|Communication","keywords":[],"hint":"...","topic":"..."}}.`
-  const user = JSON.stringify({ role, experience: input.level, jobDescription: input.jobDescription, candidateSummary: theory ? undefined : ctx, priorQuestions: history.map(h => h.question?.text || h.question), lastAnswer: theory ? undefined : input.lastAnswer, slotExample: fallback })
+  const user = JSON.stringify({ role, experience: input.level, experienceYears: plan.experienceYears, difficulty: plan.difficulty, topRoleSkills: plan.topRoleSkills, selectedProject: theory ? undefined : selectProjectForInterview(input.profile || null, ctx, role, varietySeed), jobDescription: input.jobDescription, candidateSummary: theory ? undefined : ctx, priorQuestions: history.map(h => h.question?.text || h.question), lastAnswer: theory ? undefined : input.lastAnswer, slotExample: fallback })
   for (const temperature of [0.55, 0.35]) {
     const llm = await callLlm({ system, user, temperature, tier: 'quality' })
     if (!llm?.text) continue

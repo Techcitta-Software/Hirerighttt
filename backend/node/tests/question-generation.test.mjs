@@ -52,7 +52,7 @@ test('local question generation follows the spec without a Gemini key', async ()
   assert.ok(first.text.length >= 24)
   assert.ok(CATEGORIES.includes(first.category))
   assert.ok(
-    String(first.focus || '').startsWith('structured-work') ||
+    String(first.focus || '').startsWith('structured-opening') ||
       String(first.focus || '').startsWith('structured-theory'),
     `expected structured turn focus, got: ${first.focus}`,
   )
@@ -69,7 +69,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: javaAnswer }],
     lastAnswer: javaAnswer,
   })
-  assert.match(second.text, /problem|challenge|decision|trade-off/i)
+  assert.match(second.focus, /structured-theory/)
   assert.notEqual(second.text.slice(0, 40), first.text.slice(0, 40))
   assert.ok(second.text.length >= 24)
 
@@ -80,7 +80,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [{ question: first, answer: 'ok' }],
     lastAnswer: 'ok',
   })
-  assert.match(thin.text, /problem|challenge|decision|trade-off/i)
+  assert.match(thin.focus, /structured-theory/)
   assert.doesNotMatch(thin.text, /TechCitta|Initech/)
   assert.notEqual(thin.text.slice(0, 40), first.text.slice(0, 40))
 
@@ -91,7 +91,7 @@ test('local question generation follows the spec without a Gemini key', async ()
     history: [],
     lastAnswer: '',
   })
-  assert.match(anon.text, /Python|Backend|concrete|describe/i)
+  assert.match(anon.text, /Node\.js|PostgreSQL|REST APIs|Backend|concrete|describe/i)
   assert.equal(anon.category, 'Technical')
   assert.doesNotMatch(anon.text, /\bthere\b|\bArjun\b|\bCandidate\b/)
 

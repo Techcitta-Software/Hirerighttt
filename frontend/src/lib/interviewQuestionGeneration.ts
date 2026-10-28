@@ -1,3 +1,4 @@
+import { selectFresherConcept } from './fresherConcepts'
 /**
  * Adaptive interview question generation — mirrors `question-generation.md` and
  * `backend/node/interviewAgent.mjs` (`generateAdaptiveQuestion`, `summarizeProfile`).
@@ -8,13 +9,31 @@ import { candidateFullName } from './store'
 import { clientLlmAllowed } from './clientLlm'
 import {
   buildStructuredTurnQuestion,
-  recommendTopSkillsForRole,
   resolveExactInterviewRole,
   structuredPlanSummary,
+  extractResumeProjects,
+  selectProjectForInterview,
   questionMatchesPlan,
+  isTheoryTurnForPlan,
+  FRESHER_INTERVIEW_TURN_COUNT,
+  isPlanFresher,
+  analyzeOpeningAnswerAlignment,
 } from './interviewQuestionPlan'
+import { getSkillsForRole } from './roleSkillStore'
 
-export const INTERVIEW_TURN_COUNT = 6
+/** Default turn count for freshers; experienced interviews use role skill count + 2. */
+export const INTERVIEW_TURN_COUNT = FRESHER_INTERVIEW_TURN_COUNT
+
+export function resolveInterviewTotalTurns(
+  profile: SavedProfile | null,
+  level: string,
+  ctx: ProfileDigest,
+  roleOverride = '',
+): number {
+  const exactRole = resolveExactInterviewRole(profile, roleOverride)
+  const roleSkills = isPlanFresher(profile, ctx, level) ? null : getSkillsForRole(exactRole)
+  return structuredPlanSummary(exactRole, ctx, profile, level, roleSkills).totalTurns
+}
 
 const CATEGORIES = ['Communication', 'Technical', 'Problem Solving', 'Experience'] as const
 const DEMO_ACCOUNT_NAME = 'Arjun Sharma'
@@ -129,26 +148,37 @@ export function buildAdaptiveQuestionSystemPrompt(options: {
   level: string
   first: string
   planSummary?: ReturnType<typeof structuredPlanSummary>
+  totalTurns?: number
+  varietySeed?: string
 }): string {
   const nameRule =
     options.first === 'there'
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
       : `You may use the first name "${options.first}" once if natural.`
+  const totalTurns = options.totalTurns || options.planSummary?.totalTurns || INTERVIEW_TURN_COUNT
   const planRule = options.planSummary
-    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow the six slots exactly. Theory slots assess concepts in the two assigned skills, not resume examples. Calibrate concept depth to years of experience. Do not require production work from freshers.`
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow each slot exactly. One theory question per assigned skill; recent-work slots use the most recent employment. Calibrate concept depth to years of experience. Do not require production work from freshers.`
+    : ''
+  const varietyRule = options.varietySeed
+    ? `- Use varietySeed "${options.varietySeed}" to pick a fresh angle within the slot. Candidates with the same role and experience must not receive identical wording across sessions.`
     : ''
   return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
+For fresher theory turns, use selectedConcept as the concept to assess. Write a fresh beginner-level question about it. Cover varied concepts across sessions, including OOP, functions, collections, control flow, error handling, testing and database fundamentals where supported by the assigned language or skill. Never repeat a concept already assessed in priorQuestions, even with different wording; choose another relevant concept if necessary.
 
 Rules:
-- This is question ${options.turnNumber} of ${INTERVIEW_TURN_COUNT}. Never repeat or lightly rephrase any prior question.
+- This is question ${options.turnNumber} of ${totalTurns}. Never repeat or lightly rephrase any prior question.
 - Use the candidate resume, role "${options.exactRole || options.role}", experience "${options.level}", job description (if any), and their last answer to choose the next realistic topic.
 - One clear idea per question — how a real hiring manager speaks.
+- Use short sentences and simple words at every experience level. Under 2 years: basics and small implementation steps; 2 to under 5 years: debugging, testing and practical choices; 5+ years: design choices, reliability and consequences. Use the numeric experienceYears and difficulty in the payload; a senior job title alone must not increase difficulty.
+- In project slots, use the supplied projectContext and lastAnswer to ask ONE technical question about how the candidate built, tested or fixed a specific part. Use selectedProject for the first project question; follow the project actually discussed in lastAnswer for the second question. Only mention tools or results present in that project or the answer. If evidence is missing, ask the candidate to choose a real project. Do not invent scale, architecture, employers or outcomes.
+- For freshers, use short sentences and simple words. Ask about the assigned role skill without assuming prior work with it; SQL is not mandatory in every fresher session. Keep concepts at beginner level and assess a different concept from earlier questions.
 - In a theory slot, ask about a specific concept within the assigned skill; no personal work stories, résumé references, coding exercise or invented projects. Leave resumeAnchor empty and set topic to the assigned skill.
 - Work/project/certification slots may use supplied history. If evidence is missing, ask neutrally rather than assuming a company or credential.
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
 - category must be one of: Communication, Technical, Problem Solving, Experience.
 ${planRule}
+${varietyRule}
 
 Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}`
 }
@@ -163,17 +193,26 @@ export function buildAdaptiveQuestionUserPayload(options: {
   jobDescription?: string
   ctx: ProfileDigest
   priorTexts: string[]
+  profile?: SavedProfile | null
   lastAnswer: string
+  totalTurns?: number
+  varietySeed?: string
 }): string {
-  const theory = options.planSummary && (options.planSummary.fresher ? options.turnNumber <= 2 : options.turnNumber === 3 || options.turnNumber === 4)
+  const theory = options.planSummary && isTheoryTurnForPlan(options.planSummary, options.turnNumber)
+  const totalTurns = options.totalTurns || options.planSummary?.totalTurns || INTERVIEW_TURN_COUNT
   return JSON.stringify({
     turnNumber: options.turnNumber,
-    totalTurns: INTERVIEW_TURN_COUNT,
+    totalTurns,
+    questionVarietySeed: options.varietySeed || null,
+    selectedConcept: theory && options.planSummary?.fresher ? selectFresherConcept(options.planSummary.recommendedSkills[options.turnNumber - 1], options.varietySeed, options.turnNumber, options.priorTexts) : undefined,
     roleTrack: options.exactRole || options.role,
     exactRole: options.exactRole || options.role,
     recommendedSkillsForRole: options.planSummary?.recommendedSkills || options.recommendedSkills || [],
     interviewPlan: options.planSummary?.turnPlan || [],
     experienceLevel: options.level,
+    experienceYears: options.planSummary?.experienceYears,
+    difficulty: options.planSummary?.difficulty,
+    topRoleSkills: options.planSummary?.topRoleSkills,
     jobDescription: options.jobDescription?.trim() || null,
     candidateSummary: theory ? undefined : {
       skills: options.ctx.skills.slice(0, 16),
@@ -182,6 +221,8 @@ export function buildAdaptiveQuestionUserPayload(options: {
       certifications: options.ctx.certs.slice(0, 5),
       resumeSnippet: options.ctx.resumeSnippet.slice(0, 2800),
     },
+    selectedProject: theory ? undefined : selectProjectForInterview(options.profile || null, options.ctx, options.exactRole || options.role, options.varietySeed),
+    projectContext: theory ? undefined : extractResumeProjects(options.profile || null, options.ctx, options.exactRole || options.role).slice(0, 5),
     priorQuestions: options.priorTexts,
     lastAnswer: theory ? null : options.lastAnswer.trim() || null,
   })
@@ -487,13 +528,23 @@ export function generateAdaptiveQuestionLocal(options: {
   jobDescription?: string
   history: { question: Question; answer: string }[]
   lastAnswer: string
+  varietySeed?: string
+  openingAnalysis?: ReturnType<typeof analyzeOpeningAnswerAlignment> | null
 }): Question {
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
   const role = options.role || 'Full Stack Engineer'
   const exactRole = resolveExactInterviewRole(options.profile, role)
   const level = options.level || '1–3 years'
+  const roleSkills = isPlanFresher(options.profile, ctx, level) ? null : getSkillsForRole(exactRole)
+  const openingAnalysis =
+    options.openingAnalysis ||
+    (!isPlanFresher(options.profile, ctx, level) && options.history[0]?.answer
+      ? analyzeOpeningAnswerAlignment(options.history[0].answer, roleSkills || [], ctx)
+      : null)
+  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, level, roleSkills, openingAnalysis, options.varietySeed)
+  const totalTurns = planSummary.totalTurns
   const history = options.history || []
-  if (history.length >= INTERVIEW_TURN_COUNT) {
+  if (history.length >= totalTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
   const lastAnswer = clean(options.lastAnswer)
@@ -511,6 +562,11 @@ export function generateAdaptiveQuestionLocal(options: {
     roleOverride: exactRole,
     history,
     senior: isSeniorExperienceLevel(level),
+    planSummary,
+    roleSkills,
+    varietySeed: options.varietySeed,
+    openingAnalysis,
+    lastAnswer: options.lastAnswer,
   })
   if (structured) {
     const planned = normalizeAdaptiveQuestion(structured, priorTexts)
@@ -559,16 +615,16 @@ export function generateAdaptiveQuestionLocal(options: {
 
   candidates.push({
     text: buildLevelFallbackQuestion(first, role, level, turnNumber),
-    category: turnNumber >= INTERVIEW_TURN_COUNT ? 'Communication' : 'Problem Solving',
+    category: turnNumber >= totalTurns ? 'Communication' : 'Problem Solving',
     keywords: unique(['experience', 'outcome', role.toLowerCase()]),
     hint: 'Give a concrete example with tools and outcome.',
-    topic: turnNumber >= INTERVIEW_TURN_COUNT ? 'Closing' : 'Interview',
+    topic: turnNumber >= totalTurns ? 'Closing' : 'Interview',
     focus: 'adaptive-local',
   })
   candidates.push({
     text: spokenLead(
       first,
-      `for question ${turnNumber} of ${INTERVIEW_TURN_COUNT}, describe a result you personally produced for ${role} work — what you did and how you knew it worked.`,
+      `for question ${turnNumber} of ${totalTurns}, describe a result you personally produced for ${role} work — what you did and how you knew it worked.`,
     ),
     category: 'Experience',
     keywords: unique(['result', role.toLowerCase()]),
@@ -649,12 +705,32 @@ export async function generateAdaptiveQuestionClient(options: {
   jobDescription?: string
   history: { question: Question; answer: string }[]
   lastAnswer: string
+  varietySeed?: string
+  openingAnalysis?: ReturnType<typeof analyzeOpeningAnswerAlignment> | null
 }): Promise<Question> {
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
   const exactRole = resolveExactInterviewRole(options.profile, options.role)
-  const recommendedSkills = recommendTopSkillsForRole(exactRole, ctx)
-  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, options.level)
-  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+  const roleSkills = isPlanFresher(options.profile, ctx, options.level) ? null : getSkillsForRole(exactRole)
+  const openingAnalysis =
+    options.openingAnalysis ||
+    (!isPlanFresher(options.profile, ctx, options.level) && options.history[0]?.answer
+      ? analyzeOpeningAnswerAlignment(options.history[0].answer, roleSkills || [], ctx)
+      : null)
+  const varietySeed =
+    options.varietySeed ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 16) : String(Date.now()))
+  const planSummary = structuredPlanSummary(
+    exactRole,
+    ctx,
+    options.profile,
+    options.level,
+    roleSkills,
+    openingAnalysis,
+    varietySeed,
+  )
+  const recommendedSkills = planSummary.recommendedSkills
+  const totalTurns = planSummary.totalTurns
+  if (options.history.length >= totalTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
   const turnNumber = options.history.length + 1
@@ -667,9 +743,11 @@ export async function generateAdaptiveQuestionClient(options: {
     turnNumber,
     role: options.role,
     exactRole,
-    level: options.level,
+    level: clean(options.profile?.totalExperience) || options.level,
     first,
     planSummary,
+    totalTurns,
+    varietySeed,
   })
   const user = buildAdaptiveQuestionUserPayload({
     turnNumber,
@@ -677,9 +755,12 @@ export async function generateAdaptiveQuestionClient(options: {
     exactRole,
     recommendedSkills,
     planSummary,
-    level: options.level,
+    totalTurns,
+    varietySeed,
+    level: clean(options.profile?.totalExperience) || options.level,
     jobDescription: options.jobDescription,
     ctx,
+    profile: options.profile,
     priorTexts,
     lastAnswer: options.lastAnswer,
   })
@@ -697,5 +778,5 @@ export async function generateAdaptiveQuestionClient(options: {
       // retry temperature
     }
   }
-  return generateAdaptiveQuestionLocal(options)
+  return generateAdaptiveQuestionLocal({ ...options, varietySeed })
 }

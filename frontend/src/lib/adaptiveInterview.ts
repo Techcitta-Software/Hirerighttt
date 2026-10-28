@@ -8,6 +8,8 @@ import {
   generateAdaptiveQuestionClient,
   generateAdaptiveQuestionLocal,
   INTERVIEW_TURN_COUNT,
+  resolveInterviewTotalTurns,
+  summarizeProfileForQuestions,
 } from './interviewQuestionGeneration'
 
 export { INTERVIEW_TURN_COUNT }
@@ -50,11 +52,20 @@ export async function fetchNextAdaptiveQuestion(options: {
   profile: SavedProfile | null
   jobDescription?: string
   explicitRoleTrack?: boolean
+  totalTurns?: number
   history: { question: Question; answer: string }[]
   lastQuestion: Question
   lastAnswer: string
 }): Promise<Question> {
-  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+  const maxTurns =
+    options.totalTurns ??
+    resolveInterviewTotalTurns(
+      options.profile,
+      options.level,
+      summarizeProfileForQuestions(options.profile),
+      options.role,
+    )
+  if (options.history.length >= maxTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
   await ensureApiSession()
@@ -83,7 +94,7 @@ export async function fetchNextAdaptiveQuestion(options: {
     // client LLM / local fallback
   }
 
-  if (options.history.length >= INTERVIEW_TURN_COUNT) {
+  if (options.history.length >= maxTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
 

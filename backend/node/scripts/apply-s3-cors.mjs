@@ -16,9 +16,12 @@ if (!s3StorageConfigured()) {
 }
 
 const { region, bucket } = s3Env()
+/** Browser video PUT uses the page origin (Vercel), not the Render API origin — include PUBLIC_APP_URL. */
+const publicApp = String(process.env.PUBLIC_APP_URL || '').trim().replace(/\/$/, '')
 const origins = [
   ...String(process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173').split(','),
   ...String(process.env.S3_CORS_EXTRA_ORIGINS || '').split(','),
+  ...(publicApp ? [publicApp] : []),
 ]
   .map((o) => o.trim().replace(/\/$/, ''))
   .filter((o) => o && o !== '*')

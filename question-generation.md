@@ -15,28 +15,21 @@ There is **no fixed question bank** in the adaptive path: **one new LLM question
 
 ---
 
-## Current six-question policy (2026-10-21)
+## Current role and project policy (2026-10-28)
 
-This policy supersedes the older examples below that start with an introduction or freely follow a claimed skill. The configured model/provider, scoring, speech, and turn count remain unchanged. Generate one question at a time within its assigned slot.
+This section supersedes the historical prompt examples below. The model/provider and answer evaluation are unchanged.
 
-| Question | Experienced candidate | Fresher / no experience |
-|---|---|---|
-| 1 | Work responsibilities and personal contribution | Theory on a programming language the candidate knows |
-| 2 | A distinct work problem, decisions, and outcome | SQL theory fundamentals |
-| 3 | Theory on the first essential current-role skill | Academic, personal, or practice project contribution |
-| 4 | Theory on the second essential current-role skill | Project testing and problem solving |
-| 5 | Project contribution or certification learning | Certification learning, otherwise project improvement |
-| 6 | General motivation or learning goals | General motivation or learning goals |
+- The backend and frontend roleSkills.json catalogs contain the same 100 curated roles, each with three core interview skills. This is a product catalog, not a labor-market ranking.
+- Resolve the candidate role, match exact titles or explicit aliases (including senior/junior prefixes), and use its catalog skills. Vague partial titles such as "Engineer" must not silently select an unrelated role. Unknown roles in the server adaptive flow use the existing skill-generation fallback and persistence.
+- Experienced interviews keep eight turns: work opening, three role-skill questions, two project questions, follow-up, closing.
+- Fresher interviews keep six turns: two varied questions selected from the role's three skills, two project questions, certification/project reflection, closing. Role fundamentals do not imply prior employment or proficiency. SQL is optional within a role's skill pool, not a fixed second question.
+- Use numeric experience: under two years tests basics and small implementation steps; two to under five years tests practical application, testing and debugging; five or more years tests design choices and reliability. A senior title must not override numeric experience. Months are converted to years.
+- Read project evidence from structured profile projects, work descriptions and résumé text. Do not attach an employer to evidence that does not name one. Ignore unrelated awards. The first project question asks how a part was implemented; the next follows up on testing, debugging or design at the same experience level. Ask about a real project neutrally when evidence is missing.
+- Pass experienceYears, difficulty, topRoleSkills and selectedProject to the AI prompt. Use simple words, necessary skill names and one main question at a time. The offline fallback follows the same role and project rules.
 
-Resolve current role from the profile or actual work history, then the supplied role. Rank core skills using the role library; only relevant candidate skills can reorder that list. Unrelated résumé keywords cannot become primary skills. Use years of experience for conceptual difficulty; months are not years. If no programming language is known from the supplied data, ask the fresher to choose one instead of inventing proficiency.
+Validation: node --test backend/node/tests/interviewQuestionPlan.test.mjs backend/node/tests/vendorJobInterview.test.mjs backend/node/tests/question-generation.test.mjs backend/node/tests/role-project-interview.test.mjs; frontend interviewQuestionPlan tests; frontend production build.
 
-Theory questions must ask about a specific concept, mechanism, distinction, or trade-off within the assigned skill. They must not ask for résumé examples, previous implementations, or personal work stories, and must leave `resumeAnchor` empty. The theory payload omits the candidate résumé summary and last answer. Work, project, and certification questions may use real profile evidence; do not invent employers or credentials.
-
-The live adaptive backend, frontend fallback, and vendor generator apply this policy. `questionMatchesPlan` checks for obvious slot drift after output normalization. Invalid responses retry using the existing provider/settings, then use the slot-specific local fallback. The guard is heuristic; it does not prove semantic correctness of every model response. The separate opt-in assessment-plan API is a different workflow.
-
-Implementation: `backend/node/interviewQuestionPlan.mjs`, `frontend/src/lib/interviewQuestionPlan.ts`, `backend/node/interviewAgent.mjs`, `frontend/src/lib/interviewQuestionGeneration.ts`, and `backend/node/prompts/vendorJobInterview.mjs`.
-
-Verification: `node --test backend/node/tests/interviewQuestionPlan.test.mjs backend/node/tests/vendorJobInterview.test.mjs` and `npm run build`.
+---
 
 ## 0. Agent rules (read first)
 

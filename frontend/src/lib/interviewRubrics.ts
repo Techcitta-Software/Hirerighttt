@@ -7,15 +7,22 @@ export const INTERVIEW_RUBRICS = [
   { id: 'communication', label: 'Communication' },
 ] as const
 
-export type ScoringProfile = 'technical' | 'experience' | 'project' | 'behavioral' | 'balanced'
+export type ScoringProfile =
+  | 'opening_generic'
+  | 'technical'
+  | 'experience'
+  | 'project'
+  | 'behavioral'
+  | 'balanced'
 
 export const RUBRIC_WEIGHT_BY_PROFILE: Record<
   ScoringProfile,
   { correctness: number; depth: number; communication: number }
 > = {
-  technical: { correctness: 0.45, depth: 0.35, communication: 0.2 },
+  opening_generic: { correctness: 0, depth: 0.2, communication: 0.8 },
+  technical: { correctness: 0.5, depth: 0.3, communication: 0.2 },
   experience: { correctness: 0.32, depth: 0.33, communication: 0.35 },
-  project: { correctness: 0.22, depth: 0.28, communication: 0.5 },
+  project: { correctness: 0.4, depth: 0.3, communication: 0.3 },
   behavioral: { correctness: 0.18, depth: 0.22, communication: 0.6 },
   balanced: { correctness: 0.34, depth: 0.33, communication: 0.33 },
 }
@@ -42,14 +49,21 @@ function wordCountBandScore(wordCount: number) {
   return 55
 }
 
-export function classifyQuestionScoringProfile(question: Question): ScoringProfile {
+export function classifyQuestionScoringProfile(question: Question & { scoringProfile?: string }): ScoringProfile {
+  const explicit = (question.scoringProfile || '').trim().toLowerCase()
+  if (explicit && explicit in RUBRIC_WEIGHT_BY_PROFILE) return explicit as ScoringProfile
+
   const focus = (question.focus || '').toLowerCase()
   const cat = question.category || ''
   const text = question.text.toLowerCase()
   const topic = (question.topic || '').toLowerCase()
 
-  if (focus.includes('structured-skill') || cat === 'Technical') return 'technical'
+  if (focus.includes('structured-opening')) return 'opening_generic'
+  if (focus.includes('structured-theory') || focus.includes('structured-skill') || cat === 'Technical')
+    return 'technical'
+  if (focus.includes('structured-fallback-recent')) return 'project'
   if (
+    focus.includes('structured-recent-project') ||
     focus.includes('structured-project') ||
     focus.includes('structured-cert') ||
     /project|certification/.test(topic)
@@ -69,7 +83,7 @@ export function getRubricWeights(profile: ScoringProfile) {
 
 /** Offline heuristic parity when API scoring is unavailable. */
 export function scoreAnswerRubrics(
-  question: Question,
+  question: Question & { scoringProfile?: string },
   answer: string,
   profileSkills: string[] = [],
 ) {

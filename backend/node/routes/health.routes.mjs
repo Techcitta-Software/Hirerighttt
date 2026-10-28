@@ -48,6 +48,8 @@ export function createHealthRouter(ctx) {
         groqWhisper: false,
         sileroVadClient: true,
         moonshineSttClient: true,
+        /** DeepFilterNet3 voice isolation runs in the browser before VAD/STT (WASM + CDN model). */
+        deepFilterNet3Client: true,
       },
       objectStorage: {
         configured: objectStorageConfigured(),

@@ -1,0 +1,502 @@
+{
+  "Software Engineer": [
+    "JavaScript",
+    "SQL",
+    "Git"
+  ],
+  "Frontend Developer": [
+    "React.js",
+    "TypeScript",
+    "HTML5 & CSS3"
+  ],
+  "Backend Developer": [
+    "Node.js",
+    "PostgreSQL",
+    "REST APIs"
+  ],
+  "Full Stack Developer": [
+    "React.js",
+    "Node.js",
+    "SQL"
+  ],
+  "React Developer": [
+    "React.js",
+    "JavaScript",
+    "Redux"
+  ],
+  "Python Developer": [
+    "Python",
+    "SQL",
+    "Django"
+  ],
+  "Java Developer": [
+    "Java",
+    "Spring",
+    "SQL"
+  ],
+  "C#/.NET Developer": [
+    "C#",
+    ".NET",
+    "SQL Server"
+  ],
+  "PHP Developer": [
+    "PHP",
+    "MySQL",
+    "Laravel"
+  ],
+  "Mobile App Developer": [
+    "Flutter",
+    "REST APIs",
+    "Git"
+  ],
+  "Android Developer": [
+    "Kotlin",
+    "Android SDK",
+    "REST APIs"
+  ],
+  "iOS Developer": [
+    "Swift",
+    "UIKit",
+    "REST APIs"
+  ],
+  "Web Developer": [
+    "HTML5 & CSS3",
+    "JavaScript",
+    "Responsive design"
+  ],
+  "UI Developer": [
+    "HTML5 & CSS3",
+    "JavaScript",
+    "Accessibility"
+  ],
+  "Game Developer": [
+    "C++",
+    "Unity",
+    "Game physics"
+  ],
+  "Embedded Systems Engineer": [
+    "C",
+    "RTOS",
+    "Microcontrollers"
+  ],
+  "API Developer": [
+    "REST APIs",
+    "JSON",
+    "Authentication"
+  ],
+  "WordPress Developer": [
+    "WordPress",
+    "PHP",
+    "MySQL"
+  ],
+  "Software Architect": [
+    "System Design",
+    "Cloud architecture",
+    "Technical leadership"
+  ],
+  "Technical Lead": [
+    "System Design",
+    "Code review",
+    "Team mentoring"
+  ],
+  "AI Engineer": [
+    "Python",
+    "AI / ML",
+    "LLMs"
+  ],
+  "Machine Learning Engineer": [
+    "Python",
+    "TensorFlow",
+    "Feature engineering"
+  ],
+  "Data Scientist": [
+    "Python",
+    "Statistics",
+    "SQL"
+  ],
+  "Data Analyst": [
+    "SQL",
+    "Excel",
+    "Data visualization"
+  ],
+  "Data Engineer": [
+    "PySpark",
+    "SQL",
+    "Python"
+  ],
+  "Business Intelligence (BI) Developer": [
+    "SQL",
+    "Power BI",
+    "ETL"
+  ],
+  "Deep Learning Engineer": [
+    "Python",
+    "PyTorch",
+    "Neural networks"
+  ],
+  "Natural Language Processing (NLP) Engineer": [
+    "Python",
+    "NLP",
+    "Transformers"
+  ],
+  "Computer Vision Engineer": [
+    "Python",
+    "OpenCV",
+    "Deep learning"
+  ],
+  "Generative AI Engineer": [
+    "Python",
+    "LLMs",
+    "Prompt engineering"
+  ],
+  "Prompt Engineer": [
+    "LLMs",
+    "Prompt design",
+    "Evaluation metrics"
+  ],
+  "MLOps Engineer": [
+    "Python",
+    "Docker",
+    "ML pipelines"
+  ],
+  "Big Data Engineer": [
+    "PySpark",
+    "Hadoop",
+    "SQL"
+  ],
+  "Analytics Engineer": [
+    "SQL",
+    "dbt",
+    "Data modeling"
+  ],
+  "AI Research Scientist": [
+    "Python",
+    "Research methods",
+    "Machine learning theory"
+  ],
+  "Cloud Engineer": [
+    "AWS",
+    "Linux",
+    "Infrastructure as code"
+  ],
+  "AWS Cloud Engineer": [
+    "AWS",
+    "EC2",
+    "IAM"
+  ],
+  "Azure Cloud Engineer": [
+    "Microsoft Azure",
+    "Virtual machines",
+    "Azure Active Directory"
+  ],
+  "Google Cloud Engineer": [
+    "Google Cloud",
+    "Compute Engine",
+    "Cloud IAM"
+  ],
+  "DevOps Engineer": [
+    "Docker",
+    "CI/CD",
+    "Kubernetes"
+  ],
+  "Site Reliability Engineer (SRE)": [
+    "Monitoring",
+    "Incident response",
+    "SLOs"
+  ],
+  "Platform Engineer": [
+    "Kubernetes",
+    "Terraform",
+    "CI/CD"
+  ],
+  "Cloud Architect": [
+    "AWS",
+    "System Design",
+    "Security"
+  ],
+  "System Administrator": [
+    "Linux",
+    "Windows Server",
+    "Active Directory"
+  ],
+  "Network Engineer": [
+    "TCP/IP",
+    "Routing",
+    "Firewalls"
+  ],
+  "Network Administrator": [
+    "LAN/WAN",
+    "DNS",
+    "Network troubleshooting"
+  ],
+  "Cybersecurity Analyst": [
+    "Security monitoring",
+    "SIEM",
+    "Incident response"
+  ],
+  "Penetration Tester": [
+    "Vulnerability assessment",
+    "OWASP",
+    "Ethical hacking"
+  ],
+  "Security Engineer": [
+    "Application security",
+    "Encryption",
+    "Threat modeling"
+  ],
+  "Database Administrator (DBA)": [
+    "SQL",
+    "PostgreSQL",
+    "Backup and recovery"
+  ],
+  "Manual Tester": [
+    "Test cases",
+    "Bug reporting",
+    "Regression testing"
+  ],
+  "Automation Test Engineer": [
+    "Selenium",
+    "Test automation",
+    "API Testing"
+  ],
+  "QA Engineer": [
+    "Test planning",
+    "API Testing",
+    "Agile"
+  ],
+  "Performance Test Engineer": [
+    "Load testing",
+    "JMeter",
+    "Performance analysis"
+  ],
+  "Test Lead": [
+    "Test strategy",
+    "Team coordination",
+    "Quality metrics"
+  ],
+  "Product Manager": [
+    "Roadmapping",
+    "Stakeholder management",
+    "Agile"
+  ],
+  "Product Owner": [
+    "Backlog management",
+    "User stories",
+    "Agile"
+  ],
+  "Business Analyst": [
+    "Requirements gathering",
+    "SQL",
+    "Process modeling"
+  ],
+  "Technical Support Engineer": [
+    "Troubleshooting",
+    "Ticketing systems",
+    "Customer communication"
+  ],
+  "IT Support Specialist": [
+    "Help desk",
+    "Hardware support",
+    "Operating systems"
+  ],
+  "Project Manager": [
+    "Project planning",
+    "Risk management",
+    "Stakeholder communication"
+  ],
+  "Program Manager": [
+    "Program governance",
+    "Cross-team coordination",
+    "Roadmapping"
+  ],
+  "Operations Manager": [
+    "Process improvement",
+    "KPI tracking",
+    "Team leadership"
+  ],
+  "Business Development Executive": [
+    "Lead generation",
+    "Negotiation",
+    "CRM"
+  ],
+  "Sales Executive": [
+    "Sales pipeline",
+    "Negotiation",
+    "Customer discovery"
+  ],
+  "Account Manager": [
+    "Client relationships",
+    "Renewals",
+    "Upselling"
+  ],
+  "Marketing Manager": [
+    "Campaign planning",
+    "Analytics",
+    "Brand strategy"
+  ],
+  "Digital Marketing Specialist": [
+    "SEO",
+    "Google Ads",
+    "Content marketing"
+  ],
+  "Human Resources (HR) Manager": [
+    "Employee relations",
+    "HR policies",
+    "Recruitment"
+  ],
+  "Recruitment Specialist": [
+    "Candidate sourcing",
+    "Structured interviewing",
+    "ATS"
+  ],
+  "Accountant": [
+    "Financial accounting",
+    "GAAP",
+    "Reconciliation"
+  ],
+  "Financial Analyst": [
+    "Financial modeling",
+    "Excel",
+    "Variance analysis"
+  ],
+  "Investment Analyst": [
+    "Equity research",
+    "Financial statements",
+    "Valuation"
+  ],
+  "Auditor": [
+    "Internal controls",
+    "Audit procedures",
+    "Compliance"
+  ],
+  "Tax Consultant": [
+    "Tax compliance",
+    "Tax planning",
+    "Regulations"
+  ],
+  "Payroll Specialist": [
+    "Payroll processing",
+    "Statutory compliance",
+    "HRIS"
+  ],
+  "Accounts Payable Specialist": [
+    "Invoice processing",
+    "Vendor management",
+    "Reconciliation"
+  ],
+  "Accounts Receivable Specialist": [
+    "Collections",
+    "Billing",
+    "Reconciliation"
+  ],
+  "Administrative Executive": [
+    "Office administration",
+    "Scheduling",
+    "Documentation"
+  ],
+  "Office Manager": [
+    "Facilities coordination",
+    "Vendor management",
+    "Administration"
+  ],
+  "Mechanical Engineer": [
+    "Engineering mechanics",
+    "CAD",
+    "Thermodynamics"
+  ],
+  "Civil Engineer": [
+    "Structural analysis",
+    "Construction materials",
+    "AutoCAD"
+  ],
+  "Electrical Engineer": [
+    "Circuit design",
+    "Power systems",
+    "Electrical safety"
+  ],
+  "Electronics Engineer": [
+    "Embedded systems",
+    "PCB design",
+    "Digital electronics"
+  ],
+  "Manufacturing Engineer": [
+    "Lean manufacturing",
+    "Quality control",
+    "Production processes"
+  ],
+  "Quality Control Engineer": [
+    "Quality control",
+    "Statistical process control",
+    "Root cause analysis"
+  ],
+  "Production Manager": [
+    "Production planning",
+    "Lean manufacturing",
+    "Safety"
+  ],
+  "Supply Chain Analyst": [
+    "Inventory planning",
+    "Demand forecasting",
+    "Excel"
+  ],
+  "Logistics Coordinator": [
+    "Shipping coordination",
+    "Inventory tracking",
+    "Vendor coordination"
+  ],
+  "Procurement Specialist": [
+    "Vendor negotiation",
+    "Purchase orders",
+    "Cost analysis"
+  ],
+  "Clinical Research Associate": [
+    "Clinical trials",
+    "GCP compliance",
+    "Site monitoring"
+  ],
+  "Pharmacovigilance Associate": [
+    "Adverse event reporting",
+    "Drug safety",
+    "Regulatory compliance"
+  ],
+  "Medical Representative": [
+    "Product knowledge",
+    "Territory management",
+    "Sales communication"
+  ],
+  "Technical Writer": [
+    "Documentation",
+    "API documentation",
+    "Information architecture"
+  ],
+  "Customer Success Specialist": [
+    "Onboarding",
+    "Customer retention",
+    "Product adoption"
+  ],
+  "AI Associate Engineer": [
+    "Machine Learning Fundamentals",
+    "Python Programming",
+    "Data Preprocessing"
+  ],
+  "UI/UX Designer": [
+    "User research",
+    "Interaction design",
+    "Figma"
+  ],
+  "UX Researcher": [
+    "User interviews",
+    "Usability testing",
+    "Research synthesis"
+  ],
+  "Data Quality Engineer": [
+    "SQL",
+    "Data validation",
+    "Data profiling"
+  ],
+  "Salesforce Developer": [
+    "Apex",
+    "Lightning Web Components",
+    "SOQL"
+  ]
+}

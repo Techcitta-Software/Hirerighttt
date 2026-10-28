@@ -122,6 +122,13 @@ import {
   replaceCandidateResume,
 } from '../resume/replaceCandidateResume.mjs'
 import { buildJdCoveragePlan, generateVendorJobQuestion } from '../prompts/vendorJobInterview.mjs'
+import {
+  isPlanFresher,
+  resolveExactInterviewRole,
+  structuredPlanSummary,
+  analyzeOpeningAnswerAlignment,
+} from '../interviewQuestionPlan.mjs'
+import { ensureRoleSkillsForRole, initRoleSkillStore } from '../roleSkillStore.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
 function isOpenVendorJob(job) {
@@ -1189,6 +1196,18 @@ export function createApiDispatchMiddleware(ctx) {
         })
       }
 
+      let roleSkills = null
+      let interviewPlanSummary = null
+      let interviewTotalTurns = INTERVIEW_TURN_COUNT
+      const varietySeed = randomBytes(8).toString('hex')
+      if (questionMode !== 'vendor_jd') {
+        await initRoleSkillStore()
+        const exactRole = resolveExactInterviewRole(profile, role)
+        roleSkills = await ensureRoleSkillsForRole(exactRole, { callLlm: callLlmApi })
+        interviewPlanSummary = structuredPlanSummary(exactRole, ctx, profile, level, roleSkills, null, varietySeed)
+        interviewTotalTurns = interviewPlanSummary.totalTurns || INTERVIEW_TURN_COUNT
+      }
+
       const first =
         questionMode === 'vendor_jd'
           ? await generateVendorJobQuestion(
@@ -1205,6 +1224,7 @@ export function createApiDispatchMiddleware(ctx) {
                 history: [],
                 lastAnswer: '',
                 candidateName: account?.name,
+                varietySeed: varietySeed,
               },
               { callLlm: callLlmApi },
             )
@@ -1218,6 +1238,10 @@ export function createApiDispatchMiddleware(ctx) {
               history: [],
               lastAnswer: '',
               accountName: account?.name,
+              roleSkills,
+              planSummary: interviewPlanSummary,
+              totalTurns: interviewTotalTurns,
+              varietySeed,
             })
       const questions = [first]
       const agentLabel =
@@ -1281,6 +1305,10 @@ export function createApiDispatchMiddleware(ctx) {
         startedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
         status: 'active',
+        roleSkills,
+        planSummary: interviewPlanSummary,
+        totalTurns: interviewTotalTurns,
+        varietySeed,
       }
       db.interviewSessions[sessionId] = session
       await saveDb(db)
@@ -1290,7 +1318,7 @@ export function createApiDispatchMiddleware(ctx) {
         agent: agentLabel,
         adaptive,
         llm: llmConfigured(),
-        total: adaptive ? INTERVIEW_TURN_COUNT : questions.length,
+        total: adaptive ? interviewTotalTurns : questions.length,
         questionIndex: 0,
         question: questions[0],
         questions,
@@ -1334,7 +1362,26 @@ export function createApiDispatchMiddleware(ctx) {
         body.lastAnswer,
       )
       session.history = history
-      if (history.length >= INTERVIEW_TURN_COUNT) {
+      if (
+        !session.planSummary?.fresher &&
+        !session.openingAnalysis &&
+        history.length >= 1 &&
+        session.questionMode !== 'vendor_jd' &&
+        session.roleSkills?.length
+      ) {
+        const openingAnswer = String(history[0]?.answer || body.lastAnswer || '').trim()
+        session.openingAnalysis = analyzeOpeningAnswerAlignment(openingAnswer, session.roleSkills, ctx)
+        session.planSummary = structuredPlanSummary(
+          resolveExactInterviewRole(profile, session.role),
+          ctx,
+          profile,
+          String(body.level || session.level),
+          session.roleSkills,
+          session.openingAnalysis,
+        )
+      }
+      const sessionTotalTurns = session.planSummary?.totalTurns || session.totalTurns || INTERVIEW_TURN_COUNT
+      if (history.length >= sessionTotalTurns) {
         db.interviewSessions[sessionId] = session
         await saveDb(db)
         return json(res, 200, { complete: true, turn: history.length })
@@ -1356,6 +1403,7 @@ export function createApiDispatchMiddleware(ctx) {
                 history,
                 lastAnswer,
                 candidateName: account?.name,
+                varietySeed: session.varietySeed,
               },
               { callLlm: callLlmApi },
             )
@@ -1365,6 +1413,11 @@ export function createApiDispatchMiddleware(ctx) {
               role: String(body.role || session.role),
               level: String(body.level || session.level),
               jobDescription: String(body.jobDescription || session.jobDescription || ''),
+              roleSkills: session.roleSkills || null,
+              planSummary: session.planSummary || null,
+              openingAnalysis: session.openingAnalysis || null,
+              totalTurns: sessionTotalTurns,
+              varietySeed: session.varietySeed || '',
               explicitRoleTrack:
                 body.explicitRoleTrack === true || session.explicitRoleTrack === true,
               history,

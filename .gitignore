@@ -60,6 +60,7 @@ banner-hireright
 
 # Legacy local JSON store (removed — use DATABASE_URL / Neon only)
 backend/node/data/db.json
-backend/node/data/
+backend/node/data/*
+!backend/node/data/roleSkills.json
 
 .vercel

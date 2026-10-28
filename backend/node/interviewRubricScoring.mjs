@@ -21,17 +21,17 @@ export const INTERVIEW_RUBRICS = [
   { id: 'communication', label: 'Communication' },
 ]
 
-/** @typedef {'technical' | 'experience' | 'project' | 'behavioral' | 'balanced'} ScoringProfile */
+/** @typedef {'opening_generic' | 'technical' | 'experience' | 'project' | 'behavioral' | 'balanced'} ScoringProfile */
 
 /** Weights must sum to 1. */
 export const RUBRIC_WEIGHT_BY_PROFILE = {
-  /** Technical / skill — correctness + depth dominate (~80% combined). */
-  technical: { correctness: 0.45, depth: 0.35, communication: 0.2 },
-  /** Work history narrative — balanced with slight depth. */
+  /** Q1 — roles, responsibilities, exposure at previous employer. */
+  opening_generic: { correctness: 0, depth: 0.2, communication: 0.8 },
+  /** Three role-skill questions after opening analysis. */
+  technical: { correctness: 0.5, depth: 0.3, communication: 0.2 },
   experience: { correctness: 0.32, depth: 0.33, communication: 0.35 },
-  /** Projects & certifications — communication & storytelling matter more. */
-  project: { correctness: 0.22, depth: 0.28, communication: 0.5 },
-  /** Closing / motivation / soft skills. */
+  /** Project + fallback-recent questions. */
+  project: { correctness: 0.4, depth: 0.3, communication: 0.3 },
   behavioral: { correctness: 0.18, depth: 0.22, communication: 0.6 },
   balanced: { correctness: 0.34, depth: 0.33, communication: 0.33 },
 }
@@ -66,21 +66,29 @@ function wordCountBandScore(wordCount) {
  * @returns {ScoringProfile}
  */
 export function classifyQuestionScoringProfile(question) {
+  const explicit = clean(question.scoringProfile).toLowerCase()
+  if (explicit && RUBRIC_WEIGHT_BY_PROFILE[explicit]) return explicit
+
   const focus = clean(question.focus).toLowerCase()
   const cat = clean(question.category)
   const text = clean(question.text).toLowerCase()
   const topic = clean(question.topic).toLowerCase()
 
-  if (focus.includes('structured-skill') || focus.includes('jd-first')) return 'technical'
-  if (cat === 'Technical') return 'technical'
+  if (focus.includes('structured-opening')) return 'opening_generic'
+  if (focus.includes('structured-theory') || focus.includes('structured-skill') || focus.includes('jd-first'))
+    return 'technical'
+  if (cat === 'Technical' && !focus.includes('structured-opening')) return 'technical'
+  if (focus.includes('structured-fallback-recent')) return 'project'
   if (
+    focus.includes('structured-recent-project') ||
     focus.includes('structured-project') ||
     focus.includes('structured-cert') ||
     /project|certification|credential/.test(topic)
   ) {
     return 'project'
   }
-  if (focus.includes('structured-work') || cat === 'Experience') return 'experience'
+  if (focus.includes('structured-work') || (cat === 'Experience' && !focus.includes('structured-opening')))
+    return 'experience'
   if (focus.includes('structured-closing') || cat === 'Communication') return 'behavioral'
   if (/\bproject\b|\bbuilt\b|\bshipped\b|\bcertification\b/.test(text)) return 'project'
   if (/\btechnical\b|\bskill\b|\barchitect|\bapi\b|\bdatabase\b|\bstack\b/.test(text)) return 'technical'

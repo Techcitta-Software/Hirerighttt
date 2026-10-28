@@ -130,7 +130,7 @@ test('generateVendorJobQuestion falls back when the response misses the work slo
       }),
     },
   )
-  assert.equal(q.focus, 'structured-work-1')
+  assert.equal(q.focus, 'structured-opening-generic')
   assert.match(q.text, /responsibilities/)
 })
 
@@ -163,7 +163,7 @@ test('generateVendorJobQuestion accepts valid LLM question', async () => {
       }),
     },
   )
-  assert.equal(q.focus, 'structured-work-1')
+  assert.equal(q.focus, 'structured-opening-generic')
   assert.equal(q.text, 'Describe a work responsibility you owned and how your contribution improved the outcome.')
 })
 
