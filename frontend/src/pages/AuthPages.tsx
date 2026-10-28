@@ -268,14 +268,6 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
 
-  const signupNameStarted = signupName.trim().length > 0
-  const signupShowCompany = signupRole === 'employer' && signupNameStarted
-  const signupCompanyReady =
-    signupRole !== 'employer' || signupCompanyName.trim().length > 0
-  const signupShowEmail = signupNameStarted && signupCompanyReady
-  const signupShowPhone = signupShowEmail && signupEmail.trim().length > 0
-  const signupShowPassword = signupShowPhone && signupPhone.trim().length > 0
-  const signupShowFinish = signupShowPassword && signupPassword.trim().length > 0
   const [termsAgreed, setTermsAgreed] = useState(false)
 
   // Sync signup role if query parameters change
@@ -871,138 +863,95 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                   />
                 </div>
 
-                {signupShowCompany && (
-                  <motion.div
-                    className={styles.formGroupReveal}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, ease: easeOut }}
-                  >
-                    <div className={styles.formGroup}>
-                      <label htmlFor="signup-company" className={styles.formLabel}>
-                        Vendor / Company Name
-                      </label>
-                      <input
-                        id="signup-company"
-                        type="text"
-                        value={signupCompanyName}
-                        placeholder="TechCitta Solutions"
-                        onChange={(event) => setSignupCompanyName(event.target.value)}
-                        required
-                        className={styles.formInput}
-                      />
-                    </div>
-                  </motion.div>
-                )}
-
-                {signupShowEmail && (
-                  <motion.div
-                    className={styles.formGroupReveal}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, ease: easeOut }}
-                  >
-                    <div className={styles.formGroup}>
-                      <label htmlFor="signup-email" className={styles.formLabel}>
-                        Email address
-                      </label>
-                      <input
-                        id="signup-email"
-                        type="email"
-                        value={signupEmail}
-                        placeholder="you@example.com"
-                        onChange={(event) => setSignupEmail(event.target.value)}
-                        autoComplete="email"
-                        required
-                        className={styles.formInput}
-                      />
-                    </div>
-                  </motion.div>
-                )}
-
-                {signupShowPhone && (
-                  <motion.div
-                    className={styles.formGroupReveal}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, ease: easeOut }}
-                  >
-                    <div className={styles.formGroup}>
-                      <label htmlFor="signup-phone" className={styles.formLabel}>
-                        Mobile number <span className={styles.requiredMark}>(required)</span>
-                      </label>
-                      <input
-                        id="signup-phone"
-                        type="tel"
-                        value={signupPhone}
-                        placeholder="+91 98765 43210"
-                        onChange={(event) => setSignupPhone(event.target.value)}
-                        autoComplete="tel"
-                        required
-                        className={styles.formInput}
-                      />
-                      <p className={styles.fieldHint}>Used for interview reminders and job applications.</p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {signupShowPassword && (
-                  <motion.div
-                    className={styles.formGroupReveal}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, ease: easeOut }}
-                  >
-                    <div className={styles.formGroup}>
-                      <label htmlFor="signup-pwd" className={styles.formLabel}>
-                        Password
-                      </label>
-                      <input
-                        id="signup-pwd"
-                        type="password"
-                        value={signupPassword}
-                        placeholder="At least 8 characters"
-                        onChange={(event) => setSignupPassword(event.target.value)}
-                        autoComplete="new-password"
-                        required
-                        className={styles.formInput}
-                      />
-                    </div>
-                  </motion.div>
-                )}
-
-                {signupShowFinish && (
-                  <motion.div
-                    className={styles.formGroupReveal}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, ease: easeOut }}
-                  >
-                    <label className={styles.termsRow}>
-                      <input
-                        type="checkbox"
-                        checked={termsAgreed}
-                        onChange={(e) => setTermsAgreed(e.target.checked)}
-                        required
-                      />
-                      <span>
-                        I agree to the{' '}
-                        <Link to="/terms" className={styles.termsLink}>
-                          Terms &amp; Conditions
-                        </Link>{' '}
-                        and have read the{' '}
-                        <Link to="/privacy" className={styles.termsLink}>
-                          Privacy Policy
-                        </Link>
-                        .
-                      </span>
+                {signupRole === 'employer' && (
+                  <div className={styles.formGroup}>
+                    <label htmlFor="signup-company" className={styles.formLabel}>
+                      Vendor / Company Name
                     </label>
-
-                    <button type="submit" className={styles.loginPillBtn} disabled={loading}>
-                      {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
-                    </button>
-                  </motion.div>
+                    <input
+                      id="signup-company"
+                      type="text"
+                      value={signupCompanyName}
+                      placeholder="TechCitta Solutions"
+                      onChange={(event) => setSignupCompanyName(event.target.value)}
+                      required
+                      className={styles.formInput}
+                    />
+                  </div>
                 )}
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-email" className={styles.formLabel}>
+                    Email address
+                  </label>
+                  <input
+                    id="signup-email"
+                    type="email"
+                    value={signupEmail}
+                    placeholder="you@example.com"
+                    onChange={(event) => setSignupEmail(event.target.value)}
+                    autoComplete="email"
+                    required
+                    className={styles.formInput}
+                  />
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-phone" className={styles.formLabel}>
+                    Mobile number <span className={styles.requiredMark}>(required)</span>
+                  </label>
+                  <input
+                    id="signup-phone"
+                    type="tel"
+                    value={signupPhone}
+                    placeholder="+91 98765 43210"
+                    onChange={(event) => setSignupPhone(event.target.value)}
+                    autoComplete="tel"
+                    required
+                    className={styles.formInput}
+                  />
+                  <p className={styles.fieldHint}>Used for interview reminders and job applications.</p>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="signup-pwd" className={styles.formLabel}>
+                    Password
+                  </label>
+                  <input
+                    id="signup-pwd"
+                    type="password"
+                    value={signupPassword}
+                    placeholder="At least 8 characters"
+                    onChange={(event) => setSignupPassword(event.target.value)}
+                    autoComplete="new-password"
+                    required
+                    className={styles.formInput}
+                  />
+                </div>
+
+                <label className={styles.termsRow}>
+                  <input
+                    type="checkbox"
+                    checked={termsAgreed}
+                    onChange={(e) => setTermsAgreed(e.target.checked)}
+                    required
+                  />
+                  <span>
+                    I agree to the{' '}
+                    <Link to="/terms" className={styles.termsLink}>
+                      Terms &amp; Conditions
+                    </Link>{' '}
+                    and have read the{' '}
+                    <Link to="/privacy" className={styles.termsLink}>
+                      Privacy Policy
+                    </Link>
+                    .
+                  </span>
+                </label>
+
+                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
+                  {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
+                </button>
 
                 <div className={styles.authLinksBelow}>
                   <p className={styles.subLinkLine}>
