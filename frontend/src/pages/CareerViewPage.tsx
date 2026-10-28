@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
@@ -230,15 +229,6 @@ export function CareerViewPage() {
               </div>
             </div>
           </motion.div>
-
-          <p className={styles.disclaimerText}>
-            Initial insights are based on a short conversation and are not a certification of ability.
-            Deeper assessments and practice help validate findings.
-          </p>
-
-          <Link to="/signup" className={styles.ctaBtn}>
-            START MY CAREER DISCOVERY
-          </Link>
           </div>
         </div>
       </section>

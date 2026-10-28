@@ -17,7 +17,7 @@
   --dash-muted: var(--hr-muted, #5f6686);
   --dash-border: var(--hr-border, #e5e5ef);
   --dash-surface: #ffffff;
-  --dash-bg: var(--hr-bg, #faf9ff);
+  --dash-bg: var(--color-bg-dashboard, #ffffff);
   --dash-radius-lg: 20px;
   --dash-radius-md: 14px;
   --dash-shadow: 0 1px 2px rgba(20, 22, 56, 0.04), 0 12px 40px rgba(20, 22, 56, 0.06);
@@ -26,9 +26,7 @@
   width: 100%;
   overflow-x: clip;
   box-sizing: border-box;
-  background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(112, 71, 255, 0.14), transparent),
-    linear-gradient(180deg, #ebe7ff 0%, var(--dash-bg) 240px, #eeecf8 100%);
+  background: var(--color-bg-dashboard, #ffffff);
   color: var(--dash-navy);
   font-family: var(--font-sans, 'DM Sans', system-ui, sans-serif);
 }
@@ -45,8 +43,7 @@
   width: 100%;
   padding: clamp(20px, 3vw, 32px) clamp(20px, 3vw, 48px);
   border-bottom: 1px solid rgba(20, 22, 56, 0.07);
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(10px);
+  background: var(--color-bg-surface, #ffffff);
   box-sizing: border-box;
 }
 
@@ -334,6 +331,7 @@
   font-size: clamp(1.1rem, 2vw, 1.35rem);
   font-weight: var(--font-weight-bold, 700);
   letter-spacing: -0.02em;
+  color: #ffffff;
 }
 
 .featuredJobCopy p {

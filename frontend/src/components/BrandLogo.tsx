@@ -29,7 +29,9 @@ function LogoMark({
     <span className={`hr-logo brand-logo ${sizeClass} ${toneClass}`.trim()} aria-hidden={false}>
       <span className="hr-logo__wordmark">
         <span className="hr-logo__hire">Hire</span>
-        <span className="hr-logo__right">Righttt</span>
+        <span className="hr-logo__rightShell">
+          <span className="hr-logo__right">Righttt</span>
+        </span>
       </span>
       {showTagline ? <span className="hr-logo__tagline">Talent to Talent</span> : null}
     </span>

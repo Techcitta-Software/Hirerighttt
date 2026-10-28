@@ -5,9 +5,9 @@
 
 .page {
   composes: marketingPage from '../styles/marketingShared.module.css';
-  --primary-purple: #4f46e5;
-  --primary-purple-dark: #4338ca;
-  --primary-purple-light: #6366f1;
+  --primary-purple: var(--hr-brand-solid);
+  --primary-purple-dark: var(--hr-brand-solid-hover);
+  --primary-purple-light: var(--hr-brand-gradient-end);
   --primary-purple-subtle: #eef2ff;
   --primary-purple-border: #dcd7fe;
   --teal-accent: #059669;
@@ -43,12 +43,11 @@
 
 .heroSection {
   position: relative;
-  min-height: calc(100vh - 72px);
-  min-height: calc(100dvh - 76px);
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding: clamp(2.5rem, 5vw, 4rem) var(--layout-gutter-wide) 75px;
   box-sizing: border-box;
   background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(238, 242, 255, 0.7) 0%, rgba(255, 255, 255, 1) 100%);
   overflow: hidden;
@@ -56,6 +55,8 @@
 
 .heroCenteredShell {
   composes: contentColumn from '../styles/marketingShared.module.css';
+  width: 100%;
+  max-width: 100%;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -75,14 +76,28 @@
 }
 
 .heroHeadingCentered {
-  composes: heading from '../styles/marketingShared.module.css';
+  width: 100%;
+  max-width: none;
   text-align: center;
-  margin-bottom: 1.15rem;
+  margin: 0 0 1.15rem;
+  font-size: clamp(2.35rem, 11vw, 7.5rem);
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.04em;
+  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.heroHeadingLine {
+  display: block;
+  white-space: nowrap;
 }
 
 .heroHeadingBlue {
-  color: #2563eb;
-  display: inline;
+  composes: hr-brand-gradient-text from global;
+  display: block;
 }
 
 .heroSubheadingCentered {
@@ -90,20 +105,33 @@
   margin-bottom: 1.75rem;
 }
 
-/* Floating Dual Upload Capsule Bar */
-.heroUploadCapsule {
-  display: inline-flex;
-  align-items: center;
+/* Candidate + recruiter pill bars */
+.heroUploadCapsuleStack {
+  width: 100%;
+  max-width: min(1100px, 98vw);
+  margin: 0 auto 0 auto;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  align-items: stretch;
   justify-content: center;
-  gap: 1.15rem;
+  box-sizing: border-box;
+}
+
+.heroUploadCapsule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   background: #ffffff;
   border: 1px solid rgba(226, 232, 240, 0.95);
   border-radius: 9999px;
   box-shadow: 0 10px 32px -4px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(15, 23, 42, 0.04);
-  padding: 0.42rem 0.45rem 0.42rem 1.4rem;
-  width: auto;
-  max-width: 95%;
-  margin: 0 auto 1rem auto;
+  padding: 0.42rem 0.45rem 0.42rem 1.15rem;
+  flex: 1 1 420px;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
   transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
@@ -114,10 +142,13 @@
 }
 
 .capsuleJobSeekerSide {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.65rem;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
 }
 
 .capsuleUploadTrigger {
@@ -133,11 +164,11 @@
 }
 
 .capsuleUploadTrigger:hover .capsuleTriggerText {
-  color: #2563eb;
+  color: var(--hr-brand-solid);
 }
 
 .cloudIcon {
-  color: #2563eb;
+  color: var(--hr-brand-solid);
   flex-shrink: 0;
 }
 
@@ -167,19 +198,15 @@
   transform: translateY(-1px);
 }
 
-.capsuleDivider {
-  width: 1px;
-  height: 30px;
-  background: #e2e8f0;
-  flex-shrink: 0;
-  margin: 0 0.15rem;
-}
-
 .capsuleRecruiterSide {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.65rem;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  cursor: pointer;
 }
 
 .recruiterText {
@@ -211,32 +238,6 @@
   transform: translateY(-1px);
 }
 
-/* Helper text below capsule */
-.capsuleHelperText {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.875rem;
-  color: #64748b;
-  margin-bottom: 1.65rem;
-  text-align: center;
-}
-
-.capsuleHelperText p {
-  margin: 0;
-}
-
-.privacyLink {
-  color: #475569;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  transition: color 0.18s ease;
-}
-
-.privacyLink:hover {
-  color: #2563eb;
-}
-
 /* Paragraph & Callout */
 .heroBodyCopy {
   max-width: 780px;
@@ -245,16 +246,18 @@
 }
 
 .heroParagraph {
-  font-size: 1.05rem;
-  color: #475569;
-  line-height: 1.68;
+  font-family: var(--font-sans);
+  font-size: clamp(1rem, 1.6vw, 1.1rem);
+  color: var(--color-text-subtle, #475569);
+  line-height: var(--line-height-relaxed, 1.68);
   margin: 0 0 0.85rem 0;
 }
 
 .heroCallout {
-  font-size: 1.18rem;
-  font-weight: 800;
-  color: #0f172a;
+  font-family: var(--font-sans);
+  font-size: clamp(1.15rem, 2vw, 1.35rem);
+  font-weight: var(--font-weight-extrabold, 800);
+  color: var(--color-text-primary, #0f172a);
   line-height: 1.45;
   margin: 0;
 }
@@ -276,50 +279,50 @@
 }
 
 .startDiscoveryBtn {
+  composes: hr-brand-gradient-bg from global;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.95rem 2.6rem;
-  background: #2563eb;
   color: #ffffff !important;
+  border: none;
   border-radius: 9999px;
   font-size: 1.05rem;
   font-weight: 700;
   text-decoration: none;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 4px 14px var(--hr-brand-glow);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
 }
 
 .startDiscoveryBtn:hover {
-  background: #1d4ed8;
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+  filter: brightness(1.05);
+  box-shadow: 0 6px 20px var(--hr-brand-glow);
   transform: translateY(-1px);
 }
 
 .viewSampleBtn {
+  composes: hr-brand-gradient-border from global;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.95rem 2.6rem;
-  background: #ffffff;
-  color: #2563eb;
-  border: 1.8px solid #2563eb;
   border-radius: 9999px;
   font-size: 1.05rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 2px 8px rgba(80, 70, 229, 0.12);
   white-space: nowrap;
 }
 
 .viewSampleBtn:hover {
-  background: #eff6ff;
-  border-color: #1d4ed8;
-  color: #1d4ed8;
+  background:
+    linear-gradient(#eff6ff, #eff6ff) padding-box,
+    var(--hr-brand-gradient) border-box;
+  color: var(--hr-brand-solid-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 4px 14px rgba(80, 70, 229, 0.2);
 }
 
 .heroMetaNote {
@@ -330,11 +333,17 @@
 
 /* Responsive */
 @media (max-width: 960px) {
-  .heroUploadCapsule {
+  .heroUploadCapsuleStack {
     flex-direction: column;
-    border-radius: 20px;
-    padding: 1.25rem;
-    gap: 1.15rem;
+    align-items: stretch;
+  }
+
+  .heroUploadCapsule {
+    flex: 1 1 auto;
+    flex-direction: column;
+    border-radius: 9999px;
+    padding: 1rem 1.15rem;
+    gap: 0.85rem;
     align-items: stretch;
     text-align: center;
   }
@@ -345,16 +354,21 @@
     align-items: center;
   }
 
-  .capsuleDivider {
-    width: 100%;
-    height: 1px;
-    margin: 0;
-  }
-
   .capsuleRecruiterSide {
     flex-direction: column;
     gap: 0.75rem;
     align-items: center;
+  }
+
+  .capsuleUploadTrigger {
+    white-space: normal;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .recruiterText {
+    white-space: normal;
+    text-align: center;
   }
 
   .capsuleUploadBtn,
@@ -380,15 +394,28 @@
    ========================================================================== */
 
 .potentialSection {
-  composes: marketingSection from '../styles/marketingShared.module.css';
+  padding: 75px var(--layout-gutter-wide);
+  box-sizing: border-box;
   text-align: center;
   background: #ffffff;
   border-top: 1px solid rgba(220, 215, 254, 0.35);
   border-bottom: 1px solid rgba(220, 215, 254, 0.35);
 }
 
+.careerDiscoverySection {
+  padding: 75px var(--layout-gutter-wide);
+  text-align: center;
+  box-sizing: border-box;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    rgba(238, 242, 255, 0.7) 0%,
+    rgba(255, 255, 255, 1) 100%
+  );
+}
+
 .potentialHeading {
   composes: sectionTitle from '../styles/marketingShared.module.css';
+  margin-top: 0;
   margin-bottom: 1.25rem;
 }
 
@@ -406,13 +433,13 @@
    ========================================================================== */
 
 .howItWorksSection {
-  composes: marketingSection from '../styles/marketingShared.module.css';
-  padding-bottom: 75px;
+  padding: 75px var(--layout-gutter-wide);
   background: linear-gradient(180deg, #fdfcff 0%, #f7f6fc 100%);
   position: relative;
   overflow: hidden;
   border-top: 1px solid rgba(220, 215, 254, 0.45);
   border-bottom: 1px solid rgba(220, 215, 254, 0.45);
+  box-sizing: border-box;
 }
 
 .howItWorksHeader {

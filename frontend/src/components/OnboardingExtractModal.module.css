@@ -1,0 +1,66 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 45%);
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  width: min(420px, 100%);
+  padding: 28px 26px 22px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgb(15 23 42 / 18%);
+  text-align: center;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%);
+  color: #5b21b6;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.dialog h2 {
+  margin: 0 0 8px;
+  color: #171b38;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.dialog p {
+  margin: 0 0 20px;
+  color: #5f6686;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.dialog button {
+  min-width: 120px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #5046e5 0%, #4f95ff 100%);
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.dialog button:hover {
+  filter: brightness(1.05);
+}

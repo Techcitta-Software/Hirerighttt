@@ -23,6 +23,10 @@ interface AboutYouStepProps {
   ) => void
   onPatch: (patch: Partial<ProfileFormData>) => void
   onExtracted?: (info: { firstName?: string; fieldCount: number }) => void
+  /** When set, only renders profile fields (no resume upload). */
+  profileFieldsOnly?: boolean
+  /** When false, hides resume upload (use with profileFieldsOnly or alone). */
+  showResumeUpload?: boolean
 }
 
 export function AboutYouStep({
@@ -30,6 +34,8 @@ export function AboutYouStep({
   onChange,
   onPatch,
   onExtracted,
+  profileFieldsOnly = false,
+  showResumeUpload = true,
 }: AboutYouStepProps) {
   const roleOptions =
     data.currentRole && !ROLE_OPTIONS.includes(data.currentRole)
@@ -57,28 +63,8 @@ export function AboutYouStep({
     })
   }
 
-  return (
-    <MotionStack className={styles.stack}>
-      <MotionItem>
-        <ResumeUpload
-          file={data.resumeFile}
-          existingFileName={data.resumeFile ? data.resumeName : null}
-          onFileChange={(file) => {
-            onChange('resumeFile', file)
-            onChange('resumeName', file ? file.name : null)
-          }}
-          onParsed={applyExtract}
-          onStored={(info) => {
-            onPatch({
-              resumeUrl: info.resumeUrl,
-              resumeStoragePath: info.resumeStoragePath,
-              resumeFileId: info.resumeFileId ?? null,
-              storageProvider: info.storageProvider ?? null,
-            })
-          }}
-        />
-      </MotionItem>
-
+  const profileFields = (
+    <>
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
           <h2>2. Tell Us About Yourself</h2>
@@ -91,6 +77,7 @@ export function AboutYouStep({
             sublabel="Introduce yourself in a few lines."
             value={data.whoAreYou}
             maxLength={300}
+            showCounter={false}
             placeholder="E.g. I'm a passionate software engineer with 3+ years of experience in building scalable web applications..."
             onChange={(value) => onChange('whoAreYou', value)}
           />
@@ -99,6 +86,7 @@ export function AboutYouStep({
             sublabel="Add a little more detail about your background and goals."
             value={data.whatDrivesYou}
             maxLength={300}
+            showCounter={false}
             placeholder="Type your answer here…"
             onChange={(value) => onChange('whatDrivesYou', value)}
           />
@@ -143,6 +131,37 @@ export function AboutYouStep({
           />
         </div>
       </MotionItem>
+    </>
+  )
+
+  if (profileFieldsOnly) {
+    return <MotionStack className={styles.stack}>{profileFields}</MotionStack>
+  }
+
+  return (
+    <MotionStack className={styles.stack}>
+      {showResumeUpload ? (
+        <MotionItem>
+          <ResumeUpload
+            file={data.resumeFile}
+            existingFileName={data.resumeFile ? data.resumeName : null}
+            onFileChange={(file) => {
+              onChange('resumeFile', file)
+              onChange('resumeName', file ? file.name : null)
+            }}
+            onParsed={applyExtract}
+            onStored={(info) => {
+              onPatch({
+                resumeUrl: info.resumeUrl,
+                resumeStoragePath: info.resumeStoragePath,
+                resumeFileId: info.resumeFileId ?? null,
+                storageProvider: info.storageProvider ?? null,
+              })
+            }}
+          />
+        </MotionItem>
+      ) : null}
+      {profileFields}
     </MotionStack>
   )
 }

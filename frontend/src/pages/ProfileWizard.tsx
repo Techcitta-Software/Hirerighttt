@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AboutYouStep } from '../components/AboutYouStep'
+import { OnboardingExtractModal } from '../components/OnboardingExtractModal'
+import { OnboardingProfileStep } from '../components/OnboardingProfileStep'
 import { AiInterviewStep } from '../components/AiInterviewStep'
 import { CompleteStep } from '../components/CompleteStep'
-import { PerformanceStep } from '../components/PerformanceStep'
-import { PrivacyBanner } from '../components/PrivacyBanner'
 import { Sidebar } from '../components/Sidebar'
-import { SkillsStep } from '../components/SkillsStep'
 import { Stepper } from '../components/Stepper'
 import { TopBar } from '../components/TopBar'
 import {
@@ -19,8 +17,11 @@ import {
 } from '../data/wizard'
 import {
   isOnboardingComplete,
+  legacyCompletedAfterUiStep,
   onboardingResumeStep,
   ONBOARDING_STEP_COUNT,
+  parseOnboardingStepParam,
+  uiCompletedThrough,
 } from '../lib/onboardingProgress'
 import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
@@ -34,24 +35,14 @@ const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
   1: {
     title: "Let's Build Your Profile",
     subtitle:
-      'Start with the essentials — upload your resume and tell us a bit about yourself.',
+      'Upload your resume — we’ll extract your details so you can review and continue in one step.',
   },
   2: {
-    title: "Let's Add Your Skills & Experience",
-    subtitle:
-      'This helps us understand your expertise and match you with the best opportunities.',
-  },
-  3: {
-    title: "Let's Highlight Your Performance",
-    subtitle:
-      'Share your achievements and contributions that demonstrate your impact.',
-  },
-  4: {
     title: 'Ready for your AI interview',
     subtitle:
       'Ava will ask about the role and skills you just added — then score you live on camera.',
   },
-  5: {
+  3: {
     title: 'All Set!',
     subtitle: 'Your profile and talent score are ready. Explore matched roles next.',
   },
@@ -61,9 +52,12 @@ export function ProfileWizard() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const stepParam = Number(searchParams.get('step'))
-  const initialStep = (stepParam >= 1 && stepParam <= 5 ? stepParam : 1) as WizardStep
+  const parsedStep = parseOnboardingStepParam(stepParam)
+  const initialStep = parsedStep
   const [step, setStep] = useState<WizardStep>(initialStep)
-  const [completedThrough, setCompletedThrough] = useState(() => (stepParam >= 1 && stepParam <= 5 ? stepParam - 1 : 0))
+  const [completedThrough, setCompletedThrough] = useState(() =>
+    uiCompletedThrough(getProfile()?.completedSteps),
+  )
   const [userName, setUserName] = useState(() => firstName())
   const [data, setData] = useState<ProfileFormData>(() => {
     const saved = getProfile()
@@ -92,6 +86,8 @@ export function ProfileWizard() {
   })
   const [toast, setToast] = useState('')
   const [saving, setSaving] = useState(false)
+  const [extractModalOpen, setExtractModalOpen] = useState(false)
+  const [extractModalName, setExtractModalName] = useState<string | undefined>()
 
   useEffect(() => {
     const saved = getProfile()
@@ -100,19 +96,18 @@ export function ProfileWizard() {
       return
     }
     if (saved?.completedSteps) {
-      setCompletedThrough(saved.completedSteps)
+      setCompletedThrough(uiCompletedThrough(saved.completedSteps))
     }
-    const hasStepParam = stepParam >= 1 && stepParam <= ONBOARDING_STEP_COUNT
+    const hasStepParam = Number.isFinite(stepParam) && stepParam > 0
     if (!hasStepParam && saved) {
-      const resume = onboardingResumeStep(saved) as WizardStep
+      const resume = onboardingResumeStep(saved)
       setStep(resume)
-      setCompletedThrough(saved.completedSteps ?? 0)
+      setCompletedThrough(uiCompletedThrough(saved.completedSteps ?? 0))
     }
-    // After AI interview, land on All Set (step 5).
     if (sessionStorage.getItem('hireright.wizardStep') === '5') {
       sessionStorage.removeItem('hireright.wizardStep')
-      setStep(5)
-      setCompletedThrough((prev) => Math.max(prev, 4))
+      setStep(3)
+      setCompletedThrough((prev) => Math.max(prev, 2))
     }
   }, [navigate, stepParam])
 
@@ -155,7 +150,7 @@ export function ProfileWizard() {
 
   async function handleContinue() {
     const isScheduled = data.interviewNotes?.startsWith('Scheduled:')
-    if (step === 4 && isScheduled) {
+    if (step === 2 && isScheduled) {
       setSaving(true)
       try {
         const emailRes = await sendOnboardingConfirmationEmail(data)
@@ -179,28 +174,27 @@ export function ProfileWizard() {
     }
 
     const nextCompleted =
-      step === ONBOARDING_STEP_COUNT
+      step === 3
         ? ONBOARDING_STEP_COUNT
-        : Math.max(completedThrough, step)
+        : Math.max(completedThrough, legacyCompletedAfterUiStep(step))
     await persist(
-      step === ONBOARDING_STEP_COUNT
+      step === 3
         ? 'Onboarding complete — you can update your profile anytime from the dashboard.'
-        : step === 4
+        : step === 2
           ? isScheduled
             ? 'Interview scheduled! Moving to matched roles…'
             : 'Profile saved. Opening AI interview…'
           : `Step ${step} saved. Moving forward…`,
       nextCompleted,
     )
-    setCompletedThrough(nextCompleted)
+    setCompletedThrough(uiCompletedThrough(nextCompleted))
 
-    // If starting now on step 4, navigate to live AI interview; if scheduled for later, proceed to Step 5 (matched roles)
-    if (step === 4 && !isScheduled) {
+    if (step === 2 && !isScheduled) {
       beginImmediateInterview(navigate)
       return
     }
 
-    if (step < ONBOARDING_STEP_COUNT) {
+    if (step < 3) {
       setStep((prev) => (prev + 1) as WizardStep)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
@@ -251,50 +245,31 @@ export function ProfileWizard() {
             exit="exit"
           >
             {step === 1 && (
-              <AboutYouStep
+              <OnboardingProfileStep
                 data={data}
                 onChange={updateField}
                 onPatch={patchFields}
                 onExtracted={({ firstName: extractedName, fieldCount }) => {
                   if (extractedName) setUserName(extractedName)
                   if (fieldCount > 0) {
-                    showToast(
-                      extractedName
-                        ? `Welcome, ${extractedName} — profile pre-filled from your resume.`
-                        : 'Profile pre-filled from your resume.',
-                    )
+                    setExtractModalName(extractedName)
+                    setExtractModalOpen(true)
                   }
                 }}
               />
             )}
-            {step === 2 && <SkillsStep data={data} onChange={updateField} />}
-            {step === 3 && (
-              <PerformanceStep data={data} onChange={updateField} />
-            )}
-            {step === 4 && (
+            {step === 2 && (
               <AiInterviewStep data={data} onChange={updateField} />
             )}
-            {step === 5 && (
+            {step === 3 && (
               <CompleteStep
                 data={data}
-                onEditStep={(next) => setStep(next)}
+                onEditStep={(next) => setStep(next === 4 ? 2 : 3)}
               />
             )}
           </motion.div>
         </AnimatePresence>
 
-        <AnimatePresence>
-          {step === 1 && (
-            <motion.div
-              key="privacy"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-            >
-              <PrivacyBanner />
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         <motion.footer
           className={`${styles.actions} ${showAutoSaveFooter ? styles.actionsSplit : ''}`}
@@ -345,11 +320,11 @@ export function ProfileWizard() {
               >
                 {saving
                   ? 'Saving…'
-                  : step === 4
+                  : step === 2
                     ? isScheduled
                       ? 'Save & Submit'
                       : 'Save & Start AI Interview'
-                    : step === 5
+                    : step === 3
                       ? 'Explore matched roles'
                       : 'Save & Continue'}
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -392,8 +367,8 @@ export function ProfileWizard() {
                   disabled={saving}
                   lift
                 >
-                  {saving ? 'Saving…' : step === 5 ? 'Finish' : 'Save & Continue'}
-                  {step < 5 && (
+                  {saving ? 'Saving…' : step === 3 ? 'Finish' : 'Save & Continue'}
+                  {step < 3 && (
                     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                       <path
                         d="M4 10H16M16 10L11 5M16 10L11 15"
@@ -414,6 +389,12 @@ export function ProfileWizard() {
           Step {step} of {STEPS.length}
         </p>
       </div>
+
+      <OnboardingExtractModal
+        open={extractModalOpen}
+        firstName={extractModalName}
+        onClose={() => setExtractModalOpen(false)}
+      />
 
       <AnimatePresence>
         {toast && (

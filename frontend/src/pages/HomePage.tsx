@@ -107,7 +107,7 @@ export function HomePage() {
             </p>
 
             <h1 className={styles.heroHeadingCentered}>
-              Your Future Starts with<br />
+              <span className={styles.heroHeadingLine}>Your Future Starts with</span>
               <span className={styles.heroHeadingBlue}>Understanding You.</span>
             </h1>
 
@@ -115,133 +115,89 @@ export function HomePage() {
               One 15–Minute Conversation. Your <strong>360° Career View.</strong>
             </p>
 
-            {/* Dual Audience Upload Capsule Bar */}
-            <div className={styles.heroUploadCapsule}>
-              {/* Left Side: Job Seeker Resume Upload */}
-              <div className={styles.capsuleJobSeekerSide}>
+            {/* Candidate + recruiter action bars (separate pills) */}
+            <div className={styles.heroUploadCapsuleStack}>
+              <div className={styles.heroUploadCapsule}>
+                <div className={styles.capsuleJobSeekerSide}>
+                  <div
+                    className={styles.capsuleUploadTrigger}
+                    onClick={handleResumeUploadClick}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Upload your resume"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleResumeUploadClick()
+                      }
+                    }}
+                  >
+                    <svg
+                      className={styles.cloudIcon}
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                      <path d="M12 12v9" />
+                      <path d="m16 16-4-4-4 4" />
+                    </svg>
+                    <span className={styles.capsuleTriggerText}>
+                      Upload your resume (PDF, DOC, DOCX)
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={styles.capsuleUploadBtn}
+                    onClick={handleResumeUploadClick}
+                  >
+                    Upload Resume
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.heroUploadCapsule}>
                 <div
-                  className={styles.capsuleUploadTrigger}
-                  onClick={handleResumeUploadClick}
+                  className={styles.capsuleRecruiterSide}
+                  onClick={handleRecruiterClick}
                   role="button"
                   tabIndex={0}
-                  aria-label="Upload your resume"
+                  aria-label="For recruiters"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      handleResumeUploadClick()
+                      handleRecruiterClick()
                     }
                   }}
                 >
-                  <svg
-                    className={styles.cloudIcon}
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#2563eb"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                    <path d="M12 12v9" />
-                    <path d="m16 16-4-4-4 4" />
-                  </svg>
-                  <span className={styles.capsuleTriggerText}>
-                    Upload your resume (PDF, DOC, DOCX)
+                  <span className={styles.recruiterText}>
+                    Hiring? Meet talent that’s ready.
                   </span>
+                  <button
+                    type="button"
+                    className={styles.capsuleRecruiterBtn}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRecruiterClick()
+                    }}
+                  >
+                    For Recruiters
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  className={styles.capsuleUploadBtn}
-                  onClick={handleResumeUploadClick}
-                >
-                  Upload Resume
-                </button>
               </div>
-
-              {/* Vertical Divider */}
-              <div className={styles.capsuleDivider} />
-
-              {/* Right Side: Recruiter CTA */}
-              <div
-                className={styles.capsuleRecruiterSide}
-                onClick={handleRecruiterClick}
-                role="button"
-                tabIndex={0}
-                aria-label="For recruiters"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    handleRecruiterClick()
-                  }
-                }}
-              >
-                <span className={styles.recruiterText}>
-                  Hiring? Meet talent that’s ready.
-                </span>
-                <button
-                  type="button"
-                  className={styles.capsuleRecruiterBtn}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleRecruiterClick()
-                  }}
-                >
-                  For Recruiters
-                </button>
-              </div>
-            </div>
-
-            {/* Helper text below capsule */}
-            <div className={styles.capsuleHelperText}>
-              <p>Optional. You can also start without a resume.</p>
-              <p>
-                By uploading, you agree to our{' '}
-                <Link to="/privacy" className={styles.privacyLink}>
-                  Privacy Policy.
-                </Link>
-              </p>
-            </div>
-
-            {/* Paragraph & Emphasized Sentence */}
-            <div className={styles.heroBodyCopy}>
-              <p className={styles.heroParagraph}>
-                Whether you’re a student exploring your future, searching for your first job, preparing for
-                your next opportunity, or planning a career change, HireRighttt helps you discover your
-                strengths, understand where you can improve, and take the right next step.
-              </p>
-              <p className={styles.heroCallout}>
-                No lengthy profiles. No resume required to get started. Just a meaningful conversation about
-                you.
-              </p>
-            </div>
-
-            {/* Dual CTA Buttons */}
-            <div className={styles.heroCtaWrap}>
-              <div className={styles.heroDualBtnRow}>
-                <Link to="/signup" className={styles.startDiscoveryBtn}>
-                  Start My Career Discovery
-                </Link>
-                <button
-                  type="button"
-                  className={styles.viewSampleBtn}
-                  onClick={() => setShowSampleModal(true)}
-                >
-                  View Sample 360° Report
-                </button>
-              </div>
-              <p className={styles.heroMetaNote}>
-                Approximately 15 minutes • Personalized insights • Clear next steps
-              </p>
             </div>
           </motion.div>
         </div>
       </section>
 
       {/* ====================================================================
-          Section 3: Great Potential Deserves Clear Direction
+          Section 3: Great Potential Deserves Clear Direction (after upload)
           ==================================================================== */}
       <section className={styles.potentialSection}>
         <div className={styles.shell}>
@@ -281,7 +237,7 @@ export function HomePage() {
       </section>
 
       {/* ====================================================================
-          Section 4: How It Works (Process Steps Pipeline matching Image 1)
+          Section 5: How It Works (Process Steps Pipeline matching Image 1)
           ==================================================================== */}
       <section className={styles.howItWorksSection} id="how-it-works">
         <div className={styles.shell}>
@@ -413,6 +369,43 @@ export function HomePage() {
                 Get matched with hiring employers and apply directly with your verified report.
               </p>
             </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ====================================================================
+          Section 4: Career discovery intro + CTAs
+          ==================================================================== */}
+      <section className={styles.careerDiscoverySection}>
+        <div className={styles.heroCenteredShell}>
+          <div className={styles.heroBodyCopy}>
+            <p className={styles.heroParagraph}>
+              Whether you’re a student exploring your future, searching for your first job, preparing for
+              your next opportunity, or planning a career change, HireRighttt helps you discover your
+              strengths, understand where you can improve, and take the right next step.
+            </p>
+            <p className={styles.heroCallout}>
+              No lengthy profiles. No resume required to get started. Just a meaningful conversation about
+              you.
+            </p>
+          </div>
+
+          <div className={styles.heroCtaWrap}>
+            <div className={styles.heroDualBtnRow}>
+              <Link to="/signup" className={styles.startDiscoveryBtn}>
+                Start My Career Discovery
+              </Link>
+              <button
+                type="button"
+                className={styles.viewSampleBtn}
+                onClick={() => setShowSampleModal(true)}
+              >
+                View Sample 360° Report
+              </button>
+            </div>
+            <p className={styles.heroMetaNote}>
+              Approximately 15 minutes • Personalized insights • Clear next steps
+            </p>
           </div>
         </div>
       </section>

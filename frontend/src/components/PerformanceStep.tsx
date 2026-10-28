@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   TIME_PERIOD_OPTIONS,
   createEmptyCertification,
@@ -429,74 +428,6 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
         >
           + Add Another Certification
         </button>
-      </MotionItem>
-      <MotionItem as="section" className={styles.card}>
-        <div className={styles.sectionHead}>
-          <div>
-            <h2>5. Self Performance Rating (Optional)</h2>
-            <h3>
-              How would you rate your overall performance in your current role?
-            </h3>
-          </div>
-        </div>
-
-        <div className={styles.ratingRow}>
-          <div className={styles.ratingBlock}>
-            <div className={styles.stars} role="radiogroup" aria-label="Self rating">
-              {Array.from({ length: 6 }, (_, index) => {
-                const value = index + 1
-                const active = data.selfRating >= value
-                return (
-                  <motion.button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={data.selfRating === value}
-                    className={`${styles.star} ${active ? styles.starActive : ''}`}
-                    onClick={() =>
-                      onChange(
-                        'selfRating',
-                        data.selfRating === value ? 0 : value,
-                      )
-                    }
-                    whileHover={{ scale: 1.15, y: -2 }}
-                    whileTap={{ scale: 0.9 }}
-                    animate={active ? { scale: 1.05 } : { scale: 1 }}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M12 3.5L14.6 9.1L20.8 9.8L16.2 13.9L17.5 20L12 16.8L6.5 20L7.8 13.9L3.2 9.8L9.4 9.1L12 3.5Z"
-                        fill={active ? 'currentColor' : 'none'}
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </motion.button>
-                )
-              })}
-            </div>
-            <div className={styles.ratingLabels}>
-              <span>Needs Improvement</span>
-              <span>Excellent</span>
-            </div>
-          </div>
-
-          <aside className={styles.ratingNote}>
-            <div className={styles.noteIcon} aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 3.5L14.6 9.1L20.8 9.8L16.2 13.9L17.5 20L12 16.8L6.5 20L7.8 13.9L3.2 9.8L9.4 9.1L12 3.5Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-            <p>
-              This helps us understand your strengths better and match you with
-              the right opportunities.
-            </p>
-          </aside>
-        </div>
       </MotionItem>
     </MotionStack>
   )

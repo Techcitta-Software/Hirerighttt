@@ -17,7 +17,7 @@ const CONFIRM_ITEMS = [
 ]
 
 export function Sidebar({ step = 1 }: { step?: WizardStep }) {
-  const later = step >= 4
+  const later = step >= 2
 
   return (
     <aside className={`${styles.sidebar} ${later ? styles.later : ''}`} aria-label="HireRight introduction">
@@ -52,7 +52,7 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
 
       {later && (
         <div
-          className={`${styles.character} ${step === 5 ? styles.confirmCharacter : ''}`}
+          className={`${styles.character} ${step === 3 ? styles.confirmCharacter : ''}`}
           role="img"
           aria-label="A professional with a laptop sitting in a purple chair"
         />
@@ -60,13 +60,13 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
 
       <div className={styles.hero}>
         <h2>
-          {step === 5 ? (
+          {step === 3 ? (
             <>
               You're on the
               <br />
               <span className={styles.redWord}>Right</span> Path!
             </>
-          ) : step === 4 ? (
+          ) : step === 2 ? (
             <>
               You've taken
               <br />
@@ -85,9 +85,9 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
           )}
         </h2>
         <p>
-          {step === 5
+          {step === 3
             ? "We're excited to have you with us. Our AI interview will help you showcase your skills and connect you with the best opportunities."
-            : step === 4
+            : step === 2
               ? "We're excited to learn more about you and help you connect with the right opportunities."
               : "We're here to understand you better, so we can connect you with opportunities that truly fit your potential."}
         </p>
@@ -141,7 +141,7 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
         </div>
       )}
 
-      {step === 4 && (
+      {step === 2 && (
         <div className={styles.progressCard}>
           <strong>Your Progress</strong>
           <div className={styles.ring}>
@@ -154,18 +154,18 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
         </div>
       )}
 
-      <div className={`${styles.why} ${step === 5 ? styles.trustCard : ''}`}>
+      <div className={`${styles.why} ${step === 3 ? styles.trustCard : ''}`}>
         <h3>
-          {step === 5 ? (
+          {step === 3 ? (
             '✓  Your journey is in safe hands.'
           ) : (
-            <>Why HireRight{step === 4 ? ' ?' : ''}</>
+            <>Why HireRight{step === 2 ? ' ?' : ''}</>
           )}
         </h3>
         <ul>
-          {(step === 5
+          {(step === 3
             ? CONFIRM_ITEMS
-            : step === 4
+            : step === 2
               ? [
                   WHY_ITEMS[0],
                   'Interview with confidence',

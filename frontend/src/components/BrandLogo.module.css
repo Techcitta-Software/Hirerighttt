@@ -1,6 +1,7 @@
 .brandLink {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
+  overflow: visible;
   text-decoration: none;
   background: transparent;
   border: none;
@@ -20,7 +21,7 @@
 }
 
 .brandLink:focus-visible {
-  outline: 2px solid var(--logo-color-right);
+  outline: 2px solid var(--hr-brand-solid);
   outline-offset: 3px;
   border-radius: 4px;
 }

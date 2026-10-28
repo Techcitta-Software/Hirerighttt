@@ -9,6 +9,8 @@ interface CharacterTextareaProps {
   placeholder: string
   onChange: (value: string) => void
   rows?: number
+  /** When false, hides the bottom-right length counter (maxLength still enforced). */
+  showCounter?: boolean
 }
 
 export function CharacterTextarea({
@@ -19,6 +21,7 @@ export function CharacterTextarea({
   placeholder,
   onChange,
   rows = 4,
+  showCounter = true,
 }: CharacterTextareaProps) {
   const id = useId()
   const remaining = maxLength - value.length
@@ -38,9 +41,11 @@ export function CharacterTextarea({
           rows={rows}
           onChange={(event) => onChange(event.target.value)}
         />
-        <span className={`${styles.counter} ${nearLimit ? styles.warn : ''}`}>
-          {value.length}/{maxLength}
-        </span>
+        {showCounter ? (
+          <span className={`${styles.counter} ${nearLimit ? styles.warn : ''}`}>
+            {value.length}/{maxLength}
+          </span>
+        ) : null}
       </div>
     </div>
   )

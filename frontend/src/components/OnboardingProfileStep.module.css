@@ -1,0 +1,74 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.collapsedBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 16px 20px;
+  border: 1px solid #dcd7fe;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #faf8ff 0%, #f3f0ff 100%);
+}
+
+.collapsedHint {
+  margin: 0;
+  flex: 1 1 220px;
+  color: #5f6686;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.detailsToggle {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: 1px solid #7047ff;
+  border-radius: 999px;
+  background: #fff;
+  color: #5b21b6;
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.detailsToggle:hover {
+  background: #f5f3ff;
+  box-shadow: 0 2px 8px rgb(112 71 255 / 12%);
+}
+
+.detailsWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: hidden;
+}
+
+.detailsToolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.collapseBtn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6686;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.collapseBtn:hover {
+  color: #171b38;
+}
