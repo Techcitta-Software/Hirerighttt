@@ -1136,7 +1136,12 @@
 
 /* ─── Jobs rail ─── */
 .opportunities {
-  margin-top: 8px;
+  margin-top: 0;
+  margin-bottom: var(--space-6, 24px);
+}
+
+.researchSection {
+  margin-bottom: var(--space-6, 24px);
 }
 
 .opportunities .sectionHead {
@@ -1293,7 +1298,8 @@
 }
 
 .reviewWrap {
-  margin-top: 22px;
+  margin-top: 0;
+  margin-bottom: var(--space-6, 24px);
 }
 
 .sideStack {

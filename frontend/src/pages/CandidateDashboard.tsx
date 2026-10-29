@@ -1,4 +1,3 @@
-import { CandidateReviewEvents } from '../components/CandidateReviewEvents'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HrIcon } from '../components/HrIcon'
@@ -61,7 +60,6 @@ export function DashboardPage() {
   const [revision, setRevision] = useState(0)
   const email = sessionUser?.email
   const lastFocusRefresh = useRef(0)
-  const jobRail = useRef<HTMLUListElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -244,10 +242,6 @@ export function DashboardPage() {
     chips.push({ icon: 'sparkle', text: profile.skills.length > 3 ? `${skillText}…` : skillText })
   }
 
-  function scrollJobs(direction: number) {
-    jobRail.current?.scrollBy({ left: direction * 310, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  }
-
   return (
     <div className={styles.pageBleed}>
     <div className={styles.page}>
@@ -386,6 +380,146 @@ export function DashboardPage() {
             </div>
           </section>
         )}
+
+        <div className={styles.contentGrid}>
+          <div className={styles.primaryCol}>
+            <section className={styles.card} aria-labelledby="interview-heading">
+              <div className={styles.cardHeader}>
+                <div>
+                  <p className={styles.eyebrow}>Interview insights</p>
+                  <h2 id="interview-heading">Performance summary</h2>
+                </div>
+                <HrIcon name="chart" size={22} className={styles.cardHeaderIcon} />
+              </div>
+              <p className={styles.muted}>AI-generated feedback from your answers — not a hiring decision.</p>
+
+              {hasScore && (
+                <div className={styles.scoreHero}>
+                  <div
+                    className={styles.scoreRing}
+                    style={{ ['--score' as string]: String(overallScore) }}
+                    aria-hidden="true"
+                  >
+                    <div className={styles.scoreRingInner}>
+                      {overallScore}
+                      <span>/100</span>
+                    </div>
+                  </div>
+                  <div className={styles.scoreHeroCopy}>
+                    <h3>{interview?.role || profile?.currentRole || 'Your latest session'}</h3>
+                    <p>
+                      {interview?.level ? `${interview.level} · ` : ''}
+                      Assessed {interview?.date ? dateLabel(interview.date) : 'recently'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {performanceDimensions.length ? (
+                <div className={styles.scores}>
+                  {performanceDimensions.map((dimension) => (
+                    <div key={dimension.key}>
+                      <div className={styles.scoreLabel}>
+                        <span>
+                          {dimension.title}
+                          <span
+                            className={
+                              dimension.band === 'strong'
+                                ? styles.bandStrong
+                                : dimension.band === 'steady'
+                                  ? styles.bandSteady
+                                  : styles.bandGrowth
+                            }
+                          >
+                            {dimension.band === 'strong'
+                              ? 'Standout'
+                              : dimension.band === 'steady'
+                                ? 'On track'
+                                : 'Growth area'}
+                          </span>
+                        </span>
+                        <strong>{dimension.score}<small> /100</small></strong>
+                      </div>
+                      <p className={styles.dimensionCaption}>{dimension.caption}</p>
+                      <progress aria-label={dimension.title} value={dimension.score} max={100} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.empty} style={{ textAlign: 'left', padding: '12px 0' }}>
+                  {hasScore ? 'Category breakdown is not available for this session.' : 'Complete your AI interview to see scores and feedback here.'}
+                </p>
+              )}
+
+              <div className={styles.feedback}>
+                <div className={styles.feedbackBlock}>
+                  <h3><HrIcon name="check" size={16} />Strengths</h3>
+                  {interviewInsights.highlights.length ? (
+                    <ul>{interviewInsights.highlights.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                  ) : (
+                    <p>{hasScore ? 'Complete another practice round to generate personalized highlights.' : 'Highlights appear after your interview.'}</p>
+                  )}
+                </div>
+                <div className={styles.feedbackBlock}>
+                  <h3><HrIcon name="trending" size={16} />Focus next</h3>
+                  {interviewInsights.focusNext.length ? (
+                    <ul>{interviewInsights.focusNext.map((s, i) => <li key={i}>{s}</li>)}</ul>
+                  ) : (
+                    <p>{hasScore ? 'No priority growth areas flagged for this session.' : 'Personalized focus areas appear after your interview.'}</p>
+                  )}
+                </div>
+              </div>
+
+              {hasScore && (
+                <div className={styles.cardFooter}>
+                  <Link to="/dashboard/report">
+                    Full report & PDF
+                    <HrIcon name="arrow-right" size={15} />
+                  </Link>
+                  <Link to="/pricing/retake">Retake interview</Link>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <aside className={styles.sideStack}>
+            <section className={styles.card} aria-labelledby="apps-heading">
+              <div className={styles.cardHeader}>
+                <div>
+                  <p className={styles.eyebrow}>Pipeline</p>
+                  <h2 id="apps-heading">Application activity</h2>
+                </div>
+                <Link to="/applications">
+                  View all
+                  <HrIcon name="arrow-right" size={15} />
+                </Link>
+              </div>
+              {!appsReady ? (
+                <p className={styles.empty}>{loading ? 'Loading applications…' : 'Applications unavailable.'}</p>
+              ) : recent.length ? (
+                <ul className={styles.rows}>
+                  {recent.map(app => (
+                    <li key={app.id}>
+                      <div>
+                        <Link to="/applications">{app.title}</Link>
+                        <p>{app.company} · {dateLabel(app.appliedAt)}</p>
+                      </div>
+                      <span className={`${styles.badge} ${statusBadgeClass(app.status)}`}>{app.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className={styles.empty}>
+                  <div className={styles.emptyIconWrap}><HrIcon name="document" size={24} /></div>
+                  <h3>No applications yet</h3>
+                  <p>Apply to a matched role — status updates from employers show here in real time.</p>
+                  <Link to="/jobs">Find roles <HrIcon name="arrow-right" size={15} /></Link>
+                </div>
+              )}
+            </section>
+          </aside>
+        </div>
+
 
         {nextActions.length > 0 && (
           <section className={styles.nextActions} aria-labelledby="next-actions-heading">
@@ -554,176 +688,7 @@ export function DashboardPage() {
           </section>
         )}
 
-        <div className={styles.contentGrid}>
-          <div className={styles.primaryCol}>
-            <section className={styles.card} aria-labelledby="interview-heading">
-              <div className={styles.cardHeader}>
-                <div>
-                  <p className={styles.eyebrow}>Interview insights</p>
-                  <h2 id="interview-heading">Performance summary</h2>
-                </div>
-                <HrIcon name="chart" size={22} className={styles.cardHeaderIcon} />
-              </div>
-              <p className={styles.muted}>AI-generated feedback from your answers — not a hiring decision.</p>
-
-              {hasScore && (
-                <div className={styles.scoreHero}>
-                  <div
-                    className={styles.scoreRing}
-                    style={{ ['--score' as string]: String(overallScore) }}
-                    aria-hidden="true"
-                  >
-                    <div className={styles.scoreRingInner}>
-                      {overallScore}
-                      <span>/100</span>
-                    </div>
-                  </div>
-                  <div className={styles.scoreHeroCopy}>
-                    <h3>{interview?.role || profile?.currentRole || 'Your latest session'}</h3>
-                    <p>
-                      {interview?.level ? `${interview.level} · ` : ''}
-                      Assessed {interview?.date ? dateLabel(interview.date) : 'recently'}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {performanceDimensions.length ? (
-                <div className={styles.scores}>
-                  {performanceDimensions.map((dimension) => (
-                    <div key={dimension.key}>
-                      <div className={styles.scoreLabel}>
-                        <span>
-                          {dimension.title}
-                          <span
-                            className={
-                              dimension.band === 'strong'
-                                ? styles.bandStrong
-                                : dimension.band === 'steady'
-                                  ? styles.bandSteady
-                                  : styles.bandGrowth
-                            }
-                          >
-                            {dimension.band === 'strong'
-                              ? 'Standout'
-                              : dimension.band === 'steady'
-                                ? 'On track'
-                                : 'Growth area'}
-                          </span>
-                        </span>
-                        <strong>{dimension.score}<small> /100</small></strong>
-                      </div>
-                      <p className={styles.dimensionCaption}>{dimension.caption}</p>
-                      <progress aria-label={dimension.title} value={dimension.score} max={100} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className={styles.empty} style={{ textAlign: 'left', padding: '12px 0' }}>
-                  {hasScore ? 'Category breakdown is not available for this session.' : 'Complete your AI interview to see scores and feedback here.'}
-                </p>
-              )}
-
-              <div className={styles.feedback}>
-                <div className={styles.feedbackBlock}>
-                  <h3><HrIcon name="check" size={16} />Strengths</h3>
-                  {interviewInsights.highlights.length ? (
-                    <ul>{interviewInsights.highlights.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                  ) : (
-                    <p>{hasScore ? 'Complete another practice round to generate personalized highlights.' : 'Highlights appear after your interview.'}</p>
-                  )}
-                </div>
-                <div className={styles.feedbackBlock}>
-                  <h3><HrIcon name="trending" size={16} />Focus next</h3>
-                  {interviewInsights.focusNext.length ? (
-                    <ul>{interviewInsights.focusNext.map((s, i) => <li key={i}>{s}</li>)}</ul>
-                  ) : (
-                    <p>{hasScore ? 'No priority growth areas flagged for this session.' : 'Personalized focus areas appear after your interview.'}</p>
-                  )}
-                </div>
-              </div>
-
-              {hasScore && (
-                <div className={styles.cardFooter}>
-                  <Link to="/dashboard/report">
-                    Full report & PDF
-                    <HrIcon name="arrow-right" size={15} />
-                  </Link>
-                  <Link to="/pricing/retake">Retake interview</Link>
-                </div>
-              )}
-            </section>
-
-            <section className={`${styles.card} ${styles.opportunities}`} aria-labelledby="jobs-heading">
-              <div className={styles.sectionHead}>
-                <div>
-                  <p className={styles.eyebrow}>Opportunities</p>
-                  <h2 id="jobs-heading">Roles matched to you</h2>
-                  <p className={styles.muted}>Employer postings aligned with your profile.</p>
-                </div>
-                <Link to="/jobs">
-                  View all
-                  <HrIcon name="arrow-right" size={16} />
-                </Link>
-              </div>
-              {!jobsReady ? (
-                <p className={styles.empty} role="status">{loading ? 'Loading roles…' : 'Roles unavailable — retry above.'}</p>
-              ) : jobs.length ? (
-                <>
-                  <ul className={styles.jobRail} ref={jobRail} tabIndex={0} aria-label="Matched jobs">
-                    {jobs.slice(0, 12).map((job, i) => (
-                      <li className={styles.jobTile} key={job.id || i}>
-                        <div className={styles.jobTileTop}>
-                          <div className={styles.companyIcon} aria-hidden="true">
-                            {job.company.slice(0, 2).toUpperCase()}
-                          </div>
-                          {!job.locked && job.match > 0 ? (
-                            <span className={styles.matchPill}>{job.match}% match</span>
-                          ) : null}
-                        </div>
-                        <p className={styles.company}>{job.company}</p>
-                        <h3>{job.title}</h3>
-                        <p className={styles.jobLocation}>
-                          <HrIcon name="map-pin" size={15} />
-                          {job.location || 'Location flexible'}
-                        </p>
-                        <Link
-                          to={job.shareableCode ? buildApplyPath(job.company, job.shareableCode) : `/jobs?job=${encodeURIComponent(job.id || '')}`}
-                          aria-label={`View ${job.title} at ${job.company}`}
-                        >
-                          View role
-                          <HrIcon name="arrow-up-right" size={17} />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className={styles.railControls}>
-                    <span>Swipe or use arrows to browse</span>
-                    <button type="button" onClick={() => scrollJobs(-1)} aria-label="Previous jobs">
-                      <span className={styles.reverseArrow}><HrIcon name="arrow-right" size={18} /></span>
-                    </button>
-                    <button type="button" onClick={() => scrollJobs(1)} aria-label="Next jobs">
-                      <HrIcon name="arrow-right" size={18} />
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className={styles.empty}>
-                  <div className={styles.emptyIconWrap}><HrIcon name="briefcase" size={26} /></div>
-                  <h3>No matches yet</h3>
-                  <p>
-                    {missingDetails.some((m) => m.section === 'role')
-                      ? 'Add your target role on your profile to unlock tailored matches.'
-                      : 'New employer roles appear here when they match your profile.'}
-                  </p>
-                  <Link to="/jobs" className={styles.primary} style={{ minHeight: 40, padding: '0 18px', fontSize: '0.8125rem' }}>
-                    Browse all jobs
-                  </Link>
-                </div>
-              )}
-            </section>
-
-            <section className={styles.card} aria-labelledby="research-heading">
+            <section className={`${styles.card} ${styles.researchSection}`} aria-labelledby="research-heading">
               <div className={styles.cardHeader}>
                 <div>
                   <p className={styles.eyebrow}>Prepare & research</p>
@@ -763,49 +728,6 @@ export function DashboardPage() {
                 </article>
               </div>
             </section>
-
-            <div className={styles.reviewWrap}>
-              <CandidateReviewEvents sessionId={interview?.sessionId} />
-            </div>
-          </div>
-
-          <aside className={styles.sideStack}>
-            <section className={styles.card} aria-labelledby="apps-heading">
-              <div className={styles.cardHeader}>
-                <div>
-                  <p className={styles.eyebrow}>Pipeline</p>
-                  <h2 id="apps-heading">Application activity</h2>
-                </div>
-                <Link to="/applications">
-                  View all
-                  <HrIcon name="arrow-right" size={15} />
-                </Link>
-              </div>
-              {!appsReady ? (
-                <p className={styles.empty}>{loading ? 'Loading applications…' : 'Applications unavailable.'}</p>
-              ) : recent.length ? (
-                <ul className={styles.rows}>
-                  {recent.map(app => (
-                    <li key={app.id}>
-                      <div>
-                        <Link to="/applications">{app.title}</Link>
-                        <p>{app.company} · {dateLabel(app.appliedAt)}</p>
-                      </div>
-                      <span className={`${styles.badge} ${statusBadgeClass(app.status)}`}>{app.status}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className={styles.empty}>
-                  <div className={styles.emptyIconWrap}><HrIcon name="document" size={24} /></div>
-                  <h3>No applications yet</h3>
-                  <p>Apply to a matched role — status updates from employers show here in real time.</p>
-                  <Link to="/jobs">Find roles <HrIcon name="arrow-right" size={15} /></Link>
-                </div>
-              )}
-            </section>
-          </aside>
-        </div>
         </div>
       </div>
     </div>
