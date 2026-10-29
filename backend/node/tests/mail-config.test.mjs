@@ -20,6 +20,7 @@ console.log(JSON.stringify({
     ...process.env,
     SMTP_EMAIL: '',
     SMTP_APP_PASSWORD: '',
+    RESEND_API_KEY: '',
     ...envPatch,
   }
   const r = spawnSync('node', ['--input-type=module', '-e', code], {
@@ -30,6 +31,15 @@ console.log(JSON.stringify({
   assert.equal(r.status, 0, r.stderr || r.stdout)
   return JSON.parse(r.stdout.trim())
 }
+
+test('Resend takes precedence when RESEND_API_KEY is set', () => {
+  const withResend = evalMail({
+    RESEND_API_KEY: 're_test_key',
+    SMTP_EMAIL: 'project@gmail.com',
+    SMTP_APP_PASSWORD: 'abcdefghijklmnop',
+  })
+  assert.equal(withResend.configured, true)
+})
 
 test('Gmail app password is detected when SMTP_EMAIL and SMTP_APP_PASSWORD are set', () => {
   const without = evalMail({})

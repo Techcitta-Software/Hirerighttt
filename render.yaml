@@ -99,7 +99,9 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
 
-      # ─── Gmail SMTP (mailer.mjs — not SendGrid) ───
+      # ─── Mail: Resend (HTTPS, works on Render) or Gmail SMTP (local dev) ───
+      - key: RESEND_API_KEY
+        sync: false
       - key: SMTP_EMAIL
         sync: false
       - key: SMTP_APP_PASSWORD

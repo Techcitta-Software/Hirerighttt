@@ -12,11 +12,13 @@ export function smtpConfigured() {
 }
 
 export function smtpConfigSummary() {
+  const provider = mailProvider()
   return {
-    provider: 'gmail',
+    provider: provider || 'none',
     email: smtpEmail() || null,
     from: emailFrom() || null,
     passSet: Boolean(smtpAppPassword()),
+    resendKeySet: Boolean(resendApiKey()),
   }
 }
 

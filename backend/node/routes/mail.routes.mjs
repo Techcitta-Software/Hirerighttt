@@ -28,10 +28,12 @@ export function createMailRouter(ctx) {
     const summary = smtpConfigSummary()
     return json(res, 200, {
       smtpConfigured: smtpConfigured(),
-      smtpHost: summary.host,
-      smtpUser: summary.user,
+      mailProvider: summary.provider,
+      smtpHost: summary.provider === 'gmail-smtp' ? 'smtp.gmail.com' : null,
+      smtpUser: summary.email,
       smtpFrom: summary.from,
       smtpPassSet: summary.passSet,
+      resendKeySet: summary.resendKeySet,
       publicAppUrl: publicAppOrigin(),
       inviteJoinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
       verify,
