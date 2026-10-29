@@ -1,6 +1,8 @@
 import {
   emailFrom,
   mailConfigured,
+  mailProvider,
+  resendApiKey,
   sendCandidateEmail,
   smtpAppPassword,
   smtpEmail,
@@ -24,7 +26,9 @@ export function smtpConfigSummary() {
 
 export async function verifySmtpConnection() {
   if (!smtpConfigured()) {
-    const err = new Error('SMTP is not configured (set SMTP_EMAIL and SMTP_APP_PASSWORD in .env).')
+    const err = new Error(
+      'Mail not configured (set RESEND_API_KEY + EMAIL_FROM on Render, or SMTP_EMAIL + SMTP_APP_PASSWORD for local Gmail).',
+    )
     err.status = 503
     throw err
   }
