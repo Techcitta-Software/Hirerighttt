@@ -164,7 +164,6 @@ export function InterviewPage() {
   const [mediaBusy, setMediaBusy] = useState(false)
   const [checklist, setChecklist] = useState([false, false, false])
   const [starting, setStarting] = useState(false)
-  const [waitingForLocalStt, setWaitingForLocalStt] = useState(false)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
 
@@ -928,7 +927,6 @@ export function InterviewPage() {
     try {
       const lobbySttReady = isLobbyLocalSttReady(lobbySttSnapshotRef.current)
       if (!lobbySttReady) {
-        setWaitingForLocalStt(true)
         const gate = await waitForLobbyLocalStt(
           () => lobbySttSnapshotRef.current,
           {
@@ -944,7 +942,6 @@ export function InterviewPage() {
             pollMs: 250,
           },
         )
-        setWaitingForLocalStt(false)
         if (!gate.ok) {
           setDeviceError(gate.reason)
           return
@@ -998,6 +995,7 @@ export function InterviewPage() {
       setRecordingUrl(null)
       setShowTypeFallback(!speechSupported)
       if (recordingConsent && !sessionIdRef.current) throw new Error('We could not connect to your interview. Please reconnect before starting a recording.')
+
       setStage('interview')
       reviewRef.current = new ReviewEventTracker()
       interviewStartedAtRef.current = Date.now()
@@ -1379,15 +1377,8 @@ export function InterviewPage() {
   const canStart =
     checklist.every(Boolean) &&
     !starting &&
-    !waitingForLocalStt &&
     scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
-  const lobbyLocalSttReady = isLobbyLocalSttReady({
-    moonshineStatus: sttState.status,
-    vadReady: moonshineVadReady,
-  })
-  const lobbySttPreparing =
-    streamReady && !lobbyLocalSttReady && sttState.status !== 'error'
   const callStatus = advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
@@ -1500,9 +1491,7 @@ export function InterviewPage() {
                       ? 'Browser speech'
                       : useSileroMoonshineStt
                         ? 'Silero + Moonshine'
-                        : moonshineSttLoading
-                          ? 'Loading local STT…'
-                          : speechSupported
+                        : speechSupported
                             ? 'Browser speech'
                             : 'Speech unavailable'}
                   </span>
@@ -1598,34 +1587,6 @@ export function InterviewPage() {
                   ))}
                 </div>
 
-                {lobbySttPreparing && (
-                  <div className={styles.lobbySttGate} aria-live="polite">
-                    <p className={styles.lobbySttGateText}>
-                      {waitingForLocalStt
-                        ? 'Downloading voice AI in your browser — you will enter automatically when ready.'
-                        : lobbyLocalSttBlockedReason({
-                            moonshineStatus: sttState.status,
-                            vadReady: moonshineVadReady,
-                          })}
-                    </p>
-                    <div className={styles.progressTrack}>
-                      <div
-                        className={styles.progressFill}
-                        style={{
-                          width: `${
-                            sttState.status === 'ready'
-                              ? 100
-                              : Math.max(4, sttState.percent)
-                          }%`,
-                        }}
-                      />
-                    </div>
-                    {sttState.stage && sttState.status !== 'ready' && (
-                      <span className={styles.lobbySttStage}>{sttState.stage}</span>
-                    )}
-                  </div>
-                )}
-
                 <motion.button
                   type="button"
                   className={styles.joinBtn}
@@ -1634,11 +1595,7 @@ export function InterviewPage() {
                   whileHover={canStart ? { scale: 1.02 } : undefined}
                   whileTap={canStart ? { scale: 0.98 } : undefined}
                 >
-                  {lobbyEnterButtonLabel({
-                    starting,
-                    waitingForLocalStt,
-                    sttPercent: sttState.percent,
-                  })}
+                  {lobbyEnterButtonLabel({ starting })}
                 </motion.button>
                 {savedReport && (
                   <button
@@ -1668,7 +1625,7 @@ export function InterviewPage() {
                     <HrIcon name="chart" size={18} /> View Last 360° Career Intelligence Report
                   </button>
                 )}
-                {!canStart && !waitingForLocalStt && (
+                {!canStart && (
                   <p className={styles.joinHint}>
                     {scheduledInviteAccess?.status === 'too_early'
                       ? 'Your scheduled link opens at the exact slot start time. Use the email link when the countdown reaches zero.'
@@ -1734,25 +1691,13 @@ export function InterviewPage() {
             )}
 
             <div className={styles.callStage}>
-            <div className={styles.moonshineSttPill} aria-live="polite">
-              {webSpeechFallback && webSpeechSupported && 'Captions: browser speech (local model fallback)'}
-              {!webSpeechFallback && sttState.status === 'downloading' &&
-                `Preloading voice AI: ${sttState.percent}% (${sttState.stage})${
-                  webSpeechSupported ? ' · browser speech active meanwhile' : ''
-                }`}
-              {!webSpeechFallback && sttState.status === 'ready' &&
-                `Silero VAD + Moonshine ready${
-                  sttState.lastLatencyMs ? ` · last turn ${sttState.lastLatencyMs}ms` : ''
-                }`}
-              {!webSpeechFallback && sttState.status === 'error' &&
-                'Local STT unavailable — browser speech fallback'}
-              {!webSpeechFallback &&
-                sttState.status === 'idle' &&
-                moonshineSttLoading &&
-                `Starting local speech model…${
-                  webSpeechSupported ? ' · browser speech active meanwhile' : ''
-                }`}
-            </div>
+              {(webSpeechFallback || sttState.status === 'error') && (
+                <div className={styles.moonshineSttPill} aria-live="polite">
+                  {webSpeechFallback && webSpeechSupported
+                    ? 'Using browser speech for captions.'
+                    : 'Voice model unavailable — using browser speech.'}
+                </div>
+              )}
 
               {/* Main: your webcam (recorded live) */}
               <div className={`${styles.mainTile} ${styles.youMain}`}>
@@ -2005,6 +1950,14 @@ export function InterviewPage() {
               candidateRole={role}
               candidateExperience={level}
               skills={profileSkills.length > 0 ? profileSkills : ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'Docker', 'AWS', 'REST APIs', 'System Design']}
+              interviewSessionId={
+                result.sessionId ||
+                sessionIdRef.current ||
+                (typeof sessionStorage !== 'undefined'
+                  ? sessionStorage.getItem('hireright.lastInterviewSessionId')
+                  : null)
+              }
+              localPreviewUrl={recordingUrl}
               onRetake={retake}
               onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
             />

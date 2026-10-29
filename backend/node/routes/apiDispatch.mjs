@@ -51,6 +51,7 @@ import {
   insertInterviewInvite,
   getInterviewInviteByToken,
   inviteAccessState,
+  validateInviteStart,
   sendInterviewInviteEmail,
   invitePublicUrl,
   inviteJoinWindowEnd,
@@ -852,9 +853,13 @@ export function createApiDispatchMiddleware(ctx) {
       if (Number.isNaN(start.getTime())) {
         return json(res, 400, { error: 'scheduledStart (ISO datetime) is required.' })
       }
-      const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
+      const requestedDuration = Number(body.durationMinutes || 60)
+      if (!Number.isFinite(requestedDuration) || requestedDuration < 15 || requestedDuration > 180) return json(res, 400, { error: 'Duration must be between 15 and 180 minutes.' })
+      if (start.getTime() <= Date.now()) return json(res, 400, { error: 'Choose a future interview time.' })
+      const durationMin = requestedDuration
       const end = inviteJoinWindowEnd(start)
       const token = newInviteToken()
+      const inviteUrl = invitePublicUrl(token)
       const contextJson = {
         ...buildEmployerInviteContext(db, app, job),
         interviewDurationMinutes: durationMin,
@@ -874,7 +879,6 @@ export function createApiDispatchMiddleware(ctx) {
         createdByUserId: ctx.user.id,
         contextJson,
       })
-      const inviteUrl = invitePublicUrl(token)
       let emailSent = false
       let emailError = null
       if (smtpConfigured()) {
@@ -884,6 +888,8 @@ export function createApiDispatchMiddleware(ctx) {
             candidateName: app.data?.candidateName,
             jobTitle: job?.title,
             scheduledStart: start.toISOString(),
+            scheduledEnd: end.toISOString(),
+            durationMinutes: durationMin,
             inviteUrl,
           })
           await pool.query(
@@ -941,7 +947,10 @@ export function createApiDispatchMiddleware(ctx) {
       const pool = dbPool(config.databaseUrl)
       const row = await getInterviewInviteByToken(pool, token)
       if (!row) return json(res, 404, { error: 'Invite not found.' })
-      const access = inviteAccessState(row)
+      const serverNow = new Date()
+      const access = inviteAccessState(row, serverNow)
+      if (access.status === 'invalid') return json(res, 410, { error: 'This invitation has an invalid schedule. Ask for a new link.' })
+      res.setHeader('Cache-Control', 'no-store')
       const db = loadDb()
       const orgId = row.organization_id
       const job = orgId && row.job_id ? getOrgJob(db, orgId, row.job_id) : null
@@ -955,6 +964,7 @@ export function createApiDispatchMiddleware(ctx) {
       return json(res, 200, {
         invite: {
           token: row.token,
+          serverNow: serverNow.toISOString(),
           candidateEmail: row.candidate_email,
           candidateName: row.candidate_name,
           jobTitle: row.job_title || job?.title || ctx.jobTitle,
@@ -993,9 +1003,13 @@ export function createApiDispatchMiddleware(ctx) {
       }
       const db = loadDb()
       const user = db.users.find((u) => u.email === email)
-      const durationMin = Math.min(180, Math.max(15, Number(body.durationMinutes || 60)))
+      const requestedDuration = Number(body.durationMinutes || 60)
+      if (!Number.isFinite(requestedDuration) || requestedDuration < 15 || requestedDuration > 180) return json(res, 400, { error: 'Duration must be between 15 and 180 minutes.' })
+      if (start.getTime() <= Date.now()) return json(res, 400, { error: 'Choose a future interview time.' })
+      const durationMin = requestedDuration
       const end = inviteJoinWindowEnd(start)
       const token = newInviteToken()
+      const inviteUrl = invitePublicUrl(token)
       const orgId =
         user?.primaryOrganizationId ||
         db.organizationMembers?.find((m) => m.userId === user?.id)?.organizationId ||
@@ -1017,11 +1031,12 @@ export function createApiDispatchMiddleware(ctx) {
         createdByUserId: user?.id,
         contextJson,
       })
-      const inviteUrl = invitePublicUrl(token)
       const { subject, html, text } = buildInterviewInviteEmail({
         candidateName: user?.name,
         jobTitle: body.jobTitle || contextJson.jobTitle,
         scheduledStart: start.toISOString(),
+        scheduledEnd: end.toISOString(),
+        durationMinutes: durationMin,
         inviteUrl,
       })
       let emailSent = false
@@ -1120,6 +1135,11 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, 429, { error: 'Interview start rate limited. Wait a minute.' })
       }
       const body = await readBody(req)
+      if (body.inviteToken) {
+        const invite = await getInterviewInviteByToken(dbPool(config.databaseUrl), String(body.inviteToken));
+        const access = validateInviteStart(invite, email);
+        if (!access.ok) return json(res, access.status, { error: access.error, code: 'INVITE_ACCESS_DENIED' });
+      }
       const db = loadDb()
       const profile = mergeInterviewProfile(db, email, body.profile)
       const account = db.users.find((u) => u.email === email)

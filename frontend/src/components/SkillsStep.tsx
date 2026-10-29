@@ -557,9 +557,6 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
                         })
                       }
                     />
-                    <span className={styles.counter}>
-                      {exp.responsibilities.length}/600
-                    </span>
                   </div>
                 </div>
               </div>

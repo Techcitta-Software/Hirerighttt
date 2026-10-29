@@ -18,6 +18,7 @@ type InvitePayload = {
   jobTitle?: string
   scheduledStart: string
   scheduledEnd: string
+  serverNow?: string
   status: string
   canStart: boolean
   interviewPath: string
@@ -46,6 +47,8 @@ export function InterviewInvitePage() {
   const [invite, setInvite] = useState<InvitePayload | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [serverOffsetMs, setServerOffsetMs] = useState(0)
+  const [retry, setRetry] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const autoRedirected = useRef(false)
 
@@ -55,27 +58,37 @@ export function InterviewInvitePage() {
   }, [])
 
   useEffect(() => {
-    if (!token) return
-    void (async () => {
+    let stopped = false;
+    let timer: number | undefined;
+    const controller = new AbortController();
+    autoRedirected.current = false;
+    setInvite(null);
+    setLoading(true);
+    setError('');
+    const refresh = async () => {
+      if (!token) { setError('This invitation link is incomplete.'); setLoading(false); return; }
       try {
-        const res = await apiFetch(`/api/interview-invites/${encodeURIComponent(token)}`)
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || 'Invite not found')
-        setInvite(data.invite as InvitePayload)
-        persistScheduledInvite({
-          token,
-          scheduledStart: data.invite.scheduledStart,
-          scheduledEnd: data.invite.scheduledEnd,
-          jobTitle: data.invite.jobTitle,
-          inviteUrl: window.location.href,
-        })
+        const res = await apiFetch(`/api/interview-invites/${encodeURIComponent(token)}`, {signal: controller.signal, cache: 'no-store'});
+        const data = await res.json();
+        if (!res.ok || !data.invite) throw new Error(data.error || 'Could not load this invitation.');
+        if (stopped) return;
+        const current = data.invite as InvitePayload;
+        const serverTime = Date.parse(current.serverNow || '');
+        const offset = Number.isFinite(serverTime) ? serverTime - Date.now() : 0;
+        setServerOffsetMs(offset);
+        setNow(Date.now());
+        setInvite(current);
+        setError('');
+        persistScheduledInvite({token, scheduledStart: current.scheduledStart, scheduledEnd: current.scheduledEnd, jobTitle: current.jobTitle, inviteUrl: window.location.href, serverOffsetMs: offset});
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not load invite')
+        if (!stopped) { setError(e instanceof Error ? e.message : 'Could not load invite'); setInvite(null); }
       } finally {
-        setLoading(false)
+        if (!stopped) { setLoading(false); timer = window.setTimeout(refresh, 15000); }
       }
-    })()
-  }, [token])
+    };
+    void refresh();
+    return () => { stopped = true; controller.abort(); window.clearTimeout(timer); };
+  }, [token, retry]);
 
   const liveAccess = useMemo(() => {
     if (!invite) return null
@@ -83,10 +96,11 @@ export function InterviewInvitePage() {
       {
         scheduledStart: invite.scheduledStart,
         scheduledEnd: invite.scheduledEnd,
+        serverOffsetMs,
       },
       now,
     )
-  }, [invite, now])
+  }, [invite, now, serverOffsetMs])
 
   const canStart = liveAccess?.canStart ?? invite?.canStart ?? false
   const status = liveAccess?.status ?? invite?.status ?? ''
@@ -94,13 +108,13 @@ export function InterviewInvitePage() {
   const countdown = useMemo(() => {
     if (!invite || canStart) return null
     const start = new Date(invite.scheduledStart).getTime()
-    const diff = start - now
+    const diff = start - (now + serverOffsetMs)
     if (diff <= 0) return null
     const h = Math.floor(diff / 3600000)
     const m = Math.floor((diff % 3600000) / 60000)
     const s = Math.floor((diff % 60000) / 1000)
     return `${h}h ${m}m ${s}s`
-  }, [invite, canStart, now])
+  }, [invite, canStart, now, serverOffsetMs])
 
   function startInterview() {
     if (!invite || !token || !canStart) return
@@ -110,6 +124,7 @@ export function InterviewInvitePage() {
       token,
       scheduledStart: invite.scheduledStart,
       scheduledEnd: invite.scheduledEnd,
+      serverOffsetMs,
       jobTitle: invite.jobTitle,
     })
     persistInviteInterviewContext({
@@ -119,6 +134,7 @@ export function InterviewInvitePage() {
       experienceLevel: invite.experienceLevel || '',
       primarySkills: invite.primarySkills || [],
     })
+    sessionStorage.removeItem('hireright.targetJob')
     if (invite.applicationId && invite.jobId && invite.organizationId) {
       sessionStorage.setItem(
         'hireright.targetJob',
@@ -174,7 +190,7 @@ export function InterviewInvitePage() {
         </header>
 
         {loading && <p className={styles.muted}>Loading…</p>}
-        {error && <p className={styles.error}>{error}</p>}
+        {error && <div role="alert"><p className={styles.error}>{error}</p><button type="button" className={styles.secondaryBtn} onClick={() => setRetry(value => value + 1)}>Try again</button></div>}
 
         {invite && start && end && (
           <div className={styles.card}>
@@ -243,7 +259,7 @@ export function InterviewInvitePage() {
                 )}
               </div>
             )}
-            {status === 'expired' && (
+            {(status === 'expired' || status === 'invalid') && (
               <p className={styles.error}>
                 This interview window has ended. Contact your recruiter for a new link.
               </p>

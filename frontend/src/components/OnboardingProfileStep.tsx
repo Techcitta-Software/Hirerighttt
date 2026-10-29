@@ -50,6 +50,37 @@ export function OnboardingProfileStep({
 
   const hasResume = Boolean(data.resumeFile || data.resumeName || data.resumeText?.trim())
 
+  const narrativeBlock = (
+    <AboutYouStep
+      data={data}
+      onChange={onChange}
+      onPatch={onPatch}
+      profileFieldsOnly
+      showResumeUpload={false}
+      showNarrativeSection
+      showSnapshotSection={false}
+    />
+  )
+
+  const snapshotBlock = (
+    <AboutYouStep
+      data={data}
+      onChange={onChange}
+      onPatch={onPatch}
+      profileFieldsOnly
+      showResumeUpload={false}
+      showNarrativeSection={false}
+      showSnapshotSection
+    />
+  )
+
+  const skillsAndPerformance = (
+    <>
+      <SkillsStep data={data} onChange={onChange} />
+      <PerformanceStep data={data} onChange={onChange} />
+    </>
+  )
+
   return (
     <MotionStack className={styles.stack}>
       <MotionItem>
@@ -72,56 +103,59 @@ export function OnboardingProfileStep({
         />
       </MotionItem>
 
-      {hasResume && !detailsOpen ? (
-        <MotionItem className={styles.collapsedBar}>
-          <p className={styles.collapsedHint}>
-            We&apos;ve pre-filled your profile from your resume. Review or edit any field
-            before you continue.
-          </p>
-          <button
-            type="button"
-            className={styles.detailsToggle}
-            onClick={() => setDetailsOpen(true)}
-          >
-            Update your resume details
-          </button>
-        </MotionItem>
-      ) : null}
+      {hasResume ? (
+        <>
+          {narrativeBlock}
+          {snapshotBlock}
 
-      {detailsOpen || !hasResume ? (
-        <AnimatePresence initial={false}>
-          <motion.div
-            key="profile-details"
-            className={styles.detailsWrap}
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: easeOut }}
-          >
-            {hasResume && detailsOpen ? (
-              <div className={styles.detailsToolbar}>
-                <button
-                  type="button"
-                  className={styles.collapseBtn}
-                  onClick={() => setDetailsOpen(false)}
-                >
-                  Hide details
-                </button>
-              </div>
+          {detailsOpen ? (
+            <div className={styles.detailsToolbar}>
+              <button
+                type="button"
+                className={styles.collapseBtn}
+                onClick={() => setDetailsOpen(false)}
+              >
+                Hide details
+              </button>
+            </div>
+          ) : (
+            <MotionItem className={styles.collapsedBar}>
+              <p className={styles.collapsedHint}>
+                We&apos;ve pre-filled your profile from your resume. Review or edit any field
+                before you continue.
+              </p>
+              <button
+                type="button"
+                className={styles.detailsToggle}
+                onClick={() => setDetailsOpen(true)}
+              >
+                Update / review details
+              </button>
+            </MotionItem>
+          )}
+
+          <AnimatePresence initial={false}>
+            {detailsOpen ? (
+              <motion.div
+                key="profile-extended"
+                className={styles.detailsWrap}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease: easeOut }}
+              >
+                {skillsAndPerformance}
+              </motion.div>
             ) : null}
-
-            <AboutYouStep
-              data={data}
-              onChange={onChange}
-              onPatch={onPatch}
-              profileFieldsOnly
-              showResumeUpload={false}
-            />
-            <SkillsStep data={data} onChange={onChange} />
-            <PerformanceStep data={data} onChange={onChange} />
-          </motion.div>
-        </AnimatePresence>
-      ) : null}
+          </AnimatePresence>
+        </>
+      ) : (
+        <>
+          {narrativeBlock}
+          {snapshotBlock}
+          {skillsAndPerformance}
+        </>
+      )}
     </MotionStack>
   )
 }

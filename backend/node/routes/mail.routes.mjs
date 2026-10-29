@@ -28,6 +28,9 @@ export function createMailRouter(ctx) {
         error: 'Set RESEND_API_KEY + EMAIL_FROM (Render) or SMTP_EMAIL + SMTP_APP_PASSWORD (local)',
       }
     }
+    let publicAppUrl = null
+    let publicAppUrlError = null
+    try { publicAppUrl = publicAppOrigin() } catch (err) { publicAppUrlError = err.message }
     const summary = smtpConfigSummary()
     return json(res, 200, {
       smtpConfigured: smtpConfigured(),
@@ -37,7 +40,8 @@ export function createMailRouter(ctx) {
       smtpFrom: summary.from,
       smtpPassSet: summary.passSet,
       resendKeySet: summary.resendKeySet,
-      publicAppUrl: publicAppOrigin(),
+      publicAppUrl,
+      publicAppUrlError,
       inviteJoinWindowMinutes: INVITE_JOIN_WINDOW_MINUTES,
       verify,
     })

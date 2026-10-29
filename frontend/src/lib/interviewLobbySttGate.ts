@@ -14,27 +14,11 @@ export function lobbyLocalSttBlockedReason(snapshot: LobbySttSnapshot): string |
     return 'Local voice AI failed to load. Refresh the page and try again.'
   }
   if (isLobbyLocalSttReady(snapshot)) return null
-  if (!snapshot.vadReady) {
-    return 'Preparing Silero voice detection on your device…'
-  }
-  if (snapshot.moonshineStatus === 'downloading') {
-    return 'Downloading voice AI on your browser — stay on this screen until it finishes.'
-  }
-  return 'Starting local voice AI download on your browser…'
+  return null
 }
 
-export function lobbyEnterButtonLabel(params: {
-  starting: boolean
-  waitingForLocalStt: boolean
-  sttPercent: number
-}): string {
-  if (params.waitingForLocalStt) {
-    if (params.sttPercent > 0) {
-      return `Downloading voice AI… ${params.sttPercent}%`
-    }
-    return 'Downloading voice AI…'
-  }
-  if (params.starting) return 'Ava is preparing questions…'
+export function lobbyEnterButtonLabel(params: { starting: boolean }): string {
+  if (params.starting) return 'Joining interview room…'
   return 'Enter interview room'
 }
 

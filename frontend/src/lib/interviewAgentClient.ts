@@ -1,3 +1,4 @@
+import { readStoredInterviewInvite } from './interviewInviteGate'
 /**
  * HireRight Interview Agent Client
  * Client-side Gemini helpers (default gemini-3.1-flash-lite; server is source of truth for interviews).
@@ -187,7 +188,8 @@ export async function startInterviewSession(
       : options || {}
   const jobDescription = opts.jobDescription
   const explicitRoleTrack = opts.explicitRoleTrack
-  const isVendorJob = Boolean(opts.jobId || opts.applicationId)
+  const inviteToken = readStoredInterviewInvite()?.token
+  const isVendorJob = Boolean(opts.jobId || opts.applicationId || inviteToken)
   const agentProfile = enrichProfileForAgent(profile)
   await ensureApiSession()
 
@@ -202,6 +204,7 @@ export async function startInterviewSession(
         role,
         level,
         profile: agentProfile,
+        inviteToken,
         jobDescription,
         adaptive: true,
         explicitRoleTrack: Boolean(explicitRoleTrack),

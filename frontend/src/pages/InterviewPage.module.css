@@ -289,6 +289,21 @@
   box-shadow: 0 0 10px #22c55e;
 }
 
+.lockBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: #f3edff;
+  border: 1px solid #dcd7fe;
+  color: #5b21b6;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .lockedNotice {
   margin-bottom: 1rem;
   padding: 0.9rem 1.1rem;

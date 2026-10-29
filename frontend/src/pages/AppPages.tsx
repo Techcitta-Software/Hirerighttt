@@ -1939,6 +1939,12 @@ export function ProfilePage() {
                 candidateRole={profile?.currentRole ?? interview.role}
                 candidateExperience={profile?.totalExperience ?? interview.level}
                 skills={profile?.skills ?? []}
+                interviewSessionId={
+                  interview.sessionId ||
+                  (typeof sessionStorage !== 'undefined'
+                    ? sessionStorage.getItem('hireright.lastInterviewSessionId')
+                    : null)
+                }
                 onRetake={() => {
                   window.location.href = '/interview'
                 }}

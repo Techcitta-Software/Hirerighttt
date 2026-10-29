@@ -23,6 +23,8 @@ interface Props {
   onContinue?: () => void
   /** When set, loads full interview video from S3 for candidate review. */
   interviewSessionId?: string | null
+  /** Blob URL right after interview while cloud playback is prepared. */
+  localPreviewUrl?: string | null
 }
 
 function hashString(str: string): number {
@@ -43,6 +45,7 @@ export function CareerIntelligenceDashboard({
   onRetake,
   onContinue,
   interviewSessionId,
+  localPreviewUrl,
 }: Props) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
@@ -314,13 +317,6 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
       </header>
-
-      {interviewSessionId || result.sessionId ? (
-        <CandidateInterviewRecordingSection
-          sessionId={interviewSessionId || result.sessionId}
-          title="Your interview video"
-        />
-      ) : null}
 
       {/* Row 1: Career Score Gauge, Score Band Explanation, Donut Distribution */}
       <section className={styles.rowGridThree}>
@@ -782,6 +778,17 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
       </section>
+
+      {interviewSessionId || result.sessionId || localPreviewUrl ? (
+        <div className={styles.reportVideoBlock}>
+          <CandidateInterviewRecordingSection
+            sessionId={interviewSessionId || result.sessionId}
+            localPreviewUrl={localPreviewUrl}
+            title="Your interview video"
+            description="Full session recording from your AI interview — review it below your scorecard."
+          />
+        </div>
+      ) : null}
 
       {/* Footer Ribbon */}
       <footer className={styles.footerRibbon}>

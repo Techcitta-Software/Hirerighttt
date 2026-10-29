@@ -4,6 +4,7 @@ export type StoredInterviewInvite = {
   scheduledEnd: string
   jobTitle?: string
   inviteUrl?: string
+  serverOffsetMs?: number
 }
 
 const INVITE_KEY = 'hireright.interviewInvite'
@@ -23,13 +24,14 @@ export function readStoredInterviewInvite(): StoredInterviewInvite | null {
 export function inviteAccessFromStored(
   invite: StoredInterviewInvite | null,
   now = Date.now(),
-): { status: 'open' | 'too_early' | 'expired'; canStart: boolean } | null {
+): { status: 'open' | 'too_early' | 'expired' | 'invalid'; canStart: boolean } | null {
   if (!invite?.scheduledStart || !invite?.scheduledEnd) return null
   const start = new Date(invite.scheduledStart).getTime()
   const end = new Date(invite.scheduledEnd).getTime()
-  if (Number.isNaN(start) || Number.isNaN(end)) return null
+  if (![start, end, now].every(Number.isFinite) || end <= start) return { status: 'invalid', canStart: false }
+  now += Number.isFinite(invite.serverOffsetMs) ? invite.serverOffsetMs! : 0
   if (now < start) return { status: 'too_early', canStart: false }
-  if (now > end) return { status: 'expired', canStart: false }
+  if (now >= end) return { status: 'expired', canStart: false }
   return { status: 'open', canStart: true }
 }
 

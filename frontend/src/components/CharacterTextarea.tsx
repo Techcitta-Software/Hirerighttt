@@ -21,11 +21,9 @@ export function CharacterTextarea({
   placeholder,
   onChange,
   rows = 4,
-  showCounter = true,
+  showCounter = false,
 }: CharacterTextareaProps) {
   const id = useId()
-  const remaining = maxLength - value.length
-  const nearLimit = remaining <= 30
 
   return (
     <div className={styles.field}>
@@ -42,7 +40,7 @@ export function CharacterTextarea({
           onChange={(event) => onChange(event.target.value)}
         />
         {showCounter ? (
-          <span className={`${styles.counter} ${nearLimit ? styles.warn : ''}`}>
+          <span className={styles.counter}>
             {value.length}/{maxLength}
           </span>
         ) : null}

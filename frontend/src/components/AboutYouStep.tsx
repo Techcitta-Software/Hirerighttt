@@ -27,6 +27,10 @@ interface AboutYouStepProps {
   profileFieldsOnly?: boolean
   /** When false, hides resume upload (use with profileFieldsOnly or alone). */
   showResumeUpload?: boolean
+  /** Section 2 text fields (about you narratives). */
+  showNarrativeSection?: boolean
+  /** Section 3 role / location / notice period. */
+  showSnapshotSection?: boolean
 }
 
 export function AboutYouStep({
@@ -36,6 +40,8 @@ export function AboutYouStep({
   onExtracted,
   profileFieldsOnly = false,
   showResumeUpload = true,
+  showNarrativeSection = true,
+  showSnapshotSection = true,
 }: AboutYouStepProps) {
   const roleOptions =
     data.currentRole && !ROLE_OPTIONS.includes(data.currentRole)
@@ -63,74 +69,82 @@ export function AboutYouStep({
     })
   }
 
+  const narrativeSection = showNarrativeSection ? (
+    <MotionItem as="section" className={styles.card}>
+      <div className={styles.sectionHead}>
+        <h2>2. Tell Us About Yourself</h2>
+        <h3>Help us know you better in a few words.</h3>
+      </div>
+
+      <div className={styles.twoCol}>
+        <CharacterTextarea
+          label="What I know about you"
+          sublabel="Introduce yourself in a few lines."
+          value={data.whoAreYou}
+          maxLength={300}
+          showCounter={false}
+          placeholder="E.g. I'm a passionate software engineer with 3+ years of experience in building scalable web applications..."
+          onChange={(value) => onChange('whoAreYou', value)}
+        />
+        <CharacterTextarea
+          label="Can you brief me more?"
+          sublabel="Add a little more detail about your background and goals."
+          value={data.whatDrivesYou}
+          maxLength={300}
+          showCounter={false}
+          placeholder="Type your answer here…"
+          onChange={(value) => onChange('whatDrivesYou', value)}
+        />
+      </div>
+
+      <CharacterTextarea
+        label="What are your key strengths?"
+        sublabel="Share your top 3-5 strengths."
+        value={data.keyStrengths}
+        maxLength={250}
+        showCounter={false}
+        placeholder="E.g. Problem solving, Team collaboration, Attention to detail, Adaptability..."
+        onChange={(value) => onChange('keyStrengths', value)}
+        rows={3}
+      />
+    </MotionItem>
+  ) : null
+
+  const snapshotSection = showSnapshotSection ? (
+    <MotionItem as="section" className={styles.card}>
+      <div className={styles.sectionHead}>
+        <h2>3. Your Current Snapshot</h2>
+      </div>
+      <div className={styles.threeCol}>
+        <SelectField
+          label="Current Role"
+          value={data.currentRole}
+          options={roleOptions}
+          placeholder="Select your role"
+          onChange={(value) => onChange('currentRole', value)}
+        />
+        <SelectField
+          label="Current Location"
+          value={data.currentLocation}
+          options={locationOptions}
+          placeholder="Select location"
+          onChange={(value) => onChange('currentLocation', value)}
+        />
+        <SelectField
+          label="Notice Period"
+          value={data.noticePeriod}
+          options={NOTICE_OPTIONS}
+          placeholder="Select notice period"
+          onChange={(value) => onChange('noticePeriod', value)}
+        />
+      </div>
+    </MotionItem>
+  ) : null
+
   const profileFields = (
     <>
-      <MotionItem as="section" className={styles.card}>
-        <div className={styles.sectionHead}>
-          <h2>2. Tell Us About Yourself</h2>
-          <h3>Help us know you better in a few words.</h3>
-        </div>
-
-        <div className={styles.twoCol}>
-          <CharacterTextarea
-            label="What I know about you"
-            sublabel="Introduce yourself in a few lines."
-            value={data.whoAreYou}
-            maxLength={300}
-            showCounter={false}
-            placeholder="E.g. I'm a passionate software engineer with 3+ years of experience in building scalable web applications..."
-            onChange={(value) => onChange('whoAreYou', value)}
-          />
-          <CharacterTextarea
-            label="Can you brief me more?"
-            sublabel="Add a little more detail about your background and goals."
-            value={data.whatDrivesYou}
-            maxLength={300}
-            showCounter={false}
-            placeholder="Type your answer here…"
-            onChange={(value) => onChange('whatDrivesYou', value)}
-          />
-        </div>
-
-        <CharacterTextarea
-          label="What are your key strengths?"
-          sublabel="Share your top 3-5 strengths."
-          value={data.keyStrengths}
-          maxLength={250}
-          placeholder="E.g. Problem solving, Team collaboration, Attention to detail, Adaptability..."
-          onChange={(value) => onChange('keyStrengths', value)}
-          rows={3}
-        />
-      </MotionItem>
-
-      <MotionItem as="section" className={styles.card}>
-        <div className={styles.sectionHead}>
-          <h2>3. Your Current Snapshot</h2>
-        </div>
-        <div className={styles.threeCol}>
-          <SelectField
-            label="Current Role"
-            value={data.currentRole}
-            options={roleOptions}
-            placeholder="Select your role"
-            onChange={(value) => onChange('currentRole', value)}
-          />
-          <SelectField
-            label="Current Location"
-            value={data.currentLocation}
-            options={locationOptions}
-            placeholder="Select location"
-            onChange={(value) => onChange('currentLocation', value)}
-          />
-          <SelectField
-            label="Notice Period"
-            value={data.noticePeriod}
-            options={NOTICE_OPTIONS}
-            placeholder="Select notice period"
-            onChange={(value) => onChange('noticePeriod', value)}
-          />
-        </div>
-      </MotionItem>
+      {narrativeSection}
+      {snapshotSection}
     </>
   )
 

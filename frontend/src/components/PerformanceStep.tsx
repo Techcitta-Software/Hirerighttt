@@ -169,9 +169,6 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                     updateAchievement(index, event.target.value)
                   }
                 />
-                <span className={styles.counter}>
-                  {achievement.length}/500
-                </span>
               </div>
             </div>
           ))}

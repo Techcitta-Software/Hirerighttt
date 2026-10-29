@@ -20,30 +20,16 @@ describe('interviewLobbySttGate', () => {
     ).toBe(false)
   })
 
-  it('lobbyEnterButtonLabel shows download progress while waiting', () => {
-    expect(
-      lobbyEnterButtonLabel({
-        starting: false,
-        waitingForLocalStt: true,
-        sttPercent: 42,
-      }),
-    ).toBe('Downloading voice AI… 42%')
-    expect(
-      lobbyEnterButtonLabel({
-        starting: true,
-        waitingForLocalStt: false,
-        sttPercent: 0,
-      }),
-    ).toBe('Ava is preparing questions…')
+  it('lobbyEnterButtonLabel stays neutral while voice AI loads in background', () => {
+    expect(lobbyEnterButtonLabel({ starting: false })).toBe('Enter interview room')
+    expect(lobbyEnterButtonLabel({ starting: true })).toBe('Joining interview room…')
   })
 
-  it('lobbyLocalSttBlockedReason explains missing download', () => {
-    expect(
-      lobbyLocalSttBlockedReason({ moonshineStatus: 'idle', vadReady: true }),
-    ).toMatch(/Starting local voice AI/)
+  it('lobbyLocalSttBlockedReason is silent while downloading', () => {
+    expect(lobbyLocalSttBlockedReason({ moonshineStatus: 'idle', vadReady: true })).toBeNull()
     expect(
       lobbyLocalSttBlockedReason({ moonshineStatus: 'downloading', vadReady: true }),
-    ).toMatch(/Downloading voice AI/)
+    ).toBeNull()
   })
 
   it('waitForLobbyLocalStt resolves immediately when already ready', async () => {

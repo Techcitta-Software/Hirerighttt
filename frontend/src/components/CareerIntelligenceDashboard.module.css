@@ -846,6 +846,18 @@
   color: #15803d;
 }
 
+.reportVideoBlock {
+  margin-top: 36px;
+  padding-top: 8px;
+  width: 100%;
+}
+
+.reportVideoBlock .section {
+  margin-top: 0;
+  margin-bottom: 0;
+  box-shadow: 0 8px 28px rgb(15 23 42 / 6%);
+}
+
 /* Footer Ribbon */
 .footerRibbon {
   background: #faf9ff;

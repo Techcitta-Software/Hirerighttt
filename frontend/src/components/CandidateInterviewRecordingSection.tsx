@@ -8,12 +8,14 @@ type Props = {
   /** Local blob URL while S3 upload finishes (post-interview analyzing). */
   localPreviewUrl?: string | null
   title?: string
+  description?: string
 }
 
 export function CandidateInterviewRecordingSection({
   sessionId,
   localPreviewUrl,
   title = 'Your interview recording',
+  description,
 }: Props) {
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null)
   const [durationHint, setDurationHint] = useState<number | null>(null)
@@ -77,6 +79,7 @@ export function CandidateInterviewRecordingSection({
   return (
     <section className={styles.section} aria-label={title}>
       <h2 className={styles.title}>{title}</h2>
+      {description ? <p className={styles.lead}>{description}</p> : null}
       {loading && !playbackUrl ? (
         <p className={styles.status} role="status">
           Loading your interview video…

@@ -525,13 +525,13 @@ export function buildStructuredTurnQuestion(options) {
             return buildSkillQuestion(first, skills[turn - 1], expLevel, turn, true, varietySeed, { exactRole: role, priorTexts: (options.history || []).map(h => typeof h.question === 'string' ? h.question : h.question.text || '') });
         if (turn <= 4)
             return projectQuestion(first, profile, ctx, turn, role, varietySeed, options.lastAnswer || '');
-        if (turn === 5) {
-            const cert = clean(ctx.certs?.[0] || profile?.certifications?.[0]?.name);
+    if (turn === 5) {
+        const cert = clean(ctx.certs?.[0] || profile?.certifications?.[0]?.name);
             return { text: spokenLead(first, cert ? `what is one important concept you learned in ${cert}, and how would you apply it to a task?` : 'what would you improve in your project next, and why would that improvement matter?'),
-                category: 'Problem Solving', keywords: [cert || 'project', 'learning'], hint: 'Discuss a real project or certification; do not invent a credential.', topic: cert || 'Project reflection', focus: cert ? 'structured-cert' : 'structured-project' };
-        }
-        return { text: spokenLead(first, `last question: what interests you about working as a ${role}, and what would you like to learn next?`), category: 'Communication', keywords: ['motivation', 'learning'], hint: 'Share your motivation and learning goals.', topic: 'Closing', focus: 'structured-closing' };
+            category: 'Problem Solving', keywords: [cert || 'project', 'learning'], hint: 'Discuss a real project or certification; do not invent a credential.', topic: cert || 'Project reflection', focus: cert ? 'structured-cert' : 'structured-project' };
     }
+    return { text: spokenLead(first, `last question: what interests you about working as a ${role}, and what would you like to learn next?`), category: 'Communication', keywords: ['motivation', 'learning'], hint: 'Share your motivation and learning goals.', topic: 'Closing', focus: 'structured-closing' };
+}
     const openingAnalysis = options.openingAnalysis;
     const jsonSkills = jsonRoleSkillsForInterview(role, options.roleSkills || plan.recommendedSkills);
     const skills =

@@ -577,8 +577,8 @@ export function buildStructuredTurnQuestion(options: {
     const skills = plan.recommendedSkills
     if (turn <= 2) return buildSkillQuestion(first, skills[turn - 1], expLevel, turn, true, varietySeed, { exactRole: role, priorTexts: (options.history || []).map(h => typeof h.question === 'string' ? h.question : h.question.text || '') })
     if (turn <= 4) return projectQuestion(first, profile, ctx, turn, role, varietySeed, options.lastAnswer || '')
-    if (turn === 5) {
-      const cert = clean(ctx.certs?.[0] || profile?.certifications?.[0]?.name)
+  if (turn === 5) {
+    const cert = clean(ctx.certs?.[0] || profile?.certifications?.[0]?.name)
       return {
         text: spokenLead(
           first,

@@ -60,6 +60,8 @@ export type IntegrityLogEvent = {
     | 'SIDE_GAZE_LOOKING_AWAY'
     | 'EXCESSIVE_MOVEMENT'
     | 'INTERVIEW_BANNED'
+    | 'TAB_OR_WINDOW_LEFT'
+    | 'FULLSCREEN_EXITED'
   severity: 'warn' | 'block' | 'ban'
   message: string
   questionIndex?: number
