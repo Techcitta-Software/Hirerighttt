@@ -7,6 +7,17 @@ PLATFORM_TENANT_ID = (os.environ.get("S3_DEFAULT_TENANT_ID") or "platform").stri
 USERS_PREFIX = "users"
 
 
+def assert_writable_user_object_key(key: str) -> str:
+    k = str(key or "").strip()
+    if not k:
+        raise ValueError("S3 object key is required.")
+    if not k.startswith(f"{USERS_PREFIX}/"):
+        raise ValueError("S3 object key must live under users/ (production layout).")
+    if ".." in k or "//" in k:
+        raise ValueError("S3 object key contains invalid path segments.")
+    return k
+
+
 def sanitize_path_segment(segment: str) -> str:
     out = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(segment or "unknown").strip())
     out = re.sub(r"^_+|_+$", "", out)[:128]

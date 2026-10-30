@@ -17,6 +17,14 @@ export { buildCandidateResumeObjectKey, sanitizePathSegment }
 export function s3Env() {
   const region = (process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '').trim()
   const bucket = (process.env.S3_BUCKET || '').trim()
+  const expectedBucket = (process.env.S3_EXPECTED_BUCKET || '').trim()
+  if (expectedBucket && bucket && expectedBucket !== bucket) {
+    const err = new Error(
+      `S3_BUCKET="${bucket}" does not match S3_EXPECTED_BUCKET="${expectedBucket}". Fix repo-root .env.`,
+    )
+    err.status = 503
+    throw err
+  }
   const presignSeconds = Number(process.env.S3_PRESIGN_EXPIRES_SECONDS || 900)
   return {
     region,

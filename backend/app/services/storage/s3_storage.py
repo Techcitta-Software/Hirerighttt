@@ -97,6 +97,20 @@ def delete_object(key: str) -> None:
 
 
 def upload_object(*, key: str, body: bytes, content_type: str) -> dict[str, str]:
+    from app.services.storage.s3_key_layout import assert_writable_user_object_key
+
     bucket = os.environ["S3_BUCKET"]
-    _client().put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type, ServerSideEncryption="AES256")
-    return {"bucket": bucket, "key": key}
+    expected = (os.environ.get("S3_EXPECTED_BUCKET") or "").strip()
+    if expected and expected != bucket:
+        raise RuntimeError(
+            f'S3_BUCKET="{bucket}" does not match S3_EXPECTED_BUCKET="{expected}". Fix repo-root .env.'
+        )
+    safe_key = assert_writable_user_object_key(key)
+    _client().put_object(
+        Bucket=bucket,
+        Key=safe_key,
+        Body=body,
+        ContentType=content_type,
+        ServerSideEncryption="AES256",
+    )
+    return {"bucket": bucket, "key": safe_key}

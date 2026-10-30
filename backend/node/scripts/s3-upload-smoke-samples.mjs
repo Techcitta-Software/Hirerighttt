@@ -138,7 +138,7 @@ async function main() {
   for (const u of uploaded) {
     console.log(`  ${u.kind.padEnd(12)} s3://${bucket}/${u.key}`)
   }
-  console.log('\n[s3-smoke] In AWS Console → S3 →', bucket, '→ prefix tenants/platform/candidates/smoke-verification/')
+  console.log('\n[s3-smoke] In AWS Console → S3 →', bucket, '→ users/smoke-verification/ (resume, video, report, transcript)')
   console.log('[s3-smoke] Confirm the account ID in the console matches your NEW AWS account.')
   console.log('[s3-smoke] Neon only stores pointers in stored_files / interview_artifacts / interview_recordings after real uploads — this script does not write Neon.')
 }
