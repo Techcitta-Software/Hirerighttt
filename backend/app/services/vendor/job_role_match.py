@@ -29,7 +29,7 @@ GENERIC_ROLE_TOKENS = frozenset(
 
 
 def _tokenize(text: str) -> list[str]:
-    return [t for t in re.sub(r"[^a-z0-9+#./-\s]", " ", str(text or "").lower()).split() if len(t) >= 2]
+    return [t for t in re.sub(r"[^a-z0-9+#./\s-]", " ", str(text or "").lower()).split() if len(t) >= 2]
 
 
 def resolve_candidate_role_hints(profile: dict | None) -> list[str]:
