@@ -178,7 +178,7 @@ async def complete_interview_recording_upload(**opts: Any) -> dict[str, Any]:
 
 
 async def store_interview_recording_bytes(**opts: Any) -> dict[str, Any]:
-    """Save the interview video with boto3 under candidates/{id}/video/."""
+    """Save the interview video with boto3 under users/{id}/video/."""
     if not s3_storage_configured():
         raise StorageError("Interview recording storage is not configured (S3).", status=503, skipped=True)
     data = opts.get("data") or b""

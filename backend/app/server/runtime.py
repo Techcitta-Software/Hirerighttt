@@ -30,6 +30,10 @@ def load_db_sync() -> dict[str, Any]:
         _db_cache, changed = seed_demo_users_if_needed(_db_cache)
         if changed:
             persist_db(_db_cache, config.database_url)
+        if config.allow_demo_accounts:
+            from app.demo_accounts import index_demo_jobseekers_sync
+
+            index_demo_jobseekers_sync(_db_cache)
     return _db_cache
 
 

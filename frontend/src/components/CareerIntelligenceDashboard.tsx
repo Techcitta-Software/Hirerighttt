@@ -531,20 +531,12 @@ export function CareerIntelligenceDashboard({
         <table className={styles.qaTable}>
           <thead>
             <tr>
-              <th rowSpan={2} style={{ width: '36px', textAlign: 'center' }}>#</th>
-              <th rowSpan={2}>TOPIC</th>
-              <th rowSpan={2} style={{ width: '28%' }}>QUESTION ASKED</th>
-              <th colSpan={3} className={styles.scoreBreakdownHeader}>
-                RUBRIC BREAKDOWN (OUT OF 10)
-              </th>
-              <th rowSpan={2} style={{ textAlign: 'center' }}>TOTAL (OUT OF 30)</th>
-              <th rowSpan={2}>PERFORMANCE</th>
-              <th rowSpan={2}>AI FEEDBACK SUMMARY</th>
-            </tr>
-            <tr>
-              <th style={{ textAlign: 'center' }}>CORRECTNESS</th>
-              <th style={{ textAlign: 'center' }}>COMMUNICATION</th>
-              <th style={{ textAlign: 'center' }}>DEPTH</th>
+              <th style={{ width: '36px', textAlign: 'center' }}>#</th>
+              <th>TOPIC</th>
+              <th style={{ width: '32%' }}>QUESTION ASKED</th>
+              <th style={{ textAlign: 'center' }}>SCORE</th>
+              <th>PERFORMANCE</th>
+              <th>AI FEEDBACK SUMMARY</th>
             </tr>
           </thead>
           <tbody>
@@ -555,11 +547,14 @@ export function CareerIntelligenceDashboard({
                 </td>
                 <td><span className={styles.topicTag}>{q.topic}</span></td>
                 <td className={styles.questionCell}>{q.question}</td>
-                <td className={styles.scoreNumCell}>{q.accuracy}</td>
-                <td className={styles.scoreNumCell}>{q.clarity}</td>
-                <td className={styles.scoreNumCell}>{q.depth}</td>
-                <td className={styles.totalScoreCell}>
-                  <strong>{q.total30 ?? q.total40}/30</strong>
+                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
+                  <strong>
+                    {typeof (q as { questionScore?: number; score?: number }).questionScore === 'number'
+                      ? `${(q as { questionScore: number }).questionScore}%`
+                      : typeof (q as { score?: number }).score === 'number'
+                        ? `${(q as { score: number }).score}%`
+                        : '—'}
+                  </strong>
                 </td>
                 <td style={{ color: '#f59e0b', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{q.stars}</td>
                 <td className={styles.feedbackCell}>{q.feedback}</td>

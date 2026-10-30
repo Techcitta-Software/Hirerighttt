@@ -54,9 +54,20 @@ export function createVendorJob(db, organizationId, createdByUserId, body) {
 
   const user = db.users.find((u) => u.id === createdByUserId)
   const company = String(body.company || user?.companyName || 'Organization').trim()
-  const roleTrack = String(body.roleTrack || body.role || title).trim()
+  const roleTrack = String(body.roleTrack || body.role || '').trim()
+  if (!roleTrack) {
+    throw Object.assign(new Error('Role is required.'), { status: 400 })
+  }
   if (roleTrack.length > 120) {
     throw Object.assign(new Error('Role track must be 120 characters or less.'), { status: 400 })
+  }
+  const experienceLevel = String(body.experienceLevel || body.experience || '').trim()
+  if (!experienceLevel) {
+    throw Object.assign(new Error('Years of experience is required.'), { status: 400 })
+  }
+  const location = String(body.location || '').trim()
+  if (!location) {
+    throw Object.assign(new Error('Location is required.'), { status: 400 })
   }
   const job = {
     id: newId(),
@@ -66,8 +77,8 @@ export function createVendorJob(db, organizationId, createdByUserId, body) {
     company,
     companySlug: slugifyCompanyName(company),
     roleTrack,
-    experienceLevel: String(body.experienceLevel || body.experience || '2–5 years').trim(),
-    location: String(body.location || 'Remote').trim(),
+    experienceLevel,
+    location,
     jobDescription,
     requiredSkills,
     shareableCode,

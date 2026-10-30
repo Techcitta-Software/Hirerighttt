@@ -4,6 +4,7 @@ import os
 import re
 
 PLATFORM_TENANT_ID = (os.environ.get("S3_DEFAULT_TENANT_ID") or "platform").strip() or "platform"
+USERS_PREFIX = "users"
 
 
 def sanitize_path_segment(segment: str) -> str:
@@ -36,13 +37,14 @@ def resolve_candidate_storage_id(*, account: dict | None = None, session: dict |
     return sanitize_path_segment(safe or "candidate")
 
 
-def _candidate_folder(candidate_id: str) -> str:
-    return f"candidates/{sanitize_path_segment(candidate_id or 'candidate')}"
+def _user_folder(user_id: str) -> str:
+    return f"{USERS_PREFIX}/{sanitize_path_segment(user_id or 'unknown')}"
 
 
-def build_candidate_resume_object_key(*, candidate_id: str, filename: str) -> str:
+def build_candidate_resume_object_key(*, candidate_id: str, filename: str, version_number: int = 1) -> str:
     ext = extension_from_filename(filename) or ".pdf"
-    return f"{_candidate_folder(candidate_id)}/resume/resume{ext}"
+    ver = f"_v{version_number}" if version_number and version_number > 1 else ""
+    return f"{_user_folder(candidate_id)}/resume/resume{ver}{ext}"
 
 
 def build_interview_recording_object_key(
@@ -59,16 +61,16 @@ def build_interview_recording_object_key(
     if not ext:
         ct = str(content_type or "").lower()
         ext = ".mp4" if "mp4" in ct else ".webm"
-    return f"{_candidate_folder(candidate_id)}/video/{iid}{ext}"
+    return f"{_user_folder(candidate_id)}/video/{iid}{ext}"
 
 
 def build_interview_report_object_key(*, tenant_id: str = "", interview_id: str, candidate_id: str = "") -> str:
     del tenant_id
     iid = sanitize_path_segment(interview_id)
-    return f"{_candidate_folder(candidate_id)}/report/{iid}.pdf"
+    return f"{_user_folder(candidate_id)}/report/{iid}.pdf"
 
 
 def build_interview_transcript_object_key(*, tenant_id: str = "", interview_id: str, candidate_id: str = "") -> str:
     del tenant_id
     iid = sanitize_path_segment(interview_id)
-    return f"{_candidate_folder(candidate_id)}/transcript/{iid}.json"
+    return f"{_user_folder(candidate_id)}/transcript/{iid}.json"

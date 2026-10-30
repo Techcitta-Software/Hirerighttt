@@ -13,6 +13,7 @@ import { candidateFullName } from './store'
 import { generateLocalAdaptiveQuestion, INTERVIEW_TURN_COUNT } from './adaptiveInterview'
 import {
   generateAdaptiveQuestionClient,
+  generateAdaptiveQuestionLocal,
   resolveInterviewTotalTurns,
   summarizeProfileForQuestions,
 } from './interviewQuestionGeneration'
@@ -68,6 +69,8 @@ export type InterviewStartResponse = {
   question: Question
   offline?: boolean
   adaptive?: boolean
+  /** Stable per session — rotates concepts/skills when the same résumé is interviewed again. */
+  varietySeed?: string
 }
 
 export type JobLinkedInterviewMeta = {
@@ -236,6 +239,24 @@ export async function startInterviewSession(
             : adaptive
               ? INTERVIEW_TURN_COUNT
               : questions!.length
+        const varietySeed =
+          typeof data.varietySeed === 'string' && data.varietySeed.trim()
+            ? data.varietySeed.trim()
+            : typeof crypto !== 'undefined' && crypto.randomUUID
+              ? crypto.randomUUID().slice(0, 16)
+              : String(Date.now())
+        const structuredFirst = adaptive
+          ? generateAdaptiveQuestionLocal({
+              profile: agentProfile,
+              role,
+              level,
+              jobDescription,
+              history: [],
+              lastAnswer: '',
+              varietySeed,
+            })
+          : questions![0]
+        const firstQuestions = adaptive ? [structuredFirst] : questions!
         return {
           sessionId: (data.sessionId as string) || `session-${Date.now().toString(36)}`,
           agent: llmAgent
@@ -243,10 +264,11 @@ export async function startInterviewSession(
             : (data.agent as string) || 'Ava · adaptive agent',
           llm: Boolean(llmAgent),
           total: totalTurns,
-          questions: questions!,
-          question: questions![0],
+          questions: firstQuestions,
+          question: firstQuestions[0],
           offline: false,
           adaptive,
+          varietySeed,
         }
       }
       if (isVendorJob) {

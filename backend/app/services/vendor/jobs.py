@@ -52,9 +52,23 @@ def create_vendor_job(db: dict, organization_id: str, created_by_user_id: str, b
         shareable_code = new_shareable_code()
     user = next((u for u in db.get("users") or [] if u.get("id") == created_by_user_id), None)
     company = str(body.get("company") or (user.get("companyName") if user else "") or "Organization").strip()
-    role_track = str(body.get("roleTrack") or body.get("role") or title).strip()
+    role_track = str(body.get("roleTrack") or body.get("role") or "").strip()
+    if not role_track:
+        err = ValueError("Role is required.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err
     if len(role_track) > 120:
         err = ValueError("Role track must be 120 characters or less.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err
+    experience_level = str(body.get("experienceLevel") or body.get("experience") or "").strip()
+    if not experience_level:
+        err = ValueError("Years of experience is required.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err
+    location = str(body.get("location") or "").strip()
+    if not location:
+        err = ValueError("Location is required.")
         err.status = 400  # type: ignore[attr-defined]
         raise err
     from datetime import datetime, timezone
@@ -67,8 +81,8 @@ def create_vendor_job(db: dict, organization_id: str, created_by_user_id: str, b
         "company": company,
         "companySlug": slugify_company_name(company),
         "roleTrack": role_track,
-        "experienceLevel": str(body.get("experienceLevel") or body.get("experience") or "2–5 years").strip(),
-        "location": str(body.get("location") or "Remote").strip(),
+        "experienceLevel": experience_level,
+        "location": location,
         "jobDescription": job_description,
         "requiredSkills": required_skills,
         "shareableCode": shareable_code,

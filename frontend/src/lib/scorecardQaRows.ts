@@ -30,6 +30,7 @@ export function buildQaRowsFromInterview(result: InterviewResult) {
       index: i + 1,
       topic,
       question: a.question,
+      questionScore: fb,
       accuracy,
       clarity,
       understanding,

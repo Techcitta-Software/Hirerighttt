@@ -407,17 +407,30 @@ export function createApiDispatchMiddleware(ctx) {
       const ctx = await requireEmployerTenant(req, res, db)
       if (!ctx) return
       const body = await readBody(req)
-      const job = createVendorJob(db, ctx.tenant.organization.id, ctx.user.id, body)
-      const matchAlertEmails = queueCandidateJobAlerts(db, job)
-      await upsertJobRecord(config.databaseUrl, job)
-      await saveDb(db)
-      if (config.databaseUrl) {
-        await syncOpenJobsFromDatabase(config.databaseUrl, db)
+      let job = null
+      try {
+        job = createVendorJob(db, ctx.tenant.organization.id, ctx.user.id, body)
+        const matchAlertEmails = queueCandidateJobAlerts(db, job)
+        await saveDb(db)
+        if (config.databaseUrl) {
+          await upsertJobRecord(config.databaseUrl, job)
+          try {
+            await syncOpenJobsFromDatabase(config.databaseUrl, db)
+          } catch {
+            /* non-fatal */
+          }
+        }
+        return json(res, 201, {
+          job: publicJobPayload(job),
+          matchAlertsQueued: matchAlertEmails.length,
+        })
+      } catch (err) {
+        if (job?.id) {
+          db.jobs = (db.jobs || []).filter((j) => j.id !== job.id)
+        }
+        const status = err.status || (err instanceof Error && err.message ? 400 : 500)
+        return json(res, status, { error: err.message || 'Could not create job.' })
       }
-      return json(res, 201, {
-        job: publicJobPayload(job),
-        matchAlertsQueued: matchAlertEmails.length,
-      })
     }
 
     if (req.method === 'GET' && path === '/api/vendor/jobs') {
@@ -2095,6 +2108,7 @@ export function createApiDispatchMiddleware(ctx) {
         }
         proctoring = await persistProctoringFlags({
           tenantId,
+          candidateId: scoredUserEarly?.id,
           sessionId,
           flaggedSections,
         })

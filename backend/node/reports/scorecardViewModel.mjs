@@ -100,10 +100,7 @@ export function buildScorecardViewModel(input) {
           index: i + 1,
           topic: String(row.category || 'General'),
           question: String(row.question || ''),
-          accuracy: Math.round(score / 10),
-          clarity: Math.round(score / 10),
-          depth: Math.round(score / 10),
-          total30: Math.round((score / 100) * 30),
+          questionScore: score,
           stars: score >= 75 ? '★★★★☆' : score >= 50 ? '★★★☆☆' : '★★☆☆☆',
           feedback: String(row.feedback || row.summary || ''),
         }

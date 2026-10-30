@@ -432,34 +432,179 @@ def _analyze_answer(question: dict[str, Any], answer: str, ctx: dict[str, Any]) 
     }
 
 
-def score_session(
+def _analyze_answer_detailed(
+    question: dict[str, Any],
+    answer: str,
+    ctx: dict[str, Any],
+    llm_row: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from app.services.interview_rubric_scoring import (
+        build_weighted_rubrics,
+        classify_question_scoring_profile,
+        compute_heuristic_rubric_scores,
+        merge_rubric_scores,
+        weighted_question_score,
+    )
+
+    base = _analyze_answer(question, answer, ctx)
+    heuristic = compute_heuristic_rubric_scores(question, answer, ctx)
+    merged = merge_rubric_scores(heuristic, llm_row)
+    profile = _clean(question.get("scoringProfile")) or heuristic.get("scoringProfile") or classify_question_scoring_profile(question)
+    rubrics = build_weighted_rubrics(merged, profile)
+    question_score = weighted_question_score(rubrics)
+    performance = (
+        "Strong"
+        if question_score >= 80
+        else "Good"
+        if question_score >= 65
+        else "Fair"
+        if question_score >= 45
+        else "Needs work"
+    )
+    feedback = merged.get("feedback") or base["feedback"]
+    return {
+        **base,
+        "score": question_score,
+        "feedback": feedback,
+        "wordCount": heuristic["wordCount"],
+        "keywordsHit": heuristic["keywordsHit"],
+        "resumeSkillsHit": heuristic["skillsHit"],
+        "topic": question.get("topic") or question.get("category") or "Interview",
+        "scoringProfile": profile,
+        "rubrics": rubrics,
+        "performance": performance,
+        "rubricSource": merged.get("source", "heuristic"),
+    }
+
+
+def _tag_for_score(score: int) -> str:
+    if score >= 75:
+        return "Strong"
+    if score >= 50:
+        return "Moderate"
+    if score >= 25:
+        return "Developing"
+    return "Needs work"
+
+
+def _color_for_score(score: int) -> str:
+    if score >= 75:
+        return "#16a34a"
+    if score >= 50:
+        return "#ea580c"
+    return "#dc2626"
+
+
+def _build_interview_scorecard(
+    *,
+    ctx: dict[str, Any],
+    analyses: list[dict[str, Any]],
+    overall: int,
+    role: str,
+    level: str,
+    resume_fit_score: int,
+    strengths: list[str],
+    improvements: list[str],
+    question_count: int,
+) -> dict[str, Any]:
+    from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
+
+    rubric_totals: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
+    for a in analyses:
+        for r in a.get("rubrics") or []:
+            rubric_totals.setdefault(r["id"], []).append(int(r.get("score") or 0))
+
+    rubric_session = []
+    for defn in INTERVIEW_RUBRICS:
+        scores = rubric_totals.get(defn["id"]) or []
+        score = round(sum(scores) / len(scores)) if scores else 0
+        rubric_session.append({"label": defn["label"], "score": score})
+
+    donuts = [
+        {"label": r["label"], "score": r["score"], "tag": _tag_for_score(r["score"]), "color": _color_for_score(r["score"])}
+        for r in rubric_session
+    ]
+    health_metrics = [
+        {**d, "icon": ["📎", "🧭", "📈"][i] if i < 3 else "🎯"} for i, d in enumerate(donuts)
+    ]
+
+    qa_rows = []
+    for i, a in enumerate(analyses):
+        fb = int(a.get("score") or 0)
+        stars = "★" * max(1, round(fb / 20)) + "☆" * (5 - max(1, round(fb / 20)))
+        qa_rows.append(
+            {
+                "index": i + 1,
+                "topic": a.get("topic") or "Interview",
+                "question": a.get("question"),
+                "questionScore": fb,
+                "stars": stars[:5],
+                "performance": a.get("performance"),
+                "feedback": a.get("feedback"),
+            }
+        )
+
+    career_score = min(980, max(50, overall * 10))
+    status = (
+        "Premium Market-Ready"
+        if career_score >= 850
+        else "Industry Ready"
+        if career_score >= 700
+        else "Growth Potential"
+        if career_score >= 550
+        else "Skill Enhancement Recommended"
+    )
+    name = _clean(ctx.get("name")).split()[0] or "You"
+
+    return {
+        "careerScore": career_score,
+        "industryAlignment": max(1, min(99, resume_fit_score)),
+        "donuts": donuts,
+        "healthMetrics": health_metrics,
+        "qaRows": qa_rows,
+        "radarAxes": [
+            *[{"label": r["label"], "val": r["score"]} for r in rubric_session],
+            {"label": "Overall", "val": overall},
+        ],
+        "finalCareerStatus": status,
+        "bandInterpretation": f"{name} scored {overall}/100 on the {role} ({level}) interview — {status}.",
+        "sessionStats": {
+            "durationMinutes": max(12, question_count * 4),
+            "questionCount": question_count,
+            "overallInterviewScore": overall,
+            "interviewType": f"{role} · Adaptive AI Interview",
+        },
+        "coachNotes": (
+            f"{name}, your interview score is {overall}/100. "
+            f"{strengths[0] + '. ' if strengths else ''}"
+            f"{('Focus next: ' + improvements[0]) if improvements else ''}"
+        ).strip(),
+    }
+
+
+def _finalize_score_payload(
     *,
     role: str,
     level: str,
     questions: list[dict[str, Any]],
     answers: list[str],
-    profile: dict[str, Any] | None,
-    integrity: dict[str, Any] | None = None,
-    name: str = "Candidate",
+    ctx: dict[str, Any],
+    analyses: list[dict[str, Any]],
+    integrity: dict[str, Any],
+    agent: str,
 ) -> dict[str, Any]:
-    ctx = summarize_profile(profile, name=name)
-    integrity = integrity or {}
-    analyses = [
-        _analyze_answer(q, answers[i] if i < len(answers) else "", ctx) for i, q in enumerate(questions)
-    ]
+    from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
 
-    by_cat: dict[str, list[int]] = {}
-    for q, a in zip(questions, analyses, strict=True):
-        by_cat.setdefault(q.get("category", "Technical"), []).append(a["score"])
+    rubric_agg: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
+    for a in analyses:
+        for r in a.get("rubrics") or []:
+            rubric_agg.setdefault(r["id"], []).append(int(r.get("score") or 0))
 
     categories = []
-    for label in CATEGORIES:
-        scores = by_cat.get(label)
-        if scores:
-            score = round(sum(scores) / len(scores))
-        else:
-            score = round(sum(a["score"] for a in analyses) / max(len(analyses), 1)) if analyses else 0
-        categories.append({"label": label, "score": score})
+    for defn in INTERVIEW_RUBRICS:
+        scores = rubric_agg.get(defn["id"]) or []
+        score = round(sum(scores) / len(scores)) if scores else 0
+        categories.append({"label": defn["label"], "score": score})
 
     overall = round(sum(a["score"] for a in analyses) / max(len(analyses), 1)) if analyses else 0
     joined = " ".join(answers or []).lower()
@@ -488,19 +633,43 @@ def score_session(
         strengths.append("Answers are detailed enough for a live hiring screen.")
     else:
         improvements.append("Expand answers to roughly 60–150 words with concrete examples.")
+
+    comm_scores = rubric_agg.get("communication") or []
+    if comm_scores and round(sum(comm_scores) / len(comm_scores)) >= 75:
+        strengths.append("Communication is clear and well structured.")
+    corr_scores = rubric_agg.get("correctness") or []
+    if corr_scores and round(sum(corr_scores) / len(corr_scores)) < 55:
+        improvements.append("Tighten technical accuracy — answer the exact question asked.")
+
     if len(skills_referenced) >= 2:
         strengths.append(f"Resume alignment: you evidenced {', '.join(skills_referenced[:3])}.")
     elif ctx["skills"]:
         improvements.append(f"Reference skills from your resume ({', '.join(ctx['skills'][:3])}).")
 
-    best = max(categories, key=lambda c: c["score"]) if categories else None
-    worst = min(categories, key=lambda c: c["score"]) if categories else None
-    if best and best["score"] >= 60:
-        strengths.append(f"{best['label']} stands out ({best['score']}/100).")
-    if worst and worst["score"] < 60:
-        improvements.append(f"{worst['label']} needs more practice ({worst['score']}/100).")
+    if categories:
+        best = max(categories, key=lambda c: c["score"])
+        worst = min(categories, key=lambda c: c["score"])
+        if best["score"] >= 60:
+            strengths.append(f"{best['label']} stands out ({best['score']}/100).")
+        if worst["score"] < 60:
+            improvements.append(f"Strengthen {worst['label']} ({worst['score']}/100).")
     if integrity.get("banned"):
         improvements.insert(0, integrity.get("banReason") or "Session banned for integrity.")
+
+    strengths_out = _unique(strengths)[:6]
+    improvements_out = _unique(improvements)[:6]
+
+    scorecard = _build_interview_scorecard(
+        ctx=ctx,
+        analyses=analyses,
+        overall=overall,
+        role=role,
+        level=level,
+        resume_fit_score=resume_fit_score,
+        strengths=strengths_out,
+        improvements=improvements_out,
+        question_count=len(questions),
+    )
 
     return {
         "role": role,
@@ -509,9 +678,10 @@ def score_session(
         "overall": overall,
         "resumeFitScore": resume_fit_score,
         "categories": categories,
-        "strengths": _unique(strengths)[:6],
-        "improvements": _unique(improvements)[:6],
+        "strengths": strengths_out,
+        "improvements": improvements_out,
         "answers": [{k: v for k, v in a.items() if k != "resumeSkillsHit"} for a in analyses],
+        "scorecard": scorecard,
         "integrity": {
             "faceViolations": int(integrity.get("faceViolations") or 0),
             "singlePersonOk": integrity.get("singlePersonOk") is not False,
@@ -521,5 +691,75 @@ def score_session(
             "sideLookWarnings": int(integrity.get("sideLookWarnings") or 0),
             "tooFarWarnings": int(integrity.get("tooFarWarnings") or 0),
         },
-        "agent": "python-resume-agent",
+        "agent": agent,
     }
+
+
+async def score_session_async(
+    *,
+    role: str,
+    level: str,
+    questions: list[dict[str, Any]],
+    answers: list[str],
+    profile: dict[str, Any] | None,
+    integrity: dict[str, Any] | None = None,
+    name: str = "Candidate",
+) -> dict[str, Any]:
+    from app.services.interview_llm_eval import evaluate_answers_with_llm, llm_eval_configured
+
+    ctx = summarize_profile(profile, name=name)
+    integrity = integrity or {}
+    llm_by_index = None
+    agent = "python-resume-agent"
+    if llm_eval_configured():
+        llm_by_index = await evaluate_answers_with_llm(
+            questions=questions,
+            answers=answers,
+            ctx=ctx,
+            role=role,
+            level=level,
+        )
+        if llm_by_index:
+            agent = "python-resume-agent+llm"
+
+    analyses = [
+        _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, llm_by_index.get(i + 1) if llm_by_index else None)
+        for i, q in enumerate(questions)
+    ]
+    return _finalize_score_payload(
+        role=role,
+        level=level,
+        questions=questions,
+        answers=answers,
+        ctx=ctx,
+        analyses=analyses,
+        integrity=integrity,
+        agent=agent,
+    )
+
+
+def score_session(
+    *,
+    role: str,
+    level: str,
+    questions: list[dict[str, Any]],
+    answers: list[str],
+    profile: dict[str, Any] | None,
+    integrity: dict[str, Any] | None = None,
+    name: str = "Candidate",
+) -> dict[str, Any]:
+    ctx = summarize_profile(profile, name=name)
+    integrity = integrity or {}
+    analyses = [
+        _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None) for i, q in enumerate(questions)
+    ]
+    return _finalize_score_payload(
+        role=role,
+        level=level,
+        questions=questions,
+        answers=answers,
+        ctx=ctx,
+        analyses=analyses,
+        integrity=integrity,
+        agent="python-resume-agent",
+    )

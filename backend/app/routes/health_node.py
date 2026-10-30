@@ -67,7 +67,7 @@ async def health() -> dict:
             "provider": object_provider,
             "bucket": s3_bucket,
             "region": s3_region,
-            "layout": "candidates/{candidateId}/{resume,video,transcript,report}" if s3_ok else None,
+            "layout": "users/{userId}/{resume,video,transcript,report}" if s3_ok else None,
             "objectKinds": [
                 "resume (server PutObject)",
                 "interview_transcript (server PutObject JSON)",

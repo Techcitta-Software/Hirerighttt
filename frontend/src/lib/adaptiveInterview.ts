@@ -56,6 +56,7 @@ export async function fetchNextAdaptiveQuestion(options: {
   history: { question: Question; answer: string }[]
   lastQuestion: Question
   lastAnswer: string
+  varietySeed?: string
 }): Promise<Question> {
   const maxTurns =
     options.totalTurns ??
@@ -68,6 +69,20 @@ export async function fetchNextAdaptiveQuestion(options: {
   if (options.history.length >= maxTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
+  const varietySeed =
+    options.varietySeed?.trim() ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 16) : String(Date.now()))
+
+  const structuredQuestion = generateAdaptiveQuestionLocal({
+    profile: options.profile,
+    role: options.role,
+    level: options.level,
+    jobDescription: options.jobDescription,
+    history: options.history,
+    lastAnswer: options.lastAnswer,
+    varietySeed,
+  })
+
   await ensureApiSession()
   try {
     const res = await apiFetch('/api/interview/next', {
@@ -82,30 +97,23 @@ export async function fetchNextAdaptiveQuestion(options: {
         history: options.history.slice(0, -1),
         lastQuestion: options.lastQuestion,
         lastAnswer: options.lastAnswer,
+        varietySeed,
+        question: structuredQuestion,
       }),
     })
     if (res.ok) {
       const data = await res.json()
       if (data.complete === true) throw new Error('INTERVIEW_COMPLETE')
-      if (data.question?.text) return data.question as Question
     }
   } catch (err) {
     if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') throw err
-    // client LLM / local fallback
   }
 
   if (options.history.length >= maxTurns) {
     throw new Error('INTERVIEW_COMPLETE')
   }
 
-  return generateAdaptiveQuestionClient({
-    profile: options.profile,
-    role: options.role,
-    level: options.level,
-    jobDescription: options.jobDescription,
-    history: options.history,
-    lastAnswer: options.lastAnswer,
-  })
+  return structuredQuestion
 }
 
 export function enrichProfileName(profile: SavedProfile | null): SavedProfile | null {

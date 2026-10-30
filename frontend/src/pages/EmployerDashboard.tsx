@@ -224,7 +224,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobExp, setNewJobExp] = useState('3-5 years')
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
-  const [newJobSkills, setNewJobSkills] = useState('React, TypeScript, Node.js')
+  const [newJobSkills, setNewJobSkills] = useState('')
   const [jobFormError, setJobFormError] = useState('')
   const [portalSyncNote, setPortalSyncNote] = useState('')
   const seenApplicationAlertIdsRef = useRef(new Set<string>())
@@ -480,8 +480,27 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     e.preventDefault()
     const jd = newJobDescription.trim()
     const title = newJobTitle.trim()
-    if (!title || jd.length < 30) {
-      setJobFormError('Job title and description (min 30 characters) are required.')
+    const location = newJobLocation.trim()
+    const roleTrack = newJobRoleTrack.trim()
+    const experienceLevel = newJobExp.trim()
+    if (!title) {
+      setJobFormError('Job title is required.')
+      return
+    }
+    if (!roleTrack) {
+      setJobFormError('Role is required.')
+      return
+    }
+    if (!experienceLevel) {
+      setJobFormError('Years of experience is required.')
+      return
+    }
+    if (!location) {
+      setJobFormError('Location is required.')
+      return
+    }
+    if (jd.length < 30) {
+      setJobFormError('Job description is required (at least 30 characters).')
       return
     }
     setJobFormError('')
@@ -491,9 +510,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       .filter(Boolean)
     const company = user?.companyName || 'TechCitta Solutions'
     const createdByEmail = user?.email || 'employer@hireright.com'
-    const location = newJobLocation.trim()
-    const roleTrack = newJobRoleTrack
-    const experienceLevel = newJobExp
 
     const optimisticId = `optimistic-${Date.now()}`
     const optimisticJob: EmployerJob = {
@@ -514,13 +530,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     bumpJobsLoadGeneration()
     setJobs((prev) => [optimisticJob, ...prev])
     setJobCounts((prev) => ({ ...prev, [optimisticId]: 0 }))
-    setShowCreateJobModal(false)
-    setNewJobTitle('')
-    setNewJobDescription('')
-    setNewJobSkills('React, TypeScript, Node.js')
-    setNewJobRoleTrack(DEFAULT_JOB_ROLE)
-    setNewJobExp('3-5 years')
-    setNewJobLocation('Hyderabad / Remote')
     setPortalError('')
     setPortalSyncNote(`Creating “${title}”…`)
 
@@ -546,6 +555,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         next[created.id] = next[created.id] ?? 0
         return next
       })
+      setShowCreateJobModal(false)
+      setNewJobTitle('')
+      setNewJobDescription('')
+      setNewJobSkills('')
+      setNewJobRoleTrack(DEFAULT_JOB_ROLE)
+      setNewJobExp('3-5 years')
+      setNewJobLocation('Hyderabad / Remote')
       setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)
     } catch (err) {
       setJobs((prev) => prev.filter((j) => j.id !== optimisticId))
@@ -554,13 +570,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         delete next[optimisticId]
         return next
       })
-      setShowCreateJobModal(true)
-      setNewJobTitle(title)
-      setNewJobDescription(jd)
-      setNewJobRoleTrack(roleTrack)
-      setNewJobExp(experienceLevel)
-      setNewJobLocation(location)
-      setNewJobSkills(requiredSkills.join(', '))
       setJobFormError(err instanceof Error ? err.message : 'Could not publish this job. Please try again.')
       setPortalSyncNote('')
     }
@@ -1267,43 +1276,45 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="employer-job-role-track">Role Track</label>
-                    <select
-                      id="employer-job-role-track"
-                      value={newJobRoleTrack}
-                      onChange={(e) => setNewJobRoleTrack(e.target.value)}
-                    >
-                      {JOB_ROLE_GROUPS.map((group) => (
-                        <optgroup key={group.label} label={group.label}>
-                          {group.roles.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
+                <div className={styles.formGroup}>
+                  <label htmlFor="employer-job-role-track">Role</label>
+                  <select
+                    id="employer-job-role-track"
+                    required
+                    value={newJobRoleTrack}
+                    onChange={(e) => setNewJobRoleTrack(e.target.value)}
+                  >
+                    {JOB_ROLE_GROUPS.map((group) => (
+                      <optgroup key={group.label} label={group.label}>
+                        {group.roles.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
 
-                  <div className={styles.formGroup}>
-                    <label>Experience Level</label>
-                    <select
-                      value={newJobExp}
-                      onChange={(e) => setNewJobExp(e.target.value)}
-                    >
-                      <option value="0-2 years">0-2 years (Junior)</option>
-                      <option value="3-5 years">3-5 years (Mid-Level)</option>
-                      <option value="6+ years">6+ years (Senior / Lead)</option>
-                    </select>
-                  </div>
+                <div className={styles.formGroup}>
+                  <label htmlFor="employer-job-experience">Years of experience</label>
+                  <select
+                    id="employer-job-experience"
+                    required
+                    value={newJobExp}
+                    onChange={(e) => setNewJobExp(e.target.value)}
+                  >
+                    <option value="0-2 years">0-2 years (Junior)</option>
+                    <option value="3-5 years">3-5 years (Mid-Level)</option>
+                    <option value="6+ years">6+ years (Senior / Lead)</option>
+                  </select>
                 </div>
 
                 <div className={styles.formGroup}>
                   <label>Location</label>
                   <input
                     type="text"
+                    required
                     placeholder="Hyderabad / Remote"
                     value={newJobLocation}
                     onChange={(e) => setNewJobLocation(e.target.value)}
@@ -1322,7 +1333,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 </div>
 
                 <div className={styles.formGroup}>
-                  <label>Required skills (comma-separated)</label>
+                  <label>Required skills (optional, comma-separated)</label>
                   <input
                     type="text"
                     placeholder="React, TypeScript, System Design"
@@ -1514,17 +1525,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
               {selectedApplicant.interviewResult && (
                 <div>
-                  <h4 style={{ margin: '18px 0 10px 0', color: '#0f172a', fontSize: '0.95rem', fontWeight: 700 }}>Category Breakdown</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    {selectedApplicant.interviewResult.categories?.map((cat) => (
-                      <div key={cat.label} style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '10px 14px', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>{cat.label}</span>
-                        <span style={{ fontWeight: 800, color: '#4f46e5', fontSize: '0.95rem' }}>{cat.score}%</span>
-                      </div>
-                    ))}
-                  </div>
+                  <h4 style={{ margin: '20px 0 10px 0', color: '#0f172a', fontSize: '0.95rem', fontWeight: 700 }}>
+                    Overall interview score:{' '}
+                    <span style={{ color: '#4f46e5' }}>{selectedApplicant.interviewResult.overall ?? '—'}%</span>
+                  </h4>
 
-                  <h4 style={{ margin: '20px 0 10px 0', color: '#0f172a', fontSize: '0.95rem', fontWeight: 700 }}>Candidate Answer Transcripts & Scores</h4>
+                  <h4 style={{ margin: '12px 0 10px 0', color: '#0f172a', fontSize: '0.95rem', fontWeight: 700 }}>Candidate Answer Transcripts & Scores</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {selectedApplicant.interviewResult.answers?.map((ans, idx) => (
                       <div key={idx} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '14px', borderRadius: '10px' }}>

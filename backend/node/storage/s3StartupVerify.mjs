@@ -1,5 +1,4 @@
 import { HeadBucketCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { PLATFORM_TENANT_ID } from './s3KeyLayout.mjs'
 import { s3Env, s3StorageConfigured } from './s3ObjectStorage.mjs'
 
 /** @returns {import('@aws-sdk/client-s3').S3ClientConfig['credentials'] | undefined} */
@@ -26,15 +25,14 @@ function formatAwsError(err) {
   return http ? `${code} (HTTP ${http}): ${err.message}` : `${code}: ${err.message}`
 }
 
-/** Key under tenants/ — matches typical IAM policies scoped to arn:aws:s3:::BUCKET/tenants/* */
+/** Key under users/ — matches IAM policies scoped to arn:aws:s3:::BUCKET/users/* */
 function startupProbeObjectKey() {
-  const tenant = (process.env.S3_DEFAULT_TENANT_ID || PLATFORM_TENANT_ID).trim() || PLATFORM_TENANT_ID
-  return `tenants/${tenant}/.hireright/startup-probe`
+  return 'users/.system/.hireright/startup-probe'
 }
 
 /**
  * Confirms the configured bucket is reachable with credentials from env.
- * Uses HeadObject on a tenants/* probe (404 = OK) so object-scoped IAM without s3:ListBucket still passes.
+ * Uses HeadObject on a users/* probe (404 = OK) so object-scoped IAM without s3:ListBucket still passes.
  *
  * @returns {Promise<{ bucket: string, region: string } | null>}
  */
@@ -82,7 +80,7 @@ export async function verifyConfiguredS3Bucket() {
         `Cannot access S3 bucket "${bucket}" in ${region} with current AWS credentials. ` +
           `Probe HeadObject on "${probeKey}" failed (${detail}). ` +
           `HeadBucket fallback failed (${bucketDetail}). ` +
-          'Ensure IAM allows s3:GetObject (HeadObject) and s3:PutObject on arn:aws:s3:::BUCKET/tenants/* ' +
+          'Ensure IAM allows s3:GetObject (HeadObject) and s3:PutObject on arn:aws:s3:::BUCKET/users/* ' +
           'and that AWS_REGION matches the bucket region. ' +
           'On Render, paste keys without extra quotes; + and = in secrets must be exact.',
       )

@@ -5,6 +5,7 @@ from typing import Any
 
 from app.auth_passwords import hash_password, verify_password
 from app.db.saas_helpers import provision_employer_tenant
+from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config
 
 DEMO_SEED_USERS = (
@@ -14,6 +15,14 @@ DEMO_SEED_USERS = (
         "email": "demo@hireright.com",
         "password": "password123",
         "phone": "+919000000001",
+        "role": "jobseeker",
+    },
+    {
+        "id": "demo-user-candidate-2",
+        "name": "Priya Nair",
+        "email": "candidate@hireright.com",
+        "password": "password123",
+        "phone": "+919000000004",
         "role": "jobseeker",
     },
     {
@@ -93,3 +102,37 @@ def seed_demo_users_if_needed(db: dict[str, Any]) -> tuple[dict[str, Any], bool]
             changed = True
 
     return db, changed
+
+
+def index_demo_jobseekers_sync(db: dict[str, Any]) -> None:
+    import asyncio
+
+    async def _run() -> None:
+        for demo in DEMO_SEED_USERS:
+            if demo["role"] != "jobseeker":
+                continue
+            account = next((u for u in db.get("users") or [] if u.get("email") == demo["email"]), None)
+            if not account:
+                continue
+            profile = (db.get("profiles") or {}).get(demo["email"]) or {
+                "fullName": demo["name"],
+                "currentRole": "Software Engineer",
+                "totalExperience": "2 years",
+                "skills": ["JavaScript", "React", "Node.js"],
+                "profileVisibility": "marketplace",
+            }
+            db.setdefault("profiles", {})[demo["email"]] = profile
+            try:
+                await upsert_candidate_talent(
+                    config.database_url,
+                    account,
+                    profile,
+                    (db.get("interviews") or {}).get(demo["email"]),
+                )
+            except Exception:
+                pass
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_run())

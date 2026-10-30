@@ -300,6 +300,11 @@ async function presignInterviewArtifactRow(row, artifactType, s3Inject, inline =
   }
 }
 
+export function s3UsersPrefix() {
+  return 'users/'
+}
+
+/** @deprecated use s3UsersPrefix */
 export function s3TenantsPrefix() {
-  return 'tenants/'
+  return 'users/'
 }

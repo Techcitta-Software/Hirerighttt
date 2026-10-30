@@ -18,6 +18,9 @@ import {
   FRESHER_INTERVIEW_TURN_COUNT,
   isPlanFresher,
   analyzeOpeningAnswerAlignment,
+  fresherSkillForTurn,
+  FRESHER_GREETING,
+  FRESHER_THANK_YOU,
 } from './interviewQuestionPlan'
 import { getSkillsForRole } from './roleSkillStore'
 
@@ -157,21 +160,24 @@ export function buildAdaptiveQuestionSystemPrompt(options: {
       : `You may use the first name "${options.first}" once if natural.`
   const totalTurns = options.totalTurns || options.planSummary?.totalTurns || INTERVIEW_TURN_COUNT
   const planRule = options.planSummary
-    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow each slot exactly. One theory question per assigned skill; recent-work slots use the most recent employment. Calibrate concept depth to years of experience. Do not require production work from freshers.`
+    ? `- STRUCTURED INTERVIEW PLAN (mandatory): Exact role "${options.exactRole || options.role}". Recommended skills: ${(options.planSummary.recommendedSkills || []).join(', ') || 'see payload'}. Turn ${options.turnNumber}: ${options.planSummary.turnPlan[options.turnNumber - 1] || 'follow slot'}. Follow each slot exactly. For freshers: Q1 is always about yourself and must start with this exact greeting: "${FRESHER_GREETING}". Q2 is the coding language they know. Q3 is always SQL. Q4 is another skill they have. Q5–Q6 are technical project questions. Q7 must use this exact thank-you: "${FRESHER_THANK_YOU}". Do not require employment from freshers.`
     : ''
   const varietyRule = options.varietySeed
     ? `- Use varietySeed "${options.varietySeed}" to pick a fresh angle within the slot. Candidates with the same role and experience must not receive identical wording across sessions.`
     : ''
-  return `You are Ava, a realistic professional interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
-For fresher theory turns, use selectedConcept as the concept to assess. Write a fresh beginner-level question about it. Cover varied concepts across sessions, including OOP, functions, collections, control flow, error handling, testing and database fundamentals where supported by the assigned language or skill. Never repeat a concept already assessed in priorQuestions, even with different wording; choose another relevant concept if necessary.
+  return `You are Ava, a calm interviewer on a live video call. Generate exactly ONE new interview question (JSON only).
+Sound human: short sentences, everyday words, one idea. Never use filler phrases like "I'd love to hear", "walk me through your journey", "delve", "leverage", "utilize", "robust", "comprehensive", or "in today's landscape".
+
+For fresher theory turns, use selectedConcept as the concept to assess. Rephrase it as a spoken question a person would ask (e.g. "Can you explain…?" / "How would you…?"). Never repeat a concept from priorQuestions.
+Use role-aligned skills from the plan: if the résumé shows Python for a Data Engineer role, ask PySpark/data topics — not "what you did in Python". Theory slots are conceptual only (no work stories).
 
 Rules:
 - This is question ${options.turnNumber} of ${totalTurns}. Never repeat or lightly rephrase any prior question.
 - Use the candidate resume, role "${options.exactRole || options.role}", experience "${options.level}", job description (if any), and their last answer to choose the next realistic topic.
 - One clear idea per question — how a real hiring manager speaks.
 - Use short sentences and simple words at every experience level. Under 2 years: basics and small implementation steps; 2 to under 5 years: debugging, testing and practical choices; 5+ years: design choices, reliability and consequences. Use the numeric experienceYears and difficulty in the payload; a senior job title alone must not increase difficulty.
-- In project slots, use the supplied projectContext and lastAnswer to ask ONE technical question about how the candidate built, tested or fixed a specific part. Use selectedProject for the first project question; follow the project actually discussed in lastAnswer for the second question. Only mention tools or results present in that project or the answer. If evidence is missing, ask the candidate to choose a real project. Do not invent scale, architecture, employers or outcomes.
-- For freshers, use short sentences and simple words. Ask about the assigned role skill without assuming prior work with it; SQL is not mandatory in every fresher session. Keep concepts at beginner level and assess a different concept from earlier questions.
+- In fresher project slots (turns 5–6), ask ONE technical question about a real project from projectContext or selectedProject: what they built, how they tested it, or how they fixed something. Use the project name when it appears in the résumé. Simple words only — no architecture buzzwords unless the résumé mentions them. Turn 6 must follow the same project as turn 5 or lastAnswer. If no project is listed, ask them to pick a college or personal project first, then go technical.
+- For freshers, use short sentences and simple words. Q1 is always about yourself. Q2 is their coding language. Q3 is always SQL. Q4 is another listed skill. Q5–Q6 are project questions. Q7 is the same thank-you for every fresher. Keep concepts at beginner level and do not assume employment.
 - In a theory slot, ask about a specific concept within the assigned skill; no personal work stories, résumé references, coding exercise or invented projects. Leave resumeAnchor empty and set topic to the assigned skill.
 - Work/project/certification slots may use supplied history. If evidence is missing, ask neutrally rather than assuming a company or credential.
 - ${nameRule}
@@ -204,7 +210,7 @@ export function buildAdaptiveQuestionUserPayload(options: {
     turnNumber: options.turnNumber,
     totalTurns,
     questionVarietySeed: options.varietySeed || null,
-    selectedConcept: theory && options.planSummary?.fresher ? selectFresherConcept(options.planSummary.recommendedSkills[options.turnNumber - 1], options.varietySeed, options.turnNumber, options.priorTexts) : undefined,
+    selectedConcept: theory && options.planSummary?.fresher ? selectFresherConcept(fresherSkillForTurn(options.planSummary, options.turnNumber), options.varietySeed, options.turnNumber, options.priorTexts) : undefined,
     roleTrack: options.exactRole || options.role,
     exactRole: options.exactRole || options.role,
     recommendedSkillsForRole: options.planSummary?.recommendedSkills || options.recommendedSkills || [],
@@ -541,7 +547,10 @@ export function generateAdaptiveQuestionLocal(options: {
     (!isPlanFresher(options.profile, ctx, level) && options.history[0]?.answer
       ? analyzeOpeningAnswerAlignment(options.history[0].answer, roleSkills || [], ctx)
       : null)
-  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, level, roleSkills, openingAnalysis, options.varietySeed)
+  const varietySeed =
+    clean(options.varietySeed) ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 16) : String(Date.now()))
+  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, level, roleSkills, openingAnalysis, varietySeed)
   const totalTurns = planSummary.totalTurns
   const history = options.history || []
   if (history.length >= totalTurns) {
@@ -564,7 +573,7 @@ export function generateAdaptiveQuestionLocal(options: {
     senior: isSeniorExperienceLevel(level),
     planSummary,
     roleSkills,
-    varietySeed: options.varietySeed,
+    varietySeed,
     openingAnalysis,
     lastAnswer: options.lastAnswer,
   })

@@ -1,17 +1,28 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from app.services.interview_agent import (
+    _extract_projects,
     build_questions,
     resolve_candidate_name,
     score_session,
+    score_session_async,
     summarize_profile,
 )
+from app.services.interview_llm_eval import llm_eval_configured
 from app.services.vendor.ats_score import compute_ats_score, extract_primary_skills_from_jd
 
-INTERVIEW_TURN_COUNT = 6
+INTERVIEW_TURN_COUNT = 7
+FRESHER_INTERVIEW_TURN_COUNT = 7
+FRESHER_GREETING = "Thanks for joining today — I am Ava, and I will guide you through this interview."
+FRESHER_THANK_YOU = "Thank you for your time today. That is all from my side. Wishing you the best with your next steps."
+_CODING_LANGUAGE_RE = (
+    r"^(python|javascript|typescript|java|c\+\+|c#|go|golang|ruby|kotlin|swift|php|dart|rust|scala|r|node\.?js)$"
+)
+_SQL_SKILL_RE = r"^(sql|postgresql|postgres|mysql|sqlite|tsql|pl/?sql)$"
 
 
 def llm_configured() -> bool:
@@ -54,12 +65,173 @@ def analyze_interview_skill_match(
     }
 
 
+def _is_fresher(profile: dict | None, level: str, ctx: dict | None = None) -> bool:
+    experience = str((profile or {}).get("totalExperience") or level or "")
+    if re.search(r"fresher|student|no (?:work )?experience|^0(?:\s*(?:years?|months?))?$|less than 1", experience, re.I):
+        return True
+    jobs = (ctx or {}).get("jobs") or []
+    work = (profile or {}).get("workExperiences") or []
+    if jobs or any((item or {}).get("company") or (item or {}).get("jobTitle") for item in work):
+        return False
+    return True
+
+
+def _clean_skill(value: str) -> str:
+    return str(value or "").strip()
+
+
+def _is_coding_language(skill: str) -> bool:
+    return bool(re.match(_CODING_LANGUAGE_RE, _clean_skill(skill), re.I))
+
+
+def _is_sql_skill(skill: str) -> bool:
+    return bool(re.match(_SQL_SKILL_RE, re.sub(r"\s+", "", _clean_skill(skill)), re.I))
+
+
+def _pick_fresher_language(skills: list) -> str:
+    known = [_clean_skill(skill) for skill in skills if _clean_skill(skill)]
+    return next((skill for skill in known if _is_coding_language(skill)), "a programming language you know")
+
+
+def _pick_fresher_other_skill(skills: list, coding_language: str) -> str:
+    skip = {re.sub(r"[^a-z0-9+#]", "", value.lower()) for value in (coding_language, "SQL", "PostgreSQL", "MySQL")}
+    for skill in skills:
+        value = _clean_skill(skill)
+        key = re.sub(r"[^a-z0-9+#]", "", value.lower())
+        if value and key not in skip and not _is_sql_skill(value) and not _is_coding_language(value):
+            return value
+    return "a skill you know"
+
+
+def _short_project_label(text: str) -> str:
+    t = str(text or "").strip()
+    if not t:
+        return ""
+    if len(t) <= 72:
+        return t
+    return f"{t[:69].rstrip()}…"
+
+
+def _project_kind(evidence: str) -> str:
+    if re.search(r"pipeline|etl|spark|airflow|warehouse", evidence, re.I):
+        return "pipeline"
+    if re.search(r"api|endpoint|authentication|backend|rest", evidence, re.I):
+        return "api"
+    if re.search(r"react|frontend|front.end|interface|web page|html|css", evidence, re.I):
+        return "ui"
+    if re.search(r"model|machine learning|prediction|classifier|tensorflow|pytorch", evidence, re.I):
+        return "ml"
+    return "general"
+
+
+def _fresher_project_question_text(slot: int, project_line: str, last_answer: str = "") -> str:
+    label = _short_project_label(project_line)
+    evidence = f"{project_line} {last_answer if slot == 2 else ''}".lower()
+    kind = _project_kind(evidence)
+    if slot == 1:
+        if label:
+            return (
+                f"I see {label} on your background. "
+                "What part did you build yourself, and which tools or languages did you use?"
+            )
+        return "Pick one college or personal project. What was your part, and what did you use to build it?"
+    follow = {
+        "ui": "when a button or form did not behave the way you expected, how did you track down the cause?",
+        "api": "when a request failed or returned the wrong data, how did you debug it?",
+        "pipeline": "when data looked wrong in your pipeline step, how did you find where it broke?",
+        "ml": "how did you check that your model or script worked on data it had not seen in training?",
+        "general": "when something in that project failed, how did you figure out what went wrong?",
+    }[kind]
+    if label:
+        return f"Staying on {label} — {follow}"
+    return f"On that same project, {follow}"
+
+
+def _fresher_question(turn: int, first: str, skills: list, projects: list, last_answer: str = "") -> dict:
+    name = first if first and first != "there" else ""
+    language = _pick_fresher_language(skills)
+    other = _pick_fresher_other_skill(skills, language)
+    project_line = str(projects[0] if projects else "")
+    if turn <= 1:
+        lead = f"{FRESHER_GREETING} {name}," if name else FRESHER_GREETING
+        return {
+            "text": f"{lead} to start, tell me a bit about yourself — your studies, what you've picked up so far, and the kind of role you want.".replace("  ", " ").strip(),
+            "category": "Communication",
+            "keywords": ["about yourself", "education", "background", "introduction"],
+            "hint": "About a minute: who you are, your studies, and one thing you want from this role.",
+            "topic": "About yourself",
+            "focus": "structured-fresher-intro",
+        }
+    if turn == 2:
+        return {
+            "text": f"{(name + ', ') if name else ''}in simple terms, explain one basic idea in {language} — keep it short.",
+            "category": "Technical",
+            "keywords": [language.lower(), "language"],
+            "hint": "Explain the concept in simple words. No job story is required.",
+            "topic": language,
+            "focus": "structured-theory-2",
+        }
+    if turn == 3:
+        return {
+            "text": f"{(name + ', ') if name else ''}explain how INNER JOIN differs from LEFT JOIN in SQL.",
+            "category": "Technical",
+            "keywords": ["sql", "join"],
+            "hint": "Use a simple table example. Employment is not required.",
+            "topic": "SQL",
+            "focus": "structured-theory-3",
+        }
+    if turn == 4:
+        return {
+            "text": f"{(name + ', ') if name else ''}in simple terms, explain one basic idea in {other} — keep it short.",
+            "category": "Technical",
+            "keywords": [other.lower(), "skill"],
+            "hint": "Explain the concept in simple words. No job story is required.",
+            "topic": other,
+            "focus": "structured-theory-4",
+        }
+    if turn == 5:
+        body = _fresher_project_question_text(1, project_line)
+        return {
+            "text": f"{(name + ', ') if name else ''}{body}".strip(),
+            "category": "Experience",
+            "keywords": ["project", "built", "tools"],
+            "hint": "Talk about a real academic or personal project.",
+            "topic": "Project contribution",
+            "focus": "structured-project-1",
+        }
+    if turn == 6:
+        body = _fresher_project_question_text(2, project_line, last_answer)
+        return {
+            "text": f"{(name + ', ') if name else ''}{body}".strip(),
+            "category": "Problem Solving",
+            "keywords": ["project", "testing", "debug"],
+            "hint": "Stay on the same project and get more technical.",
+            "topic": "Project technical",
+            "focus": "structured-project-2",
+        }
+    return {
+        "text": f"{name}, {FRESHER_THANK_YOU[0].lower()}{FRESHER_THANK_YOU[1:]}" if name else FRESHER_THANK_YOU,
+        "category": "Communication",
+        "keywords": ["closing", "thanks"],
+        "hint": "A brief, professional sign-off is fine.",
+        "topic": "Closing",
+        "focus": "structured-closing",
+    }
+
+
 def generate_adaptive_question_local(input: dict) -> dict:
     ctx = input.get("ctx") or summarize_profile(input.get("profile"), input.get("accountName") or "Candidate")
     role = input.get("role") or "Full Stack Engineer"
     level = input.get("level") or "1–3 years"
     history = input.get("history") or []
-    bank = build_questions(role, level, input.get("profile"), name=ctx.get("name") or "there")
+    profile = input.get("profile") or {}
+    if _is_fresher(profile, level, ctx):
+        first = str(ctx.get("name") or "there").split()[0]
+        skills = list(ctx.get("skills") or profile.get("skills") or [])
+        projects = _extract_projects(str(ctx.get("resumeSnippet") or profile.get("resumeText") or ""))
+        last_answer = str((history[-1] or {}).get("answer") or "") if history else ""
+        return _fresher_question(len(history) + 1, first, skills, projects, last_answer)
+    bank = build_questions(role, level, profile, name=ctx.get("name") or "there")
     idx = min(len(history), len(bank) - 1)
     q = bank[idx]
     return {**q, "focus": "adaptive-local"}
@@ -115,15 +287,18 @@ def process_interview_interactive(input: dict) -> dict:
 
 
 async def score_interview_session(input: dict) -> dict:
-    return score_session(
-        role=input.get("role") or "Full Stack Engineer",
-        level=input.get("level") or "1–3 years",
-        questions=input.get("questions") or [],
-        answers=input.get("answers") or [],
-        profile=input.get("profile"),
-        integrity=input.get("integrity"),
-        name=input.get("accountName") or "Candidate",
-    )
+    kwargs = {
+        "role": input.get("role") or "Full Stack Engineer",
+        "level": input.get("level") or "1–3 years",
+        "questions": input.get("questions") or [],
+        "answers": input.get("answers") or [],
+        "profile": input.get("profile"),
+        "integrity": input.get("integrity"),
+        "name": input.get("accountName") or "Candidate",
+    }
+    if llm_eval_configured():
+        return await score_session_async(**kwargs)
+    return score_session(**kwargs)
 
 
 async def parse_resume_with_ai(text: str) -> dict | None:

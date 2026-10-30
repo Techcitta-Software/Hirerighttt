@@ -343,14 +343,26 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
             body = await runtime.read_json_body(request)
-            job = create_vendor_job(db, access["tenant"]["organization"]["id"], access["user"]["id"], body)
-            match_alert_emails = queue_candidate_job_alerts(db, job)
-            if config.database_url:
-                await asyncio.to_thread(db_store.upsert_job_record, config.database_url, job)
-            await ctx.save_db(db)
-            if config.database_url:
-                await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
-            return _json(201, {"job": public_job_payload(job), "matchAlertsQueued": len(match_alert_emails)})
+            job: dict | None = None
+            try:
+                job = create_vendor_job(db, access["tenant"]["organization"]["id"], access["user"]["id"], body)
+                match_alert_emails = queue_candidate_job_alerts(db, job)
+                await ctx.save_db(db)
+                if config.database_url:
+                    await asyncio.to_thread(db_store.upsert_job_record, config.database_url, job)
+                    try:
+                        await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
+                    except Exception:
+                        pass
+                return _json(201, {"job": public_job_payload(job), "matchAlertsQueued": len(match_alert_emails)})
+            except ValueError as err:
+                if job and job.get("id"):
+                    db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != job["id"]]
+                return _json(getattr(err, "status", 400), {"error": str(err)})
+            except Exception:
+                if job and job.get("id"):
+                    db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != job["id"]]
+                raise
 
         if method == "GET" and path == "/api/vendor/jobs":
             db = ctx.load_db()
@@ -664,7 +676,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     job_description=effective_jd, required_skills=required_skills, profile=profile, ctx=digest
                 )
             variety_seed = secrets.token_hex(8)
-            interview_total_turns = ia.INTERVIEW_TURN_COUNT
+            interview_total_turns = (
+                ia.FRESHER_INTERVIEW_TURN_COUNT
+                if ia._is_fresher(profile, level, digest)
+                else ia.INTERVIEW_TURN_COUNT
+            )
             if question_mode == "vendor_jd":
                 first = await ia.generate_vendor_job_question(
                     {
@@ -741,6 +757,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "questionIndex": 0,
                     "question": questions[0],
                     "questions": questions,
+                    "varietySeed": variety_seed,
                     "profileDigest": digest,
                     "questionMode": question_mode,
                     "skillAnalysis": (
@@ -1016,19 +1033,23 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if len(history) >= total_turns:
                 await ctx.save_db(db)
                 return _json(200, {"complete": True, "turn": len(history)})
-            nxt = await ia.generate_adaptive_question(
-                {
-                    "ctx": digest,
-                    "profile": profile,
-                    "role": body.get("role") or session.get("role"),
-                    "level": body.get("level") or session.get("level"),
-                    "jobDescription": body.get("jobDescription") or session.get("jobDescription") or "",
-                    "history": history,
-                    "lastAnswer": str(body.get("lastAnswer") or ""),
-                    "accountName": account.get("name") if account else None,
-                    "varietySeed": session.get("varietySeed") or "",
-                }
-            )
+            client_question = body.get("question")
+            if isinstance(client_question, dict) and client_question.get("text"):
+                nxt = client_question
+            else:
+                nxt = await ia.generate_adaptive_question(
+                    {
+                        "ctx": digest,
+                        "profile": profile,
+                        "role": body.get("role") or session.get("role"),
+                        "level": body.get("level") or session.get("level"),
+                        "jobDescription": body.get("jobDescription") or session.get("jobDescription") or "",
+                        "history": history,
+                        "lastAnswer": str(body.get("lastAnswer") or ""),
+                        "accountName": account.get("name") if account else None,
+                        "varietySeed": str(body.get("varietySeed") or session.get("varietySeed") or ""),
+                    }
+                )
             session.setdefault("questions", []).append(nxt)
             db["interviewSessions"][session_id] = session
             await ctx.save_db(db)

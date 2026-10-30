@@ -1,7 +1,7 @@
-import { isLegacyResumeObjectKey, sanitizePathSegment } from './s3KeyLayout.mjs'
+import { isLegacyResumeObjectKey, sanitizePathSegment, USERS_PREFIX } from './s3KeyLayout.mjs'
 
 /** Bump when key layout or required metadata changes (see .env.example). */
-export const S3_LAYOUT_VERSION = 3
+export const S3_LAYOUT_VERSION = 4
 
 export const TENANTS_PREFIX = 'tenants'
 
@@ -15,35 +15,34 @@ export const S3_OBJECT_PURPOSES = Object.freeze({
 })
 
 /**
- * Layout v3 (current writes) — one folder per asset type under each tenant:
+ * Layout v4 (current writes) — browse S3 as users → user id → four folders:
  *
- * tenants/{tenantId}/resumes/{candidateId}/resume_v{n}_{uuid}.ext
- * tenants/{tenantId}/videos/{sessionId}/recording_{uuid8}.ext
- * tenants/{tenantId}/reports/{sessionId}/interview_report.pdf
- * tenants/{tenantId}/transcripts/{sessionId}/transcript.json
- * tenants/{tenantId}/certificates/{candidateId}/{documentId}.ext
+ * users/{userId}/resume/resume.pdf
+ * users/{userId}/video/{sessionId}.webm
+ * users/{userId}/report/{sessionId}.pdf
+ * users/{userId}/transcript/{sessionId}.json
  *
- * Legacy (read until purged):
- * - resumes/{email}/…
- * - tenants/{tenantId}/candidates/{candidateId}/… (v2)
- * - tenants/{tenantId}/interviews/{sessionId}/… (v1 flat)
+ * Optional (same resume folder): certificate_{id}.pdf, video/proctor_{session}_{flag}.jpg
+ *
+ * Legacy (read until purged): tenants/…, resumes/…, candidates/…
  */
 export function describeS3Layout() {
   return {
     version: S3_LAYOUT_VERSION,
     singleBucketEnv: 'S3_BUCKET',
-    rootPrefix: `${TENANTS_PREFIX}/`,
+    rootPrefix: `${USERS_PREFIX}/`,
     tenantResolution:
-      'session organizationId → user primaryOrganizationId → S3_DEFAULT_TENANT_ID (platform)',
+      'metadata only (session organizationId → user primaryOrganizationId); object keys are user-scoped',
     paths: {
-      resume: `${TENANTS_PREFIX}/{tenantId}/resumes/{candidateId}/resume_v{n}_{uuid}.{ext}`,
-      certificate: `${TENANTS_PREFIX}/{tenantId}/certificates/{candidateId}/{documentId}.{ext}`,
-      interviewRecording: `${TENANTS_PREFIX}/{tenantId}/videos/{sessionId}/recording_{uuid8}.{ext}`,
-      interviewReport: `${TENANTS_PREFIX}/{tenantId}/reports/{sessionId}/interview_report.pdf`,
-      interviewTranscript: `${TENANTS_PREFIX}/{tenantId}/transcripts/{sessionId}/transcript.json`,
+      resume: `${USERS_PREFIX}/{userId}/resume/resume.{ext}`,
+      certificate: `${USERS_PREFIX}/{userId}/resume/certificate_{documentId}.{ext}`,
+      interviewRecording: `${USERS_PREFIX}/{userId}/video/{sessionId}.{ext}`,
+      interviewReport: `${USERS_PREFIX}/{userId}/report/{sessionId}.pdf`,
+      interviewTranscript: `${USERS_PREFIX}/{userId}/transcript/{sessionId}.json`,
+      proctorSnapshot: `${USERS_PREFIX}/{userId}/video/proctor_{sessionId}_{flagId}.jpg`,
       legacyResume: 'resumes/{sanitizedEmail}/{uuid}.{ext}',
-      legacyV2CandidateTree: `${TENANTS_PREFIX}/{tenantId}/candidates/{candidateId}/…`,
-      legacyInterviewFlat: `${TENANTS_PREFIX}/{tenantId}/interviews/{sessionId}/…`,
+      legacyTenants: `${TENANTS_PREFIX}/…`,
+      legacyCandidates: 'candidates/{userId}/…',
     },
     metadata: ['purpose', 'layout', 'tenant', 'candidate', 'interview'],
     neonTables: ['stored_files', 'interview_artifacts', 'interview_recordings'],
@@ -51,7 +50,7 @@ export function describeS3Layout() {
 }
 
 /**
- * Stable candidate segment for object keys (prefer auth user id).
+ * Stable user id segment for object keys (prefer auth user id).
  * @param {{ account?: { id?: string } | null, session?: { userId?: string } | null, email?: string }} ctx
  */
 export function resolveCandidateStorageId(ctx = {}) {
@@ -96,8 +95,8 @@ export function assertWritableTenantObjectKey(key, opts = {}) {
     throw err
   }
   if (opts.allowLegacy && isLegacyResumeObjectKey(k)) return k
-  if (!k.startsWith(`${TENANTS_PREFIX}/`)) {
-    const err = new Error('S3 object key must live under tenants/ (production layout).')
+  if (!k.startsWith(`${USERS_PREFIX}/`)) {
+    const err = new Error('S3 object key must live under users/ (production layout).')
     err.status = 400
     throw err
   }
@@ -118,12 +117,59 @@ export function parseTenantObjectKey(key) {
     return { kind: 'legacy_resume', key: k }
   }
   const parts = k.split('/').filter(Boolean)
+
+  if (parts[0] === USERS_PREFIX && parts.length >= 3) {
+    const userId = parts[1]
+    const folder = parts[2]
+    if (folder === 'resume') {
+      return { kind: 'resume', layout: 'user_scoped', userId, category: 'resume', key: k }
+    }
+    if (folder === 'video') {
+      return {
+        kind: 'interview_artifact',
+        layout: 'user_scoped',
+        userId,
+        artifactFolder: 'video',
+        key: k,
+      }
+    }
+    if (folder === 'report') {
+      return {
+        kind: 'interview_artifact',
+        layout: 'user_scoped',
+        userId,
+        artifactFolder: 'report',
+        key: k,
+      }
+    }
+    if (folder === 'transcript') {
+      return {
+        kind: 'interview_artifact',
+        layout: 'user_scoped',
+        userId,
+        artifactFolder: 'transcript',
+        key: k,
+      }
+    }
+  }
+
+  if (parts[0] === 'candidates' && parts.length >= 3) {
+    const userId = parts[1]
+    const folder = parts[2]
+    return {
+      kind: folder === 'resume' ? 'resume' : 'interview_artifact',
+      layout: 'legacy_candidates',
+      userId,
+      artifactFolder: folder,
+      key: k,
+    }
+  }
+
   if (parts[0] !== TENANTS_PREFIX || parts.length < 3) {
     return { kind: 'unknown', key: k }
   }
   const tenantId = parts[1]
 
-  // v3 type-first
   if (parts[2] === 'resumes' && parts.length >= 4) {
     return {
       kind: 'resume',
@@ -175,7 +221,6 @@ export function parseTenantObjectKey(key) {
     }
   }
 
-  // v2 candidate tree
   if (parts[2] === 'candidates' && parts.length >= 5) {
     const candidateId = parts[3]
     if (parts[4] === 'interviews' && parts.length >= 6) {

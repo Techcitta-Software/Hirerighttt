@@ -1375,6 +1375,7 @@ function qaRowFromAnalysis(a, i, tagFor) {
     index: i + 1,
     topic: a.topic || 'Interview',
     question: a.question,
+    questionScore: a.score ?? 0,
     accuracy,
     clarity,
     understanding,

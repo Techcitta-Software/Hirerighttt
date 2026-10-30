@@ -72,10 +72,7 @@ export function renderCareerScorecardHtml(input) {
         <td style="text-align:center"><span class="row-circle">${q.index}</span></td>
         <td><span class="topic-tag">${esc(q.topic)}</span></td>
         <td>${esc(q.question)}</td>
-        <td style="text-align:center">${q.accuracy}</td>
-        <td style="text-align:center">${q.clarity}</td>
-        <td style="text-align:center">${q.depth}</td>
-        <td style="text-align:center"><strong>${q.total30 ?? q.total40}/30</strong></td>
+        <td style="text-align:center"><strong>${typeof q.questionScore === 'number' ? `${q.questionScore}%` : `${q.total30 ?? q.total40 ?? '—'}`}</strong></td>
         <td>${esc(q.stars)}</td>
         <td>${esc(q.feedback)}</td>
       </tr>`,
@@ -174,8 +171,8 @@ export function renderCareerScorecardHtml(input) {
   <section class="card" style="margin-bottom:12px">
     <div class="card-title">Actual Interview Questions &amp; Scoring</div>
     <table class="qa-table"><thead><tr>
-      <th>#</th><th>Topic</th><th>Question</th><th>Correctness</th><th>Communication</th><th>Depth</th><th>Total /30</th><th>Performance</th><th>AI Feedback</th>
-    </tr></thead><tbody>${qaRowsHtml || '<tr><td colspan="9">No Q&amp;A rows</td></tr>'}</tbody></table>
+      <th>#</th><th>Topic</th><th>Question</th><th>Score</th><th>Performance</th><th>AI Feedback</th>
+    </tr></thead><tbody>${qaRowsHtml || '<tr><td colspan="6">No Q&amp;A rows</td></tr>'}</tbody></table>
   </section>
 
   <section class="row4">

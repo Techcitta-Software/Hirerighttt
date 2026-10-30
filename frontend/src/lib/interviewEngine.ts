@@ -8,6 +8,7 @@ export type Question = {
   resumeAnchor?: string
   topic?: string
   focus?: string
+  scoringProfile?: string
 }
 
 export const ROLES = [

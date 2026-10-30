@@ -89,6 +89,8 @@ type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 const QUESTION_SECONDS = 180
 /** After this much silence with an answer on the transcript, auto-advance (call-style). */
 const SILENCE_ADVANCE_MS = 5000
+/** If the candidate never speaks after Ava finishes the question, advance silently (no UI). */
+const NO_ANSWER_SKIP_MS = 10_000
 const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
@@ -165,7 +167,12 @@ export function InterviewPage() {
   const [checklist, setChecklist] = useState([false, false, false])
   const [starting, setStarting] = useState(false)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
+  const sttPhaseRef = useRef(sttPhase)
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
+
+  useEffect(() => {
+    sttPhaseRef.current = sttPhase
+  }, [sttPhase])
 
   useEffect(() => {
     void ensureApiSession()
@@ -208,6 +215,7 @@ export function InterviewPage() {
   const [reviewSyncError, setReviewSyncError] = useState('')
   const recordingConsent = true
   const sessionIdRef = useRef<string | null>(null)
+  const varietySeedRef = useRef<string>('')
   const integrityRef = useRef<IntegritySnapshot>({
     faceViolations: 0,
     singlePersonOk: true,
@@ -252,6 +260,8 @@ export function InterviewPage() {
   const interviewStartedAtRef = useRef<number>(0)
   const historyRef = useRef<{ question: Question; answer: string }[]>([])
   const lastSpeechAtRef = useRef(0)
+  const answerWindowStartedAtRef = useRef(0)
+  const noAnswerSkipTriggeredRef = useRef(false)
   const aiSpeakingRef = useRef(false)
   const listeningRef = useRef(false)
   const submitAnswerRef = useRef<() => void>(() => {})
@@ -774,6 +784,8 @@ export function InterviewPage() {
     listenAfterTtsRef.current = false
     stopListening()
     lastSpeechAtRef.current = 0
+    answerWindowStartedAtRef.current = 0
+    noAnswerSkipTriggeredRef.current = false
     setDraft('')
     draftRef.current = ''
     baseDraftRef.current = ''
@@ -805,6 +817,7 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
+        answerWindowStartedAtRef.current = Date.now()
         if (
           stageRef.current === 'interview' &&
           micOnRef.current &&
@@ -818,6 +831,7 @@ export function InterviewPage() {
         setAiSpeaking(false)
         aiSpeakingRef.current = false
         listenAfterTtsRef.current = true
+        answerWindowStartedAtRef.current = Date.now()
         if (stageRef.current === 'interview' && micOnRef.current) startListening()
       },
     })
@@ -844,10 +858,21 @@ export function InterviewPage() {
         return
       }
       const text = draftRef.current.trim()
-      if (text.length < MIN_ANSWER_CHARS) return
-      const last = lastSpeechAtRef.current
-      if (!last) return
-      if (Date.now() - last < SILENCE_ADVANCE_MS) return
+      const phase = sttPhaseRef.current
+      if (text.length >= MIN_ANSWER_CHARS) {
+        const last = lastSpeechAtRef.current
+        if (!last) return
+        if (Date.now() - last < SILENCE_ADVANCE_MS) return
+        submitAnswerRef.current()
+        return
+      }
+      if (text.length > 0 || phase === 'capturing' || phase === 'transcribing') {
+        return
+      }
+      const windowStart = answerWindowStartedAtRef.current
+      if (!windowStart || noAnswerSkipTriggeredRef.current) return
+      if (Date.now() - windowStart < NO_ANSWER_SKIP_MS) return
+      noAnswerSkipTriggeredRef.current = true
       submitAnswerRef.current()
     }, 400)
     return () => window.clearInterval(id)
@@ -987,6 +1012,7 @@ export function InterviewPage() {
       })
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
+      varietySeedRef.current = started.varietySeed || varietySeedRef.current
       setQuestions(started.questions)
       setCurrent(0)
       setDraft('')
@@ -1092,8 +1118,11 @@ export function InterviewPage() {
     advancingRef.current = true
     setAdvancing(true)
     lastSpeechAtRef.current = 0
+    answerWindowStartedAtRef.current = 0
     setDraft('')
-    setDeviceError('')
+    if (answer) {
+      setDeviceError('')
+    }
 
     try {
       const turn = await processInterviewTurn({
@@ -1125,6 +1154,7 @@ export function InterviewPage() {
         history: historyRef.current,
         lastQuestion: currentQuestion,
         lastAnswer: answer,
+        varietySeed: varietySeedRef.current,
       })
       if (historyRef.current.length >= MAX_ADAPTIVE_QUESTIONS) {
         finishingRef.current = true
@@ -1331,6 +1361,7 @@ export function InterviewPage() {
     finishingRef.current = false
     answersRef.current = []
     sessionIdRef.current = null
+    varietySeedRef.current = ''
     multiBanRef.current = 0
     setInterviewBanned(false)
     setBanMessage('')

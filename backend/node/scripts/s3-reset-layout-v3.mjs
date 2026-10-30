@@ -1,10 +1,10 @@
 /**
- * Wipe messy / legacy S3 keys and align Neon file pointers with layout v3.
+ * Wipe legacy S3 keys and align Neon file pointers with layout v4.
  * New uploads then land under:
- *   tenants/{tenant}/resumes/{candidateId}/…
- *   tenants/{tenant}/videos/{sessionId}/…
- *   tenants/{tenant}/reports/{sessionId}/…
- *   tenants/{tenant}/transcripts/{sessionId}/…
+ *   users/{userId}/resume/…
+ *   users/{userId}/video/…
+ *   users/{userId}/report/…
+ *   users/{userId}/transcript/…
  *
  * Usage (repo root):
  *   node backend/node/scripts/s3-reset-layout-v3.mjs --dry-run
@@ -132,26 +132,22 @@ async function main() {
   console.log('  ', layout.paths.interviewReport.replace('{tenantId}', '<tenant>').replace('{sessionId}', '<session>'))
   console.log('  ', layout.paths.interviewTranscript.replace('{tenantId}', '<tenant>').replace('{sessionId}', '<session>'))
 
-  const prefixes = ['tenants/', 'resumes/']
   let toDelete = []
   let kept = 0
-
-  for (const prefix of prefixes) {
-    let keys
-    try {
-      keys = await listAll(prefix)
-    } catch (err) {
-      console.warn(`[s3-reset-v3] Could not list ${prefix}:`, err.message || err)
+  let keys
+  try {
+    keys = await listAll('')
+  } catch (err) {
+    console.warn('[s3-reset-v3] Could not list bucket:', err.message || err)
+    keys = []
+  }
+  console.log('[s3-reset-v3] bucket objects listed:', keys.length)
+  for (const key of keys) {
+    if (isDemoKey(key)) {
+      kept += 1
       continue
     }
-    console.log(`[s3-reset-v3] ${prefix} listed:`, keys.length)
-    for (const key of keys) {
-      if (isDemoKey(key)) {
-        kept += 1
-        continue
-      }
-      toDelete.push(key)
-    }
+    toDelete.push(key)
   }
 
   if (keepDemoObjects && kept) {
@@ -180,7 +176,7 @@ async function main() {
     await clearNeonFilePointers()
   }
 
-  console.log('[s3-reset-v3] Done. New uploads use layout v3 type-first folders.')
+  console.log('[s3-reset-v3] Done. New uploads use users/{userId}/resume|video|report|transcript/.')
 }
 
 main().catch((err) => {

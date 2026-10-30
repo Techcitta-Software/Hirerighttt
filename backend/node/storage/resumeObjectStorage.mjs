@@ -226,7 +226,12 @@ export async function resolveResumeDownloadFromProfile(profile, pool, options = 
   if (provider === 's3' && profile.resumeStoragePath) {
     const s3 = options.s3 || defaultS3ObjectStorage
     const key = String(profile.resumeStoragePath)
-    if (!isLegacyResumeObjectKey(key) && !key.startsWith('tenants/')) {
+    const allowedPrefix =
+      key.startsWith('users/') ||
+      key.startsWith('tenants/') ||
+      key.startsWith('candidates/') ||
+      isLegacyResumeObjectKey(key)
+    if (!allowedPrefix) {
       const err = new Error('Resume file not found.')
       err.status = 404
       throw err

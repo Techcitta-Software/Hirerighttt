@@ -3,8 +3,8 @@
  * Reads profile + resume text and builds questions + scores answers in-browser.
  */
 
-import type { Question } from './interviewEngine'
-import { scoreInterview } from './interviewEngine'
+import { scoreInterview, type Question } from './interviewEngine'
+import { classifyQuestionScoringProfile, scoreAnswerRubrics } from './interviewRubrics'
 import type { InterviewResult, SavedProfile } from './store'
 import { firstName, getUser } from './store'
 import type { IntegritySnapshot } from './interviewAgentClient'
@@ -327,6 +327,11 @@ export function buildResumeInterviewQuestions(
   return questions.slice(0, 6)
 }
 
+function avg(values: number[]): number {
+  if (!values.length) return 0
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length)
+}
+
 function resumeFitScore(
   answers: string[],
   profile: SavedProfile | null,
@@ -353,19 +358,61 @@ export function runLocalInterviewScore(options: {
   profile: SavedProfile | null
   integrity: IntegritySnapshot
 }): InterviewResult {
+  const skills = options.profile?.skills ?? []
+  const rubricAnswers = options.questions.map((q, i) => {
+    const extended = q as Question & { scoringProfile?: string; focus?: string; topic?: string }
+    const { rubrics, score, scoringProfile } = scoreAnswerRubrics(
+      extended,
+      options.answers[i] ?? '',
+      skills,
+    )
+    return {
+      question: q.text,
+      answer: options.answers[i] ?? '',
+      score,
+      wordCount: (options.answers[i] ?? '').split(/\s+/).filter(Boolean).length,
+      keywordsHit: q.keywords.filter((k) =>
+        (options.answers[i] ?? '').toLowerCase().includes(k.toLowerCase()),
+      ),
+      feedback:
+        score >= 75
+          ? 'Strong answer for this question type.'
+          : score >= 55
+            ? 'Solid — add one concrete example or tool name to score higher.'
+            : 'Expand and stay on the exact question asked.',
+      topic: extended.topic ?? q.category,
+      scoringProfile: scoringProfile ?? classifyQuestionScoringProfile(extended),
+      rubrics,
+      performance: score >= 80 ? 'Strong' : score >= 65 ? 'Good' : score >= 45 ? 'Fair' : 'Needs work',
+    }
+  })
+
+  const rubricAgg = { correctness: [] as number[], depth: [] as number[], communication: [] as number[] }
+  for (const a of rubricAnswers) {
+    for (const r of a.rubrics ?? []) {
+      if (r.id in rubricAgg) rubricAgg[r.id as keyof typeof rubricAgg].push(r.score)
+    }
+  }
+  const categories = [
+    { label: 'Answer Correctness', score: avg(rubricAgg.correctness) },
+    { label: 'Depth', score: avg(rubricAgg.depth) },
+    { label: 'Communication', score: avg(rubricAgg.communication) },
+  ]
+  let overall = Math.round(rubricAnswers.reduce((s, a) => s + a.score, 0) / Math.max(rubricAnswers.length, 1))
+
   const scored = scoreInterview(
     options.role,
     options.level,
     options.questions,
     options.answers,
     {
-      skills: options.profile?.skills,
+      skills,
       profileRole: options.profile?.currentRole,
       experienceLabel: options.profile?.totalExperience,
     },
   )
 
-  let overall = scored.overall
+  overall = overall || scored.overall
 
   const fit = resumeFitScore(options.answers, options.profile)
   const strengths = [...scored.strengths]
@@ -373,9 +420,14 @@ export function runLocalInterviewScore(options: {
   if (fit >= 70) strengths.unshift('Answers align well with skills/projects on your resume.')
   else improvements.unshift('Reference more tools and projects that appear on your resume.')
 
+  const commAvg = categories.find((c) => c.label === 'Communication')?.score ?? 0
+  if (commAvg >= 75) strengths.unshift('Communication is clear and well structured.')
+
   return {
     ...scored,
     overall,
+    categories,
+    answers: rubricAnswers,
     resumeFitScore: fit,
     strengths: strengths.slice(0, 6),
     improvements: improvements.slice(0, 6),

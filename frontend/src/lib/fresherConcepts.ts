@@ -30,6 +30,16 @@ const SQL_CONCEPTS = [
   'how unique and not-null constraints protect data quality',
 ];
 const SKILL_CONCEPTS: [RegExp, string[]][] = [
+  [
+    /pyspark|apache spark|^spark$/i,
+    [
+      'what a Spark DataFrame is and how it differs from processing rows in plain Python',
+      'why transformations in Spark are lazy until you call an action',
+      'how you would handle a column with missing values before running a job',
+      'what happens when you shuffle data during a group-by in Spark',
+      'how partitioning affects performance in a Spark job',
+    ],
+  ],
   [/react/i, ['how props and state differ', 'why list items need keys', 'how a component handles a button click', 'how a component shares data with its parent']],
   [/html/i, ['why headings should follow a clear order', 'how a label helps someone fill in a form', 'how a link differs from a button', 'why images need alternative text']],
   [/css/i, ['how margin differs from padding', 'how flexbox arranges items', 'how a media query changes a page for small screens', 'how CSS decides which style to use']],

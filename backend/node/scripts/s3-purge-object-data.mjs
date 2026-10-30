@@ -1,6 +1,6 @@
 /**
  * Delete all object data in the app S3 bucket (not the bucket itself).
- * Prefixes: tenants/, resumes/ (legacy). Optional neon/ when S3_PURGE_INCLUDE_BACKUPS=1.
+ * Lists the entire bucket (all prefixes: tenants/, users/, candidates/, resumes/, …).
  *
  *   CONFIRM_S3_PURGE=yes node backend/node/scripts/s3-purge-object-data.mjs
  *   CONFIRM_S3_PURGE=yes node backend/node/scripts/s3-purge-object-data.mjs --dry-run
@@ -46,12 +46,16 @@ function isDemoKey(key) {
   return DEMO_PATH_FRAGMENTS.some((frag) => k.includes(String(frag).toLowerCase()))
 }
 
-async function listAll(prefix) {
+async function listAll(prefix = '') {
   const keys = []
   let token
   do {
     const out = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix || undefined,
+        ContinuationToken: token,
+      }),
     )
     for (const o of out.Contents || []) {
       if (o.Key) keys.push(o.Key)
@@ -59,6 +63,10 @@ async function listAll(prefix) {
     token = out.IsTruncated ? out.NextContinuationToken : undefined
   } while (token)
   return keys
+}
+
+async function listEntireBucket() {
+  return listAll('')
 }
 
 async function deleteKeys(keys) {
@@ -74,34 +82,43 @@ async function deleteKeys(keys) {
 }
 
 async function main() {
-  const prefixes = ['tenants/', 'resumes/']
-  if (process.env.S3_PURGE_INCLUDE_BACKUPS === '1') {
-    const backupPrefix = (process.env.S3_BACKUP_PREFIX || 'neon/hireright/').replace(/^\//, '')
-    if (backupPrefix && process.env.S3_BACKUP_BUCKET === bucket) {
-      prefixes.push(backupPrefix)
+  console.log('[s3-purge] bucket:', bucket, 'region:', region, dryRun ? '(dry-run)' : '')
+  console.log('[s3-purge] listing entire bucket…')
+
+  const LEGACY_PREFIXES = ['users/', 'tenants/', 'candidates/', 'resumes/', 'neon/']
+  let keys = []
+  try {
+    keys = await listEntireBucket()
+  } catch (err) {
+    console.warn('[s3-purge] ListBucket denied or failed — trying known prefixes:', err.message || err)
+    for (const prefix of LEGACY_PREFIXES) {
+      try {
+        const part = await listAll(prefix)
+        console.log(`[s3-purge] ${prefix} listed:`, part.length)
+        keys.push(...part)
+      } catch (prefixErr) {
+        console.warn(`[s3-purge] Could not list ${prefix}:`, prefixErr.message || prefixErr)
+      }
+    }
+    keys = [...new Set(keys)]
+    if (!keys.length) {
+      console.error(
+        '[s3-purge] No objects found. Grant s3:ListBucket on the bucket or delete objects in the AWS console.',
+      )
+      process.exit(1)
     }
   }
 
-  console.log('[s3-purge] bucket:', bucket, 'region:', region, dryRun ? '(dry-run)' : '')
+  console.log('[s3-purge] objects listed:', keys.length)
+
   let toDelete = []
   let kept = 0
-
-  for (const prefix of prefixes) {
-    let keys
-    try {
-      keys = await listAll(prefix)
-    } catch (err) {
-      console.warn(`[s3-purge] Could not list ${prefix}:`, err.message || err)
+  for (const key of keys) {
+    if (isDemoKey(key)) {
+      kept += 1
       continue
     }
-    console.log(`[s3-purge] ${prefix} objects listed:`, keys.length)
-    for (const key of keys) {
-      if (isDemoKey(key)) {
-        kept += 1
-        continue
-      }
-      toDelete.push(key)
-    }
+    toDelete.push(key)
   }
 
   if (keepDemoObjects && kept) {
@@ -119,7 +136,8 @@ async function main() {
   if (dryRun || !toDelete.length) return
 
   await deleteKeys(toDelete)
-  console.log('[s3-purge] Deleted', toDelete.length, 'object(s). Bucket and prefix layout unchanged.')
+  console.log('[s3-purge] Deleted', toDelete.length, 'object(s).')
+  console.log('[s3-purge] New uploads use users/{userId}/{resume|video|report|transcript}/')
 }
 
 main().catch((err) => {

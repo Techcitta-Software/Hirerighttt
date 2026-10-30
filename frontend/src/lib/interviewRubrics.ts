@@ -58,7 +58,7 @@ export function classifyQuestionScoringProfile(question: Question & { scoringPro
   const text = question.text.toLowerCase()
   const topic = (question.topic || '').toLowerCase()
 
-  if (focus.includes('structured-opening')) return 'opening_generic'
+  if (focus.includes('structured-opening') || focus.includes('structured-fresher-intro')) return 'opening_generic'
   if (focus.includes('structured-theory') || focus.includes('structured-skill') || cat === 'Technical')
     return 'technical'
   if (focus.includes('structured-fallback-recent')) return 'project'

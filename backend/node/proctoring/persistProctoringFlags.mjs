@@ -21,7 +21,12 @@ export async function persistProctoringFlags(opts) {
     if (storage && dataUrl.startsWith('data:image/jpeg;base64,')) {
       const base64Data = dataUrl.replace(/^data:image\/jpeg;base64,/, '')
       const buffer = Buffer.from(base64Data, 'base64')
-      snapshotS3Key = buildFlagSnapshotS3Key({ tenantId, sessionId, flagId })
+      snapshotS3Key = buildFlagSnapshotS3Key({
+        tenantId,
+        candidateId: opts.candidateId,
+        sessionId,
+        flagId,
+      })
       await storage.uploadObject({
         key: snapshotS3Key,
         buffer,
