@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" role="img" aria-label="Infosys">
-  <g transform="translate(6,8)">
-    <path fill="#007CC3" d="M12 2c-4.4 2.2-7.2 6.2-7.2 11.2S7.6 22.2 12 24.4c4.4-2.2 7.2-6.2 7.2-11.2S16.4 4.2 12 2zm0 4.2c2.6 1.5 4.2 4 4.2 7s-1.6 5.5-4.2 7c-2.6-1.5-4.2-4-4.2-7s1.6-5.5 4.2-7z"/>
-  </g>
-  <text x="40" y="27" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600" fill="#007CC3">Infosys</text>
-</svg>

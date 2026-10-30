@@ -16,11 +16,11 @@ services:
       retries: 10
 
   api:
-    build: ./backend/python
+    build: ./backend
     environment:
       ENVIRONMENT: development
-      DATABASE_URL: postgresql+psycopg://hireright:local-development-only@postgres:5432/hireright
-      SECRET_KEY: local-compose-secret-change-before-deploying
+      DATABASE_URL: postgresql://hireright:local-development-only@postgres:5432/hireright
+      SESSION_SECRET: local-compose-secret-change-before-deploying-32chars
       CORS_ORIGINS: http://localhost:5173
       TRUSTED_HOSTS: localhost,127.0.0.1,api
     ports:

@@ -16,7 +16,17 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - run: npm ci
+
+      - run: pip install -r requirements.txt
+        working-directory: backend
+
+      - run: python -m pytest -q
+        working-directory: backend
 
       - run: npm run lint
 
@@ -25,12 +35,12 @@ jobs:
           VITE_AUTH_PROVIDER: api
         run: npm run build
 
-      - name: Production config smoke (Node API)
-        working-directory: backend/node
+      - name: Production config smoke (Python API)
         env:
           ENVIRONMENT: production
           DATABASE_URL: postgresql://u:p@localhost:5432/db?sslmode=require
           SESSION_SECRET: ci-smoke-test-secret-at-least-32-chars-long
           CORS_ORIGINS: https://app.example.com
           GEMINI_API_KEY: ci-key-placeholder
-        run: node -e "import('./config.mjs').then((m)=>m.assertProductionConfig())"
+        run: python -c "from app.node_config import assert_production_config; assert_production_config()"
+        working-directory: backend

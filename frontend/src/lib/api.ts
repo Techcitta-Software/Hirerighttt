@@ -82,9 +82,10 @@ export function apiUrl(path: string) {
 export async function apiFetch(path: string, options: RequestInit = {}) {
   await resolveApiBase()
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   }
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const token = getApiToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const timeoutMs = import.meta.env.DEV ? 25_000 : 45_000

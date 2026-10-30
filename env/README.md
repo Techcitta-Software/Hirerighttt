@@ -1,13 +1,12 @@
 # Environment
 
-HireRight uses **one** secrets file: **`.env` at the repository root**.
+Copy **`.env.example`** → **`.env`** at the **repo root** (one file for Vite + Python).
 
-- Node API (`backend/node`) loads it via `env/loadEnv.mjs`.
-- Vite (`frontend`) reads `VITE_*` from the same file (`envDir` in `vite.config.ts`).
-- Python API reads the same path when configured in `backend/python/app/config.py`.
+Required for full app behavior:
 
-Do **not** create `backend/node/.env`, `frontend/.env`, or `backend/python/.env`.
+- `DATABASE_URL` — Neon PostgreSQL connection string  
+- `SESSION_SECRET` — 32+ random characters (production)  
 
-Copy [`.env.example`](../.env.example) to `.env` and fill in `DATABASE_URL`, `SESSION_SECRET`, and `GEMINI_API_KEY`.
+Common optional keys: `GEMINI_API_KEY`, `S3_BUCKET`, `AWS_*`, `SMTP_EMAIL` / `RESEND_API_KEY`.
 
-Verify: `npm run check:env` from the repo root.
+Python loads env via `app/load_env.py`. Vite reads `VITE_*` from the same file (`envDir` = repo root).

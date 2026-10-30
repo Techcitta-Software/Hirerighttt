@@ -1,28 +1,17 @@
-# HireRight Node API — Render Blueprint
-# Repo layout: service root = backend/node (Express on PORT from Render)
-#
-# Deploy: Dashboard → New → Blueprint → connect repo → pick branch (dev or main)
-# After first sync: Environment → fill every key marked sync: false from repo-root .env
-# Frontend: Vercel (hire-rightt) proxies /api → this service (update vercel.json destination if URL changes)
-#
-# One-time S3 (any machine with AWS + .env): add production frontend to CORS_ORIGINS, then:
-#   npm run s3:cors
-# so browser video PUTs work from https://hire-rightt.vercel.app (not configured by this file).
+# HireRight Python API — Render Blueprint
+# Service root: backend (FastAPI)
 
 services:
   - type: web
     name: hireright-backend
-    runtime: node
+    runtime: docker
     plan: free
     region: oregon
-    rootDir: backend/node
-    # PLAYWRIGHT_INSTALL_CHROMIUM=1 overrides Render/CI skip in postinstall (~300MB; needs Starter+ if build OOMs on free)
-    buildCommand: PLAYWRIGHT_INSTALL_CHROMIUM=1 npm install
-    startCommand: node index.mjs
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
-      # ─── Runtime (aligned with .env.example production) ───
       - key: NODE_ENV
         value: production
       - key: ENVIRONMENT
@@ -37,22 +26,16 @@ services:
         value: "3000000"
       - key: STRICT_PRODUCTION_CONFIG
         value: "true"
-
-      # ─── Auth & database ───
       - key: SESSION_SECRET
         generateValue: true
       - key: DATABASE_URL
         sync: false
-
-      # ─── Frontend URLs (Express CORS + invite links) ───
       - key: CORS_ORIGINS
         value: "https://hire-rightt.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
       - key: INVITE_JOIN_WINDOW_MINUTES
         value: "5"
-
-      # ─── Storage: Neon metadata + S3 blobs (DISABLE_SUPABASE=true) ───
       - key: DISABLE_SUPABASE
         value: "true"
       - key: AWS_REGION
@@ -75,15 +58,6 @@ services:
         value: "104857600"
       - key: S3_MAX_REPORT_BYTES
         value: "12000000"
-      - key: S3_BACKUP_BUCKET
-        sync: false
-      - key: S3_BACKUP_PREFIX
-        value: neon/hireright/
-
-      # ─── Interview report PDFs (Playwright Chromium — installed in buildCommand) ───
-      # Do not set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD or SCORECARD_PDF_DISABLED here.
-
-      # ─── AI — server interview / resume (.env.example) ───
       - key: GEMINI_API_KEY
         sync: false
       - key: PRIMARY_MODEL
@@ -98,8 +72,6 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
-
-      # ─── Mail: Resend (HTTPS, works on Render) or Gmail SMTP (local dev) ───
       - key: RESEND_API_KEY
         sync: false
       - key: SMTP_EMAIL
@@ -108,9 +80,5 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
-
-      # ─── Optional ops ───
       - key: API_BUILD_ID
-        value: hireright-render-2026-10-27
-      - key: DNS_SERVERS
-        sync: false
+        value: hireright-python-2026-10-29

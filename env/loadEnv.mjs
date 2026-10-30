@@ -7,10 +7,8 @@ export const REPO_ROOT = existsSync(join(here, '..', 'package.json')) ? join(her
 const ENV_PATH = join(REPO_ROOT, '.env')
 
 const DEPRECATED_ENV_PATHS = [
-  join(REPO_ROOT, 'backend', 'node', '.env'),
   join(REPO_ROOT, 'backend', '.env'),
   join(REPO_ROOT, 'frontend', '.env'),
-  join(REPO_ROOT, 'backend', 'python', '.env'),
 ]
 
 export function loadEnv() {

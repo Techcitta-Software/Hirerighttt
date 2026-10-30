@@ -8,7 +8,7 @@ on:
       - dev
       - develop
     paths:
-      - 'backend/node/**'
+      - 'backend/**'
       - 'render.yaml'
       - '.github/workflows/deploy-render.yml'
   workflow_dispatch:

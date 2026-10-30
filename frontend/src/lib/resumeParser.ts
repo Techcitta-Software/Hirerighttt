@@ -55,7 +55,10 @@ export function resumeExtractToProfilePatch(
   if (extract.skills?.length) patch.skills = extract.skills
   if (extract.experienceSummary) patch.experienceSummary = extract.experienceSummary
   if (extract.workExperiences?.length) {
-    patch.workExperiences = extract.workExperiences
+    patch.workExperiences = extract.workExperiences.map((exp) => ({
+      ...exp,
+      fromResume: true,
+    }))
     patch.noPriorWorkExperience = false
   } else if (
     extract.totalExperience &&
@@ -67,7 +70,12 @@ export function resumeExtractToProfilePatch(
   if (extract.metrics !== undefined) {
     patch.metrics = extract.metrics.length ? extract.metrics : [createEmptyMetric()]
   }
-  if (extract.certifications?.length) patch.certifications = extract.certifications
+  if (extract.certifications?.length) {
+    patch.certifications = extract.certifications.map((cert) => ({
+      ...cert,
+      fromResume: true,
+    }))
+  }
   if (extract.resumeText) patch.resumeText = extract.resumeText
   return patch
 }

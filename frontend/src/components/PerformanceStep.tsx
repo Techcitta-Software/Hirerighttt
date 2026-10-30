@@ -2,6 +2,7 @@ import {
   TIME_PERIOD_OPTIONS,
   createEmptyCertification,
   createEmptyMetric,
+  mentionedInResume,
   type ProfileFormData,
 } from '../data/wizard'
 import { MotionItem, MotionStack } from '../motion/MotionStack'
@@ -331,10 +332,9 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
         <div className={styles.list}>
           {data.certifications.map((cert, index) => {
             const isScraped = Boolean(
-              (cert.name || cert.organization) &&
-                data.resumeText &&
-                ((cert.name && data.resumeText.toLowerCase().includes(cert.name.toLowerCase().slice(0, 15))) ||
-                  (cert.organization && data.resumeText.toLowerCase().includes(cert.organization.toLowerCase().slice(0, 15))))
+              cert.fromResume ||
+                mentionedInResume(data.resumeText, cert.name) ||
+                mentionedInResume(data.resumeText, cert.organization),
             )
             return (
               <div key={cert.id} className={styles.certCard}>

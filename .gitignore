@@ -6,7 +6,7 @@
 !.env.production.example
 backend/node/.env
 frontend/.env
-backend/python/.env
+backend/.env
 backend/.env
 
 

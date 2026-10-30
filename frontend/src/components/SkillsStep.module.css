@@ -432,6 +432,14 @@
   gap: 8px;
 }
 
+.expTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .expIndex {
   font-size: 0.75rem;
   font-weight: 700;

@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" width="240" height="60" fill="none">
-  <!-- Safaricom Icon -->
-  <circle cx="28" cy="30" r="20" fill="#00A859" opacity="0.15"/>
-  <path d="M16 38 C 16 20, 40 20, 40 38" stroke="#00A859" stroke-width="4.5" stroke-linecap="round"/>
-  <circle cx="28" cy="22" r="4.5" fill="#E2231A"/>
-  <!-- Safaricom Text -->
-  <text x="58" y="37" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="800" fill="#ffffff" letter-spacing="-0.5">Safaricom</text>
-</svg>

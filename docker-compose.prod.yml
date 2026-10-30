@@ -1,4 +1,4 @@
-# Production: Node API + static frontend. Postgres via Neon (DATABASE_URL in repo-root .env).
+# Production: Python API + static frontend. Postgres via Neon (DATABASE_URL in repo-root .env).
 #
 #   cp .env.production.example .env   # fill secrets
 #   docker compose -f docker-compose.prod.yml up -d --build
@@ -25,8 +25,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: backend/node/Dockerfile
+      context: backend
+      dockerfile: Dockerfile
     env_file:
       - .env
     environment:

@@ -19,8 +19,7 @@ export function interviewRecordingFilename(sessionId: string, blob: Blob): strin
 }
 
 /**
- * Direct presigned PUT to S3 (auth + session validated on upload-url).
- * Falls back gracefully when S3 is not configured.
+ * Upload the interview video through the API. The Python server stores it with boto3.
  */
 export async function uploadInterviewRecordingToS3(opts: {
   sessionId: string
@@ -33,57 +32,32 @@ export async function uploadInterviewRecordingToS3(opts: {
   }
   const filename =
     opts.filename || interviewRecordingFilename(opts.sessionId, opts.blob)
-  const initRes = await apiFetch('/api/interview/recordings/upload-url', {
+  const form = new FormData()
+  form.append('sessionId', opts.sessionId)
+  form.append('filename', filename)
+  form.append('durationSeconds', String(Math.round(opts.durationMs / 1000)))
+  form.append('file', opts.blob, filename)
+  const initRes = await apiFetch('/api/interview/recordings/upload', {
     method: 'POST',
-    body: JSON.stringify({
-      sessionId: opts.sessionId,
-      filename,
-      contentType: opts.blob.type || 'video/webm',
-      fileSize: opts.blob.size,
-    }),
+    body: form,
+    signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120_000) : undefined,
   })
   const init = (await initRes.json().catch(() => ({}))) as {
     error?: string
     skipped?: boolean
     recordingId?: string
     objectKey?: string
-    uploadUrl?: string
-    contentType?: string
   }
   if (initRes.status === 503 && init.skipped) {
     return { ok: false, error: init.error || 'Cloud recording storage is not configured.', skipped: true }
   }
-  if (!initRes.ok || !init.uploadUrl || !init.recordingId) {
-    return { ok: false, error: init.error || `Could not start recording upload (${initRes.status}).` }
-  }
-
-  const putRes = await fetch(init.uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': init.contentType || opts.blob.type || 'video/webm',
-    },
-    body: opts.blob,
-  })
-  if (!putRes.ok) {
-    return { ok: false, error: `S3 upload failed (${putRes.status}). Try again.` }
-  }
-
-  const doneRes = await apiFetch('/api/interview/recordings/complete', {
-    method: 'POST',
-    body: JSON.stringify({
-      sessionId: opts.sessionId,
-      recordingId: init.recordingId,
-      durationSeconds: Math.round(opts.durationMs / 1000),
-    }),
-  })
-  const done = (await doneRes.json().catch(() => ({}))) as { error?: string; objectKey?: string }
-  if (!doneRes.ok) {
-    return { ok: false, error: done.error || 'Upload finished but metadata save failed.' }
+  if (!initRes.ok || !init.recordingId) {
+    return { ok: false, error: init.error || `Could not save recording (${initRes.status}).` }
   }
   return {
     ok: true,
     recordingId: init.recordingId,
-    objectKey: done.objectKey || init.objectKey || '',
+    objectKey: init.objectKey || '',
   }
 }
 

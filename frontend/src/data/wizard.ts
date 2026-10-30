@@ -10,6 +10,8 @@ export interface WorkExperience {
   currentlyWorking: boolean
   location: string
   responsibilities: string
+  /** Set when this row was filled by resume parsing. */
+  fromResume?: boolean
 }
 
 export interface PerformanceMetric {
@@ -26,6 +28,8 @@ export interface Certification {
   organization: string
   dateEarned: string
   credentialId: string
+  /** Set when this row was filled by resume parsing. */
+  fromResume?: boolean
 }
 
 export interface ProfileFormData {
@@ -248,6 +252,23 @@ export const SALARY_OPTIONS = [
   '25–40 LPA',
   '40+ LPA',
 ]
+
+/** True when a resume value still appears in the extracted resume text. */
+export function mentionedInResume(resumeText: string, value: string): boolean {
+  const raw = value.trim()
+  const source = resumeText.trim()
+  if (!raw || !source) return false
+  const compact = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const needle = compact(raw)
+  const hay = compact(source)
+  if (needle.length >= 3 && hay.includes(needle)) return true
+  if (needle.length === 2) {
+    return new RegExp(`(^|[^a-z0-9])${needle}(?=$|[^a-z0-9])`, 'i').test(source)
+  }
+  const words = raw.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 4)
+  const lower = source.toLowerCase()
+  return words.some((word) => lower.includes(word))
+}
 
 export function createEmptyExperience(): WorkExperience {
   return {

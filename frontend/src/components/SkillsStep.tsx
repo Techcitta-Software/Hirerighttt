@@ -6,6 +6,7 @@ import {
   SKILL_OPTIONS,
   SUGGESTED_SKILLS,
   createEmptyExperience,
+  mentionedInResume,
   type ProfileFormData,
   type WorkExperience,
 } from '../data/wizard'
@@ -362,11 +363,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
             {data.workExperiences.map((exp, index) => {
               const isDimmed = !exp.company.trim() && !exp.jobTitle.trim()
               const isScraped = Boolean(
-                data.resumeText &&
-                  exp.company.trim() &&
-                  data.resumeText
-                    .toLowerCase()
-                    .includes(exp.company.trim().toLowerCase().slice(0, 4)),
+                exp.fromResume || mentionedInResume(data.resumeText, exp.company),
               )
 
               return (
@@ -405,7 +402,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
 
                   <div className={styles.expBody}>
                     <div className={styles.expTop}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div className={styles.expTitleRow}>
                         <p className={styles.expIndex}>Experience {index + 1}</p>
                         {isScraped ? (
                           <span className={styles.scrapedBadge}>

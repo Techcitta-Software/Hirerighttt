@@ -14,7 +14,7 @@ try {
   process.exit(1)
 }
 
-function run(command, args) {
+function run(command, args, options = {}) {
   const env = { ...process.env }
   if (process.env.CHOKIDAR_USEPOLLING === 'true') {
     env.CHOKIDAR_USEPOLLING = 'true'
@@ -23,6 +23,7 @@ function run(command, args) {
     stdio: 'inherit',
     shell: true,
     env,
+    cwd: options.cwd,
   })
   child.on('error', (err) => {
     console.error(err)
@@ -55,6 +56,6 @@ async function waitForApiHealth(maxMs = 120_000) {
   return false
 }
 
-run('node', ['backend/node/index.mjs'])
+run('python', ['run.py'], { cwd: join(repoRoot, 'backend') })
 await waitForApiHealth()
 run('npm', ['--prefix', 'frontend', 'run', 'dev'])
