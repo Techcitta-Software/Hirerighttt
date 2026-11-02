@@ -198,7 +198,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [selectedJobTitle, setSelectedJobTitle] = useState('')
   const [portalLoading, setPortalLoading] = useState(true)
-  const [portalError, setPortalError] = useState('')
 
   // Filters State
   const [searchFilter, setSearchFilter] = useState('')
@@ -225,7 +224,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
   const [newJobSkills, setNewJobSkills] = useState('')
-  const [jobFormError, setJobFormError] = useState('')
   const [portalSyncNote, setPortalSyncNote] = useState('')
   const seenApplicationAlertIdsRef = useRef(new Set<string>())
 
@@ -233,7 +231,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     null,
   )
   const [jobRosterLoading, setJobRosterLoading] = useState(false)
-  const [jobRosterError, setJobRosterError] = useState('')
   const [jobRosterRows, setJobRosterRows] = useState<EmployerApplicant[]>([])
 
   const [inviteStart, setInviteStart] = useState('')
@@ -273,14 +270,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const online = await apiHealth()
     if (loadSeq !== jobsLoadSeqRef.current) return
     if (!online) {
-      setPortalError('We could not load your jobs. Please try again shortly.')
       setJobs([])
       return
     }
     const sessionOk = await ensureApiSession()
     if (loadSeq !== jobsLoadSeqRef.current) return
     if (!sessionOk) {
-      setPortalError('Could not authenticate with the API. Sign in again as an employer.')
       setJobs([])
       return
     }
@@ -300,7 +295,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
     setPortalSyncNote(`${jobSeekers.length} candidate profiles available.`)
-    setPortalError('')
   }
 
   useEffect(() => {
@@ -308,7 +302,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     void (async () => {
       if (!user || user.role !== 'employer') return
       setPortalLoading(true)
-      setPortalError('')
       try {
         await loadJobsFromApi()
         if (cancelled) return
@@ -317,7 +310,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         }
       } catch (err) {
         if (!cancelled) {
-          setPortalError(err instanceof Error ? err.message : 'Could not load employer data from the API.')
+          console.warn('[employer-dashboard] load failed', err)
           setJobs([])
           setApplicants([])
         }
@@ -471,8 +464,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       if (await apiHealth()) {
         await patchApplicantStatus(id, mapApplicantStatusToApi(newStatus))
       }
-    } catch {
-      setPortalError('Status saved on this device. We could not update it for your team yet.')
+    } catch (err) {
+      console.warn('[employer-dashboard] status sync failed', err)
     }
   }
 
@@ -483,27 +476,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     const location = newJobLocation.trim()
     const roleTrack = newJobRoleTrack.trim()
     const experienceLevel = newJobExp.trim()
-    if (!title) {
-      setJobFormError('Job title is required.')
+    if (!title || !roleTrack || !experienceLevel || !location || jd.length < 30) {
       return
     }
-    if (!roleTrack) {
-      setJobFormError('Role is required.')
-      return
-    }
-    if (!experienceLevel) {
-      setJobFormError('Years of experience is required.')
-      return
-    }
-    if (!location) {
-      setJobFormError('Location is required.')
-      return
-    }
-    if (jd.length < 30) {
-      setJobFormError('Job description is required (at least 30 characters).')
-      return
-    }
-    setJobFormError('')
     const requiredSkills = newJobSkills
       .split(/[,;]/)
       .map((s) => s.trim())
@@ -530,7 +505,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     bumpJobsLoadGeneration()
     setJobs((prev) => [optimisticJob, ...prev])
     setJobCounts((prev) => ({ ...prev, [optimisticId]: 0 }))
-    setPortalError('')
     setPortalSyncNote(`Creating “${title}”…`)
 
     try {
@@ -564,13 +538,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       setNewJobLocation('Hyderabad / Remote')
       setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)
     } catch (err) {
+      console.warn('[employer-dashboard] create job failed', err)
       setJobs((prev) => prev.filter((j) => j.id !== optimisticId))
       setJobCounts((prev) => {
         const next = { ...prev }
         delete next[optimisticId]
         return next
       })
-      setJobFormError(err instanceof Error ? err.message : 'Could not publish this job. Please try again.')
       setPortalSyncNote('')
     }
   }
@@ -583,7 +557,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     if (!ok) return
 
     setDeletingJobId(job.id)
-    setPortalError('')
     setPortalSyncNote('')
 
     try {
@@ -610,7 +583,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       }
       setPortalSyncNote(`Job “${job.title}” was deleted.`)
     } catch (err) {
-      setPortalError(err instanceof Error ? err.message : 'Could not delete job.')
+      console.warn('[employer-dashboard] delete job failed', err)
     } finally {
       setDeletingJobId(null)
     }
@@ -620,7 +593,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     if (isOptimisticJobId(job.id)) return
     setJobRosterOpen({ jobId: job.id, title: job.title })
     setJobRosterLoading(true)
-    setJobRosterError('')
     setJobRosterRows([])
     try {
       await ensureApiSession()
@@ -628,7 +600,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       setJobRosterRows(applicants.map((a) => normalizeApplicant(mapVendorApplicant(a))))
       setJobCounts((prev) => ({ ...prev, [job.id]: total ?? applicants.length }))
     } catch (err) {
-      setJobRosterError(err instanceof Error ? err.message : 'Could not load applicants.')
+      console.warn('[employer-dashboard] load applicants failed', err)
+      setJobRosterRows([])
     } finally {
       setJobRosterLoading(false)
     }
@@ -637,7 +610,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   function closeJobApplicantsRoster() {
     setJobRosterOpen(null)
     setJobRosterRows([])
-    setJobRosterError('')
   }
 
   async function handleCopyLink(job: EmployerJob) {
@@ -691,11 +663,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             Loading candidates…
           </p>
         )}
-        {portalError ? (
-          <p className={styles.portalSyncNote} role="alert">
-            {portalError}
-          </p>
-        ) : null}
         {isCandidatesView && (
           <>
             <motion.div className={styles.heroCard} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -1342,12 +1309,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   />
                 </div>
 
-                {jobFormError && (
-                  <p className={styles.formError} role="alert">
-                    {jobFormError}
-                  </p>
-                )}
-
                 <div className={styles.modalFooter}>
                   <button
                     type="button"
@@ -1390,13 +1351,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   Loading applicants…
                 </p>
               ) : null}
-              {jobRosterError ? (
-                <p className={styles.formError} role="alert">
-                  {jobRosterError}
-                </p>
-              ) : null}
-
-              {!jobRosterLoading && !jobRosterError ? (
+              {!jobRosterLoading ? (
                 <div className={styles.tableContainer}>
                   <CandidatesDirectoryTable
                     rows={jobRosterRows}

@@ -1,5 +1,5 @@
 import { CandidateReviewEvents } from '../components/CandidateReviewEvents'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HrIcon } from '../components/HrIcon'
 import { buildApplyPath } from '../lib/jobLink'
@@ -55,7 +55,6 @@ export function DashboardPage() {
   const [jobCount, setJobCount] = useState(0)
   const [applications, setApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
-  const [errors, setErrors] = useState<string[]>([])
   const [jobsReady, setJobsReady] = useState(false)
   const [appsReady, setAppsReady] = useState(false)
   const [revision, setRevision] = useState(0)
@@ -67,10 +66,8 @@ export function DashboardPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      setErrors([])
       setJobsReady(false)
       setAppsReady(false)
-      const failures: string[] = []
 
       await syncSessionFromApi()
       if (cancelled || getUser()?.email !== email) return
@@ -103,8 +100,6 @@ export function DashboardPage() {
         if (remoteInterview && (!localInterview || Date.parse(remoteInterview.date) >= Date.parse(localInterview.date))) {
           localStorage.setItem(`hireright.interviewResult.${email}`, JSON.stringify(remoteInterview))
         }
-      } else if (account.status === 'rejected') {
-        failures.push('We could not refresh your account. Showing saved data on this device.')
       }
 
       if (remoteProfile.status === 'fulfilled' && remoteProfile.value) {
@@ -127,14 +122,20 @@ export function DashboardPage() {
         setJobs(rankPostedJobs(openJobs))
         setJobCount(roles.value.matchedCount ?? roles.value.total ?? openJobs.length)
         setJobsReady(true)
-      } else failures.push('Open roles could not be loaded.')
+      } else {
+        setJobs([])
+        setJobCount(0)
+        setJobsReady(true)
+      }
 
       if (apps.status === 'fulfilled') {
         setApplications(apps.value)
         setAppsReady(true)
-      } else failures.push('Application updates could not be loaded.')
+      } else {
+        setApplications([])
+        setAppsReady(true)
+      }
 
-      setErrors(failures)
       setLoading(false)
     }
     void load()
@@ -173,65 +174,6 @@ export function DashboardPage() {
     ? Math.round((completion + overallScore) / 2)
     : completion
   const topMatch = jobs[0] ?? null
-
-  const nextActions = useMemo(() => {
-    const actions: { title: string; body: string; href: string; cta: string; icon: 'sparkle' | 'user' | 'briefcase' | 'document' | 'chart' }[] = []
-    if (!hasScore) {
-      actions.push({
-        title: 'Unlock your interview score',
-        body: 'Employers on HireRighttt weigh AI interview signals when you apply.',
-        href: '/interview',
-        cta: 'Start interview',
-        icon: 'sparkle',
-      })
-    }
-    if (missingDetails.length > 0) {
-      actions.push({
-        title: 'Strengthen your profile',
-        body: `Still needed: ${missingDetails.map((m) => m.label).join(', ')}.`,
-        href: profileCheckHref(missingDetails[0]),
-        cta: 'Complete profile',
-        icon: 'user',
-      })
-    }
-    if (topMatch && hasScore) {
-      actions.push({
-        title: `Apply to ${topMatch.title}`,
-        body: `${topMatch.company} · ${topMatch.match}% match with your profile.`,
-        href: topMatch.shareableCode
-          ? buildApplyPath(topMatch.company, topMatch.shareableCode)
-          : `/jobs?job=${encodeURIComponent(topMatch.id || '')}`,
-        cta: 'View role',
-        icon: 'briefcase',
-      })
-    } else if (jobsReady && jobCount > 0) {
-      actions.push({
-        title: 'Review matched openings',
-        body: `${jobCount} live role${jobCount === 1 ? '' : 's'} aligned with your track.`,
-        href: '/jobs',
-        cta: 'Browse jobs',
-        icon: 'briefcase',
-      })
-    }
-    if (hasScore && applications.length === 0) {
-      actions.push({
-        title: 'Send your first application',
-        body: 'Your report and resume go to the employer in one step when you apply.',
-        href: '/jobs',
-        cta: 'Find roles',
-        icon: 'document',
-      })
-    } else if (hasScore) {
-      actions.push({
-        title: 'Review performance insights',
-        body: 'See strengths and focus areas before your next employer conversation.',
-        href: '/dashboard/report',
-        cta: 'Open report',
-        icon: 'chart',
-      })
-    }
-    return actions.slice(0, 4)
-  }, [hasScore, missingDetails, topMatch, jobsReady, jobCount, applications.length])
 
   const chips: { icon: 'map-pin' | 'briefcase' | 'message' | 'user' | 'calendar' | 'sparkle'; text: string }[] = []
   if (profile?.currentLocation?.trim()) chips.push({ icon: 'map-pin', text: profile.currentLocation })
@@ -296,15 +238,6 @@ export function DashboardPage() {
             <span className={styles.syncDot} aria-hidden="true" />
             Syncing your dashboard…
           </p>
-        )}
-
-        {errors.length > 0 && (
-          <div className={styles.alert} role="alert">
-            {errors.map(error => <p key={error}>{error}</p>)}
-            <button type="button" className={styles.secondary} onClick={() => setRevision(n => n + 1)} disabled={loading}>
-              Retry refresh
-            </button>
-          </div>
         )}
 
         <section className={styles.kpiGrid} aria-label="Overview metrics">
@@ -383,30 +316,6 @@ export function DashboardPage() {
             <div className={styles.pipelineStep}>
               <strong>{offerCount}</strong>
               <span>Offers</span>
-            </div>
-          </section>
-        )}
-
-        {nextActions.length > 0 && (
-          <section className={styles.nextActions} aria-labelledby="next-actions-heading">
-            <div className={styles.nextActionsHead}>
-              <div>
-                <p className={styles.eyebrow}>Recommended</p>
-                <h2 id="next-actions-heading">Your next best moves</h2>
-              </div>
-            </div>
-            <div className={styles.nextActionsGrid}>
-              {nextActions.map((action) => (
-                <Link to={action.href} className={styles.nextActionCard} key={action.title}>
-                  <HrIcon name={action.icon} size={18} />
-                  <h3>{action.title}</h3>
-                  <p>{action.body}</p>
-                  <span>
-                    {action.cta}
-                    <HrIcon name="arrow-right" size={14} />
-                  </span>
-                </Link>
-              ))}
             </div>
           </section>
         )}
