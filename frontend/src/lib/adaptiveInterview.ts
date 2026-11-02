@@ -5,7 +5,6 @@ import { ensureApiSession } from './apiSession'
 import { candidateFullName } from './store'
 
 import {
-  generateAdaptiveQuestionClient,
   generateAdaptiveQuestionLocal,
   INTERVIEW_TURN_COUNT,
   resolveInterviewTotalTurns,

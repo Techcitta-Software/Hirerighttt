@@ -1,5 +1,5 @@
 import { projectTechnicalQuestion } from './projectInterview'
-import { selectFresherConcept, selectFresherSkills } from './fresherConcepts'
+import { selectFresherConcept } from './fresherConcepts'
 /** Interview plan shared in behavior with backend/node/interviewQuestionPlan.mjs */
 import type { Question } from './interviewEngine'
 import type { SavedProfile } from './store'
