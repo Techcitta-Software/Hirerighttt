@@ -30,10 +30,7 @@ export function OnboardingProfileStep({
   onPatch,
   onExtracted,
 }: OnboardingProfileStepProps) {
-  const [detailsOpen, setDetailsOpen] = useState(() =>
-    data.workExperiences.some((exp) => exp.company.trim() || exp.jobTitle.trim()) ||
-      data.certifications.some((cert) => cert.name.trim() || cert.organization.trim()),
-  )
+  const [detailsOpen, setDetailsOpen] = useState(false)
 
   function applyExtract(extract: ResumeExtract) {
     const patch = resumeExtractToProfilePatch(extract)
@@ -49,13 +46,6 @@ export function OnboardingProfileStep({
       firstName: nextFirst,
       fieldCount: Object.keys(patch).length,
     })
-    if (
-      extract.workExperiences?.length ||
-      extract.certifications?.length ||
-      extract.skills?.length
-    ) {
-      setDetailsOpen(true)
-    }
   }
 
   const hasResume = Boolean(data.resumeFile || data.resumeName || data.resumeText?.trim())
