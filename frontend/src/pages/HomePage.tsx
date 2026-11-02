@@ -95,6 +95,26 @@ export function HomePage() {
           Section 2: Hero Section (Centered 100% Viewport Design)
           ==================================================================== */}
       <section className={styles.heroSection}>
+        {/* Background Concentric Radar Rings & Radiant Ambient Glows */}
+        <div className={styles.heroBgOrbits} aria-hidden="true">
+          <div className={styles.orbitCircle1} />
+          <div className={styles.orbitCircle2} />
+          <div className={styles.orbitCircle3} />
+          <div className={styles.orbitCircle4} />
+          <div className={styles.orbitCircle5} />
+          <div className={styles.heroGlowWarm} />
+          <div className={styles.heroGlowCenter} />
+          <div className={styles.heroGlowLavender} />
+          <div className={styles.bokehOrb1} />
+          <div className={styles.bokehOrb2} />
+          <div className={styles.bokehOrb3} />
+          <div className={styles.bokehOrb4} />
+          <div className={styles.bokehOrb5} />
+          <div className={styles.bokehOrb6} />
+          <div className={styles.sparkle1}>✦</div>
+          <div className={styles.sparkle2}>✦</div>
+        </div>
+
         <div className={styles.heroCenteredShell}>
           <motion.div
             className={styles.heroContentWrap}
@@ -102,69 +122,72 @@ export function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <p className={styles.heroKickerCentered}>
-              YOUR PERSONAL AI CAREER COMPANION
-            </p>
+            {/* Top Kicker Pill Badge */}
+            <div className={styles.heroKickerBadge}>
+              <span className={styles.kickerSparkle}>✦</span>
+              <span>YOUR PERSONAL AI CAREER COMPANION</span>
+            </div>
 
+            {/* Main Headline */}
             <h1 className={styles.heroHeadingCentered}>
-              <span className={styles.heroHeadingLine}>Your Future Starts with</span>
+              Your Future Starts with{' '}
               <span className={styles.heroHeadingBlue}>Understanding You.</span>
             </h1>
 
+            {/* Subtitle */}
             <p className={styles.heroSubheadingCentered}>
-              One 15–Minute Conversation. Your <strong>360° Career View.</strong>
+              One 15-Minute Conversation. <strong>Your 360° Career View.</strong>
             </p>
 
-            {/* Candidate + recruiter action bars (separate pills) */}
-            <div className={styles.heroUploadCapsuleStack}>
-              <div className={styles.heroUploadCapsule}>
-                <div className={styles.capsuleJobSeekerSide}>
-                  <div
-                    className={styles.capsuleUploadTrigger}
-                    onClick={handleResumeUploadClick}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Upload your resume"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        handleResumeUploadClick()
-                      }
-                    }}
-                  >
-                    <svg
-                      className={styles.cloudIcon}
-                      width="22"
-                      height="22"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                      <path d="M12 12v9" />
-                      <path d="m16 16-4-4-4 4" />
-                    </svg>
-                    <span className={styles.capsuleTriggerText}>
-                      Upload your resume (PDF, DOC, DOCX)
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    className={styles.capsuleUploadBtn}
-                    onClick={handleResumeUploadClick}
-                  >
-                    Upload Resume
-                  </button>
+            {/* Vertically Stacked Action Capsules */}
+            <div className={styles.heroCapsulesStack}>
+              {/* Capsule 1: Job Seeker Resume Upload */}
+              <div className={styles.heroActionCapsule}>
+                <div
+                  className={styles.capsuleLeftTrigger}
+                  onClick={handleResumeUploadClick}
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Upload your resume"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleResumeUploadClick()
+                    }
+                  }}
+                >
+                  <span className={styles.capsuleTriggerText}>
+                    Upload your resume <span className={styles.capsuleFormats}>(PDF, DOC, DOCX)</span>
+                  </span>
                 </div>
+
+                <button
+                  type="button"
+                  className={styles.capsuleActionBtn}
+                  onClick={handleResumeUploadClick}
+                >
+                  <span>Upload Resume</span>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
               </div>
 
-              <div className={styles.heroUploadCapsule}>
+              {/* Capsule 2: Recruiter */}
+              <div className={styles.heroActionCapsule}>
                 <div
-                  className={styles.capsuleRecruiterSide}
+                  className={styles.capsuleLeftTrigger}
                   onClick={handleRecruiterClick}
                   role="button"
                   tabIndex={0}
@@ -176,20 +199,98 @@ export function HomePage() {
                     }
                   }}
                 >
-                  <span className={styles.recruiterText}>
-                    Hiring? Meet talent that’s ready.
+                  <div className={styles.capsuleIconWrap}>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </div>
+                  <span className={styles.capsuleTriggerText}>
+                    Hiring? Meet talent that's ready.
                   </span>
-                  <button
-                    type="button"
-                    className={styles.capsuleRecruiterBtn}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRecruiterClick()
-                    }}
-                  >
-                    For Recruiters
-                  </button>
                 </div>
+
+                <button
+                  type="button"
+                  className={styles.capsuleActionBtn}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRecruiterClick()
+                  }}
+                >
+                  <span>For Recruiters</span>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Meta Row: 3 Feature highlights */}
+            <div className={styles.heroMetaRow}>
+              <div className={styles.metaItem}>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={styles.metaIcon}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span>Approximately 15 minutes</span>
+              </div>
+
+              <div className={styles.metaItem}>
+                <span className={styles.metaSparkleIcon}>✦</span>
+                <span>Personalized insights</span>
+              </div>
+
+              <div className={styles.metaItem}>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={styles.metaIcon}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="6" />
+                  <circle cx="12" cy="12" r="2" fill="currentColor" />
+                </svg>
+                <span>Clear next steps</span>
               </div>
             </div>
           </motion.div>
