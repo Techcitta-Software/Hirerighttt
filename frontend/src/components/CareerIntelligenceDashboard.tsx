@@ -549,10 +549,10 @@ export function CareerIntelligenceDashboard({
                 <td className={styles.questionCell}>{q.question}</td>
                 <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
                   <strong>
-                    {typeof (q as { questionScore?: number; score?: number }).questionScore === 'number'
-                      ? `${(q as { questionScore: number }).questionScore}%`
-                      : typeof (q as { score?: number }).score === 'number'
-                        ? `${(q as { score: number }).score}%`
+                    {typeof q.questionScore === 'number'
+                      ? `${q.questionScore}%`
+                      : typeof q.total30 === 'number'
+                        ? `${Math.round((q.total30 / 30) * 100)}%`
                         : '—'}
                   </strong>
                 </td>

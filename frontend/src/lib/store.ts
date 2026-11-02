@@ -76,6 +76,8 @@ export type CareerScorecard = {
     index: number
     topic: string
     question: string
+    /** 0–100 per-answer score when available (preferred for display). */
+    questionScore?: number
     accuracy: number
     clarity: number
     understanding: number
