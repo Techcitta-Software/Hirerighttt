@@ -13,13 +13,7 @@ from app.services.interview_rubric_scoring import classify_question_scoring_prof
 
 
 def _gemini_key() -> str:
-    return (
-        os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("LLM_API_KEY")
-        or ""
-    ).strip()
+    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
 
 
 def llm_eval_configured() -> bool:
@@ -94,47 +88,28 @@ async def evaluate_answers_with_llm(
     )
 
     model = _fast_model()
-    is_gemini = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
 
     for temperature in (0.12, 0.08):
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
-                if is_gemini:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-                    body = {
-                        "systemInstruction": {"parts": [{"text": EVAL_SYSTEM}]},
-                        "contents": [{"role": "user", "parts": [{"text": user}]}],
-                        "generationConfig": {
-                            "temperature": temperature,
-                            "responseMimeType": "application/json",
-                            "maxOutputTokens": 4096,
-                        },
-                    }
-                    headers = {"Content-Type": "application/json", "x-goog-api-key": key}
-                else:
-                    base = (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-                    url = f"{base}/chat/completions"
-                    body = {
-                        "model": model,
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                body = {
+                    "systemInstruction": {"parts": [{"text": EVAL_SYSTEM}]},
+                    "contents": [{"role": "user", "parts": [{"text": user}]}],
+                    "generationConfig": {
                         "temperature": temperature,
-                        "response_format": {"type": "json_object"},
-                        "max_tokens": 4096,
-                        "messages": [
-                            {"role": "system", "content": EVAL_SYSTEM},
-                            {"role": "user", "content": user},
-                        ],
-                    }
-                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+                        "responseMimeType": "application/json",
+                        "maxOutputTokens": 4096,
+                    },
+                }
+                headers = {"Content-Type": "application/json", "x-goog-api-key": key}
 
                 res = await client.post(url, headers=headers, json=body)
                 if not res.is_success:
                     continue
                 data = res.json()
-                if is_gemini:
-                    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-                    raw = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
-                else:
-                    raw = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+                raw = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
 
                 match = re.search(r"\{[\s\S]*\}", raw)
                 if not match:

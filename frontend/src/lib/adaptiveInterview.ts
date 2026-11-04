@@ -3,18 +3,41 @@ import type { SavedProfile } from './store'
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { candidateFullName } from './store'
+import { clientLlmAllowed } from './clientLlm'
 
 import {
-  generateAdaptiveQuestionLocal,
+  generateAdaptiveQuestionClient,
   INTERVIEW_TURN_COUNT,
   resolveInterviewTotalTurns,
   summarizeProfileForQuestions,
 } from './interviewQuestionGeneration'
+import { PENDING_CLOSING_FOCUS, PENDING_FALLBACK_FOCUS } from './interviewQuestionPlan'
+import {
+  InterviewLlmError,
+  interviewLlmGenerationFailedError,
+  interviewLlmRequiredError,
+} from './interviewLlmErrors'
 
-export { INTERVIEW_TURN_COUNT }
+export { INTERVIEW_TURN_COUNT, PENDING_FALLBACK_FOCUS, PENDING_CLOSING_FOCUS }
 export const MIN_ANSWERS_BEFORE_END = 2
-/** Matches server `INTERVIEW_TURN_COUNT` / `question-generation.md`. */
 export const MAX_ADAPTIVE_QUESTIONS = INTERVIEW_TURN_COUNT
+
+export function isPendingFallbackQuestion(q: Question | undefined): boolean {
+  return q?.focus === PENDING_FALLBACK_FOCUS
+}
+
+export function isPendingClosingQuestion(q: Question | undefined): boolean {
+  return q?.focus === PENDING_CLOSING_FOCUS
+}
+
+/** Fallback and closing are generated via /next after prior answers (experienced flow). */
+export function isDeferredAdaptiveQuestion(q: Question | undefined): boolean {
+  return isPendingFallbackQuestion(q) || isPendingClosingQuestion(q)
+}
+
+export function isPreloadedInterviewQuestion(q: Question | undefined): boolean {
+  return Boolean(q?.text && q.text.trim().length >= 24)
+}
 
 const END_INTERVIEW_RE =
   /\b(end (the )?interview|stop (the )?interview|finish (the )?interview|i'?m done|that'?s all|no more questions)\b/i
@@ -24,25 +47,6 @@ export function isEndInterviewCommand(text: string): boolean {
 }
 
 export { extractClaimedSkills } from './interviewQuestionGeneration'
-
-/** Same rules as the server when Gemini is not configured. */
-export function generateLocalAdaptiveQuestion(
-  role: string,
-  level: string,
-  profile: SavedProfile | null,
-  history: { question: Question; answer: string }[],
-  lastAnswer: string,
-  options?: { explicitRoleTrack?: boolean; jobDescription?: string },
-): Question {
-  return generateAdaptiveQuestionLocal({
-    profile,
-    role,
-    level,
-    jobDescription: options?.jobDescription,
-    history,
-    lastAnswer,
-  })
-}
 
 export async function fetchNextAdaptiveQuestion(options: {
   sessionId: string | null
@@ -72,16 +76,6 @@ export async function fetchNextAdaptiveQuestion(options: {
     options.varietySeed?.trim() ||
     (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 16) : String(Date.now()))
 
-  const structuredQuestion = generateAdaptiveQuestionLocal({
-    profile: options.profile,
-    role: options.role,
-    level: options.level,
-    jobDescription: options.jobDescription,
-    history: options.history,
-    lastAnswer: options.lastAnswer,
-    varietySeed,
-  })
-
   await ensureApiSession()
   try {
     const res = await apiFetch('/api/interview/next', {
@@ -97,22 +91,41 @@ export async function fetchNextAdaptiveQuestion(options: {
         lastQuestion: options.lastQuestion,
         lastAnswer: options.lastAnswer,
         varietySeed,
-        question: structuredQuestion,
       }),
     })
+    const data = (await res.json().catch(() => ({}))) as {
+      complete?: boolean
+      question?: Question
+      error?: string
+      code?: string
+    }
+    if (res.status === 503 && data.code?.startsWith('LLM_QUESTION')) {
+      throw interviewLlmRequiredError(data.error || data.code)
+    }
     if (res.ok) {
-      const data = await res.json()
       if (data.complete === true) throw new Error('INTERVIEW_COMPLETE')
+      if (data.question?.text && data.question.text.length >= 24) {
+        return data.question
+      }
     }
   } catch (err) {
     if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') throw err
+    if (err instanceof InterviewLlmError) throw err
   }
 
-  if (options.history.length >= maxTurns) {
-    throw new Error('INTERVIEW_COMPLETE')
+  if (clientLlmAllowed()) {
+    return generateAdaptiveQuestionClient({
+      profile: options.profile,
+      role: options.role,
+      level: options.level,
+      jobDescription: options.jobDescription,
+      history: options.history,
+      lastAnswer: options.lastAnswer,
+      varietySeed,
+    })
   }
 
-  return structuredQuestion
+  throw interviewLlmGenerationFailedError()
 }
 
 export function enrichProfileName(profile: SavedProfile | null): SavedProfile | null {

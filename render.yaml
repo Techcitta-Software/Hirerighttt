@@ -68,10 +68,6 @@ services:
         value: gemini-3.1-flash-lite
       - key: OPENAI_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta/openai
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENROUTER_API_KEY
-        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: SMTP_EMAIL

@@ -3,13 +3,18 @@ from __future__ import annotations
 from typing import Any
 
 
+def _sanitize_proctor_flag(flag: dict) -> dict:
+    return {k: v for k, v in flag.items() if k not in ("snapshotDataUrl", "snapshotS3Key")}
+
+
 async def persist_proctoring_flags(*, tenant_id: str, session_id: str, flagged_sections: list) -> dict[str, Any]:
-    counts = {"total": len(flagged_sections), "lookingSide": 0, "multiplePeople": 0, "noFace": 0}
-    for f in flagged_sections:
+    sanitized = [_sanitize_proctor_flag(f) for f in flagged_sections if isinstance(f, dict)]
+    counts = {"total": len(sanitized), "lookingSide": 0, "multiplePeople": 0, "noFace": 0}
+    for f in sanitized:
         t = str(f.get("type") or f.get("eventType") or "")
-        if "SIDE" in t:
+        if "SIDE" in t or t == "LOOKING_SIDE":
             counts["lookingSide"] += 1
-        elif "MULTIPLE" in t:
+        elif "MULTIPLE" in t or t == "MULTI_FACE":
             counts["multiplePeople"] += 1
         elif "NO_FACE" in t:
             counts["noFace"] += 1
@@ -17,7 +22,7 @@ async def persist_proctoring_flags(*, tenant_id: str, session_id: str, flagged_s
         "integrityScore": max(0, 100 - counts["total"] * 5),
         "status": "CLEAR" if counts["total"] == 0 else "REVIEW",
         "counts": counts,
-        "flaggedSections": flagged_sections,
+        "flaggedSections": sanitized,
     }
 
 

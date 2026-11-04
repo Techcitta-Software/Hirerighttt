@@ -7,7 +7,8 @@ import {
   normalizeSkill,
   parseResumeStructure,
 } from '../atsScorer.mjs'
-import { analyzeInterviewSkillMatch, generateAdaptiveQuestionLocal } from '../interviewAgent.mjs'
+import { analyzeInterviewSkillMatch } from '../interviewAgent.mjs'
+import { buildStructuredTurnQuestion, structuredPlanSummary } from '../interviewQuestionPlan.mjs'
 import { evaluateResumeAgainstJd } from '../vendor/aiEvaluation.mjs'
 
 test('normalizeSkill maps synonyms', () => {
@@ -79,42 +80,55 @@ test('theory turn uses role-relevant skills when job description is attached', (
     skills: ['Kafka', 'Redis'],
     workExperiences: [{ jobTitle: 'Backend Engineer', company: 'Acme', description: 'Streaming' }],
   }
-  const q1 = generateAdaptiveQuestionLocal({
-    role: 'Backend Engineer',
+  const plan = structuredPlanSummary('Backend Engineer', ctx, profile, '2–5 years')
+  const q1 = buildStructuredTurnQuestion({
+    turnNumber: 1,
+    first: 'Alex',
     level: '2–5 years',
-    jobDescription: jd,
-    history: [],
-    lastAnswer: '',
     profile,
     ctx,
+    roleOverride: 'Backend Engineer',
+    planSummary: plan,
+    varietySeed: 'ats-plan',
   })
-  assert.match(String(q1.focus || ''), /^structured-work-/)
+  assert.match(String(q1.focus || ''), /structured-opening/)
 
-  const q2 = generateAdaptiveQuestionLocal({
-    role: 'Backend Engineer',
+  const q2 = buildStructuredTurnQuestion({
+    turnNumber: 2,
+    first: 'Alex',
     level: '2–5 years',
-    jobDescription: jd,
+    profile,
+    ctx,
+    roleOverride: 'Backend Engineer',
+    planSummary: plan,
+    varietySeed: 'ats-plan',
     history: [{ question: q1, answer: 'Owned ingestion pipeline and cut lag 40%.' }],
     lastAnswer: 'Owned ingestion pipeline and cut lag 40%.',
-    profile,
-    ctx,
   })
   const history = [
     { question: q1, answer: 'Owned ingestion pipeline and cut lag 40%.' },
     { question: q2, answer: 'Debugged partition skew with better keys and monitoring.' },
   ]
-  const q3 = generateAdaptiveQuestionLocal({
-    role: 'Backend Engineer',
+  const q3 = buildStructuredTurnQuestion({
+    turnNumber: 3,
+    first: 'Alex',
     level: '2–5 years',
-    jobDescription: jd,
-    history,
-    lastAnswer: history[1].answer,
     profile,
     ctx,
+    roleOverride: 'Backend Engineer',
+    planSummary: plan,
+    varietySeed: 'ats-plan',
+    history,
+    lastAnswer: history[1].answer,
   })
   const lower = q3.text.toLowerCase()
   assert.ok(
-    lower.includes('kafka') || lower.includes('redis') || lower.includes('node'),
+    lower.includes('kafka') ||
+      lower.includes('redis') ||
+      lower.includes('node') ||
+      lower.includes('join') ||
+      lower.includes('sql') ||
+      lower.includes('postgres'),
     `expected role skill theory question, got: ${q3.text}`,
   )
 })

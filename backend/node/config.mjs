@@ -57,15 +57,9 @@ export function assertProductionConfig() {
   if (config.corsOrigins.length === 0 || config.corsOrigins.includes('*')) {
     errors.push('Set CORS_ORIGINS to your exact frontend URL(s) — no wildcards in production.')
   }
-  const hasLlm =
-    process.env.GEMINI_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY ||
-    process.env.LLM_API_KEY
+  const hasLlm = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
   if (!hasLlm) {
-    errors.push(
-      'GEMINI_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY) is required in production.',
-    )
+    errors.push('GEMINI_API_KEY is required in production (Google AI Studio).')
   }
 
   if (errors.length) {

@@ -46,13 +46,33 @@ test('aggregation does not silently score skipped or missing answers as zero', (
   assert.equal(aggregate(job, questions, answers, evaluations, [{ evaluation_id: 'e0', score: 4 }]).overall, 78.75)
 })
 test('provider retries invalid JSON and stops after two attempts without leaking provider errors', async () => {
-  const old = process.env.LLM_API_KEY
-  process.env.LLM_API_KEY = 'test-only-placeholder'
+  const old = process.env.GEMINI_API_KEY
+  process.env.GEMINI_API_KEY = 'AIza-test-only-placeholder'
   let calls = 0
   try {
-    await assert.rejects(structuredCall({ system: 'test', payload: {}, purpose: 'evaluation', validate: v => v, fetchImpl: async () => { calls++; return { ok: true, json: async () => ({ choices: [{ message: { content: 'not json' } }] }) } } }), /invalid output/)
+    await assert.rejects(
+      structuredCall({
+        system: 'test',
+        payload: {},
+        purpose: 'evaluation',
+        validate: (v) => v,
+        fetchImpl: async () => {
+          calls++
+          return {
+            ok: true,
+            json: async () => ({
+              candidates: [{ content: { parts: [{ text: 'not json' }] } }],
+            }),
+          }
+        },
+      }),
+      /invalid output/,
+    )
     assert.equal(calls, 2)
-  } finally { if (old === undefined) delete process.env.LLM_API_KEY; else process.env.LLM_API_KEY = old }
+  } finally {
+    if (old === undefined) delete process.env.GEMINI_API_KEY
+    else process.env.GEMINI_API_KEY = old
+  }
 })
 test('resume rejects unsupported extensions, bad signatures and oversized uploads', async () => {
   await assert.rejects(extractResume({ filename: 'resume.exe', file_base64: 'AA==' }))

@@ -15,8 +15,9 @@ from app.services.interview_agent import (
 from app.services.interview_llm_eval import llm_eval_configured
 from app.services.vendor.ats_score import compute_ats_score, extract_primary_skills_from_jd
 
-INTERVIEW_TURN_COUNT = 7
 FRESHER_INTERVIEW_TURN_COUNT = 7
+EXPERIENCED_INTERVIEW_TURN_COUNT = 8
+INTERVIEW_TURN_COUNT = EXPERIENCED_INTERVIEW_TURN_COUNT
 FRESHER_GREETING = "Thanks for joining today — I am Ava, and I will guide you through this interview."
 FRESHER_THANK_YOU = "Thank you for your time today. That is all from my side. Wishing you the best with your next steps."
 _CODING_LANGUAGE_RE = (
@@ -26,12 +27,7 @@ _SQL_SKILL_RE = r"^(sql|postgresql|postgres|mysql|sqlite|tsql|pl/?sql)$"
 
 
 def llm_configured() -> bool:
-    return bool(
-        os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("LLM_API_KEY")
-    )
+    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
 
 
 def resolve_interview_question_mode(options: dict | None = None) -> str:
@@ -219,41 +215,39 @@ def _fresher_question(turn: int, first: str, skills: list, projects: list, last_
     }
 
 
-def generate_adaptive_question_local(input: dict) -> dict:
-    ctx = input.get("ctx") or summarize_profile(input.get("profile"), input.get("accountName") or "Candidate")
-    role = input.get("role") or "Full Stack Engineer"
-    level = input.get("level") or "1–3 years"
-    history = input.get("history") or []
-    profile = input.get("profile") or {}
-    if _is_fresher(profile, level, ctx):
-        first = str(ctx.get("name") or "there").split()[0]
-        skills = list(ctx.get("skills") or profile.get("skills") or [])
-        projects = _extract_projects(str(ctx.get("resumeSnippet") or profile.get("resumeText") or ""))
-        last_answer = str((history[-1] or {}).get("answer") or "") if history else ""
-        return _fresher_question(len(history) + 1, first, skills, projects, last_answer)
-    bank = build_questions(role, level, profile, name=ctx.get("name") or "there")
-    idx = min(len(history), len(bank) - 1)
-    q = bank[idx]
-    return {**q, "focus": "adaptive-local"}
+def generate_adaptive_question_local(_input: dict) -> dict:
+    from app.services.interview_llm_questions import InterviewLlmQuestionError
+
+    raise InterviewLlmQuestionError(
+        "LLM_QUESTION_REQUIRED",
+        "Static interview questions are disabled. Configure GEMINI_API_KEY.",
+    )
 
 
 async def generate_adaptive_question(input: dict) -> dict:
-    return generate_adaptive_question_local(input)
+    from app.services.interview_llm_questions import generate_adaptive_question_llm
+
+    return await generate_adaptive_question_llm(input)
+
+
+async def generate_adaptive_question_batch(input: dict) -> dict:
+    from app.services.interview_llm_questions import generate_adaptive_question_batch_llm
+
+    return await generate_adaptive_question_batch_llm(input)
+
+
+def resolve_interview_total_turns(profile: dict | None, level: str, ctx: dict | None = None) -> int:
+    if _is_fresher(profile, level, ctx):
+        return FRESHER_INTERVIEW_TURN_COUNT
+    return EXPERIENCED_INTERVIEW_TURN_COUNT  # 1 opening + 3 skills + 2 projects + fallback + closing
 
 
 async def generate_vendor_job_question(input: dict, _options: dict | None = None) -> dict:
-    ctx = input.get("ctx") or {}
-    role = input.get("role") or "Engineer"
-    jd = str(input.get("jobDescription") or "")
-    skill = (input.get("requiredSkills") or extract_primary_skills_from_jd(jd, []))[:1]
-    topic = skill[0] if skill else role
-    return {
-        "text": f"Describe a concrete example where you applied {topic} in a {role} context.",
-        "category": "Technical",
-        "keywords": [str(topic).lower(), "example", "outcome"],
-        "hint": "Situation, action, result.",
-        "focus": "vendor-jd-local",
-    }
+    from app.services.interview_llm_questions import generate_adaptive_question_llm
+
+    enriched = {**input, "jobDescription": input.get("jobDescription") or ""}
+    q = await generate_adaptive_question_llm(enriched)
+    return {**q, "focus": "vendor-jd-llm"}
 
 
 async def generate_interview_turn(input: dict) -> dict:

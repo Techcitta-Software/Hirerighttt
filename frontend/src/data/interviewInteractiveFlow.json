@@ -2,10 +2,10 @@
   "version": 4,
   "agent": "Ava",
   "voice": {
-    "preferredName": "Jessica",
+    "preferredName": "Neerja",
     "language": "en-IN",
     "fallbackLanguage": "en-GB",
-    "rate": 0.94,
+    "rate": 0.88,
     "pitch": 1
   },
   "steps": [
@@ -13,7 +13,7 @@
       "id": "day_check",
       "label": "Hello",
       "action": "speak_and_listen",
-      "spokenTemplate": "Hi {firstName}, I'm Ava. How has your day been so far?",
+      "spokenTemplate": "Hello {firstName}. I am Ava. How is your day going so far?",
       "hint": "Reply briefly — good, fine, busy — or say \"next question\".",
       "minResponseChars": 1,
       "advanceMode": "response_or_next",
@@ -23,7 +23,7 @@
       "id": "confirm_begin",
       "label": "Begin interview",
       "action": "speak_and_listen",
-      "spokenTemplate": "Thanks, {firstName}. Let's begin your {role} interview — I'll ask about your background and résumé. Say yes when you're ready for the first question.",
+      "spokenTemplate": "Thank you, {firstName}. We will start your {role} interview now. I will ask about your background and resume. Say yes when you are ready for the first question.",
       "hint": "Say yes or \"next question\" to start.",
       "minResponseChars": 1,
       "advanceMode": "affirmative_or_next",

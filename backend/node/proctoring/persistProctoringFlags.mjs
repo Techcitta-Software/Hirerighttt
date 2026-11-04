@@ -1,44 +1,20 @@
-import { createS3ObjectStorage, s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
-import { buildFlagSnapshotS3Key } from '../storage/s3KeyLayout.mjs'
-
 /**
- * Upload flag JPEG snapshots to S3 and return structured proctoring summary for JSONB storage.
+ * Build proctoring summary for JSONB storage. Does not upload or persist camera snapshots.
  * @param {{ tenantId?: string, sessionId: string, flaggedSections?: Array<Record<string, unknown>> }} opts
  */
 export async function persistProctoringFlags(opts) {
-  const tenantId = opts.tenantId || 'platform'
-  const sessionId = String(opts.sessionId || '').trim()
   const flaggedSections = Array.isArray(opts.flaggedSections) ? opts.flaggedSections : []
-  const storage = s3StorageConfigured() ? createS3ObjectStorage() : null
   const processedFlags = []
 
   for (const flag of flaggedSections) {
     if (!flag || typeof flag !== 'object') continue
-    let snapshotS3Key = flag.snapshotS3Key ? String(flag.snapshotS3Key) : null
     const flagId = String(flag.id || `flag_${processedFlags.length + 1}`)
-
-    const dataUrl = typeof flag.snapshotDataUrl === 'string' ? flag.snapshotDataUrl : ''
-    if (storage && dataUrl.startsWith('data:image/jpeg;base64,')) {
-      const base64Data = dataUrl.replace(/^data:image\/jpeg;base64,/, '')
-      const buffer = Buffer.from(base64Data, 'base64')
-      snapshotS3Key = buildFlagSnapshotS3Key({
-        tenantId,
-        candidateId: opts.candidateId,
-        sessionId,
-        flagId,
-      })
-      await storage.uploadObject({
-        key: snapshotS3Key,
-        buffer,
-        contentType: 'image/jpeg',
-      })
-    }
-
-    const { snapshotDataUrl: _drop, ...cleanFlag } = flag
+    const { snapshotDataUrl: _dropUrl, snapshotS3Key: _dropKey, ...cleanFlag } = flag
+    void _dropUrl
+    void _dropKey
     processedFlags.push({
       ...cleanFlag,
       id: flagId,
-      snapshotS3Key,
     })
   }
 

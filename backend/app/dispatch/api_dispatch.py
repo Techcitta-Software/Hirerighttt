@@ -44,6 +44,7 @@ from app.services.interview_invites import (
 from app.services.interview_review import vendor_may_view_interview_session
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
+from app.services.proctoring.score_penalty import apply_face_deviation_penalty_to_result, count_face_proctor_deviations
 from app.services.proctoring.review_events import merge_review_events
 from app.services.resume_replace import public_replace_resume_error, replace_candidate_resume
 from app.services.storage import interview_artifact_storage as art_store
@@ -588,19 +589,31 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             level = app.get("data", {}).get("experienceYears") or (job or {}).get("experienceLevel") or "1–3 years"
             questions = []
             history = []
+            if not ia.llm_configured():
+                return _json(
+                    503,
+                    {
+                        "error": "Interview preview requires GEMINI_API_KEY on the server.",
+                        "code": "LLM_QUESTION_REQUIRED",
+                    },
+                )
+            preview_seed = secrets.token_hex(8)
             for _ in range(ia.INTERVIEW_TURN_COUNT):
-                q = ia.generate_adaptive_question_local(
+                q = await ia.generate_adaptive_question(
                     {
                         "ctx": digest,
+                        "profile": profile,
                         "role": role,
                         "level": level,
                         "jobDescription": jd,
                         "history": history,
                         "lastAnswer": "",
+                        "varietySeed": preview_seed,
+                        "totalTurns": ia.INTERVIEW_TURN_COUNT,
                     }
                 )
                 questions.append(q)
-                history.append({"question": q, "answer": ""})
+                history.append({"question": q, "answer": "Preview placeholder."})
             return _json(
                 200,
                 {
@@ -676,41 +689,54 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     job_description=effective_jd, required_skills=required_skills, profile=profile, ctx=digest
                 )
             variety_seed = secrets.token_hex(8)
-            interview_total_turns = (
-                ia.FRESHER_INTERVIEW_TURN_COUNT
-                if ia._is_fresher(profile, level, digest)
-                else ia.INTERVIEW_TURN_COUNT
-            )
-            if question_mode == "vendor_jd":
-                first = await ia.generate_vendor_job_question(
-                    {
-                        "ctx": digest,
-                        "profile": profile,
-                        "role": role,
-                        "jobDescription": effective_jd,
-                        "requiredSkills": required_skills,
-                        "history": [],
-                        "lastAnswer": "",
-                        "varietySeed": variety_seed,
-                    }
-                )
-            else:
-                first = await ia.generate_adaptive_question(
-                    {
-                        "ctx": digest,
-                        "profile": profile,
-                        "role": role,
-                        "level": level,
-                        "jobDescription": effective_jd,
-                        "explicitRoleTrack": explicit_role_track,
-                        "history": [],
-                        "lastAnswer": "",
-                        "accountName": account.get("name") if account else None,
-                        "varietySeed": variety_seed,
-                    }
-                )
-            questions = [first]
-            agent_label = first.get("focus") or "adaptive-local"
+            fresher = ia._is_fresher(profile, level, digest)
+            interview_total_turns = ia.resolve_interview_total_turns(profile, level, digest)
+            preloaded_question_batch = False
+            session_fallback_turn = None
+            session_closing_turn = None
+            try:
+                if question_mode == "vendor_jd":
+                    first = await ia.generate_vendor_job_question(
+                        {
+                            "ctx": digest,
+                            "profile": profile,
+                            "role": role,
+                            "jobDescription": effective_jd,
+                            "requiredSkills": required_skills,
+                            "history": [],
+                            "lastAnswer": "",
+                            "varietySeed": variety_seed,
+                            "totalTurns": interview_total_turns,
+                        }
+                    )
+                    questions = [first]
+                else:
+                    batch = await ia.generate_adaptive_question_batch(
+                        {
+                            "ctx": digest,
+                            "profile": profile,
+                            "role": role,
+                            "level": level,
+                            "jobDescription": effective_jd,
+                            "accountName": account.get("name") if account else None,
+                            "varietySeed": variety_seed,
+                            "totalTurns": interview_total_turns,
+                            "fresher": fresher,
+                        }
+                    )
+                    questions = batch["questions"]
+                    first = questions[0]
+                    session_fallback_turn = batch.get("fallbackTurn")
+                    session_closing_turn = batch.get("closingTurn")
+                    interview_total_turns = int(batch.get("totalTurns") or interview_total_turns)
+                    preloaded_question_batch = True
+            except Exception as err:
+                from app.services.interview_llm_questions import InterviewLlmQuestionError
+
+                if isinstance(err, InterviewLlmQuestionError):
+                    return _json(err.status, {"error": str(err), "code": err.code})
+                raise
+            agent_label = first.get("focus") or "adaptive-llm"
             session_id = secrets.token_hex(12)
             session = {
                 "id": session_id,
@@ -742,6 +768,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "status": "active",
                 "totalTurns": interview_total_turns,
                 "varietySeed": variety_seed,
+                "preloadedQuestionBatch": preloaded_question_batch,
+                "fallbackTurn": session_fallback_turn,
+                "closingTurn": session_closing_turn,
                 "integrity": {"faceViolations": 0, "singlePersonOk": True, "maxFacesSeen": 1},
             }
             db.setdefault("interviewSessions", {})[session_id] = session
@@ -832,6 +861,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "logs": session.get("reviewEvents") or client_integrity.get("logs") or [],
                 "proctoring": proctoring,
             }
+            deviations = count_face_proctor_deviations(client_integrity, proctoring)
+            apply_face_deviation_penalty_to_result(result, deviations)
             db.setdefault("interviews", {})[email] = result
             session["status"] = "completed"
             session["answers"] = scored_answers
@@ -1033,10 +1064,17 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if len(history) >= total_turns:
                 await ctx.save_db(db)
                 return _json(200, {"complete": True, "turn": len(history)})
-            client_question = body.get("question")
-            if isinstance(client_question, dict) and client_question.get("text"):
-                nxt = client_question
-            else:
+            next_turn = len(history) + 1
+            fallback_turn = session.get("fallbackTurn")
+            closing_turn = session.get("closingTurn")
+            deferred_turn = next_turn in (fallback_turn, closing_turn)
+            if session.get("preloadedQuestionBatch") and session.get("questionMode") != "vendor_jd" and not deferred_turn:
+                cached = (session.get("questions") or [])[next_turn - 1] if session.get("questions") else None
+                if isinstance(cached, dict) and len(str(cached.get("text") or "")) >= 24:
+                    db["interviewSessions"][session_id] = session
+                    await ctx.save_db(db)
+                    return _json(200, {"question": cached, "turn": next_turn, "preloaded": True})
+            try:
                 nxt = await ia.generate_adaptive_question(
                     {
                         "ctx": digest,
@@ -1048,12 +1086,26 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "lastAnswer": str(body.get("lastAnswer") or ""),
                         "accountName": account.get("name") if account else None,
                         "varietySeed": str(body.get("varietySeed") or session.get("varietySeed") or ""),
+                        "totalTurns": total_turns,
                     }
                 )
-            session.setdefault("questions", []).append(nxt)
+            except Exception as err:
+                from app.services.interview_llm_questions import InterviewLlmQuestionError
+
+                if isinstance(err, InterviewLlmQuestionError):
+                    return _json(err.status, {"error": str(err), "code": err.code})
+                raise
+            if session.get("preloadedQuestionBatch") and deferred_turn:
+                updated = list(session.get("questions") or [])
+                while len(updated) < next_turn:
+                    updated.append({"text": "", "focus": "pending"})
+                updated[next_turn - 1] = nxt
+                session["questions"] = updated
+            else:
+                session.setdefault("questions", []).append(nxt)
             db["interviewSessions"][session_id] = session
             await ctx.save_db(db)
-            return _json(200, {"question": nxt, "turn": len(history) + 1})
+            return _json(200, {"question": nxt, "turn": next_turn, "preloaded": False})
 
         if method == "POST" and path == "/api/interview/turn":
             email = await runtime.require_auth_email(request)

@@ -43,7 +43,7 @@ export function createHealthRouter(ctx) {
         resumeAwareQuestions: true,
         adaptiveScoring: true,
         faceIntegrityClient: true,
-        openrouterActive: Boolean(process.env.OPENROUTER_API_KEY),
+        geminiActive: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         /** Server Groq Whisper removed — STT is Moonshine + Silero in the browser. */
         groqWhisper: false,
         sileroVadClient: true,

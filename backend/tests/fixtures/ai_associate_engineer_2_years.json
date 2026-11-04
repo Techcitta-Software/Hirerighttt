@@ -1,0 +1,37 @@
+{
+  "fullName": "Arjun Kumar Reddy",
+  "name": "Arjun Kumar Reddy",
+  "currentRole": "AI Associate Engineer",
+  "totalExperience": "2 years",
+  "skills": [
+    "Python",
+    "Machine Learning",
+    "SQL",
+    "RAG",
+    "scikit-learn",
+    "FastAPI"
+  ],
+  "workExperiences": [
+    {
+      "jobTitle": "AI Associate Engineer",
+      "company": "Example AI Labs (fictional)",
+      "startDate": "2024-11",
+      "endDate": "2026-10",
+      "description": "Built a support-ticket classifier using Python, scikit-learn and SQL. Developed an internal-document RAG assistant with embeddings, retrieval and FastAPI. Evaluated classification and retrieval quality, investigated errors and maintained tests."
+    }
+  ],
+  "projects": [
+    {
+      "name": "Support-ticket classifier",
+      "description": "Built a support-ticket classifier using Python, scikit-learn and SQL; compared TF-IDF logistic regression with a baseline; evaluated macro F1 and rare-class recall."
+    },
+    {
+      "name": "Internal-document RAG assistant",
+      "description": "Developed an internal-document RAG assistant using embeddings, chunking and FastAPI; evaluated retrieval against labeled questions and added source citations."
+    }
+  ],
+  "achievements": [],
+  "certifications": [],
+  "resumeName": "Arjun_Kumar_Reddy_Dummy_Resume.txt",
+  "resumeText": "Arjun Kumar Reddy\nAI Associate Engineer | 2 years of experience\nFictional test candidate; not a real applicant.\nEXPERIENCE\nAI Associate Engineer, Example AI Labs (fictional), November 2024 - October 2026.\nBuilt a support-ticket classifier using Python, scikit-learn and SQL; evaluated macro F1 and rare-class recall.\nDeveloped an internal-document RAG assistant using embeddings, chunking and FastAPI; evaluated retrieval and added source citations.\nSKILLS\nPython, Machine Learning, SQL, RAG, scikit-learn, FastAPI\nEDUCATION\nB.Tech in Computer Science, Example Institute (fictional), 2024."
+}

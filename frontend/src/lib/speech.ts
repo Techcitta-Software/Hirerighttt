@@ -1,5 +1,7 @@
 /** Browser speech helpers for the video AI interview. */
 
+import { INTERVIEW_VOICE, prepareTextForInterviewSpeech } from './interviewVoiceConfig'
+
 export function isSpeechRecognitionSupported(): boolean {
   if (typeof window === 'undefined') return false
   return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
@@ -9,20 +11,49 @@ export function isSpeechSynthesisSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
+function voiceScore(v: SpeechSynthesisVoice): number {
+  const lang = (v.lang || '').toLowerCase()
+  const name = (v.name || '').toLowerCase()
+  let score = 0
+
+  if (lang === INTERVIEW_VOICE.language.toLowerCase() || lang.replace('_', '-') === 'en-in') {
+    score += 120
+  } else if (lang.startsWith('en-in')) {
+    score += 90
+  } else if (lang.startsWith('en-gb')) {
+    score += 40
+  } else if (lang.startsWith('en-us')) {
+    score += 35
+  } else if (lang.startsWith('en')) {
+    score += 20
+  }
+
+  for (const hint of INTERVIEW_VOICE.preferredNameHints) {
+    if (name.includes(hint)) score += 35
+  }
+  for (const bad of INTERVIEW_VOICE.avoidNameHints) {
+    if (name.includes(bad)) score -= 80
+  }
+  if (v.localService) score += 8
+
+  return score
+}
+
 function pickVoice(): SpeechSynthesisVoice | null {
   if (!isSpeechSynthesisSupported()) return null
   const voices = window.speechSynthesis.getVoices()
   if (!voices.length) return null
 
-  const preferred = voices.find(
-    (v) =>
-      /en(-|_)?(US|GB|IN|AU)?/i.test(v.lang) &&
-      /google|natural|neural|samantha|jenny|aria|female/i.test(v.name),
-  )
-  if (preferred) return preferred
+  const ranked = [...voices].sort((a, b) => voiceScore(b) - voiceScore(a))
+  const best = ranked[0]
+  if (best && voiceScore(best) > 0) return best
 
   return (
-    voices.find((v) => v.lang.toLowerCase().startsWith('en')) ?? voices[0] ?? null
+    voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ??
+    voices.find((v) => v.lang.toLowerCase().startsWith('en-gb')) ??
+    voices.find((v) => v.lang.toLowerCase().startsWith('en')) ??
+    voices[0] ??
+    null
   )
 }
 
@@ -37,22 +68,29 @@ export function speakText(
     onStart?: () => void
     onEnd?: () => void
     onError?: () => void
+    rate?: number
+    pitch?: number
   },
 ): void {
-  if (!isSpeechSynthesisSupported() || !text.trim()) {
+  const prepared = prepareTextForInterviewSpeech(text)
+  if (!isSpeechSynthesisSupported() || !prepared) {
     options?.onEnd?.()
     return
   }
 
   cancelSpeech()
 
-  // Voices often load async — retry once after voiceschanged.
   const run = () => {
-    const utterance = new SpeechSynthesisUtterance(text.trim())
+    const utterance = new SpeechSynthesisUtterance(prepared)
     const voice = pickVoice()
-    if (voice) utterance.voice = voice
-    utterance.rate = 1.02
-    utterance.pitch = 1
+    if (voice) {
+      utterance.voice = voice
+      utterance.lang = voice.lang || INTERVIEW_VOICE.language
+    } else {
+      utterance.lang = INTERVIEW_VOICE.language
+    }
+    utterance.rate = options?.rate ?? INTERVIEW_VOICE.rate
+    utterance.pitch = options?.pitch ?? INTERVIEW_VOICE.pitch
     utterance.volume = 1
     utterance.onstart = () => options?.onStart?.()
     utterance.onend = () => options?.onEnd?.()
@@ -66,11 +104,10 @@ export function speakText(
       run()
     }
     window.speechSynthesis.addEventListener('voiceschanged', onVoices)
-    // Fallback if voiceschanged never fires
     window.setTimeout(() => {
       window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
       if (!window.speechSynthesis.speaking) run()
-    }, 400)
+    }, 500)
     return
   }
 
@@ -142,7 +179,8 @@ export function mergeRecognitionResults(
 }
 
 const INTERVIEW_LANG_KEY = 'hireright.stt.lang'
-const INTERVIEW_LANG_CHAIN = ['en-US', 'en-IN', 'en-GB'] as const
+/** Prefer Indian English for STT when rotating locales. */
+const INTERVIEW_LANG_CHAIN = ['en-IN', 'en-US', 'en-GB'] as const
 
 export function getInterviewRecognitionLang(): string {
   try {
@@ -151,10 +189,7 @@ export function getInterviewRecognitionLang(): string {
   } catch {
     // ignore
   }
-  if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('en')) {
-    return navigator.language
-  }
-  return INTERVIEW_LANG_CHAIN[0]
+  return INTERVIEW_VOICE.language || INTERVIEW_LANG_CHAIN[0]
 }
 
 export function rotateInterviewRecognitionLang(): string {

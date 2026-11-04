@@ -8,7 +8,6 @@ import type { SavedProfile } from './store'
 import { candidateFullName } from './store'
 import { clientLlmAllowed } from './clientLlm'
 import {
-  buildStructuredTurnQuestion,
   resolveExactInterviewRole,
   structuredPlanSummary,
   extractResumeProjects,
@@ -19,10 +18,15 @@ import {
   isPlanFresher,
   analyzeOpeningAnswerAlignment,
   fresherSkillForTurn,
+  theoryAssignedSkillForTurn,
   FRESHER_GREETING,
   FRESHER_THANK_YOU,
 } from './interviewQuestionPlan'
 import { getSkillsForRole } from './roleSkillStore'
+import {
+  interviewLlmGenerationFailedError,
+  interviewLlmRequiredError,
+} from './interviewLlmErrors'
 
 /** Default turn count for freshers; experienced interviews use role skill count + 2. */
 export const INTERVIEW_TURN_COUNT = FRESHER_INTERVIEW_TURN_COUNT
@@ -101,7 +105,7 @@ export function resolveCandidateName(profile: SavedProfile | null, accountName =
 export function firstNameFromFull(full: string): string {
   const n = clean(full)
   if (!n || n === 'Candidate' || isDemoPlaceholderName(n)) return 'there'
-  return n.split(/\s+/)[0] || 'there'
+  return n.replace(/\s+/g, ' ')
 }
 
 export type ProfileDigest = {
@@ -178,7 +182,7 @@ Rules:
 - Use short sentences and simple words at every experience level. Under 2 years: basics and small implementation steps; 2 to under 5 years: debugging, testing and practical choices; 5+ years: design choices, reliability and consequences. Use the numeric experienceYears and difficulty in the payload; a senior job title alone must not increase difficulty.
 - In fresher project slots (turns 5–6), ask ONE technical question about a real project from projectContext or selectedProject: what they built, how they tested it, or how they fixed something. Use the project name when it appears in the résumé. Simple words only — no architecture buzzwords unless the résumé mentions them. Turn 6 must follow the same project as turn 5 or lastAnswer. If no project is listed, ask them to pick a college or personal project first, then go technical.
 - For freshers, use short sentences and simple words. Q1 is always about yourself. Q2 is their coding language. Q3 is always SQL. Q4 is another listed skill. Q5–Q6 are project questions. Q7 is the same thank-you for every fresher. Keep concepts at beginner level and do not assume employment.
-- In a theory slot, ask about a specific concept within the assigned skill; no personal work stories, résumé references, coding exercise or invented projects. Leave resumeAnchor empty and set topic to the assigned skill.
+- In a theory slot (questionMode conceptual_theory in payload): ask ONE conceptual question on assignedSkillForTurn — definitions, mechanisms, comparisons, how something works. NOT a scenario, NOT STAR, NOT "what would you do if", NOT "imagine", NOT a past job story, NOT a coding exercise. Leave resumeAnchor empty; set topic to assignedSkillForTurn.
 - Work/project/certification slots may use supplied history. If evidence is missing, ask neutrally rather than assuming a company or credential.
 - ${nameRule}
 - Do not invent employers, degrees, or projects absent from the resume snippet.
@@ -205,12 +209,36 @@ export function buildAdaptiveQuestionUserPayload(options: {
   varietySeed?: string
 }): string {
   const theory = options.planSummary && isTheoryTurnForPlan(options.planSummary, options.turnNumber)
+  const assignedSkill = theory && options.planSummary ? theoryAssignedSkillForTurn(options.planSummary, options.turnNumber) : ''
   const totalTurns = options.totalTurns || options.planSummary?.totalTurns || INTERVIEW_TURN_COUNT
   return JSON.stringify({
     turnNumber: options.turnNumber,
     totalTurns,
     questionVarietySeed: options.varietySeed || null,
-    selectedConcept: theory && options.planSummary?.fresher ? selectFresherConcept(fresherSkillForTurn(options.planSummary, options.turnNumber), options.varietySeed, options.turnNumber, options.priorTexts) : undefined,
+    questionMode: theory ? 'conceptual_theory' : 'experience_or_project',
+    assignedSkillForTurn: assignedSkill || null,
+    forbiddenQuestionStyles: theory
+      ? [
+          'scenario',
+          'hypothetical situation',
+          'what would you do if',
+          'imagine you',
+          'tell me about a time',
+          'describe a situation at work',
+          'STAR story',
+          'past employer story',
+          'live coding exercise',
+        ]
+      : undefined,
+    selectedConcept:
+      theory && options.planSummary?.fresher
+        ? selectFresherConcept(
+            fresherSkillForTurn(options.planSummary, options.turnNumber),
+            options.varietySeed,
+            options.turnNumber,
+            options.priorTexts,
+          )
+        : undefined,
     roleTrack: options.exactRole || options.role,
     exactRole: options.exactRole || options.role,
     recommendedSkillsForRole: options.planSummary?.recommendedSkills || options.recommendedSkills || [],
@@ -525,148 +553,14 @@ function buildLevelFallbackQuestion(first: string, role: string, level: string, 
   )
 }
 
-/** Offline parity with server `generateAdaptiveQuestionLocal` (no Gemini key required). */
-export function generateAdaptiveQuestionLocal(options: {
-  profile: SavedProfile | null
-  accountName?: string
-  role: string
-  level: string
-  jobDescription?: string
-  history: { question: Question; answer: string }[]
-  lastAnswer: string
-  varietySeed?: string
-  openingAnalysis?: ReturnType<typeof analyzeOpeningAnswerAlignment> | null
-}): Question {
-  const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
-  const role = options.role || 'Full Stack Engineer'
-  const exactRole = resolveExactInterviewRole(options.profile, role)
-  const level = options.level || '1–3 years'
-  const roleSkills = isPlanFresher(options.profile, ctx, level) ? null : getSkillsForRole(exactRole)
-  const openingAnalysis =
-    options.openingAnalysis ||
-    (!isPlanFresher(options.profile, ctx, level) && options.history[0]?.answer
-      ? analyzeOpeningAnswerAlignment(options.history[0].answer, roleSkills || [], ctx)
-      : null)
-  const varietySeed =
-    clean(options.varietySeed) ||
-    (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().slice(0, 16) : String(Date.now()))
-  const planSummary = structuredPlanSummary(exactRole, ctx, options.profile, level, roleSkills, openingAnalysis, varietySeed)
-  const totalTurns = planSummary.totalTurns
-  const history = options.history || []
-  if (history.length >= totalTurns) {
-    throw new Error('INTERVIEW_COMPLETE')
-  }
-  const lastAnswer = clean(options.lastAnswer)
-  const priorTexts = history.map((h) => clean(h.question?.text)).filter(Boolean)
-  const first = firstNameFromFull(ctx.name)
-  const turnNumber = history.length + 1
-  const candidates: Question[] = []
-
-  const structured = buildStructuredTurnQuestion({
-    turnNumber,
-    first,
-    level,
-    profile: options.profile,
-    ctx,
-    roleOverride: exactRole,
-    history,
-    senior: isSeniorExperienceLevel(level),
-    planSummary,
-    roleSkills,
-    varietySeed,
-    openingAnalysis,
-    lastAnswer: options.lastAnswer,
-  })
-  if (structured) {
-    const planned = normalizeAdaptiveQuestion(structured, priorTexts)
-    if (planned) return { ...planned, focus: structured.focus || 'structured-plan' }
-  }
-
-  if (history.length === 0) {
-    candidates.push(buildFirstAdaptiveQuestionLocal(first, role, level, ctx))
-  } else {
-    const claimed = extractClaimedSkills(lastAnswer).filter((skill) => !questionMentions(history, skill))
-    if (claimed[0]) {
-      const skill = claimed[0]
-      const fullStackLike = /full[\s-]?stack|mern|mean/i.test(skill)
-      const mathLike = /math|statistic|calculus|algebra|geometry/i.test(skill)
-      candidates.push({
-        text: buildClaimedSkillQuestion(first, skill, role),
-        category: fullStackLike || mathLike ? 'Technical' : 'Experience',
-        keywords: unique([skill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
-        hint: 'Give a concrete example with tools and outcome.',
-        topic: skill,
-        focus: 'adaptive-local',
-      })
-    }
-    if (!claimed[0] || isThinAnswer(lastAnswer)) {
-      const topic = pickResumeTopic(ctx, history)
-      if (topic && !questionMentions(history, topic.label)) {
-        candidates.push(buildResumeTopicQuestion(first, role, level, topic))
-      }
-    }
-    const jdSkill = nextResumeSkillInJobDescription(options.jobDescription || '', ctx, history)
-    if (jdSkill) {
-      candidates.push({
-        text: spokenLead(
-          first,
-          `your résumé lists ${jdSkill}, and this role asks for it. Describe a concrete situation where you applied ${jdSkill} in a ${role} context — challenge, actions, and outcome.`,
-        ),
-        category: 'Technical',
-        keywords: unique([jdSkill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
-        hint: 'Give a concrete example with tools and outcome.',
-        topic: jdSkill,
-        resumeAnchor: jdSkill,
-        focus: 'adaptive-local',
-      })
-    }
-  }
-
-  candidates.push({
-    text: buildLevelFallbackQuestion(first, role, level, turnNumber),
-    category: turnNumber >= totalTurns ? 'Communication' : 'Problem Solving',
-    keywords: unique(['experience', 'outcome', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: turnNumber >= totalTurns ? 'Closing' : 'Interview',
-    focus: 'adaptive-local',
-  })
-  candidates.push({
-    text: spokenLead(
-      first,
-      `for question ${turnNumber} of ${totalTurns}, describe a result you personally produced for ${role} work — what you did and how you knew it worked.`,
-    ),
-    category: 'Experience',
-    keywords: unique(['result', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: `Turn ${turnNumber}`,
-    focus: 'adaptive-local',
-  })
-
-  for (const raw of candidates) {
-    const q = normalizeAdaptiveQuestion(raw, priorTexts)
-    if (!q) continue
-    return { ...q, focus: raw.focus || 'adaptive-local' }
-  }
-
-  return {
-    text: spokenLead(
-      first,
-      `tell me about work you actually did for ${role}. Include the situation, what you did, and the result. This is question ${turnNumber}.`,
-    ),
-    category: 'Experience',
-    keywords: unique(['experience', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: `Turn ${turnNumber}`,
-    focus: 'adaptive-local',
-  }
+/** Static templates removed — interviews use Gemini via API or dev client LLM only. */
+export function generateAdaptiveQuestionLocal(_options?: unknown): Question {
+  throw interviewLlmRequiredError()
 }
 
 async function callClientLlm(system: string, user: string, temperature: number): Promise<string | null> {
   if (!clientLlmAllowed()) return null
-  const key =
-    import.meta.env.VITE_GEMINI_API_KEY?.trim() ||
-    import.meta.env.VITE_OPENAI_API_KEY?.trim() ||
-    ''
+  const key = import.meta.env.VITE_GEMINI_API_KEY?.trim() || ''
   if (!key) return null
 
   const base = (
@@ -705,7 +599,7 @@ async function callClientLlm(system: string, user: string, temperature: number):
   return null
 }
 
-/** Client-side parity with server `generateAdaptiveQuestion`. Falls back to local rules with no API key. */
+/** Dev-only Gemini client when API is unavailable. No static fallback. */
 export async function generateAdaptiveQuestionClient(options: {
   profile: SavedProfile | null
   accountName?: string
@@ -717,6 +611,7 @@ export async function generateAdaptiveQuestionClient(options: {
   varietySeed?: string
   openingAnalysis?: ReturnType<typeof analyzeOpeningAnswerAlignment> | null
 }): Promise<Question> {
+  if (!clientLlmAllowed()) throw interviewLlmRequiredError()
   const ctx = summarizeProfileForQuestions(options.profile, options.accountName)
   const exactRole = resolveExactInterviewRole(options.profile, options.role)
   const roleSkills = isPlanFresher(options.profile, ctx, options.level) ? null : getSkillsForRole(exactRole)
@@ -774,7 +669,7 @@ export async function generateAdaptiveQuestionClient(options: {
     lastAnswer: options.lastAnswer,
   })
 
-  for (const temperature of [0.62, 0.42]) {
+  for (const temperature of [0.62, 0.42, 0.35, 0.28]) {
     const text = await callClientLlm(system, user, temperature)
     if (!text) continue
     const match = text.match(/\{[\s\S]*\}/)
@@ -787,5 +682,21 @@ export async function generateAdaptiveQuestionClient(options: {
       // retry temperature
     }
   }
-  return generateAdaptiveQuestionLocal({ ...options, varietySeed })
+  if (clientLlmAllowed()) {
+    const retrySystem = `${system}\n\nYour last output was rejected. Return ONLY valid JSON. Theory turns MUST be conceptual (no scenarios).`
+    for (const temperature of [0.22, 0.15]) {
+      const text = await callClientLlm(retrySystem, user, temperature)
+      if (!text) continue
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) continue
+      try {
+        const parsed = JSON.parse(match[0]) as { question?: Question } & Question
+        const q = normalizeAdaptiveQuestion(parsed.question || parsed, priorTexts)
+        if (q && questionMatchesPlan(q, planSummary, turnNumber)) return q
+      } catch {
+        // continue
+      }
+    }
+  }
+  throw interviewLlmGenerationFailedError()
 }

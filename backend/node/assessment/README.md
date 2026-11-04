@@ -21,7 +21,7 @@ MAX_REQUEST_BYTES=3000000
 ALLOW_DEMO_ACCOUNTS=false
 ```
 
-Model overrides are optional; existing model settings are reused. The provider supports Gemini native JSON mode and OpenAI-compatible JSON mode, including the existing OpenRouter key/base URL configuration. It makes at most two attempts, with a 30-second deadline per attempt. Invalid model output returns a controlled error; it never invents a successful evaluation. Provider response schemas are validated locally. Exact evidence excerpts are required, but human review is still needed to assess semantic grounding and question quality.
+Model overrides are optional; existing model settings are reused. The provider uses Google Gemini native JSON mode only (`GEMINI_API_KEY` or `GOOGLE_API_KEY`). It makes at most two attempts, with a 30-second deadline per attempt. Invalid model output returns a controlled error; it never invents a successful evaluation. Provider response schemas are validated locally. Exact evidence excerpts are required, but human review is still needed to assess semantic grounding and question quality.
 
 From the repository root:
 

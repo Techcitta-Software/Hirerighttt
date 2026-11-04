@@ -8,13 +8,7 @@
 export const GEMINI_NATIVE_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 
 export function resolveGeminiApiKey() {
-  return (
-    process.env.GEMINI_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENROUTER_API_KEY ||
-    process.env.LLM_API_KEY ||
-    ''
-  ).trim()
+  return (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '').trim()
 }
 
 /** Google AI Studio authorization keys (2026+) */

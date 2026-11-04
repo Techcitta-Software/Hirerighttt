@@ -94,11 +94,14 @@ export function CareerIntelligenceDashboard({
   const industryAlignment =
     sc?.industryAlignment ?? Math.max(1, Math.min(99, result.resumeFitScore ?? overall))
 
+  const roleSkillsMeta = result.roleSkillsAnalysis
   const industryAlignmentCaption =
     sc?.industryAlignmentCaption ??
-    (result.resumeFitScore != null
-      ? `Resume fit score ${result.resumeFitScore}% from this interview`
-      : `Overall alignment ${industryAlignment}%`)
+    (roleSkillsMeta?.requiredSkills?.length
+      ? `Required role skills: ${roleSkillsMeta.onResume.length}/${roleSkillsMeta.requiredSkills.length} on résumé, ${roleSkillsMeta.evidencedInAnswers.length}/${roleSkillsMeta.requiredSkills.length} in answers (${roleSkillsMeta.fitScore}% fit)`
+      : result.resumeFitScore != null
+        ? `Resume fit score ${result.resumeFitScore}% from this interview`
+        : `Overall alignment ${industryAlignment}%`)
 
   const positioningItems =
     sc?.positioningRecommendations?.length
@@ -533,8 +536,12 @@ export function CareerIntelligenceDashboard({
             <tr>
               <th style={{ width: '36px', textAlign: 'center' }}>#</th>
               <th>TOPIC</th>
-              <th style={{ width: '32%' }}>QUESTION ASKED</th>
-              <th style={{ textAlign: 'center' }}>SCORE</th>
+              <th style={{ width: '28%' }}>QUESTION ASKED</th>
+              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>CORRECT</th>
+              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>DEPTH</th>
+              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>COMM</th>
+              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>ROLE SKILLS</th>
+              <th style={{ textAlign: 'center' }}>OVERALL</th>
               <th>PERFORMANCE</th>
               <th>AI FEEDBACK SUMMARY</th>
             </tr>
@@ -547,6 +554,26 @@ export function CareerIntelligenceDashboard({
                 </td>
                 <td><span className={styles.topicTag}>{q.topic}</span></td>
                 <td className={styles.questionCell}>{q.question}</td>
+                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
+                  {typeof q.correctnessScore === 'number' ? `${q.correctnessScore}%` : '—'}
+                </td>
+                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
+                  {typeof q.depthScore === 'number'
+                    ? `${q.depthScore}%`
+                    : typeof q.depth === 'number'
+                      ? `${q.depth * 10}%`
+                      : '—'}
+                </td>
+                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
+                  {typeof q.communicationScore === 'number'
+                    ? `${q.communicationScore}%`
+                    : typeof q.clarity === 'number'
+                      ? `${q.clarity * 10}%`
+                      : '—'}
+                </td>
+                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
+                  {typeof q.roleSkillsFitScore === 'number' ? `${q.roleSkillsFitScore}%` : '—'}
+                </td>
                 <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
                   <strong>
                     {typeof q.questionScore === 'number'

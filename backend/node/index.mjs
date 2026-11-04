@@ -56,7 +56,7 @@ const server = app.listen(PORT, async () => {
   const key = resolveGeminiApiKey()
   const authLabel = key.startsWith('AQ.') ? 'Gemini auth key (AQ.)' : 'Gemini'
   console.log(
-    `Interview agent: ${llmConfigured() && !geminiHint ? `LLM enabled (${authLabel})` : geminiHint ? 'LLM key unrecognized — check GEMINI_API_KEY' : 'local adaptive agent (set GEMINI_API_KEY)'}`,
+    `Interview agent: ${llmConfigured() && !geminiHint ? `Gemini enabled (${authLabel})` : geminiHint ? 'LLM key unrecognized — check GEMINI_API_KEY' : 'Gemini required — set GEMINI_API_KEY (no static questions)'}`,
   )
   if (llmConfigured() && !geminiHint) {
     const models = publicModelConfig()

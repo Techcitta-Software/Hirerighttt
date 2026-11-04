@@ -16,7 +16,7 @@ test('HTTP auth, vault isolation and invalid request handling', { skip: !url, ti
   parsed.searchParams.set('options', `-c search_path=${schema}`)
   const child = spawn(process.execPath, ['backend/node/index.mjs'], {
     cwd: new URL('../../../', import.meta.url), windowsHide: true,
-    env: { ...process.env, DATABASE_URL: parsed.toString(), PORT: '55440', NODE_ENV: 'production', ENVIRONMENT: 'production', ALLOW_DEMO_ACCOUNTS: 'false', SESSION_SECRET: 'test-session-secret-at-least-32-characters', STRICT_PRODUCTION_CONFIG: 'false', GEMINI_API_KEY: '', OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', LLM_API_KEY: '' },
+    env: { ...process.env, DATABASE_URL: parsed.toString(), PORT: '55440', NODE_ENV: 'production', ENVIRONMENT: 'production', ALLOW_DEMO_ACCOUNTS: 'false', SESSION_SECRET: 'test-session-secret-at-least-32-characters', STRICT_PRODUCTION_CONFIG: 'false', GEMINI_API_KEY: '', GOOGLE_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   // Do not include application logs in test failures; they can contain operational details.

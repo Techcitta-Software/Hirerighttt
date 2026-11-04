@@ -6,9 +6,6 @@ export function clientLlmAllowed(): boolean {
   if (import.meta.env.PROD) {
     return import.meta.env.VITE_ALLOW_CLIENT_LLM === 'true'
   }
-  return Boolean(
-    import.meta.env.VITE_GEMINI_API_KEY?.trim() ||
-      import.meta.env.VITE_OPENAI_API_KEY?.trim(),
-  )
+  return Boolean(import.meta.env.VITE_GEMINI_API_KEY?.trim())
 }
 

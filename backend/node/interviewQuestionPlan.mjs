@@ -11,6 +11,16 @@ export const EXPERIENCED_FALLBACK_TURNS = 1;
 export const EXPERIENCED_CLOSING_TURNS = 1;
 export const EXPERIENCED_INTERVIEW_TURN_COUNT =
     1 + MAX_ROLE_SKILLS + EXPERIENCE_PROJECT_TURNS + EXPERIENCED_FALLBACK_TURNS + EXPERIENCED_CLOSING_TURNS;
+/** 1-based turn index for the experienced fallback follow-up (generated in a separate LLM call). */
+export function experiencedFallbackTurnNumber() {
+    return 1 + MAX_ROLE_SKILLS + EXPERIENCE_PROJECT_TURNS + 1;
+}
+export const PENDING_FALLBACK_FOCUS = 'pending-fallback';
+export const PENDING_CLOSING_FOCUS = 'pending-closing';
+/** 1-based turn index for experienced closing (after fallback). */
+export function experiencedClosingTurnNumber() {
+    return EXPERIENCED_INTERVIEW_TURN_COUNT;
+}
 const OPENING_GREETINGS = [
     'Thanks for joining today — I am Ava, and I will guide you through this interview.',
     'Good to meet you — I am Ava. We will keep this focused on your real work experience.',
@@ -269,9 +279,35 @@ function pickProjectAnchor(projects, _slot, varietySeed) {
 export function isTheoryTurnForPlan(plan, turn) {
     if (plan.fresher)
         return turn <= 2;
-    const skillStart = 2;
-    const skillEnd = 1 + MAX_ROLE_SKILLS;
-    return turn >= skillStart && turn <= skillEnd;
+    return turn >= 2 && turn <= 1 + MAX_ROLE_SKILLS;
+}
+
+export function theoryAssignedSkillForTurn(plan, turn) {
+    if (!isTheoryTurnForPlan(plan, turn))
+        return '';
+    if (plan.fresher)
+        return plan.recommendedSkills?.[turn - 1] || 'a skill you know';
+    return plan.recommendedSkills?.[turn - 2] || '';
+}
+
+export function isScenarioStyleInterviewQuestion(text) {
+    return /\b(?:tell me about a time|walk me through a time|describe a (?:time|situation|scenario|challenge|project you)|what would you do if|what would you do when|imagine (?:you|that)|suppose (?:you|a)|in a hypothetical|hypothetical scenario|at your (?:company|employer|job|workplace)|on your (?:team|project at work)|situation where you|using the star|star method)\b/i.test(clean(text));
+}
+
+function skillReferencedInQuestion(text, topic, skill) {
+    const normalized = (value) => value.toLowerCase().replace(/\.js\b/g, '').replace(/[^a-z0-9]/g, '');
+    const normSkill = normalized(skill);
+    const normTopic = normalized(clean(topic));
+    const normText = normalized(text);
+    if (!normSkill)
+        return true;
+    if (normTopic && (normTopic === normSkill || normTopic.includes(normSkill) || normSkill.includes(normTopic)))
+        return true;
+    if (normText.includes(normSkill))
+        return true;
+    const tokens = skill.toLowerCase().match(/[a-z0-9+#]+/g) || [];
+    const significant = tokens.filter((t) => t.length > 3 && !/^(programming|fundamentals|engineering|developer|associate)$/i.test(t));
+    return significant.some((t) => normText.includes(normalized(t)));
 }
 export function analyzeOpeningAnswerAlignment(answer, roleSkills, ctx = {}) {
     void ctx;
@@ -358,6 +394,40 @@ const ALT_GENERIC_CONCEPTS = [
     'a design choice you would make differently for scale versus simplicity',
     'how you would explain this topic to a teammate new to the stack',
 ];
+const PYTHON_TIERED = {
+    junior: [
+        'how mutable and immutable objects differ and what that means for function arguments',
+        'how lists and tuples differ and when you would choose each',
+        'how generators produce values lazily and why that saves memory',
+        'how mutable default arguments can surprise you and how to avoid that pitfall',
+        'how a context manager helps you release resources like files or database connections',
+        'how dictionaries support fast lookup and what happens when a key is missing',
+        'how you would structure a small function so it is easy to unit test',
+    ],
+    mid: [
+        'how async and await help when your code waits on I/O such as HTTP or databases',
+        'how type hints improve readability and catch bugs before production',
+        'how decorators add behavior to a function without rewriting its body',
+        'how you would debug unexpectedly growing memory use in a long-running Python service',
+        'how virtual environments and pinned dependencies keep deployments reproducible',
+    ],
+    senior: [
+        'how you would choose between threads, async, and multiprocessing for a Python service',
+        'how you would profile a hot path and decide between algorithmic vs caching improvements',
+        'how you design module boundaries so a team can ship API and ML code independently',
+    ],
+};
+const THEORY_QUESTION_FRAMES = [
+    (skill, role, concept) => `for ${skill} in ${role}, explain ${concept}.`,
+    (skill, role, concept) => `in ${role}, when working with ${skill}, walk me through ${concept}.`,
+    (skill, role, concept) => `thinking about ${skill} on a ${role} team: ${concept}?`,
+    (skill, role, concept) => `as a ${role}, how would you explain ${concept} in the context of ${skill}?`,
+];
+function pickConceptFromPool(pool, varietySeed, skill, turn, priorTexts = []) {
+    const unused = pool.filter((concept) => !priorTexts.some((text) => text.toLowerCase().includes(concept.toLowerCase().slice(0, 28))));
+    const candidates = unused.length ? unused : pool;
+    return candidates[hashString(`${varietySeed}|${skill}|${turn}|concept`) % candidates.length];
+}
 /** Role-practical prompts: what people in the job actually use (junior / mid / senior). */
 const SKILL_INTERVIEW_PROMPTS = [
     [/pyspark|apache spark|^spark$/i, {
@@ -396,7 +466,11 @@ const SKILL_INTERVIEW_PROMPTS = [
         senior: 'how you balance self-serve analytics with certified datasets and row-level security',
     }],
 ];
-function resolveSkillConcept(skill, tier, varietySeed, turn) {
+function resolveSkillConcept(skill, tier, varietySeed, turn, priorTexts = []) {
+    if (/python programming|^python$/i.test(skill)) {
+        const pool = PYTHON_TIERED[tier] || PYTHON_TIERED.junior;
+        return pickConceptFromPool(pool, varietySeed, skill, turn, priorTexts);
+    }
     const rolePrompt = SKILL_INTERVIEW_PROMPTS.find(([pattern]) => pattern.test(skill));
     if (rolePrompt) {
         const prompts = rolePrompt[1];
@@ -408,24 +482,52 @@ function resolveSkillConcept(skill, tier, varietySeed, turn) {
     }
     const topics = THEORY_TOPICS.find(([pattern]) => pattern.test(skill));
     if (topics) {
-        return tier === 'senior' ? topics[2] : tier === 'mid' ? `${topics[1]} and when you would use it` : topics[1];
+        const pool =
+            tier === 'senior'
+                ? [topics[2], `${topics[1]} at scale`, topics[1]]
+                : tier === 'mid'
+                  ? [`${topics[1]} and when you would use it`, topics[2], topics[1]]
+                  : [topics[1], topics[2]];
+        return pickConceptFromPool(pool.filter(Boolean), varietySeed, skill, turn, priorTexts);
     }
-    const alt = ALT_GENERIC_CONCEPTS[hashString(`${varietySeed}|${skill}|${turn}`) % ALT_GENERIC_CONCEPTS.length];
-    if (tier === 'senior')
-        return `how you would compare two ways to solve a problem using ${skill}`;
+    const altPool = ALT_GENERIC_CONCEPTS.map((line) => line.replace('this topic', skill));
+    if (tier === 'senior') {
+        return pickConceptFromPool(
+            [`how you would compare two approaches using ${skill}`, ...altPool],
+            varietySeed,
+            skill,
+            turn,
+            priorTexts,
+        );
+    }
     if (tier === 'mid')
-        return alt.replace('this topic', skill);
-    return `one basic idea in ${skill} and why it is useful`;
+        return pickConceptFromPool(altPool, varietySeed, skill, turn, priorTexts);
+    return pickConceptFromPool(
+        [`one basic idea in ${skill} and why it is useful`, ...altPool],
+        varietySeed,
+        skill,
+        turn,
+        priorTexts,
+    );
 }
 function buildSkillQuestion(first, skill, level, turn, fresher, varietySeed = '', options = {}) {
     const exactRole = clean(options.exactRole) || 'this role';
     const years = parseExperienceYears(level, options.profile);
     const tier = experienceTierFromYears(years);
-    const concept = fresher ? selectFresherConcept(skill, varietySeed, turn, options.priorTexts || []) : resolveSkillConcept(skill, tier, varietySeed, turn);
+    const priorTexts = options.priorTexts || [];
+    const concept = fresher
+        ? selectFresherConcept(skill, varietySeed, turn, priorTexts)
+        : resolveSkillConcept(skill, tier, varietySeed, turn, priorTexts);
+    const frame =
+        THEORY_QUESTION_FRAMES[hashString(`${varietySeed}|${skill}|${turn}|frame`) % THEORY_QUESTION_FRAMES.length];
+    const body =
+        skill === 'a skill you know'
+            ? `pick something you've practiced and explain ${concept} in plain words.`
+            : fresher
+              ? `can you explain ${concept} in ${skill}, in simple terms?`
+              : frame(skill, exactRole, concept);
     return {
-        text: spokenLead(first, skill === 'a skill you know'
-            ? `explain ${concept}, using a skill you have learned.`
-            : fresher ? `explain ${concept} in ${skill}.` : `for ${skill} in ${exactRole}, explain ${concept}.`),
+        text: spokenLead(first, body),
         category: 'Technical',
         keywords: [skill.toLowerCase(), exactRole.toLowerCase(), tier],
         hint: 'Explain the concept directly for this role and experience level. No résumé story required.',
@@ -624,14 +726,14 @@ export function questionMatchesPlan(question, plan, turn) {
         return /follow|deeper|expand|decision|decide|handle|metric|outcome|mentioned/i.test(text);
     const theory = isTheoryTurnForPlan(plan, turn);
     if (theory) {
-        const skillIndex = plan.fresher ? turn - 1 : turn - 2;
-        const skill = plan.recommendedSkills[skillIndex];
-        if (question.resumeAnchor || /résumé|resume|your (?:project|experience|work|background)|you (?:used|built|implemented|worked|applied)|tell me about a time|describe a (?:time|situation|challenge)|you have|you've/i.test(text))
+        const skill = theoryAssignedSkillForTurn(plan, turn);
+        if (isScenarioStyleInterviewQuestion(text))
             return false;
-        const normalized = (value) => value.toLowerCase().replace(/\.js\b/g, '').replace(/[^a-z0-9]/g, '');
-        if (skill !== 'a skill you know' && !normalized(text).includes(normalized(skill)))
+        if (question.resumeAnchor || /résumé|resume|your (?:project|experience|work|background)|you (?:used|built|implemented|worked|applied)|you have|you've/i.test(text))
             return false;
-        return /explain|what|how|why|compare|difference|define/i.test(text);
+        if (skill !== 'a skill you know' && !skillReferencedInQuestion(text, clean(question.topic), skill))
+            return false;
+        return /explain|what|how|why|compare|difference|define|walk me through (?:how|what)|describe how|describe what/i.test(text);
     }
     if (plan.fresher && turn === FRESHER_INTERVIEW_TURN_COUNT)
         return /motivat|interest|learn|goal|strength|next step|why|aspir/i.test(text);

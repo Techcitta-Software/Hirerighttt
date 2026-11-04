@@ -92,32 +92,67 @@ export function projectTechnicalQuestion(
   const junior = years < 2
   const senior = years >= 5
   const scope = label ? 'the project “' + label.slice(0, 95) + '”' : 'a project from your background'
-  const implementation = {
-    pipeline: junior
-      ? 'how did you move data through the part you built'
-      : senior
-        ? 'why did you choose the way data is split and processed'
-        : 'how did you handle data that arrived late or in the wrong format',
-    api: junior
-      ? 'how did you handle a request and send back a response'
-      : senior
-        ? 'how did you decide where to check access to data'
-        : 'how did you handle failed requests without losing data',
-    ui: junior
-      ? 'how did you connect a user action to a screen update'
-      : senior
-        ? 'how did you decide which parts of the interface should share state'
-        : 'how did you keep the screen in sync with data from the server',
-    ml: junior
-      ? 'how did you prepare the data for the model'
-      : senior
-        ? 'how did you decide whether the model was ready to use'
-        : 'how did you keep training data separate from test data',
-    general: junior
-      ? 'how did you build or carry out the part you worked on'
-      : senior
-        ? 'why did you choose your approach over another option'
-        : 'how did you handle a difficult part of the implementation',
+  const tier = junior ? 'junior' : senior ? 'senior' : 'mid'
+  const implementationByKind: Record<
+    ReturnType<typeof projectKind>,
+    Record<'junior' | 'mid' | 'senior', string[]>
+  > = {
+    pipeline: {
+      junior: ['how did you move data through the part you built', 'how did you validate row counts between stages'],
+      mid: [
+        'how did you handle data that arrived late or in the wrong format',
+        'how did you rerun a failed stage without duplicating rows',
+      ],
+      senior: [
+        'why did you choose the way data is split and processed',
+        'how would you recover from upstream schema drift without corrupting downstream tables',
+      ],
+    },
+    api: {
+      junior: ['how did you handle a request and send back a response', 'how did you validate request payloads'],
+      mid: [
+        'how did you handle failed requests without losing data',
+        'how did you separate health checks from inference endpoints',
+      ],
+      senior: [
+        'how did you decide where to check access to data',
+        'how would you scale the API under bursty traffic without starving health checks',
+      ],
+    },
+    ui: {
+      junior: ['how did you connect a user action to a screen update', 'how did you fetch and display data on the page'],
+      mid: [
+        'how did you keep the screen in sync with data from the server',
+        'how did you handle slow or failed API calls in the UI',
+      ],
+      senior: [
+        'how did you decide which parts of the interface should share state',
+        'how would you refactor the UI if product requirements doubled in complexity',
+      ],
+    },
+    ml: {
+      junior: ['how did you prepare the data for the model', 'how did you choose labels or targets for training'],
+      mid: [
+        'how did you evaluate the model beyond a single accuracy metric',
+        'how did you keep training data separate from test data',
+        'how did you investigate errors on rare or important classes',
+      ],
+      senior: [
+        'how did you decide whether the model was ready to use',
+        'how would you monitor model quality after deployment',
+      ],
+    },
+    general: {
+      junior: ['how did you build or carry out the part you worked on', 'what was the first version you shipped and how did you test it'],
+      mid: [
+        'how did you handle a difficult part of the implementation',
+        'how did you coordinate your piece with the rest of the team',
+      ],
+      senior: [
+        'why did you choose your approach over another option',
+        'what would you redesign if the project had to scale tenfold',
+      ],
+    },
   }
   const followUps = junior
     ? [
@@ -142,9 +177,15 @@ export function projectTechnicalQuestion(
           'how did you test that your change worked without breaking another part',
         ]
   let hash = 0
-  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
-  const question = slot === 1 ? implementation[kind] : followUps[hash % followUps.length]
-  return slot === 1
-    ? 'As a ' + role + ', for ' + scope + ', ' + question + '?'
-    : 'Going deeper into ' + scope + ', ' + question + '?'
+  for (const char of `${seed}|slot${slot}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  const implementationPool = implementationByKind[kind][tier]
+  const question =
+    slot === 1 ? implementationPool[hash % implementationPool.length] : followUps[hash % followUps.length]
+  const slot1Frames = [
+    (q: string) => 'As a ' + role + ', for ' + scope + ', ' + q + '?',
+    (q: string) => 'For ' + scope + ' as a ' + role + ', ' + q + '?',
+    (q: string) => 'In your ' + role + ' work on ' + scope + ', ' + q + '?',
+  ]
+  const frame = slot1Frames[hash % slot1Frames.length]
+  return slot === 1 ? frame(question) : 'Going deeper into ' + scope + ', ' + question + '?'
 }

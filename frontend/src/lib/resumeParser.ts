@@ -1181,7 +1181,7 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
  */
 export async function parseResumeWithAI(text: string): Promise<ResumeExtract | null> {
   const apiKey = clientLlmAllowed()
-    ? import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || ''
+    ? import.meta.env.VITE_GEMINI_API_KEY || ''
     : ''
   const isBrowser = typeof window !== 'undefined'
 
@@ -1309,7 +1309,6 @@ ${text.slice(0, 12000)}`
     try {
       const directUrl = (
         import.meta.env.VITE_GEMINI_BASE_URL ||
-        import.meta.env.VITE_OPENAI_BASE_URL ||
         'https://generativelanguage.googleapis.com/v1beta/openai'
       ).replace(/\/$/, '')
       const res = await fetch(`${directUrl}/chat/completions`, {

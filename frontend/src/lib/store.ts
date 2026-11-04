@@ -42,7 +42,7 @@ export type AnswerAnalysis = {
   feedback: string
   topic?: string
   performance?: string
-  rubrics?: { id: string; label: string; score: number; weight?: number }[]
+  rubrics?: { id: string; label: string; score: number | null; weight?: number }[]
 }
 
 export type IntegrityLogEvent = {
@@ -78,6 +78,11 @@ export type CareerScorecard = {
     question: string
     /** 0–100 per-answer score when available (preferred for display). */
     questionScore?: number
+    /** 0–100 rubric dimensions (correctness is AI-only when present). */
+    correctnessScore?: number | null
+    depthScore?: number
+    communicationScore?: number
+    roleSkillsFitScore?: number | null
     accuracy: number
     clarity: number
     understanding: number
@@ -152,6 +157,14 @@ export type InterviewResult = {
   improvements: string[]
   answers: AnswerAnalysis[]
   resumeFitScore?: number
+  roleSkillsAnalysis?: {
+    fitScore: number
+    requiredSkills: string[]
+    onResume: string[]
+    evidencedInAnswers: string[]
+    resumeMatchCount: number
+    answerMatchCount: number
+  }
   agent?: string
   scorecard?: CareerScorecard
   integrity?: {

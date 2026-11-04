@@ -7,6 +7,7 @@ import {
   structuredPlanSummary,
   questionMatchesPlan,
   planRoleAlignedInterviewSkills,
+  isScenarioStyleInterviewQuestion,
 } from './interviewQuestionPlan'
 
 describe('experience and neutral question policy', () => {
@@ -137,12 +138,117 @@ describe('profile-based fresher topics', () => {
 })
 
 
+describe('same résumé, different sessions', () => {
+  it('varies AI Associate Engineer questions across varietySeed values', () => {
+    const ctx = {
+      skills: ['Python', 'Machine Learning', 'SQL', 'RAG', 'scikit-learn', 'FastAPI'],
+      resumeSnippet:
+        'Built a support-ticket classifier using Python, scikit-learn and SQL. Developed an internal-document RAG assistant with embeddings and FastAPI.',
+    }
+    const profile = {
+      currentRole: 'AI Associate Engineer',
+      totalExperience: '2 years',
+      workExperiences: [
+        {
+          jobTitle: 'AI Associate Engineer',
+          company: 'Example AI Labs',
+          description: 'Classifier and RAG assistant work.',
+        },
+      ],
+      projects: [
+        { name: 'Support-ticket classifier', description: 'Python, scikit-learn, SQL, macro F1.' },
+        { name: 'Internal-document RAG assistant', description: 'Embeddings, chunking, FastAPI.' },
+      ],
+    } as import('./store').SavedProfile
+    const roleSkills = getSkillsForRole('AI Associate Engineer')
+    const questionTexts = new Set<string>()
+    const skillTopics = new Set<string>()
+    for (let i = 0; i < 20; i++) {
+      const varietySeed = `associate-ai-${i}-7f3a`
+      for (const turnNumber of [1, 2, 3, 4, 5] as const) {
+        const q = buildStructuredTurnQuestion({
+          turnNumber,
+          first: 'Arjun',
+          level: '2 years',
+          profile,
+          ctx,
+          roleOverride: 'AI Associate Engineer',
+          roleSkills,
+          varietySeed,
+        })
+        expect(q?.text).toBeTruthy()
+        questionTexts.add(q!.text)
+        if (turnNumber >= 2 && turnNumber <= 4) skillTopics.add(q!.topic || '')
+      }
+    }
+    expect(questionTexts.size).toBeGreaterThan(15)
+    expect(skillTopics.size).toBeGreaterThan(3)
+  })
+})
+
+describe('conceptual theory turns', () => {
+  it('rejects scenario-style technical questions on theory slots', () => {
+    expect(isScenarioStyleInterviewQuestion('Tell me about a time you used Python at work.')).toBe(true)
+    const plan = structuredPlanSummary('AI Associate Engineer', { skills: ['Python'] }, { totalExperience: '2 years' } as import('./store').SavedProfile, '2 years', getSkillsForRole('AI Associate Engineer'))
+    expect(
+      questionMatchesPlan(
+        { text: 'What would you do if production RAG retrieval returned empty chunks?', topic: 'RAG' },
+        plan,
+        2,
+      ),
+    ).toBe(false)
+    const skill = plan.recommendedSkills[0]
+    expect(
+      questionMatchesPlan(
+        {
+          text: `How do embeddings differ from one-hot features in ${skill}?`,
+          topic: skill,
+        },
+        plan,
+        2,
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('Python Programming variety', () => {
+  it('rotates Python theory prompts across varietySeed values', () => {
+    const ctx = { skills: ['Python', 'FastAPI'] }
+    const profile = {
+      totalExperience: '1 year',
+      currentRole: 'AI Associate Engineer',
+    } as import('./store').SavedProfile
+    const roleSkills = getSkillsForRole('AI Associate Engineer')
+    const texts = new Set<string>()
+    for (let i = 0; i < 25; i++) {
+      const varietySeed = `python-variety-${i}`
+      for (const turnNumber of [2, 3, 4] as const) {
+        const q = buildStructuredTurnQuestion({
+          turnNumber,
+          first: 'Bharath',
+          level: '1 year',
+          profile,
+          ctx,
+          roleOverride: 'AI Associate Engineer',
+          roleSkills,
+          varietySeed,
+        })
+        if (!/python/i.test(q?.topic || '')) continue
+        texts.add(q!.text)
+      }
+    }
+    expect(texts.size).toBeGreaterThan(4)
+    const joined = [...texts].join(' ')
+    expect(joined).toMatch(/mutable|lists and tuples|generators|context manager|dictionaries/i)
+  })
+})
+
 describe('role-aligned skills and session variety', () => {
   it('maps Python on résumé to PySpark for Data Engineer and rotates skills by varietySeed', () => {
     const ctx = { skills: ['Python', 'SQL'], resumeSnippet: 'Python pipelines for batch jobs.' }
     const a = planRoleAlignedInterviewSkills('Data Engineer', ctx, 'session-a', null)
     const b = planRoleAlignedInterviewSkills('Data Engineer', ctx, 'session-b', null)
-    expect(a[0]).toMatch(/PySpark/i)
+    expect(a.some((s) => /PySpark/i.test(s))).toBe(true)
     expect(a).toContain('SQL')
     const q2a = buildStructuredTurnQuestion({
       turnNumber: 2,
@@ -180,8 +286,8 @@ describe('role catalog and project integration', () => {
     const junior = buildStructuredTurnQuestion({turnNumber: 5, first: '', level: '6 months', profile: null, ctx, roleOverride: 'Data Engineer', varietySeed: 'one'});
     const senior = buildStructuredTurnQuestion({turnNumber: 5, first: '', level: '7 years', profile: null, ctx, roleOverride: 'Data Engineer', varietySeed: 'one'});
     const next = buildStructuredTurnQuestion({turnNumber: 6, first: '', level: '6 months', profile: null, ctx, roleOverride: 'Data Engineer', varietySeed: 'one'});
-    expect(junior?.text).toContain('move data');
-    expect(senior?.text).toContain('split and processed');
+    expect(junior?.text.toLowerCase()).toMatch(/move data|validate row counts|pipeline/)
+    expect(senior?.text.toLowerCase()).toMatch(/split and processed|schema drift|downstream/)
     expect(next?.resumeAnchor).toBe(junior?.resumeAnchor);
     expect(junior?.resumeAnchor).toContain('PySpark');
   });

@@ -1,5 +1,10 @@
 import flowJson from '../data/interviewInteractiveFlow.json'
-import { firstName } from './store'
+import { candidateFullName } from './store'
+
+function interviewName(): string {
+  const name = candidateFullName().trim().replace(/\s+/g, ' ')
+  return name && name !== 'Candidate' ? name : 'there'
+}
 
 export type InteractiveFlowStepId = 'day_check' | 'confirm_begin' | 'questions'
 
@@ -127,7 +132,7 @@ export function interviewTimeOfDayLabel(): string {
 }
 
 export function fillTemplate(template: string, role: string, profileFirst?: string): string {
-  const fn = profileFirst || firstName()
+  const fn = profileFirst || interviewName()
   return template
     .replace(/\{firstName\}/g, fn)
     .replace(/\{role\}/g, role)
@@ -198,7 +203,7 @@ export function resolveInteractiveTurn(input: {
   if (input.phase === 'questions') return null
 
   const text = input.userText.trim()
-  const fn = input.firstName || firstName()
+  const fn = input.firstName || interviewName()
   const step = flowStep(input.phase)
   if (!step) return null
 
@@ -267,5 +272,5 @@ export function exportFlowJson(): typeof flowJson {
 }
 
 export function defaultInterviewSpeechRate(): number {
-  return flow.voice?.rate ?? 0.94
+  return flow.voice?.rate ?? 0.88
 }

@@ -128,7 +128,7 @@ def first_name_from_full(full: str) -> str:
     n = _clean(full)
     if not n or n == "Candidate":
         return "there"
-    return n.split()[0]
+    return " ".join(n.split())
 
 
 def summarize_profile(profile: dict[str, Any] | None, name: str = "Candidate") -> dict[str, Any]:
@@ -432,11 +432,31 @@ def _analyze_answer(question: dict[str, Any], answer: str, ctx: dict[str, Any]) 
     }
 
 
+def _load_required_role_skills(role: str, profile: dict[str, Any] | None) -> list[str]:
+    import json
+    from pathlib import Path
+
+    exact = _clean((profile or {}).get("currentRole")) or _clean(role)
+    path = Path(__file__).resolve().parents[2] / "data" / "roleSkills.json"
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+    except OSError:
+        return []
+    if exact in catalog and isinstance(catalog[exact], list):
+        return [str(s) for s in catalog[exact][:3]]
+    key = exact.lower()
+    for display, skills in catalog.items():
+        if str(display).lower() == key and isinstance(skills, list):
+            return [str(s) for s in skills[:3]]
+    return []
+
+
 def _analyze_answer_detailed(
     question: dict[str, Any],
     answer: str,
     ctx: dict[str, Any],
     llm_row: dict[str, Any] | None = None,
+    role_skills: list[str] | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import (
         build_weighted_rubrics,
@@ -445,9 +465,13 @@ def _analyze_answer_detailed(
         merge_rubric_scores,
         weighted_question_score,
     )
+    from app.services.role_skills_fit_scoring import compute_question_role_skills_fit
 
     base = _analyze_answer(question, answer, ctx)
     heuristic = compute_heuristic_rubric_scores(question, answer, ctx)
+    role_fit = compute_question_role_skills_fit(question, answer, ctx, role_skills or [])
+    if role_fit is not None:
+        heuristic["roleSkillsFit"] = role_fit
     merged = merge_rubric_scores(heuristic, llm_row)
     profile = _clean(question.get("scoringProfile")) or heuristic.get("scoringProfile") or classify_question_scoring_profile(question)
     rubrics = build_weighted_rubrics(merged, profile)
@@ -512,6 +536,8 @@ def _build_interview_scorecard(
     rubric_totals: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
     for a in analyses:
         for r in a.get("rubrics") or []:
+            if r.get("score") is None:
+                continue
             rubric_totals.setdefault(r["id"], []).append(int(r.get("score") or 0))
 
     rubric_session = []
@@ -528,9 +554,22 @@ def _build_interview_scorecard(
         {**d, "icon": ["📎", "🧭", "📈"][i] if i < 3 else "🎯"} for i, d in enumerate(donuts)
     ]
 
+    def _rubric_map(rubrics: list[dict[str, Any]] | None) -> dict[str, int | None]:
+        return {str(r.get("id")): r.get("score") for r in (rubrics or []) if r.get("id")}
+
     qa_rows = []
     for i, a in enumerate(analyses):
         fb = int(a.get("score") or 0)
+        rub = _rubric_map(a.get("rubrics"))
+        correctness_score = int(rub["correctness"]) if rub.get("correctness") is not None else None
+        depth_score = int(rub["depth"]) if rub.get("depth") is not None else fb
+        communication_score = int(rub["communication"]) if rub.get("communication") is not None else fb
+        role_skills_fit_score = int(rub["roleSkillsFit"]) if rub.get("roleSkillsFit") is not None else None
+        accuracy = min(10, round((correctness_score or 0) / 10)) if correctness_score is not None else 0
+        clarity = min(10, round(communication_score / 10))
+        depth = min(10, round(depth_score / 10))
+        understanding = min(10, round(((correctness_score or communication_score) + communication_score) / 20))
+        total30 = min(30, accuracy + clarity + depth)
         stars = "★" * max(1, round(fb / 20)) + "☆" * (5 - max(1, round(fb / 20)))
         qa_rows.append(
             {
@@ -538,9 +577,20 @@ def _build_interview_scorecard(
                 "topic": a.get("topic") or "Interview",
                 "question": a.get("question"),
                 "questionScore": fb,
+                "correctnessScore": correctness_score,
+                "depthScore": depth_score,
+                "communicationScore": communication_score,
+                "roleSkillsFitScore": role_skills_fit_score,
+                "accuracy": accuracy,
+                "clarity": clarity,
+                "understanding": understanding,
+                "depth": depth,
+                "total30": total30,
+                "total40": total30,
                 "stars": stars[:5],
                 "performance": a.get("performance"),
                 "feedback": a.get("feedback"),
+                "rubrics": a.get("rubrics"),
             }
         )
 
@@ -592,12 +642,15 @@ def _finalize_score_payload(
     analyses: list[dict[str, Any]],
     integrity: dict[str, Any],
     agent: str,
+    role_skills_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
 
     rubric_agg: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
     for a in analyses:
         for r in a.get("rubrics") or []:
+            if r.get("score") is None:
+                continue
             rubric_agg.setdefault(r["id"], []).append(int(r.get("score") or 0))
 
     categories = []
@@ -609,19 +662,19 @@ def _finalize_score_payload(
     overall = round(sum(a["score"] for a in analyses) / max(len(analyses), 1)) if analyses else 0
     joined = " ".join(answers or []).lower()
     skills_referenced = [s for s in ctx["skills"] if s.lower() in joined]
-    resume_fit_score = min(
-        100,
-        round((len(skills_referenced) / max(min(len(ctx["skills"]), 5), 1)) * 70)
-        + (20 if any(a.get("resumeSkillsHit") for a in analyses) else 0),
-    )
+    role_skills_analysis = role_skills_analysis or {}
+    if role_skills_analysis.get("requiredSkills"):
+        resume_fit_score = int(role_skills_analysis.get("fitScore") or 0)
+    else:
+        resume_fit_score = min(
+            100,
+            round((len(skills_referenced) / max(min(len(ctx["skills"]), 5), 1)) * 70)
+            + (20 if any(a.get("resumeSkillsHit") for a in analyses) else 0),
+        )
 
     if len(ctx["skills"]) >= 3 and len(skills_referenced) >= 2:
         overall = min(100, overall + 4)
     if len(ctx["skills"]) >= 3 and not skills_referenced:
-        overall = max(0, overall - 5)
-    if integrity.get("singlePersonOk") is False:
-        overall = max(0, overall - 8)
-    if int(integrity.get("faceViolations") or 0) > 3:
         overall = max(0, overall - 5)
     if integrity.get("banned"):
         overall = 0
@@ -641,7 +694,21 @@ def _finalize_score_payload(
     if corr_scores and round(sum(corr_scores) / len(corr_scores)) < 55:
         improvements.append("Tighten technical accuracy — answer the exact question asked.")
 
-    if len(skills_referenced) >= 2:
+    if role_skills_analysis.get("requiredSkills"):
+        req = role_skills_analysis["requiredSkills"]
+        on_resume = role_skills_analysis.get("onResume") or []
+        evidenced = role_skills_analysis.get("evidencedInAnswers") or []
+        if on_resume:
+            strengths.append(f"Role skills on résumé: {len(on_resume)}/{len(req)} ({', '.join(on_resume)}).")
+        if len(evidenced) >= min(2, len(req)):
+            strengths.append(
+                f"Answers evidenced {len(evidenced)}/{len(req)} required role skills in this interview."
+            )
+        else:
+            missing = [s for s in req if s not in evidenced]
+            if missing:
+                improvements.append(f"Mention required role skills in answers: {', '.join(missing)}.")
+    elif len(skills_referenced) >= 2:
         strengths.append(f"Resume alignment: you evidenced {', '.join(skills_referenced[:3])}.")
     elif ctx["skills"]:
         improvements.append(f"Reference skills from your resume ({', '.join(ctx['skills'][:3])}).")
@@ -681,6 +748,7 @@ def _finalize_score_payload(
         "strengths": strengths_out,
         "improvements": improvements_out,
         "answers": [{k: v for k, v in a.items() if k != "resumeSkillsHit"} for a in analyses],
+        "roleSkillsAnalysis": role_skills_analysis,
         "scorecard": scorecard,
         "integrity": {
             "faceViolations": int(integrity.get("faceViolations") or 0),
@@ -706,9 +774,12 @@ async def score_session_async(
     name: str = "Candidate",
 ) -> dict[str, Any]:
     from app.services.interview_llm_eval import evaluate_answers_with_llm, llm_eval_configured
+    from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
 
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
+    role_skills = _load_required_role_skills(role, profile or {})
+    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, answers)
     llm_by_index = None
     agent = "python-resume-agent"
     if llm_eval_configured():
@@ -723,7 +794,13 @@ async def score_session_async(
             agent = "python-resume-agent+llm"
 
     analyses = [
-        _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, llm_by_index.get(i + 1) if llm_by_index else None)
+        _analyze_answer_detailed(
+            q,
+            answers[i] if i < len(answers) else "",
+            ctx,
+            llm_by_index.get(i + 1) if llm_by_index else None,
+            role_skills,
+        )
         for i, q in enumerate(questions)
     ]
     return _finalize_score_payload(
@@ -735,6 +812,7 @@ async def score_session_async(
         analyses=analyses,
         integrity=integrity,
         agent=agent,
+        role_skills_analysis=role_skills_analysis,
     )
 
 
@@ -748,10 +826,15 @@ def score_session(
     integrity: dict[str, Any] | None = None,
     name: str = "Candidate",
 ) -> dict[str, Any]:
+    from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
+
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
+    role_skills = _load_required_role_skills(role, profile or {})
+    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, answers)
     analyses = [
-        _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None) for i, q in enumerate(questions)
+        _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None, role_skills)
+        for i, q in enumerate(questions)
     ]
     return _finalize_score_payload(
         role=role,
@@ -762,4 +845,5 @@ def score_session(
         analyses=analyses,
         integrity=integrity,
         agent="python-resume-agent",
+        role_skills_analysis=role_skills_analysis,
     )

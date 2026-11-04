@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const devPort = Number(process.env.VITE_DEV_PORT || 5173)
 
 export default defineConfig({
   envDir: repoRoot,
@@ -16,7 +17,8 @@ export default defineConfig({
     exclude: ['@huggingface/transformers'],
   },
   server: {
-    port: 5173,
+    port: devPort,
+    strictPort: true,
     host: true,
     proxy: {
       '/api': {

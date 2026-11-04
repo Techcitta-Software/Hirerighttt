@@ -19,6 +19,7 @@ export const INTERVIEW_RUBRICS = [
   { id: 'correctness', label: 'Answer Correctness' },
   { id: 'depth', label: 'Depth' },
   { id: 'communication', label: 'Communication' },
+  { id: 'roleSkillsFit', label: 'Role Skills Fit' },
 ]
 
 /** @typedef {'opening_generic' | 'technical' | 'experience' | 'project' | 'behavioral' | 'balanced'} ScoringProfile */
@@ -26,14 +27,14 @@ export const INTERVIEW_RUBRICS = [
 /** Weights must sum to 1. */
 export const RUBRIC_WEIGHT_BY_PROFILE = {
   /** Q1 — roles, responsibilities, exposure at previous employer. */
-  opening_generic: { correctness: 0, depth: 0.2, communication: 0.8 },
+  opening_generic: { correctness: 0, depth: 0.15, communication: 0.55, roleSkillsFit: 0.3 },
   /** Three role-skill questions after opening analysis. */
-  technical: { correctness: 0.5, depth: 0.3, communication: 0.2 },
-  experience: { correctness: 0.32, depth: 0.33, communication: 0.35 },
+  technical: { correctness: 0.45, depth: 0.25, communication: 0.15, roleSkillsFit: 0.15 },
+  experience: { correctness: 0.28, depth: 0.27, communication: 0.25, roleSkillsFit: 0.2 },
   /** Project + fallback-recent questions. */
-  project: { correctness: 0.4, depth: 0.3, communication: 0.3 },
-  behavioral: { correctness: 0.18, depth: 0.22, communication: 0.6 },
-  balanced: { correctness: 0.34, depth: 0.33, communication: 0.33 },
+  project: { correctness: 0.35, depth: 0.25, communication: 0.25, roleSkillsFit: 0.15 },
+  behavioral: { correctness: 0.15, depth: 0.15, communication: 0.5, roleSkillsFit: 0.2 },
+  balanced: { correctness: 0.3, depth: 0.25, communication: 0.25, roleSkillsFit: 0.2 },
 }
 
 const STRUCTURE_SIGNALS = [
@@ -180,35 +181,45 @@ export function computeHeuristicRubricScores(question, answer, ctx) {
  * @param {{ correctness?: number, depth?: number, communication?: number, feedback?: string } | null | undefined} llm
  */
 export function mergeRubricScores(heuristic, llm) {
-  if (!llm) return { ...heuristic, source: 'heuristic' }
-  const blend = (h, l, llmWeight) => clamp(h * (1 - llmWeight) + l * llmWeight)
+  if (!llm) {
+    return {
+      correctness: null,
+      depth: clamp(heuristic.depth),
+      communication: clamp(heuristic.communication),
+      roleSkillsFit: heuristic.roleSkillsFit ?? null,
+      feedback: undefined,
+      source: 'heuristic',
+    }
+  }
   return {
-    correctness: clamp(
-      typeof llm.correctness === 'number' ? llm.correctness : heuristic.correctness,
-    ),
-    depth: clamp(typeof llm.depth === 'number' ? blend(heuristic.depth, llm.depth, 0.4) : heuristic.depth),
-    communication: clamp(
-      typeof llm.communication === 'number'
-        ? blend(heuristic.communication, llm.communication, 0.4)
-        : heuristic.communication,
-    ),
+    correctness: typeof llm.correctness === 'number' ? clamp(llm.correctness) : null,
+    depth: clamp(typeof llm.depth === 'number' ? llm.depth : heuristic.depth),
+    communication: clamp(typeof llm.communication === 'number' ? llm.communication : heuristic.communication),
+    roleSkillsFit: heuristic.roleSkillsFit ?? null,
     feedback: clean(llm.feedback) || undefined,
-    source: 'llm+heuristic',
+    source: 'llm',
   }
 }
 
 /** @param {ScoringProfile} profile */
 export function buildWeightedRubrics(scores, profile) {
   const weights = getRubricWeights(profile)
-  return INTERVIEW_RUBRICS.map((def) => ({
-    id: def.id,
-    label: def.label,
-    weight: weights[def.id] ?? 0.33,
-    score: clamp(scores[def.id] ?? 0),
-  }))
+  return INTERVIEW_RUBRICS.map((def) => {
+    const raw = scores[def.id]
+    return {
+      id: def.id,
+      label: def.label,
+      weight: weights[def.id] ?? 0.33,
+      score: raw == null || Number.isNaN(Number(raw)) ? null : clamp(raw),
+    }
+  })
 }
 
+/** Per-question score: weighted rubrics; missing AI correctness is excluded and weights renormalized. */
 export function weightedQuestionScore(rubrics) {
-  const sum = rubrics.reduce((acc, r) => acc + r.score * r.weight, 0)
+  const active = rubrics.filter((r) => r.weight > 0 && r.score != null && !Number.isNaN(r.score))
+  const weightSum = active.reduce((acc, r) => acc + r.weight, 0)
+  if (!weightSum) return 0
+  const sum = active.reduce((acc, r) => acc + r.score * (r.weight / weightSum), 0)
   return clamp(sum)
 }

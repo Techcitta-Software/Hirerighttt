@@ -341,19 +341,15 @@ def llm_parse(text):
     """
     Parses OCR-extracted resume text using LLM for high accuracy if API key is present.
     """
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
+    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if not api_key:
         return None
 
-    is_gemini = (
-        bool(os.environ.get("GEMINI_API_KEY"))
-        or api_key.startswith("AIza")
-        or api_key.startswith("AQ.")
-        or "googleapis" in os.environ.get("OPENAI_BASE_URL", "")
-    )
-    is_auth_key = api_key.strip().startswith("AQ.")
-    base_url = (os.environ.get("OPENAI_BASE_URL") or ("https://generativelanguage.googleapis.com/v1beta/openai" if is_gemini else "https://api.openai.com/v1")).rstrip("/")
-    model = os.environ.get("GEMINI_MODEL") or os.environ.get("PRIMARY_MODEL") or os.environ.get("OPENAI_MODEL") or ("gemini-3.1-flash-lite" if is_gemini else "gpt-4o-mini")
+    is_auth_key = api_key.startswith("AQ.")
+    base_url = (
+        os.environ.get("OPENAI_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai"
+    ).rstrip("/")
+    model = os.environ.get("GEMINI_MODEL") or os.environ.get("PRIMARY_MODEL") or "gemini-3.1-flash-lite"
 
     prompt = f"""You are an expert HR AI Resume Parser for HireRight powered by Google Gemini. Extract structured profile information from this PaddleOCR extracted resume text into strictly valid JSON only.
 
@@ -426,9 +422,11 @@ PaddleOCR Resume Text:
                 "temperature": 0.1
             }).encode('utf-8')
 
-            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-            if is_gemini:
-                headers["x-goog-api-key"] = api_key
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "x-goog-api-key": api_key,
+            }
 
             req = urllib.request.Request(
                 f"{base_url}/chat/completions",

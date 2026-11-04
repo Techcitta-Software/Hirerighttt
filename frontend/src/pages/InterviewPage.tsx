@@ -42,7 +42,7 @@ import {
   applyToJob,
   attachInterviewToApplicant,
   candidateFullName,
-  firstName,
+
   getInterviewResult,
   getProfile,
   saveInterviewResult,
@@ -51,6 +51,8 @@ import {
 import {
   MAX_ADAPTIVE_QUESTIONS,
   fetchNextAdaptiveQuestion,
+  isDeferredAdaptiveQuestion,
+  isPreloadedInterviewQuestion,
   isEndInterviewCommand,
 } from '../lib/adaptiveInterview'
 import {
@@ -216,6 +218,7 @@ export function InterviewPage() {
   const recordingConsent = true
   const sessionIdRef = useRef<string | null>(null)
   const varietySeedRef = useRef<string>('')
+  const totalTurnsRef = useRef(MAX_ADAPTIVE_QUESTIONS)
   const integrityRef = useRef<IntegritySnapshot>({
     faceViolations: 0,
     singlePersonOk: true,
@@ -297,7 +300,7 @@ export function InterviewPage() {
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
   const [savedReport] = useState<InterviewResult | null>(() => getInterviewResult())
-  const name = firstName()
+  const name = candidateDisplayName && candidateDisplayName !== 'Candidate' ? candidateDisplayName.trim().replace(/\s+/g, ' ') : 'there'
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -800,7 +803,7 @@ export function InterviewPage() {
     const intro =
       bridge ||
       (current === 0
-        ? `Hi ${name}. I'm Ava on a live interview call. I've reviewed your background for ${role}. When you're ready, you can jump in anytime. `
+        ? `Hello ${name}. I am Ava, your interviewer. I will ask clear questions about your ${role} background. Please listen fully, then answer in your own words. `
         : '')
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
@@ -1013,6 +1016,11 @@ export function InterviewPage() {
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
       varietySeedRef.current = started.varietySeed || varietySeedRef.current
+      totalTurnsRef.current = Math.max(
+        started.total || 0,
+        started.questions?.length || 0,
+        MAX_ADAPTIVE_QUESTIONS,
+      )
       setQuestions(started.questions)
       setCurrent(0)
       setDraft('')
@@ -1108,7 +1116,7 @@ export function InterviewPage() {
 
     if (
       adaptiveRef.current &&
-      historyRef.current.length >= MAX_ADAPTIVE_QUESTIONS
+      historyRef.current.length >= totalTurnsRef.current
     ) {
       finishingRef.current = true
       finish(next, false)
@@ -1141,28 +1149,52 @@ export function InterviewPage() {
     }
 
     try {
-      const nextQuestion = await fetchNextAdaptiveQuestion({
-        sessionId: sessionIdRef.current,
-        role,
-        level,
-        profile: getProfile(),
-        jobDescription: customJd,
-        explicitRoleTrack:
-          roleTrackExplicitRef.current ||
-          Boolean(targetJobRaw) ||
-          customJd.trim().length >= 40,
-        history: historyRef.current,
-        lastQuestion: currentQuestion,
-        lastAnswer: answer,
-        varietySeed: varietySeedRef.current,
-      })
-      if (historyRef.current.length >= MAX_ADAPTIVE_QUESTIONS) {
-        finishingRef.current = true
-        finish(next, false)
-        return
+      const nextIdx = current + 1
+      const preloaded = questions[nextIdx]
+      const usePreloaded =
+        adaptiveRef.current &&
+        isPreloadedInterviewQuestion(preloaded) &&
+        !isDeferredAdaptiveQuestion(preloaded)
+
+      if (usePreloaded) {
+        if (historyRef.current.length >= totalTurnsRef.current) {
+          finishingRef.current = true
+          finish(next, false)
+          return
+        }
+        setCurrent(nextIdx)
+      } else {
+        const nextQuestion = await fetchNextAdaptiveQuestion({
+          sessionId: sessionIdRef.current,
+          role,
+          level,
+          profile: getProfile(),
+          jobDescription: customJd,
+          explicitRoleTrack:
+            roleTrackExplicitRef.current ||
+            Boolean(targetJobRaw) ||
+            customJd.trim().length >= 40,
+          totalTurns: totalTurnsRef.current,
+          history: historyRef.current,
+          lastQuestion: currentQuestion,
+          lastAnswer: answer,
+          varietySeed: varietySeedRef.current,
+        })
+        if (historyRef.current.length >= totalTurnsRef.current) {
+          finishingRef.current = true
+          finish(next, false)
+          return
+        }
+        setQuestions((prev) => {
+          const copy = [...prev]
+          while (copy.length <= nextIdx) {
+            copy.push(nextQuestion)
+          }
+          copy[nextIdx] = nextQuestion
+          return copy
+        })
+        setCurrent(nextIdx)
       }
-      setQuestions((prev) => [...prev, nextQuestion])
-      setCurrent((c) => c + 1)
     } catch (err) {
       if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') {
         finishingRef.current = true
@@ -1198,7 +1230,7 @@ export function InterviewPage() {
       if (!sections.length && reviewRef.current.events.length) {
         sections = reviewEventsToFlagSections(reviewRef.current.events, questions)
       }
-      integrityRef.current.flaggedSections = sections
+      integrityRef.current.flaggedSections = sections.map(({ snapshotDataUrl: _s, snapshotS3Key: _k, ...rest }) => rest)
       proctorRef.current = null
     } else if (!integrityRef.current.flaggedSections?.length && reviewRef.current.events.length) {
       integrityRef.current.flaggedSections = reviewEventsToFlagSections(
@@ -1417,7 +1449,7 @@ export function InterviewPage() {
       : sttPhase === 'transcribing'
         ? 'Transcribing your answer…'
         : aiSpeaking
-          ? 'Ava speaking — speak clearly (2+ words) to interrupt'
+          ? 'Ava is speaking — wait for the full question, or speak clearly to interrupt'
           : listening
             ? 'Listening — pause ~5s when you are done'
             : 'Live call with Ava'
@@ -1933,7 +1965,7 @@ export function InterviewPage() {
                   transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
                 />
                 <h2>Scoring your interview</h2>
-                <p>Ava is scoring communication, resume fit, and role accuracy.</p>
+                <p>Ava is scoring each answer on communication, depth, and AI-reviewed correctness.</p>
                 <ul>
                   {[
                     'Matching answers to your resume',

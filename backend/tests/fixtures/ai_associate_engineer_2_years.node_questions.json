@@ -1,0 +1,143 @@
+{
+  "source": "Actual Node local structured generator (not a live external LLM)",
+  "generator": "backend/node/interviewAgent.mjs: generateAdaptiveQuestionLocal",
+  "assumptions": "No candidate answers supplied; empty history answers advance each turn. Fixed variety seed. Default role-skill resolution, no skill override.",
+  "plan": {
+    "exactRole": "AI Associate Engineer",
+    "fresher": false,
+    "recommendedSkills": [
+      "Machine Learning Fundamentals",
+      "Python Programming",
+      "Data Preprocessing"
+    ],
+    "topRoleSkills": [
+      "Machine Learning Fundamentals",
+      "Python Programming",
+      "Data Preprocessing"
+    ],
+    "experienceYears": 2,
+    "difficulty": "mid",
+    "totalTurns": 8,
+    "turnPlan": [
+      "Q1: greet; roles, responsibilities, experience and exposure at most recent employer; relates to AI Associate Engineer",
+      "Q2 technical: Machine Learning Fundamentals; difficulty from experience; conceptual, not résumé story",
+      "Q3 technical: Python Programming; difficulty from experience; conceptual, not résumé story",
+      "Q4 technical: Data Preprocessing; difficulty from experience; conceptual, not résumé story",
+      "Q5: real résumé project — how it was implemented for AI Associate Engineer; use only evidenced tools",
+      "Q6: technical follow-up on the same project — testing, debugging or design choices; depth from experience",
+      "Q7: fallback follow-up on recent work / prior answers",
+      "Q8: varied closing thanks (not identical every session)"
+    ],
+    "openingAnalysis": null
+  },
+  "questions": [
+    {
+      "text": "Hello — I am Ava, your interviewer for this session. Let us begin with your background. Arjun Kumar Reddy, what were your main responsibilities in AI Associate Engineer at Example AI Labs (fictional)?",
+      "category": "Experience",
+      "keywords": [
+        "responsibilities",
+        "experience",
+        "exposure",
+        "role"
+      ],
+      "hint": "Describe your main tasks in simple words.",
+      "topic": "Opening — prior employer",
+      "resumeAnchor": "AI Associate Engineer at Example AI Labs (fictional)",
+      "focus": "structured-opening-generic",
+      "scoringProfile": "opening_generic"
+    },
+    {
+      "text": "Arjun Kumar Reddy, for Machine Learning Fundamentals in AI Associate Engineer, explain how you would explain Machine Learning Fundamentals to a teammate new to the stack.",
+      "category": "Technical",
+      "keywords": [
+        "machine learning fundamentals",
+        "ai associate engineer",
+        "mid"
+      ],
+      "hint": "Explain the concept directly for this role and experience level. No résumé story required.",
+      "topic": "Machine Learning Fundamentals",
+      "focus": "structured-theory-2",
+      "scoringProfile": "technical"
+    },
+    {
+      "text": "Arjun Kumar Reddy, for Python Programming in AI Associate Engineer, explain how mutable and immutable objects differ and what that means for function arguments and when you would use it.",
+      "category": "Technical",
+      "keywords": [
+        "python programming",
+        "ai associate engineer",
+        "mid"
+      ],
+      "hint": "Explain the concept directly for this role and experience level. No résumé story required.",
+      "topic": "Python Programming",
+      "focus": "structured-theory-3",
+      "scoringProfile": "technical"
+    },
+    {
+      "text": "Arjun Kumar Reddy, for Data Preprocessing in AI Associate Engineer, explain a core concept practitioners often misunderstand.",
+      "category": "Technical",
+      "keywords": [
+        "data preprocessing",
+        "ai associate engineer",
+        "mid"
+      ],
+      "hint": "Explain the concept directly for this role and experience level. No résumé story required.",
+      "topic": "Data Preprocessing",
+      "focus": "structured-theory-4",
+      "scoringProfile": "technical"
+    },
+    {
+      "text": "Arjun Kumar Reddy, As a AI Associate Engineer, for the project “Internal-document RAG assistant”, how did you handle failed requests without losing data?",
+      "category": "Experience",
+      "keywords": [
+        "project",
+        "contribution",
+        "ai associate engineer"
+      ],
+      "hint": "Explain what you personally did. Use the tools and decisions from your real project.",
+      "topic": "Recent work project",
+      "resumeAnchor": "Internal-document RAG assistant",
+      "focus": "structured-recent-project-1",
+      "scoringProfile": "project"
+    },
+    {
+      "text": "Arjun Kumar Reddy, Going deeper into the project “Internal-document RAG assistant”, how did you test that your change worked without breaking another part?",
+      "category": "Problem Solving",
+      "keywords": [
+        "project",
+        "validation",
+        "ai associate engineer"
+      ],
+      "hint": "Explain what you personally did. Use the tools and decisions from your real project.",
+      "topic": "Recent work problem solving",
+      "resumeAnchor": "Internal-document RAG assistant",
+      "focus": "structured-recent-project-2",
+      "scoringProfile": "project"
+    },
+    {
+      "text": "Arjun Kumar Reddy, thinking about AI Associate Engineer at Example AI Labs (fictional), how would you decide whether a task is complete?",
+      "category": "Problem Solving",
+      "keywords": [
+        "follow-up",
+        "decision",
+        "outcome"
+      ],
+      "hint": "Explain your approach; a hypothetical example is fine.",
+      "topic": "Recent work follow-up",
+      "resumeAnchor": "AI Associate Engineer at Example AI Labs (fictional)",
+      "focus": "structured-fallback-recent",
+      "scoringProfile": "project"
+    },
+    {
+      "text": "Arjun Kumar Reddy, Thanks for walking me through your experience. We are done with questions for this AI Associate Engineer interview — hope the rest of your day goes well.",
+      "category": "Communication",
+      "keywords": [
+        "closing",
+        "thanks"
+      ],
+      "hint": "A brief, professional sign-off is fine.",
+      "topic": "Closing",
+      "focus": "structured-closing",
+      "scoringProfile": "behavioral"
+    }
+  ]
+}

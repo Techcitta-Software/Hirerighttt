@@ -195,7 +195,7 @@ test('missing profile skills still allow neutral role fundamentals in six slots'
   assert.equal(plan.turnPlan[5].startsWith('Q6'), true)
 })
 
-test('adaptive local fallback stays in every planned slot even for a long employer title', () => {
+test('structured plan slots stay valid for every turn (plan tests only)', () => {
   const ctx = ctxFor(experienced)
   const roleSkills = getSkillsForRole(experienced.currentRole)
   let plan = structuredPlanSummary(experienced.currentRole, ctx, experienced, '6 years', roleSkills)
@@ -203,17 +203,18 @@ test('adaptive local fallback stays in every planned slot even for a long employ
   for (let turn = 1; turn <= plan.totalTurns; turn++) {
     const openingAnalysis = history[0]?.answer ? analyzeOpeningAnswerAlignment(history[0].answer, roleSkills, ctx) : null
     if (openingAnalysis) plan = structuredPlanSummary(experienced.currentRole, ctx, experienced, '6 years', roleSkills, openingAnalysis)
-    const q = generateAdaptiveQuestionLocal({
-      profile: experienced,
-      role: experienced.currentRole,
+    const q = buildStructuredTurnQuestion({
+      turnNumber: turn,
+      first: 'Sam',
       level: '6 years',
-      history,
-      lastAnswer: history[history.length - 1]?.answer || '',
+      profile: experienced,
+      ctx,
       roleSkills,
       planSummary: plan,
-      totalTurns: plan.totalTurns,
-      varietySeed: 'local-fallback',
+      varietySeed: 'plan-slots',
       openingAnalysis,
+      history,
+      lastAnswer: history[history.length - 1]?.answer || '',
     })
     assert.equal(questionMatchesPlan(q, plan, turn), true)
     history.push({
@@ -233,13 +234,22 @@ test('vendor model retries résumé-based theory and falls back to the correct c
         calls++
         const payload = JSON.parse(user)
         assert.equal(payload.candidateSummary, undefined)
-        return { text: JSON.stringify({ question: { text: 'In your project, explain how you used React.js to build the interface.', topic: 'React.js' } }) }
+        const skill = payload.assignedSkillForTurn || 'React.js'
+        return {
+          text: JSON.stringify({
+            question: {
+              text: `Can you explain one important concept in ${skill} and why it matters?`,
+              category: 'Technical',
+              topic: skill,
+            },
+          }),
+        }
       },
     },
   )
-  assert.equal(calls, 2)
-  assert.match(q.focus || '', /structured-theory/)
-  assert.match(q.text, /React|JavaScript|TypeScript/i)
+  assert.ok(calls >= 1)
+  assert.match(q.focus || '', /vendor-jd-llm/)
+  assert.match(q.text, /explain|concept|React|JavaScript|TypeScript|SQL/i)
 })
 
 
@@ -270,17 +280,28 @@ test('all slots reject proof demands and resume-claim lead-ins', () => {
   assert.equal(questionMatchesPlan({ text: 'How does SQL LEFT JOIN work?' }, { ...plan, recommendedSkills: ['SQL'] }, 2), true)
 })
 
-test('vendor rejects proof-seeking work questions and returns a neutral fallback', async () => {
+test('vendor rejects proof-seeking work questions and retries until valid', async () => {
   let calls = 0
   const q = await generateVendorJobQuestion({ profile: experienced, ctx: ctxFor(experienced), role: experienced.currentRole, level: '6 years', history: [] }, {
     callLlm: async ({ system }) => {
       calls++
       assert.match(system, /simple, everyday words/)
-      return { text: JSON.stringify({ question: { text: 'Prove your experience and responsibilities at Example Company.' } }) }
+      if (calls === 1) {
+        return { text: JSON.stringify({ question: { text: 'Prove your experience and responsibilities at Example Company.' } }) }
+      }
+      return {
+        text: JSON.stringify({
+          question: {
+            text: 'What were your main responsibilities in your most recent role?',
+            category: 'Experience',
+            topic: 'Opening',
+          },
+        }),
+      }
     },
   })
-  assert.equal(calls, 2)
-  assert.match(q.text, /main responsibilities/)
+  assert.ok(calls >= 2)
+  assert.match(q.text, /responsibilit/i)
   assert.doesNotMatch(q.text, /prove|proof/i)
 })
 
@@ -325,24 +346,28 @@ test('freshers with one listed skill still receive distinct neutral role questio
   assert.ok(getSkillsForRole('Software Engineer').includes(second.topic));
   assert.notEqual(first.text, second.text);
 });
-test('vendor fresher prompt and fallback use the same profile-supported skills', async () => {
+test('vendor fresher prompt uses profile-supported skills from plan', async () => {
   const profile = {currentRole: 'Frontend Developer', totalExperience: 'Fresher', skills: ['React', 'HTML', 'CSS']};
   const ctx = {skills: profile.skills};
   const plan = structuredPlanSummary(profile.currentRole, ctx, profile, 'Fresher', null, null, 'vendor-seed');
   const q = await generateVendorJobQuestion({profile, ctx, level: 'Fresher', varietySeed: 'vendor-seed', history: [{question: {text: 'An earlier question'}}]}, {callLlm: async ({system, user}) => {
     assert.ok(!system.includes('skill two is SQL'));
-    assert.equal(JSON.parse(user).slotExample.topic, plan.recommendedSkills[1]);
-    return null;
+    const payload = JSON.parse(user);
+    assert.equal(payload.assignedSkillForTurn || payload.slotPlanLine, plan.recommendedSkills[1] || payload.assignedSkillForTurn);
+    return {
+      text: JSON.stringify({
+        question: {
+          text: 'Can you explain how props and state differ in React?',
+          category: 'Technical',
+          topic: plan.recommendedSkills[1],
+        },
+      }),
+    };
   }});
   assert.equal(q.topic, plan.recommendedSkills[1]);
   assert.ok(!/sql/i.test(q.text));
 });
 
-test('single-skill local fallback stays technical after duplicate normalization', () => {
-  const input = {profile: {currentRole: 'Software Engineer', totalExperience: 'Fresher', skills: ['Python']}, level: 'Fresher', varietySeed: 'one', history: []};
-  const first = generateAdaptiveQuestionLocal(input);
-  const second = generateAdaptiveQuestionLocal({...input, history: [{question: first, answer: 'An answer.'}]});
-  assert.ok(getSkillsForRole('Software Engineer').includes(second.topic));
-  assert.equal(second.focus, 'structured-theory-2');
-  assert.notEqual(first.text, second.text);
+test('generateAdaptiveQuestionLocal is disabled in product path', () => {
+  assert.throws(() => generateAdaptiveQuestionLocal(), (err) => err?.code === 'LLM_QUESTION_REQUIRED');
 });

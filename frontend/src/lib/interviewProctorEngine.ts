@@ -21,7 +21,6 @@ interface ActiveIncident {
   peakGazeScore: number
   peakFaceCount: number
   directionLabel: string
-  snapshotDataUrl?: string
 }
 
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
@@ -38,7 +37,6 @@ const MIN_DURATION_MS: Record<FlagType, number> = {
   NO_FACE: 2500,
 }
 const MERGE_COOLDOWN_MS = 1500
-const MAX_SNAPSHOTS_PER_SESSION = 12
 const SECONDARY_FACE_MIN_RATIO = 0.15
 
 export class InterviewProctorEngine {
@@ -51,15 +49,10 @@ export class InterviewProctorEngine {
   private currentQuestionText = ''
   private activeIncidents: Partial<Record<FlagType, ActiveIncident>> = {}
   private completedFlags: InterviewFlagSection[] = []
-  private snapshotCount = 0
-  private offscreenCanvas: HTMLCanvasElement
   private onFlagCreated?: (flag: InterviewFlagSection) => void
 
   constructor(onFlagCreated?: (flag: InterviewFlagSection) => void) {
     this.onFlagCreated = onFlagCreated
-    this.offscreenCanvas = document.createElement('canvas')
-    this.offscreenCanvas.width = 320
-    this.offscreenCanvas.height = 180
   }
 
   async init() {
@@ -216,16 +209,6 @@ export class InterviewProctorEngine {
     if ((metrics.faceCount || 0) > existing.peakFaceCount) {
       existing.peakFaceCount = metrics.faceCount!
     }
-
-    const elapsedMs = nowMs - existing.firstSeenMs
-    if (
-      !existing.snapshotDataUrl &&
-      elapsedMs >= MIN_DURATION_MS[type] &&
-      this.snapshotCount < MAX_SNAPSHOTS_PER_SESSION
-    ) {
-      existing.snapshotDataUrl = this.captureLowResFrame(videoEl)
-      this.snapshotCount++
-    }
   }
 
   private finalizeIncidentIfQualified(type: FlagType, nowMs: number, forceFlush = false) {
@@ -279,7 +262,6 @@ export class InterviewProctorEngine {
         eyeGazeScore: inc.peakGazeScore,
         faceCount: inc.peakFaceCount,
       },
-      snapshotDataUrl: inc.snapshotDataUrl,
     }
 
     this.completedFlags.push(flag)
@@ -320,10 +302,4 @@ export class InterviewProctorEngine {
     return Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
   }
 
-  private captureLowResFrame(videoEl: HTMLVideoElement): string {
-    const ctx = this.offscreenCanvas.getContext('2d')
-    if (!ctx) return ''
-    ctx.drawImage(videoEl, 0, 0, 320, 180)
-    return this.offscreenCanvas.toDataURL('image/jpeg', 0.6)
-  }
 }

@@ -2,7 +2,7 @@ import { selectFresherConcept } from './fresherConcepts.mjs'
 /**
  * HIRERIGHT Interview Agent
  * Generates resume-accurate questions and scores answers.
- * Uses OpenAI when OPENAI_API_KEY / LLM_API_KEY is set; otherwise a strong local agent.
+ * Uses Google Gemini when GEMINI_API_KEY is set; otherwise a strong local agent.
  */
 
 import { geminiApiConfigured, isGeminiProvider, modelCascadeForTier } from './llmModels.mjs'
@@ -10,17 +10,24 @@ import { geminiChat, resolveGeminiApiKey, isGeminiAuthKey } from './geminiClient
 import { computeFinalAtsScore, parseResumeStructure } from './atsScorer.mjs'
 import { extractPrimarySkillsFromJd, computeAtsScore } from './vendor/atsScore.mjs'
 import {
-  buildStructuredTurnQuestion,
   recommendTopSkillsForRole,
   resolveExactInterviewRole,
   structuredPlanSummary,
   questionMatchesPlan,
   isTheoryTurnForPlan,
+  theoryAssignedSkillForTurn,
   FRESHER_INTERVIEW_TURN_COUNT,
   analyzeOpeningAnswerAlignment,
   extractResumeProjects,
   selectProjectForInterview,
+  experiencedTurnSlot,
+  experiencedFallbackTurnNumber,
+  experiencedClosingTurnNumber,
+  EXPERIENCED_INTERVIEW_TURN_COUNT,
+  PENDING_FALLBACK_FOCUS,
+  PENDING_CLOSING_FOCUS,
 } from './interviewQuestionPlan.mjs'
+import { interviewLlmGenerationFailedError, interviewLlmRequiredError } from './interviewLlmErrors.mjs'
 import {
   INTERVIEW_RUBRICS,
   RUBRIC_WEIGHT_BY_PROFILE,
@@ -30,6 +37,11 @@ import {
   mergeRubricScores,
   weightedQuestionScore,
 } from './interviewRubricScoring.mjs'
+import { initRoleSkillStore, ensureRoleSkillsForRole } from './roleSkillStore.mjs'
+import {
+  computeQuestionRoleSkillsFit,
+  computeSessionRoleSkillsFit,
+} from './roleSkillsFitScoring.mjs'
 
 export const INTERVIEW_TURN_COUNT = 6
 export { publicModelConfig, geminiKeyFormatWarning } from './llmModels.mjs'
@@ -124,10 +136,11 @@ export function resolveCandidateName(profile = {}, accountName = '') {
 }
 
 /** @param {string} full */
-export function firstNameFromFull(full) {
+/** Full name for every candidate-facing greeting and question. */
+export function candidateNameForAddress(full) {
   const n = clean(full)
   if (!n || n === 'Candidate' || isDemoPlaceholderName(n)) return 'there'
-  return n.split(/\s+/)[0]
+  return n.replace(/\s+/g, ' ')
 }
 
 /** @param {ProfileContext} profile */
@@ -400,87 +413,36 @@ export async function callLlmApi({ system, user, temperature = 0.3, tier = 'qual
   const apiKey = resolveGeminiApiKey()
   if (!apiKey) return null
 
-  const isGemini = isGeminiProvider()
   const candidateModels = modelCascadeForTier(tier)
 
   for (let i = 0; i < candidateModels.length; i++) {
     const { name: currentModel, label } = candidateModels[i]
     try {
-      if (isGemini) {
-        const result = await geminiChat({
-          apiKey,
-          model: currentModel,
-          system,
-          user,
-          temperature,
-          maxTokens,
-        })
-        if (result.ok && result.text.trim()) {
-          console.log(
-            `🔥 [Gemini LLM] model=${currentModel} tier=${tier}${isGeminiAuthKey(apiKey) ? ' native' : ''} | prompt=${result.tokenUsage.promptTokens} completion=${result.tokenUsage.completionTokens} total=${result.tokenUsage.totalTokens}`,
-          )
-          return {
-            text: result.text,
-            tokenUsage: result.tokenUsage,
-            provider: label,
-            model: currentModel,
-          }
-        }
-        console.warn(
-          `[Gemini LLM] model=${currentModel} tier=${tier} failed HTTP ${result.status}:`,
-          result.error?.slice(0, 160),
-        )
-        continue
-      }
-
-      const base = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
-      const headers = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': 'http://localhost:5173',
-        'X-Title': 'HIRERIGHTTT',
-      }
-      const body = {
+      const result = await geminiChat({
+        apiKey,
         model: currentModel,
+        system,
+        user,
         temperature,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }
-      if (typeof maxTokens === 'number' && maxTokens > 0) {
-        body.max_tokens = maxTokens
-      }
-      const res = await fetch(`${base}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
+        maxTokens,
       })
-
-      if (res.ok) {
-        const data = await res.json()
-        const text = data.choices?.[0]?.message?.content || ''
-        if (text.trim()) {
-          const usage = data.usage || {}
-          const tokenUsage = {
-            promptTokens: usage.prompt_tokens || 0,
-            completionTokens: usage.completion_tokens || 0,
-            totalTokens: usage.total_tokens || 0,
-          }
-          console.log(
-            `🔥 [${label}] Success! Prompt tokens: ${tokenUsage.promptTokens} | Completion: ${tokenUsage.completionTokens} | Total: ${tokenUsage.totalTokens}`,
-          )
-          return { text, tokenUsage, provider: label, model: currentModel }
+      if (result.ok && result.text.trim()) {
+        console.log(
+          `🔥 [Gemini LLM] model=${currentModel} tier=${tier}${isGeminiAuthKey(apiKey) ? ' native' : ''} | prompt=${result.tokenUsage.promptTokens} completion=${result.tokenUsage.completionTokens} total=${result.tokenUsage.totalTokens}`,
+        )
+        return {
+          text: result.text,
+          tokenUsage: result.tokenUsage,
+          provider: label,
+          model: currentModel,
         }
       }
-
-      const errText = await res.text().catch(() => '')
       console.warn(
-        `[LLM Fallback Trigger] Model "${currentModel}" status ${res.status}. Falling back to next model...`,
-        errText.slice(0, 160),
+        `[Gemini LLM] model=${currentModel} tier=${tier} failed HTTP ${result.status}:`,
+        result.error?.slice(0, 160),
       )
     } catch (err) {
-      console.warn(`[LLM Fallback Trigger] Model "${currentModel}" error: ${err.message}. Falling back...`)
+      console.warn(`[Gemini LLM] model="${currentModel}" error: ${err.message}`)
     }
   }
 
@@ -499,7 +461,7 @@ export async function callLlmApi({ system, user, temperature = 0.3, tier = 'qual
  */
 export async function generateLlmQuestions(ctx, role, level, jobDescription = '') {
   const jdText = clean(jobDescription)
-  const first = firstNameFromFull(ctx.name)
+  const first = candidateNameForAddress(ctx.name)
   const system = `You are Ava, HIRERIGHT's friendly AI interviewer. Generate exactly 5 interactive, spoken interview questions.
 
 ROLE & EXPERIENCE CALIBRATION:
@@ -515,7 +477,7 @@ SIMPLICITY & USER-FRIENDLINESS (MANDATORY):
 - Ask about ONE clear concept or story at a time so the candidate understands immediately and can answer comfortably.
 
 PRIMARY SOURCE: Cite real details from their resume (employers, projects, tools, skills).
-Address the candidate by first name "${first}" in at least the first question.
+Greet the candidate by their full name "${first}" in the first question. Never shorten their name.
 
 Structure the 5 questions:
 1. Communication & Welcome: Warm, friendly greeting to "${first}", asking them to introduce themselves and touch on what they enjoy most about their work with [mention their top skill/project].
@@ -570,7 +532,7 @@ Return ONLY valid JSON matching this schema:
  */
 export async function generateInterviewTurn(input) {
   const ctx = input.ctx || summarizeProfile(input.profile || {})
-  const first = firstNameFromFull(ctx.name)
+  const first = candidateNameForAddress(ctx.name)
   const answer = clean(input.answer)
   const wordCount = answer.split(/\s+/).filter(Boolean).length
   const question = input.question || {}
@@ -581,7 +543,7 @@ Reply in 1-2 short spoken sentences: warm acknowledgment only — do NOT ask a n
 Return ONLY JSON: {"spoken":"..."}`
 
   const user = JSON.stringify({
-    candidateFirstName: first,
+    candidateFullName: first,
     targetRole: input.role,
     level: input.level,
     questionAnswered: question.text,
@@ -922,7 +884,7 @@ function buildAdaptiveQuestionSystemPrompt(p) {
   const nameRule =
     p.first === 'there'
       ? 'Do NOT use fake names (no Arjun, no Candidate). Start neutrally or with "you".'
-      : `You may use the first name "${p.first}" once if natural.`
+      : `Use the candidate’s full name "${p.first}" whenever addressing them. Never shorten it. Greet them by that full name in the first question.`
   const jdAttached = String(p.jobDescription || '').trim().length >= 40
   const jdRule = jdAttached
     ? `- EMPLOYER JOB DESCRIPTION IS ATTACHED: Every question must reference a specific requirement, responsibility, tech stack item, or deliverable from that JD (paraphrase is fine). Do not ask generic trivia unrelated to the JD.`
@@ -944,7 +906,7 @@ Rules:
 - Use short sentences and simple words at every experience level. Under 2 years: basics and small implementation steps; 2 to under 5 years: debugging, testing and practical choices; 5+ years: design choices, reliability and consequences. Use the numeric experienceYears and difficulty in the payload; a senior job title alone must not increase difficulty.
 - In project slots, use the supplied projectContext and lastAnswer to ask ONE technical question about how the candidate built, tested or fixed a specific part. Use selectedProject for the first project question; follow the project actually discussed in lastAnswer for the second question. Only mention tools or results present in that project or the answer. If evidence is missing, ask the candidate to choose a real project. Do not invent scale, architecture, employers or outcomes.
 - For freshers, use short sentences and simple words. Ask about the assigned role skill without assuming prior work with it; SQL is not mandatory in every fresher session. Keep concepts at beginner level and assess a different concept from earlier questions.
-- In a theory slot, ask about a specific concept within the assigned skill; no personal work stories, résumé references, coding exercise or invented projects. Leave resumeAnchor empty and set topic to the assigned skill.
+- In a theory slot (questionMode conceptual_theory in payload): ask ONE conceptual question on assignedSkillForTurn — definitions, mechanisms, comparisons, how something works. NOT a scenario, NOT STAR, NOT "what would you do if", NOT "imagine", NOT a past job story, NOT a coding exercise. Leave resumeAnchor empty; set topic to assignedSkillForTurn.
 - Work/project/certification slots must analyze résumé projectContext (when provided), the target exactRole, and prior answers. Ask how their real projects map to this role — ownership, decisions, tools, metrics, and trade-offs. Do not ask generic trivia unrelated to their projects or role.
 - If project evidence is missing, ask neutrally for a concrete example from their background rather than inventing employers or project names.
 - ${nameRule}
@@ -960,11 +922,27 @@ Return ONLY: {"question":{"text":"...","category":"...","keywords":["..."],"hint
 /** @param {object} p */
 function buildAdaptiveQuestionUserPayload(p) {
   const theory = p.planSummary && isTheoryTurnForPlan(p.planSummary, p.turnNumber)
+  const assignedSkill = theory && p.planSummary ? theoryAssignedSkillForTurn(p.planSummary, p.turnNumber) : ''
   const totalTurns = p.totalTurns || p.planSummary?.totalTurns || INTERVIEW_TURN_COUNT
   return JSON.stringify({
     turnNumber: p.turnNumber,
     totalTurns,
     questionVarietySeed: p.varietySeed || null,
+    questionMode: theory ? 'conceptual_theory' : 'experience_or_project',
+    assignedSkillForTurn: assignedSkill || null,
+    forbiddenQuestionStyles: theory
+      ? [
+          'scenario',
+          'hypothetical situation',
+          'what would you do if',
+          'imagine you',
+          'tell me about a time',
+          'describe a situation at work',
+          'STAR story',
+          'past employer story',
+          'live coding exercise',
+        ]
+      : undefined,
     selectedConcept: theory && p.planSummary?.fresher ? selectFresherConcept(p.planSummary.recommendedSkills[p.turnNumber - 1], p.varietySeed, p.turnNumber, p.priorTexts) : undefined,
     roleTrack: p.exactRole || p.role,
     exactRole: p.exactRole || p.role,
@@ -999,157 +977,13 @@ function buildAdaptiveQuestionUserPayload(p) {
   })
 }
 
-/**
- * Same decision order as question-generation.md when Gemini is unavailable:
- * one question, no invented employers, follow the last answer, never repeat.
- * @param {object} input
- */
-export function generateAdaptiveQuestionLocal(input) {
-  const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
-  const role = input.role || 'Full Stack Engineer'
-  const exactRole = resolveExactInterviewRole(input.profile || {}, role)
-  const level = input.level || '1–3 years'
-  const jobDescription = clean(input.jobDescription)
-  const history = Array.isArray(input.history) ? input.history : []
-  const planSummary =
-    input.planSummary ||
-    structuredPlanSummary(exactRole, ctx, input.profile || null, level, input.roleSkills, input.openingAnalysis, input.varietySeed)
-  const totalTurns = input.totalTurns || planSummary.totalTurns || INTERVIEW_TURN_COUNT
-  if (history.length >= totalTurns) {
-    const err = new Error('All interview turns are complete.')
-    err.code = 'INTERVIEW_COMPLETE'
-    throw err
-  }
-  const lastAnswer = clean(input.lastAnswer)
-  const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
-  const first = firstNameFromFull(ctx.name)
-  const turnNumber = history.length + 1
-
-  const structured = buildStructuredTurnQuestion({
-    turnNumber,
-    first,
-    level,
-    profile: input.profile || {},
-    ctx,
-    roleOverride: role,
-    history,
-    senior: isSeniorExperienceLevel(level),
-    planSummary,
-    roleSkills: input.roleSkills,
-    varietySeed: input.varietySeed,
-    openingAnalysis: input.openingAnalysis,
-    lastAnswer,
-  })
-  if (structured) {
-    const planned = normalizeAdaptiveQuestion(structured, priorTexts)
-    if (planned) return { ...planned, focus: structured.focus || 'structured-plan' }
-  }
-
-  /** @type {object[]} */
-  const candidates = []
-  if (history.length === 0) {
-    if (jobDescription.trim().length >= 40) {
-      const jdSkill =
-        nextResumeSkillInJobDescription(jobDescription, ctx, history) ||
-        extractPrimarySkillsFromJd(jobDescription, [])[0] ||
-        ''
-      if (jdSkill) {
-        candidates.push({
-          text: spokenLead(
-            first,
-            `this role's job description highlights ${jdSkill}. Walk me through a real example where you used ${jdSkill} for ${role} work — situation, what you did, and the outcome.`,
-          ),
-          category: 'Technical',
-          keywords: unique([String(jdSkill).toLowerCase(), 'jd', role.toLowerCase(), 'outcome']),
-          hint: 'Tie your answer to the employer JD requirement.',
-          topic: String(jdSkill),
-          focus: 'jd-first',
-        })
-      }
-    }
-    candidates.push(buildFirstAdaptiveQuestionLocal(first, role, level, ctx))
-  } else {
-    const claimed = extractClaimedSkills(lastAnswer).filter((skill) => !questionMentions(history, skill))
-    if (claimed[0]) {
-      const skill = claimed[0]
-      const fullStackLike = /full[\s-]?stack|mern|mean/i.test(skill)
-      const mathLike = /math|statistic|calculus|algebra|geometry/i.test(skill)
-      candidates.push({
-        text: buildClaimedSkillQuestion(first, skill, role),
-        category: fullStackLike || mathLike ? 'Technical' : 'Experience',
-        keywords: unique([skill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
-        hint: 'Give a concrete example with tools and outcome.',
-        topic: skill,
-        focus: 'adaptive-local',
-      })
-    }
-    if (!claimed[0] || isThinAnswer(lastAnswer)) {
-      const topic = pickResumeTopicFromCtx(ctx, history)
-      if (topic && !questionMentions(history, topic.label)) {
-        candidates.push(buildResumeTopicQuestion(first, role, level, topic))
-      }
-    }
-    const jdSkill = nextResumeSkillInJobDescription(jobDescription, ctx, history)
-    if (jdSkill) {
-      candidates.push({
-        text: spokenLead(
-          first,
-          `your résumé lists ${jdSkill}, and this role asks for it. Describe a concrete situation where you applied ${jdSkill} in a ${role} context — challenge, actions, and outcome.`,
-        ),
-        category: 'Technical',
-        keywords: unique([jdSkill.toLowerCase(), 'example', 'outcome', role.toLowerCase()]),
-        hint: 'Give a concrete example with tools and outcome.',
-        topic: jdSkill,
-        resumeAnchor: jdSkill,
-        focus: 'adaptive-local',
-      })
-    }
-  }
-
-  const fallbackCategory = turnNumber >= totalTurns ? 'Communication' : 'Problem Solving'
-  candidates.push({
-    text: buildLevelFallbackQuestion(first, role, level, turnNumber),
-    category: fallbackCategory,
-    keywords: unique(['experience', 'outcome', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: turnNumber >= totalTurns ? 'Closing' : 'Interview',
-    focus: 'adaptive-local',
-  })
-  candidates.push({
-    text: spokenLead(
-      first,
-      `for question ${turnNumber} of ${totalTurns}, describe a result you personally produced for ${role} work — what you did and how you knew it worked.`,
-    ),
-    category: 'Experience',
-    keywords: unique(['result', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: `Turn ${turnNumber}`,
-    focus: 'adaptive-local',
-  })
-
-  for (const raw of candidates) {
-    const q = normalizeAdaptiveQuestion(raw, priorTexts)
-    if (!q) continue
-    return { ...q, focus: raw.focus || 'adaptive-local' }
-  }
-
-  return {
-    text: spokenLead(
-      first,
-      `tell me about work you actually did for ${role}. Include the situation, what you did, and the result. This is question ${turnNumber}.`,
-    ),
-    category: 'Experience',
-    keywords: unique(['experience', role.toLowerCase()]),
-    hint: 'Give a concrete example with tools and outcome.',
-    topic: `Turn ${turnNumber}`,
-    focus: 'adaptive-local',
-  }
+/** Static templates removed — use `buildStructuredTurnQuestion` in tests only. */
+export function generateAdaptiveQuestionLocal() {
+  throw interviewLlmRequiredError()
 }
 
 /**
- * One question per turn. Uses the quality-tier LLM when Gemini is configured,
- * otherwise the same local rules in `generateAdaptiveQuestionLocal`.
- * Spec: `question-generation.md` §2–3 and §6.
+ * One question per turn via Google Gemini (quality tier). No static fallback.
  * @param {object} input
  */
 export async function generateAdaptiveQuestion(input) {
@@ -1172,23 +1006,9 @@ export async function generateAdaptiveQuestion(input) {
   const lastAnswer = clean(input.lastAnswer)
   const turnNumber = history.length + 1
   const priorTexts = history.map((h) => clean(h.question?.text || h.question)).filter(Boolean)
-  const first = firstNameFromFull(ctx.name)
-  const localInput = {
-    ...input,
-    ctx,
-    role,
-    level,
-    jobDescription,
-    history,
-    lastAnswer,
-    planSummary,
-    totalTurns,
-    roleSkills: input.roleSkills,
-    varietySeed: input.varietySeed,
-    openingAnalysis: input.openingAnalysis,
-  }
+  const first = candidateNameForAddress(ctx.name)
 
-  if (!llmConfigured()) return generateAdaptiveQuestionLocal(localInput)
+  if (!llmConfigured()) throw interviewLlmRequiredError()
 
   const system = buildAdaptiveQuestionSystemPrompt({
     turnNumber,
@@ -1219,7 +1039,7 @@ export async function generateAdaptiveQuestion(input) {
     openingAnalysis: input.openingAnalysis,
   })
 
-  for (const temperature of [0.62, 0.42]) {
+  for (const temperature of [0.62, 0.42, 0.35, 0.28]) {
     const llm = await callLlmApi({ system, user, temperature, tier: 'quality' })
     if (!llm?.text) continue
     try {
@@ -1233,7 +1053,242 @@ export async function generateAdaptiveQuestion(input) {
     }
   }
 
-  return generateAdaptiveQuestionLocal(localInput)
+  if (llmConfigured()) {
+    const retrySystem = `${system}\n\nYour last output was rejected. Return ONLY valid JSON. Theory turns MUST be conceptual (no scenarios).`
+    for (const temperature of [0.22, 0.15]) {
+      const llm = await callLlmApi({ system: retrySystem, user, temperature, tier: 'quality' })
+      if (!llm?.text) continue
+      try {
+        const match = llm.text.match(/\{[\s\S]*\}/)
+        if (!match) continue
+        const parsed = JSON.parse(match[0])
+        const q = normalizeAdaptiveQuestion(parsed.question || parsed, priorTexts)
+        if (q && questionMatchesPlan(q, planSummary, turnNumber)) return q
+      } catch {
+        // continue
+      }
+    }
+  }
+
+  throw interviewLlmGenerationFailedError()
+}
+
+export { PENDING_FALLBACK_FOCUS, PENDING_CLOSING_FOCUS }
+
+function makePendingFallbackQuestion() {
+  return {
+    text: '',
+    category: 'Problem Solving',
+    keywords: ['follow-up', 'recent work'],
+    hint: 'Answer with a concrete example from your recent role.',
+    topic: 'Recent work follow-up',
+    focus: PENDING_FALLBACK_FOCUS,
+  }
+}
+
+function makePendingClosingQuestion() {
+  return {
+    text: '',
+    category: 'Communication',
+    keywords: ['closing', 'thanks'],
+    hint: 'A brief, professional sign-off is fine.',
+    topic: 'Closing',
+    focus: PENDING_CLOSING_FOCUS,
+  }
+}
+
+/** @param {ReturnType<typeof structuredPlanSummary>} planSummary @param {number} totalTurns */
+function batchTurnNumbers(planSummary, totalTurns) {
+  const turns = []
+  for (let turn = 1; turn <= totalTurns; turn++) {
+    if (planSummary.fresher) {
+      turns.push(turn)
+      continue
+    }
+    const slot = experiencedTurnSlot(turn)
+    if (slot === 'fallback' || slot === 'closing') continue
+    turns.push(turn)
+  }
+  return turns
+}
+
+/** @param {object} p */
+function buildAdaptiveQuestionBatchSystemPrompt(p) {
+  const nameRule =
+    p.first === 'there'
+      ? 'Do NOT use fake names. Start neutrally or with "you".'
+      : `Use the candidate’s full name "${p.first}" when addressing them in Q1.`
+  const jdAttached = String(p.jobDescription || '').trim().length >= 40
+  const jdRule = jdAttached
+    ? `- EMPLOYER JOB DESCRIPTION IS ATTACHED: Questions must tie to JD requirements where the slot allows.`
+    : ''
+  const skipDeferred = !p.planSummary?.fresher
+    ? `Do NOT generate turn ${experiencedFallbackTurnNumber()} (fallback follow-up) or turn ${EXPERIENCED_INTERVIEW_TURN_COUNT} (closing thanks) — those turns are generated later, in order, after prior answers.`
+    : ''
+  const planRule = p.planSummary
+    ? `- STRUCTURED PLAN for "${p.exactRole}": ${(p.planSummary.turnPlan || []).join(' | ')}. Generate one question per requested turnNumber; follow each slot. Skill/theory slots: conceptual only (no scenarios, no STAR). Project slots: anchor to resume projectContext; the candidate has not answered yet — ask about evidenced projects without assuming prior answers.`
+    : ''
+  return `You are Ava, a professional interviewer. Generate ALL interview questions for this session in ONE JSON response (batch).
+Rules:
+- Generate exactly one question for each turnNumber listed in the user payload turns array.
+- ${skipDeferred}
+- Each question must be distinct; do not repeat wording across turns.
+- Theory slots: conceptual only on assignedSkillForTurn. NOT scenarios, NOT "tell me about a time", NOT hypotheticals.
+- Project slots: use resume projectContext only; do not invent employers or projects.
+- ${nameRule}
+- category must be one of: Communication, Technical, Problem Solving, Experience.
+${planRule}
+${p.varietySeed ? `- Use varietySeed "${p.varietySeed}" for fresh wording across sessions.` : ''}
+${jdRule}
+
+Return ONLY: {"questions":[{"turnNumber":1,"question":{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"...","resumeAnchor":"optional"}}, ...]}`
+}
+
+/** @param {object} p */
+function buildAdaptiveQuestionBatchUserPayload(p) {
+  const turnSpecs = p.turnNumbers.map((turnNumber) => {
+    const theory = p.planSummary && isTheoryTurnForPlan(p.planSummary, turnNumber)
+    const assignedSkill =
+      theory && p.planSummary ? theoryAssignedSkillForTurn(p.planSummary, turnNumber) : ''
+    return {
+      turnNumber,
+      slot: p.planSummary?.fresher ? `fresher-${turnNumber}` : experiencedTurnSlot(turnNumber),
+      planLine: p.planSummary?.turnPlan?.[turnNumber - 1] || null,
+      questionMode: theory ? 'conceptual_theory' : 'experience_or_project',
+      assignedSkillForTurn: assignedSkill || null,
+      selectedConcept:
+        theory && p.planSummary?.fresher
+          ? selectFresherConcept(
+              p.planSummary.recommendedSkills[turnNumber - 1],
+              p.varietySeed,
+              turnNumber,
+              [],
+            )
+          : undefined,
+    }
+  })
+  return JSON.stringify({
+    totalTurns: p.totalTurns,
+    questionVarietySeed: p.varietySeed || null,
+    roleTrack: p.exactRole || p.role,
+    exactRole: p.exactRole || p.role,
+    recommendedSkillsForRole: p.planSummary?.recommendedSkills || [],
+    experienceLevel: p.level,
+    experienceYears: p.planSummary?.experienceYears,
+    difficulty: p.planSummary?.difficulty,
+    jobDescription: p.jobDescription || null,
+    turns: turnSpecs,
+    candidateSummary: {
+      skills: (p.ctx.skills || []).slice(0, 16),
+      jobs: (p.ctx.jobs || []).slice(0, 4),
+      achievements: (p.ctx.achievements || []).slice(0, 5),
+      resumeSnippet: (p.ctx.resumeSnippet || '').slice(0, 2800),
+    },
+    selectedProject: selectProjectForInterview(p.profile || null, p.ctx, p.exactRole || p.role, p.varietySeed),
+    projectContext: extractResumeProjects(p.profile || null, p.ctx, p.exactRole || p.role)
+      .slice(0, 5)
+      .map((proj) => ({ label: proj.label, summary: proj.summary, employer: proj.employer })),
+  })
+}
+
+/**
+ * Opening + skills + projects in one Gemini call; experienced fallback then closing each get a later call.
+ * @param {object} input
+ */
+export async function generateAdaptiveQuestionBatch(input) {
+  const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
+  const role = input.role || 'Full Stack Engineer'
+  const exactRole = resolveExactInterviewRole(input.profile || {}, role)
+  const level = input.level || '1–3 years'
+  const planSummary =
+    input.planSummary ||
+    structuredPlanSummary(exactRole, ctx, input.profile || null, level, input.roleSkills, null, input.varietySeed)
+  const totalTurns = input.totalTurns || planSummary.totalTurns || INTERVIEW_TURN_COUNT
+  const jobDescription = clean(input.jobDescription)
+  const first = candidateNameForAddress(ctx.name)
+  const turnNumbers = batchTurnNumbers(planSummary, totalTurns)
+  const fallbackTurn = planSummary.fresher ? null : experiencedFallbackTurnNumber()
+  const closingTurn = planSummary.fresher ? null : experiencedClosingTurnNumber()
+
+  if (!llmConfigured()) throw interviewLlmRequiredError()
+
+  const system = buildAdaptiveQuestionBatchSystemPrompt({
+    first,
+    role,
+    exactRole,
+    level,
+    jobDescription,
+    planSummary,
+    varietySeed: input.varietySeed,
+  })
+  const user = buildAdaptiveQuestionBatchUserPayload({
+    turnNumbers,
+    role,
+    exactRole,
+    planSummary,
+    level,
+    jobDescription,
+    ctx,
+    profile: input.profile || null,
+    totalTurns,
+    varietySeed: input.varietySeed,
+  })
+
+  /** @type {import('./interviewAgent.mjs').Question[]} */
+  const ordered = Array.from({ length: totalTurns }, () => null)
+
+  const applyBatch = (rawText) => {
+    const match = rawText.match(/\{[\s\S]*\}/)
+    if (!match) return false
+    let parsed
+    try {
+      parsed = JSON.parse(match[0])
+    } catch {
+      return false
+    }
+    const items = Array.isArray(parsed.questions) ? parsed.questions : []
+    const priorTexts = []
+    for (let turn = 1; turn <= totalTurns; turn++) {
+      if (fallbackTurn && turn === fallbackTurn) {
+        ordered[turn - 1] = makePendingFallbackQuestion()
+        continue
+      }
+      if (closingTurn && turn === closingTurn) {
+        ordered[turn - 1] = makePendingClosingQuestion()
+        continue
+      }
+      const item = items.find((x) => Number(x.turnNumber) === turn)
+      if (!item?.question) continue
+      const q = normalizeAdaptiveQuestion(item.question, priorTexts)
+      if (q && questionMatchesPlan(q, planSummary, turn)) {
+        ordered[turn - 1] = q
+        priorTexts.push(q.text)
+      }
+    }
+    return ordered.every((q, i) => {
+      const turn = i + 1
+      if (fallbackTurn && turn === fallbackTurn) return Boolean(q?.focus === PENDING_FALLBACK_FOCUS)
+      if (closingTurn && turn === closingTurn) return Boolean(q?.focus === PENDING_CLOSING_FOCUS)
+      return Boolean(q?.text && q.text.length >= 24)
+    })
+  }
+
+  for (const temperature of [0.55, 0.42, 0.35]) {
+    const llm = await callLlmApi({ system, user, temperature, tier: 'quality', maxTokens: 8192 })
+    if (llm?.text && applyBatch(llm.text)) {
+      return { questions: ordered, fallbackTurn, closingTurn, planSummary, totalTurns }
+    }
+  }
+
+  const retrySystem = `${system}\n\nYour last output was incomplete or invalid. Return ONLY valid JSON with every requested turnNumber.`
+  for (const temperature of [0.28, 0.2]) {
+    const llm = await callLlmApi({ system: retrySystem, user, temperature, tier: 'quality', maxTokens: 8192 })
+    if (llm?.text && applyBatch(llm.text)) {
+      return { questions: ordered, fallbackTurn, closingTurn, planSummary, totalTurns }
+    }
+  }
+
+  throw interviewLlmGenerationFailedError()
 }
 
 function wordCountBandScore(wordCount) {
@@ -1329,9 +1384,11 @@ Return ONLY valid JSON:
   return null
 }
 
-function analyzeAnswerDetailed(question, answer, ctx, llmRow) {
+function analyzeAnswerDetailed(question, answer, ctx, llmRow, roleSkills = []) {
   const base = analyzeAnswer(question, answer, ctx)
   const heuristic = computeHeuristicRubricScores(question, answer, ctx)
+  const roleFit = computeQuestionRoleSkillsFit(question, answer, ctx, roleSkills)
+  if (roleFit != null) heuristic.roleSkillsFit = roleFit
   const merged = mergeRubricScores(heuristic, llmRow)
   const profile = clean(question.scoringProfile) || heuristic.scoringProfile || classifyQuestionScoringProfile(question)
   const rubrics = buildWeightedRubrics(merged, profile)
@@ -1364,10 +1421,19 @@ function rubricScoreMap(rubrics) {
 function qaRowFromAnalysis(a, i, tagFor) {
   const rub = rubricScoreMap(a.rubrics)
   const fallback = a.score ?? 0
-  const accuracy = Math.min(10, Math.round((rub.correctness ?? fallback) / 10))
-  const clarity = Math.min(10, Math.round((rub.communication ?? fallback) / 10))
-  const depth = Math.min(10, Math.round((rub.depth ?? fallback) / 10))
-  const understanding = Math.min(10, Math.round(((rub.correctness ?? fallback) + (rub.communication ?? fallback)) / 20))
+  const correctnessScore = rub.correctness != null ? clampRubric100(rub.correctness) : null
+  const depthScore = rub.depth != null ? clampRubric100(rub.depth) : clampRubric100(fallback)
+  const communicationScore =
+    rub.communication != null ? clampRubric100(rub.communication) : clampRubric100(fallback)
+  const roleSkillsFitScore =
+    rub.roleSkillsFit != null ? clampRubric100(rub.roleSkillsFit) : null
+  const accuracy = correctnessScore != null ? Math.min(10, Math.round(correctnessScore / 10)) : 0
+  const clarity = Math.min(10, Math.round(communicationScore / 10))
+  const depth = Math.min(10, Math.round(depthScore / 10))
+  const understanding = Math.min(
+    10,
+    Math.round(((correctnessScore ?? communicationScore) + communicationScore) / 20),
+  )
   const total30 = Math.min(30, accuracy + clarity + depth)
   const stars = '★'.repeat(Math.max(1, Math.round((a.score ?? 0) / 20))).padEnd(5, '☆')
   const performance = a.performance || tagFor(a.score)
@@ -1376,6 +1442,10 @@ function qaRowFromAnalysis(a, i, tagFor) {
     topic: a.topic || 'Interview',
     question: a.question,
     questionScore: a.score ?? 0,
+    correctnessScore,
+    depthScore,
+    communicationScore,
+    roleSkillsFitScore,
     accuracy,
     clarity,
     understanding,
@@ -1388,6 +1458,10 @@ function qaRowFromAnalysis(a, i, tagFor) {
     score: a.score,
     rubrics: (a.rubrics || []).map((r) => ({ id: r.id, label: r.label, score: r.score, weight: r.weight })),
   }
+}
+
+function clampRubric100(n) {
+  return Math.max(0, Math.min(100, Math.round(Number(n) || 0)))
 }
 
 function careerStatusFromScore(careerScore) {
@@ -1409,7 +1483,7 @@ function deriveScorecardNarrative(params) {
     improvements = [],
     resumeFitScore = overall,
   } = params
-  const first = firstNameFromFull(ctx.name)
+  const first = candidateNameForAddress(ctx.name)
   const status = careerStatusFromScore(careerScore)
   const weakest = improvements[0]
   const strongest = strengths[0]
@@ -1459,7 +1533,7 @@ export function buildCareerScorecard(params) {
     narrative: narrativeIn,
     resumeFitScore = overall,
   } = params
-  const first = firstNameFromFull(ctx.name)
+  const first = candidateNameForAddress(ctx.name)
 
   void categoryRows
   const tagFor = (score) =>
@@ -1681,33 +1755,6 @@ function analyzeAnswer(question, answer, ctx) {
  * @param {object} payload
  */
 async function generateScorecardReportWithLlm(payload) {
-  const apiKey =
-    process.env.OPENROUTER_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    process.env.LLM_API_KEY
-  if (!apiKey) return null
-
-  const isOpenRouter =
-    apiKey.startsWith('sk-or-') ||
-    process.env.OPENAI_BASE_URL?.includes('openrouter')
-  const base = (
-    process.env.OPENAI_BASE_URL ||
-    (isOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1')
-  ).replace(/\/$/, '')
-  const model =
-    process.env.OPENAI_MODEL ||
-    process.env.LLM_MODEL ||
-    (isOpenRouter ? 'openrouter/free' : 'gpt-4o-mini')
-
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
-  }
-  if (isOpenRouter) {
-    headers['HTTP-Referer'] = 'http://localhost:5173'
-    headers['X-Title'] = 'HIRERIGHTTT'
-  }
-
   const system = `You are Ava preparing a HireRight Career Intelligence Report.
 Use ONLY evidence from the interview Q&A, rubric category scores, resume skills, and employer role.
 Do NOT use generic placeholder bullets (e.g. "Strong backend skills") unless supported by the answers.
@@ -1728,22 +1775,15 @@ Return valid JSON only with keys:
  "careerPaths": [{"role": string, "match": number 1-99}] length 3}`
 
   try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: JSON.stringify(payload) },
-        ],
-      }),
+    const llm = await callLlmApi({
+      system,
+      user: JSON.stringify(payload),
+      temperature: 0.2,
+      tier: 'fast',
+      maxTokens: 4096,
     })
-    if (!res.ok) return null
-    const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || ''
-    const match = text.match(/\{[\s\S]*\}/)
+    if (!llm?.text) return null
+    const match = llm.text.match(/\{[\s\S]*\}/)
     return match ? JSON.parse(match[0]) : null
   } catch {
     return null
@@ -1762,6 +1802,13 @@ Return valid JSON only with keys:
  */
 export async function scoreInterviewSession(input) {
   const ctx = summarizeProfile(input.profile, input.accountName || '')
+  await initRoleSkillStore()
+  const exactRole = resolveExactInterviewRole(input.profile || {}, input.role)
+  const roleSkills =
+    input.roleSkills ||
+    (await ensureRoleSkillsForRole(exactRole, { callLlm: callLlmApi }).catch(() => [])) ||
+    recommendTopSkillsForRole(exactRole, ctx, null)
+  const roleSkillsAnalysis = computeSessionRoleSkillsFit(ctx, roleSkills, input.answers || [])
   const llmByIndex = await evaluateAnswersWithLlm({
     questions: input.questions,
     answers: input.answers,
@@ -1770,7 +1817,7 @@ export async function scoreInterviewSession(input) {
     level: input.level,
   })
   const analyses = input.questions.map((q, i) =>
-    analyzeAnswerDetailed(q, input.answers[i] || '', ctx, llmByIndex?.get(i + 1)),
+    analyzeAnswerDetailed(q, input.answers[i] || '', ctx, llmByIndex?.get(i + 1), roleSkills),
   )
 
   const questionScores = analyses.map((a) => a.score)
@@ -1779,6 +1826,7 @@ export async function scoreInterviewSession(input) {
   const rubricAgg = new Map(INTERVIEW_RUBRICS.map((r) => [r.id, []]))
   for (const a of analyses) {
     for (const r of a.rubrics || []) {
+      if (r.score == null || Number.isNaN(Number(r.score))) continue
       rubricAgg.get(r.id)?.push(r.score)
     }
   }
@@ -1802,20 +1850,22 @@ export async function scoreInterviewSession(input) {
 
   const joined = (input.answers || []).join(' ').toLowerCase()
   const skillsReferenced = ctx.skills.filter((s) => joined.includes(s.toLowerCase())).length
-  let resumeFitScore = Math.min(
-    100,
-    Math.round(
-      (skillsReferenced / Math.max(Math.min(ctx.skills.length, 5), 1)) * 70 +
-        (analyses.reduce((a, b) => a + (b.resumeSkillsHit?.length || 0), 0) > 0 ? 20 : 0) +
-        (ctx.jobs.some((j) => joined.includes(j.split('@')[0]?.toLowerCase?.() || '___never')) ? 10 : 0),
-    ),
-  )
+  let resumeFitScore = roleSkillsAnalysis.fitScore
+  if (!roleSkillsAnalysis.requiredSkills.length) {
+    resumeFitScore = Math.min(
+      100,
+      Math.round(
+        (skillsReferenced / Math.max(Math.min(ctx.skills.length, 5), 1)) * 70 +
+          (analyses.reduce((a, b) => a + (b.resumeSkillsHit?.length || 0), 0) > 0 ? 20 : 0) +
+          (ctx.jobs.some((j) => joined.includes(j.split('@')[0]?.toLowerCase?.() || '___never')) ? 10 : 0),
+      ),
+    )
+  }
 
   if (ctx.skills.length >= 3 && skillsReferenced >= 2) overall = Math.min(100, overall + 4)
   if (ctx.skills.length >= 3 && skillsReferenced === 0) overall = Math.max(0, overall - 5)
 
   const integrity = input.integrity || {}
-  // Camera telemetry is not evidence of job competence and must not alter scores.
 
   const strengths = []
   const improvements = []
@@ -1823,7 +1873,27 @@ export async function scoreInterviewSession(input) {
   if (avgWords >= 50) strengths.push('Answers are detailed enough for a live hiring screen.')
   else improvements.push('Expand answers to roughly 60–150 words with concrete examples.')
 
-  if (skillsReferenced >= 2) {
+  if (roleSkillsAnalysis.requiredSkills.length) {
+    const { onResume, evidencedInAnswers, requiredSkills } = roleSkillsAnalysis
+    if (onResume.length) {
+      strengths.push(
+        `Role skills on résumé: ${onResume.length}/${requiredSkills.length} (${onResume.join(', ')}).`,
+      )
+    } else {
+      improvements.push(
+        `Add required role skills to your résumé where accurate (${requiredSkills.join(', ')}).`,
+      )
+    }
+    if (evidencedInAnswers.length >= Math.min(2, requiredSkills.length)) {
+      strengths.push(
+        `Interview answers evidenced ${evidencedInAnswers.length}/${requiredSkills.length} required role skills.`,
+      )
+    } else {
+      improvements.push(
+        `Mention required role skills in answers (${requiredSkills.filter((s) => !evidencedInAnswers.includes(s)).join(', ') || 'all'}).`,
+      )
+    }
+  } else if (skillsReferenced >= 2) {
     strengths.push(
       `Resume alignment: you evidenced ${ctx.skills
         .filter((s) => joined.includes(s.toLowerCase()))
@@ -1902,6 +1972,7 @@ export async function scoreInterviewSession(input) {
     statistics,
     rubricWeights: INTERVIEW_RUBRICS.map((r) => ({ label: r.label, id: r.id })),
     rubricWeightProfiles: RUBRIC_WEIGHT_BY_PROFILE,
+    roleSkillsAnalysis,
     scorecard: buildCareerScorecard({
       ctx,
       analyses,
@@ -1922,18 +1993,13 @@ export async function scoreInterviewSession(input) {
       singlePersonOk: integrity.singlePersonOk !== false,
       maxFacesSeen: integrity.maxFacesSeen || 1,
     },
-    agent:
-      process.env.OPENROUTER_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.LLM_API_KEY
-        ? 'openrouter+hireright-agent'
-        : 'hireright-agent',
+    agent: geminiApiConfigured() ? 'gemini+hireright-agent' : 'hireright-agent',
   }
 }
 
 const INTERACTIVE_FLOW = {
   version: 4,
-  voice: { preferredName: 'Jessica', language: 'en-IN', rate: 0.94 },
+  voice: { preferredName: 'Neerja', language: 'en-IN', fallbackLanguage: 'en-GB', rate: 0.88, pitch: 1 },
   steps: [
     {
       id: 'day_check',
@@ -2111,7 +2177,7 @@ export function processInterviewInteractive(input) {
   const phase = String(input.phase || 'day_check')
   const role = clean(input.role) || 'your role'
   const ctx = input.ctx || summarizeProfile(input.profile || {}, input.accountName || '')
-  const first = firstNameFromFull(ctx.name)
+  const first = candidateNameForAddress(ctx.name)
   const text = clean(input.userText)
 
   if (phase === 'questions') {

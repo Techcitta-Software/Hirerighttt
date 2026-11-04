@@ -1,10 +1,12 @@
 /** Mirrors backend/node/interviewRubricScoring.mjs */
 import type { Question } from './interviewEngine'
+import { computeQuestionRoleSkillsFit } from './roleSkillsFitScoring'
 
 export const INTERVIEW_RUBRICS = [
   { id: 'correctness', label: 'Answer Correctness' },
   { id: 'depth', label: 'Depth' },
   { id: 'communication', label: 'Communication' },
+  { id: 'roleSkillsFit', label: 'Role Skills Fit' },
 ] as const
 
 export type ScoringProfile =
@@ -17,14 +19,14 @@ export type ScoringProfile =
 
 export const RUBRIC_WEIGHT_BY_PROFILE: Record<
   ScoringProfile,
-  { correctness: number; depth: number; communication: number }
+  { correctness: number; depth: number; communication: number; roleSkillsFit: number }
 > = {
-  opening_generic: { correctness: 0, depth: 0.2, communication: 0.8 },
-  technical: { correctness: 0.5, depth: 0.3, communication: 0.2 },
-  experience: { correctness: 0.32, depth: 0.33, communication: 0.35 },
-  project: { correctness: 0.4, depth: 0.3, communication: 0.3 },
-  behavioral: { correctness: 0.18, depth: 0.22, communication: 0.6 },
-  balanced: { correctness: 0.34, depth: 0.33, communication: 0.33 },
+  opening_generic: { correctness: 0, depth: 0.15, communication: 0.55, roleSkillsFit: 0.3 },
+  technical: { correctness: 0.45, depth: 0.25, communication: 0.15, roleSkillsFit: 0.15 },
+  experience: { correctness: 0.28, depth: 0.27, communication: 0.25, roleSkillsFit: 0.2 },
+  project: { correctness: 0.35, depth: 0.25, communication: 0.25, roleSkillsFit: 0.15 },
+  behavioral: { correctness: 0.15, depth: 0.15, communication: 0.5, roleSkillsFit: 0.2 },
+  balanced: { correctness: 0.3, depth: 0.25, communication: 0.25, roleSkillsFit: 0.2 },
 }
 
 const STRUCTURE_SIGNALS = [
@@ -86,6 +88,10 @@ export function scoreAnswerRubrics(
   question: Question & { scoringProfile?: string },
   answer: string,
   profileSkills: string[] = [],
+  options: {
+    ctx?: { skills?: string[]; resumeSnippet?: string }
+    requiredRoleSkills?: string[]
+  } = {},
 ) {
   const text = answer.trim()
   const lower = text.toLowerCase()
@@ -103,8 +109,8 @@ export function scoreAnswerRubrics(
         : 30
 
   const skillsHit = profileSkills.filter((s) => s.length >= 2 && lower.includes(s.toLowerCase()))
-  let correctness = Math.min(100, Math.round(keywordCoverage * 0.5 + skillsHit.length * 15))
-  if (wordCount < 10) correctness = Math.min(correctness, 25)
+  // Correctness is AI-only in production scoring; local fallback omits it.
+  const correctness: number | null = null
 
   const hasNumbers = /\d/.test(text)
   const hasTools = /\b(react|node|python|sql|aws|docker|typescript|java)\b/i.test(text)
@@ -117,16 +123,39 @@ export function scoreAnswerRubrics(
     Math.round(wordCountBandScore(wordCount) * 0.6 + (structureHits / 3) * 100 * 0.4),
   )
 
-  const scores = { correctness, depth, communication }
+  const roleSkillsFit = computeQuestionRoleSkillsFit(
+    question,
+    answer,
+    {
+      skills: options.ctx?.skills ?? profileSkills,
+      resumeSnippet: options.ctx?.resumeSnippet,
+    },
+    options.requiredRoleSkills ?? [],
+  )
+
+  const scores: Record<(typeof INTERVIEW_RUBRICS)[number]['id'], number | null> = {
+    correctness,
+    depth,
+    communication,
+    roleSkillsFit,
+  }
   const rubrics = INTERVIEW_RUBRICS.map((r) => ({
     id: r.id,
     label: r.label,
     weight: weights[r.id as keyof typeof weights],
-    score: scores[r.id as keyof typeof scores],
+    score: scores[r.id],
   }))
-  const score = Math.min(
-    100,
-    Math.round(rubrics.reduce((s, r) => s + r.score * r.weight, 0)),
-  )
+  const active = rubrics.filter((r) => r.weight > 0 && r.score != null) as {
+    weight: number
+    score: number
+  }[]
+  const weightSum = active.reduce((s, r) => s + r.weight, 0)
+  const score =
+    weightSum > 0
+      ? Math.min(
+          100,
+          Math.round(active.reduce((s, r) => s + r.score * (r.weight / weightSum), 0)),
+        )
+      : 0
   return { rubrics, score, scoringProfile: profile }
 }

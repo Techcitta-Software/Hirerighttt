@@ -9,15 +9,16 @@ INTERVIEW_RUBRICS = [
     {"id": "correctness", "label": "Answer Correctness"},
     {"id": "depth", "label": "Depth"},
     {"id": "communication", "label": "Communication"},
+    {"id": "roleSkillsFit", "label": "Role Skills Fit"},
 ]
 
 RUBRIC_WEIGHT_BY_PROFILE: dict[str, dict[str, float]] = {
-    "opening_generic": {"correctness": 0.0, "depth": 0.2, "communication": 0.8},
-    "technical": {"correctness": 0.5, "depth": 0.3, "communication": 0.2},
-    "experience": {"correctness": 0.32, "depth": 0.33, "communication": 0.35},
-    "project": {"correctness": 0.4, "depth": 0.3, "communication": 0.3},
-    "behavioral": {"correctness": 0.18, "depth": 0.22, "communication": 0.6},
-    "balanced": {"correctness": 0.34, "depth": 0.33, "communication": 0.33},
+    "opening_generic": {"correctness": 0.0, "depth": 0.15, "communication": 0.55, "roleSkillsFit": 0.3},
+    "technical": {"correctness": 0.45, "depth": 0.25, "communication": 0.15, "roleSkillsFit": 0.15},
+    "experience": {"correctness": 0.28, "depth": 0.27, "communication": 0.25, "roleSkillsFit": 0.2},
+    "project": {"correctness": 0.35, "depth": 0.25, "communication": 0.25, "roleSkillsFit": 0.15},
+    "behavioral": {"correctness": 0.15, "depth": 0.15, "communication": 0.5, "roleSkillsFit": 0.2},
+    "balanced": {"correctness": 0.3, "depth": 0.25, "communication": 0.25, "roleSkillsFit": 0.2},
 }
 
 STRUCTURE_SIGNALS = [
@@ -185,33 +186,34 @@ def compute_heuristic_rubric_scores(question: dict[str, Any], answer: str, ctx: 
 
 def merge_rubric_scores(heuristic: dict[str, Any], llm: dict[str, Any] | None) -> dict[str, Any]:
     if not llm:
-        return {**heuristic, "source": "heuristic"}
-
-    def blend(h: float, l: float, llm_weight: float) -> int:
-        return _clamp(h * (1 - llm_weight) + l * llm_weight)
+        return {
+            "correctness": None,
+            "depth": _clamp(heuristic["depth"]),
+            "communication": _clamp(heuristic["communication"]),
+            "roleSkillsFit": heuristic.get("roleSkillsFit"),
+            "feedback": None,
+            "source": "heuristic",
+        }
 
     correctness = (
-        _clamp(llm["correctness"])
-        if isinstance(llm.get("correctness"), (int, float))
-        else heuristic["correctness"]
+        _clamp(llm["correctness"]) if isinstance(llm.get("correctness"), (int, float)) else None
     )
     depth = (
-        blend(heuristic["depth"], llm["depth"], 0.4)
-        if isinstance(llm.get("depth"), (int, float))
-        else heuristic["depth"]
+        _clamp(llm["depth"]) if isinstance(llm.get("depth"), (int, float)) else _clamp(heuristic["depth"])
     )
     communication = (
-        blend(heuristic["communication"], llm["communication"], 0.35)
+        _clamp(llm["communication"])
         if isinstance(llm.get("communication"), (int, float))
-        else heuristic["communication"]
+        else _clamp(heuristic["communication"])
     )
     feedback = _clean(llm.get("feedback")) or None
     return {
         "correctness": correctness,
         "depth": depth,
         "communication": communication,
+        "roleSkillsFit": heuristic.get("roleSkillsFit"),
         "feedback": feedback,
-        "source": "llm+heuristic",
+        "source": "llm",
     }
 
 
@@ -220,17 +222,23 @@ def build_weighted_rubrics(scores: dict[str, Any], profile: str) -> list[dict[st
     out = []
     for defn in INTERVIEW_RUBRICS:
         rid = defn["id"]
+        raw = scores.get(rid)
+        score = None if raw is None else _clamp(raw)
         out.append(
             {
                 "id": rid,
                 "label": defn["label"],
                 "weight": weights.get(rid, 0.33),
-                "score": _clamp(scores.get(rid, 0)),
+                "score": score,
             }
         )
     return out
 
 
 def weighted_question_score(rubrics: list[dict[str, Any]]) -> int:
-    total = sum(r["score"] * r["weight"] for r in rubrics)
+    active = [r for r in rubrics if r.get("weight", 0) > 0 and r.get("score") is not None]
+    weight_sum = sum(r["weight"] for r in active)
+    if not weight_sum:
+        return 0
+    total = sum(r["score"] * (r["weight"] / weight_sum) for r in active)
     return _clamp(total)

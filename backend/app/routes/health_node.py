@@ -11,12 +11,7 @@ router = APIRouter()
 
 
 def _llm_configured() -> bool:
-    return bool(
-        os.environ.get("GEMINI_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("LLM_API_KEY")
-    )
+    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
 
 
 @router.get("/health")

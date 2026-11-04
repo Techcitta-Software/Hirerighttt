@@ -1,4 +1,4 @@
-"""Gemini / OpenAI-compatible structured JSON calls for assessments."""
+"""Google Gemini structured JSON calls for assessments."""
 
 from __future__ import annotations
 
@@ -20,18 +20,13 @@ Return JSON with score (integer 0..4), evidence (exact excerpts from the answer)
 
 
 def _gemini_key() -> str:
-    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
-
-
-def _gemini() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
 
 
 async def structured_call(*, system: str, payload: dict, validate: Callable[[Any], Any], purpose: str) -> dict:
     key = _gemini_key()
     if not key:
         raise AssessmentError(503, "Assessment AI provider is not configured")
-    gemini = _gemini()
     model = os.environ.get("ASSESSMENT_EVALUATION_MODEL" if purpose == "evaluation" else "ASSESSMENT_PLAN_MODEL") or os.environ.get("PRIMARY_MODEL") or "gemini-2.0-flash"
     started = time.time()
     tokens = 0
@@ -39,38 +34,22 @@ async def structured_call(*, system: str, payload: dict, validate: Callable[[Any
     async with httpx.AsyncClient(timeout=30.0) as client:
         for _attempt in range(2):
             try:
-                if gemini:
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-                    body = {
-                        "systemInstruction": {"parts": [{"text": system}]},
-                        "contents": [{"role": "user", "parts": [{"text": user}]}],
-                        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json", "maxOutputTokens": 12000},
-                    }
-                    headers = {"Content-Type": "application/json", "x-goog-api-key": key}
-                else:
-                    base = (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
-                    url = f"{base}/chat/completions"
-                    body = {
-                        "model": model,
-                        "temperature": 0.2,
-                        "response_format": {"type": "json_object"},
-                        "max_tokens": 12000,
-                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                    }
-                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+                body = {
+                    "systemInstruction": {"parts": [{"text": system}]},
+                    "contents": [{"role": "user", "parts": [{"text": user}]}],
+                    "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json", "maxOutputTokens": 12000},
+                }
+                headers = {"Content-Type": "application/json", "x-goog-api-key": key}
                 res = await client.post(url, headers=headers, json=body)
                 if not res.is_success:
                     if res.status_code in (401, 403):
                         break
                     continue
                 data = res.json()
-                if gemini:
-                    tokens += int((data.get("usageMetadata") or {}).get("totalTokenCount") or 0)
-                    parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-                    raw = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
-                else:
-                    tokens += int((data.get("usage") or {}).get("total_tokens") or 0)
-                    raw = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                tokens += int((data.get("usageMetadata") or {}).get("totalTokenCount") or 0)
+                parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+                raw = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
                 result = validate(json.loads(raw))
                 return {
                     "data": result,

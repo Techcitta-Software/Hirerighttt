@@ -1,5 +1,14 @@
-import { buildStructuredTurnQuestion, structuredPlanSummary, resolveExactInterviewRole, questionMatchesPlan, isTheoryTurnForPlan, selectProjectForInterview } from '../interviewQuestionPlan.mjs'
-import { CATEGORIES, callLlmApi, firstNameFromFull, INTERVIEW_TURN_COUNT } from '../interviewAgent.mjs'
+import {
+  structuredPlanSummary,
+  resolveExactInterviewRole,
+  questionMatchesPlan,
+  isTheoryTurnForPlan,
+  theoryAssignedSkillForTurn,
+  selectProjectForInterview,
+} from '../interviewQuestionPlan.mjs'
+import { interviewLlmGenerationFailedError, interviewLlmRequiredError } from '../interviewLlmErrors.mjs'
+import { geminiApiConfigured } from '../llmModels.mjs'
+import { CATEGORIES, callLlmApi, candidateNameForAddress, INTERVIEW_TURN_COUNT } from '../interviewAgent.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
 
 export const ROLE_FAMILY_HINTS = {
@@ -284,15 +293,16 @@ function parseLlmQuestion(rawText, ctx) {
  */
 export async function generateVendorJobQuestion(input, deps = {}) {
   const callLlm = deps.callLlm || callLlmApi
+  if (!deps.callLlm && !geminiApiConfigured()) throw interviewLlmRequiredError()
   const history = Array.isArray(input.history) ? input.history : []
   const turnNumber = history.length + 1
   const ctx = input.ctx || { skills: input.profile?.skills || [], jobs: (input.profile?.workExperiences || []).map(w => `${w.jobTitle || ''} at ${w.company || ''}`), certs: (input.profile?.certifications || []).map(c => c.name), achievements: input.profile?.achievements || [], resumeSnippet: input.profile?.resumeText || '' }
   const role = resolveExactInterviewRole(input.profile || {}, input.jobTitle || input.role)
   const varietySeed = input.varietySeed || String(Math.random())
   const plan = structuredPlanSummary(role, ctx, input.profile || null, input.level || '', null, null, varietySeed)
-  const fallback = buildStructuredTurnQuestion({ turnNumber, first: firstNameFromFull(input.candidateName || ctx.name || ''), level: input.level || '', profile: input.profile || null, ctx, roleOverride: role, history, planSummary: plan, varietySeed })
-  if (!fallback) throw new Error('The six-question interview is complete.')
+  if (turnNumber > (plan.totalTurns || 6)) throw new Error('The interview is complete.')
   const theory = isTheoryTurnForPlan(plan, turnNumber)
+  const assignedSkill = theory ? theoryAssignedSkillForTurn(plan, turnNumber) : null
   const system = `You are Ava, the same professional live interviewer. Generate exactly one question as JSON.
 Follow this mandatory interview plan: ${JSON.stringify(plan.turnPlan)}.
 This is turn ${turnNumber}: ${plan.turnPlan[turnNumber - 1]}. Experience: ${input.profile?.totalExperience || input.level || 'not specified'}.
@@ -305,17 +315,42 @@ Use supplied work/project/certification evidence only in the relevant slots. Nev
 The JD provides role context but must not override the slot or convert a theory question into a personal work question.
 Do not repeat prior questions. Use simple, everyday words and short sentences, with one main question. Keep necessary skill names, but avoid unnecessary jargon. Ask neutral questions based on the supplied role and experience; never ask candidates to prove or verify past employment or defend resume claims. Avoid lead-ins such as "you said", "you claim", or "you have worked". Ask what they know or how they would approach a task. Calibrate depth to years: under 2 years fundamentals, 2 to under 5 practical application, 5+ design choices and problem solving. Mentioning a skill must not raise the experience tier.
 Return {"question":{"text":"...","category":"Technical|Experience|Problem Solving|Communication","keywords":[],"hint":"...","topic":"..."}}.`
-  const user = JSON.stringify({ role, experience: input.level, experienceYears: plan.experienceYears, difficulty: plan.difficulty, topRoleSkills: plan.topRoleSkills, selectedProject: theory ? undefined : selectProjectForInterview(input.profile || null, ctx, role, varietySeed), jobDescription: input.jobDescription, candidateSummary: theory ? undefined : ctx, priorQuestions: history.map(h => h.question?.text || h.question), lastAnswer: theory ? undefined : input.lastAnswer, slotExample: fallback })
-  for (const temperature of [0.55, 0.35]) {
+  const user = JSON.stringify({
+    role,
+    experience: input.level,
+    experienceYears: plan.experienceYears,
+    difficulty: plan.difficulty,
+    topRoleSkills: plan.topRoleSkills,
+    questionMode: theory ? 'conceptual_theory' : 'experience_or_project',
+    assignedSkillForTurn: assignedSkill,
+    selectedProject: theory ? undefined : selectProjectForInterview(input.profile || null, ctx, role, varietySeed),
+    jobDescription: input.jobDescription,
+    candidateSummary: theory ? undefined : ctx,
+    priorQuestions: history.map((h) => h.question?.text || h.question),
+    lastAnswer: theory ? undefined : input.lastAnswer,
+    slotPlanLine: plan.turnPlan[turnNumber - 1] || null,
+  })
+  for (const temperature of [0.55, 0.35, 0.28, 0.18]) {
     const llm = await callLlm({ system, user, temperature, tier: 'quality' })
     if (!llm?.text) continue
     try {
       const parsed = JSON.parse(llm.text.match(/\{[\s\S]*\}/)?.[0] || '{}')
       const q = parsed.question || parsed
       if (typeof q.text !== 'string' || q.text.length < 24 || !questionMatchesPlan(q, plan, turnNumber)) continue
-      if (history.some(h => (h.question?.text || h.question) === q.text)) continue
-      return { ...fallback, text: q.text, hint: typeof q.hint === 'string' ? q.hint : fallback.hint, keywords: Array.isArray(q.keywords) ? q.keywords.filter(k => typeof k === 'string') : fallback.keywords, topic: theory ? fallback.topic : q.topic || fallback.topic, jdAnchor: fallback.topic, probesGap: false, focus: fallback.focus }
-    } catch { /* Retry the same provider before the slot-specific fallback. */ }
+      if (history.some((h) => (h.question?.text || h.question) === q.text)) continue
+      return {
+        text: q.text,
+        category: q.category || 'Technical',
+        keywords: Array.isArray(q.keywords) ? q.keywords.filter((k) => typeof k === 'string') : [],
+        hint: typeof q.hint === 'string' ? q.hint : 'Answer clearly and stay on topic.',
+        topic: theory ? assignedSkill || q.topic : q.topic || assignedSkill,
+        jdAnchor: q.topic,
+        probesGap: false,
+        focus: 'vendor-jd-llm',
+      }
+    } catch {
+      /* retry */
+    }
   }
-  return { ...fallback, jdAnchor: fallback.topic, probesGap: false }
+  throw interviewLlmGenerationFailedError()
 }

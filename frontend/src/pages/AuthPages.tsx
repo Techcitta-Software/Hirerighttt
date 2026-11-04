@@ -652,7 +652,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
             /* LOGIN VIEW */
             <div className={styles.authContainer}>
               <header className={styles.formHeader}>
-                <h1 className={styles.welcomeTitle}>Welcome back</h1>
+                <h1 className={styles.welcomeTitle}>Welcome</h1>
                 <p className={styles.welcomeSub}>Log in to continue your career journey.</p>
               </header>
 

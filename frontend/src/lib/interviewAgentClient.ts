@@ -10,13 +10,13 @@ import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
 import { candidateFullName } from './store'
-import { generateLocalAdaptiveQuestion, INTERVIEW_TURN_COUNT } from './adaptiveInterview'
+import { INTERVIEW_TURN_COUNT } from './adaptiveInterview'
 import {
   generateAdaptiveQuestionClient,
-  generateAdaptiveQuestionLocal,
   resolveInterviewTotalTurns,
   summarizeProfileForQuestions,
 } from './interviewQuestionGeneration'
+import { interviewLlmRequiredError } from './interviewLlmErrors'
 import {
   buildResumeInterviewQuestions,
   runLocalInterviewScore,
@@ -43,17 +43,14 @@ function candidateFirstName(profile: SavedProfile | null): string {
     profile?.name?.trim() ||
     candidateFullName()
   if (!full || full === 'Candidate') return 'there'
-  return full.split(/\s+/)[0] || 'there'
+  return full.trim().replace(/\s+/g, ' ')
 }
 
-const GEMINI_API_KEY = clientLlmAllowed()
-  ? import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_OPENAI_API_KEY || ''
-  : ''
+const GEMINI_API_KEY = clientLlmAllowed() ? import.meta.env.VITE_GEMINI_API_KEY || '' : ''
 const GEMINI_BASE_URL = (
   typeof window !== 'undefined' && clientLlmAllowed()
     ? '/ai-proxy'
     : import.meta.env.VITE_GEMINI_BASE_URL ||
-      import.meta.env.VITE_OPENAI_BASE_URL ||
       'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/$/, '')
 const GEMINI_FLASH_LITE =
@@ -224,39 +221,60 @@ export async function startInterviewSession(
     if (res.ok) {
       const adaptive = data.adaptive !== false && Boolean(data.adaptive ?? data.mode === 'adaptive')
       const questions = data.questions as Question[] | undefined
+      const totalTurns =
+        typeof data.total === 'number' && data.total > 0
+          ? data.total
+          : adaptive
+            ? INTERVIEW_TURN_COUNT
+            : Array.isArray(questions)
+              ? questions.length
+              : 1
+      const batchPreloaded =
+        adaptive &&
+        Array.isArray(questions) &&
+        questions.length >= totalTurns &&
+        Boolean(questions[0]?.text && questions[0].text.length >= 24)
       const hasQuestions =
         Array.isArray(questions) &&
-        (adaptive ? questions.length >= 1 : questions.length >= 3)
+        (adaptive ? batchPreloaded || questions.length >= 1 : questions.length >= 3)
       if (hasQuestions) {
-        const llmAgent =
-          data.agent === 'llm' ||
-          data.llm ||
-          data.agent === 'llm-adaptive' ||
-          data.agent === 'vendor-jd-llm'
-        const totalTurns =
-          typeof data.total === 'number' && data.total > 0
-            ? data.total
-            : adaptive
-              ? INTERVIEW_TURN_COUNT
-              : questions!.length
         const varietySeed =
           typeof data.varietySeed === 'string' && data.varietySeed.trim()
             ? data.varietySeed.trim()
             : typeof crypto !== 'undefined' && crypto.randomUUID
               ? crypto.randomUUID().slice(0, 16)
               : String(Date.now())
-        const structuredFirst = adaptive
-          ? generateAdaptiveQuestionLocal({
-              profile: agentProfile,
-              role,
-              level,
-              jobDescription,
-              history: [],
-              lastAnswer: '',
-              varietySeed,
-            })
-          : questions![0]
-        const firstQuestions = adaptive ? [structuredFirst] : questions!
+        const serverFirst =
+          (data.question as Question | undefined)?.text?.length
+            ? (data.question as Question)
+            : questions![0]
+        let firstQuestions: Question[] =
+          adaptive && batchPreloaded ? questions! : adaptive ? [serverFirst] : questions!
+        if (
+          adaptive &&
+          !batchPreloaded &&
+          (!serverFirst?.text || serverFirst.text.length < 24) &&
+          clientLlmAllowed()
+        ) {
+          const llmFirst = await generateAdaptiveQuestionClient({
+            profile: agentProfile,
+            role,
+            level,
+            jobDescription,
+            history: [],
+            lastAnswer: '',
+            varietySeed,
+          })
+          if (llmFirst?.text) firstQuestions = [llmFirst]
+        } else if (adaptive && !batchPreloaded && (!serverFirst?.text || serverFirst.text.length < 24)) {
+          throw interviewLlmRequiredError()
+        }
+        const llmAgent =
+          data.agent === 'llm' ||
+          data.llm ||
+          data.agent === 'llm-adaptive' ||
+          data.agent === 'vendor-jd-llm' ||
+          firstQuestions[0]?.focus === 'adaptive-llm'
         return {
           sessionId: (data.sessionId as string) || `session-${Date.now().toString(36)}`,
           agent: llmAgent
@@ -317,25 +335,9 @@ export async function startInterviewSession(
     }
   }
 
-  // 3. Local template fallback (one question at a time)
-  const firstAdaptive = generateLocalAdaptiveQuestion(
-    role,
-    level,
-    agentProfile,
-    [],
-    '',
-    { explicitRoleTrack, jobDescription },
+  throw interviewLlmRequiredError(
+    'Could not start the interview: connect to the API with GEMINI_API_KEY, or enable dev client LLM (VITE_ALLOW_CLIENT_LLM + VITE_GEMINI_API_KEY).',
   )
-  return {
-    sessionId: `local-${Date.now().toString(36)}`,
-    agent: 'Ava · local adaptive agent',
-    llm: false,
-    total: offlineTotalTurns,
-    questions: [firstAdaptive],
-    question: firstAdaptive,
-    offline: true,
-    adaptive: true,
-  }
 }
 
 export async function pingInterviewIntegrity(

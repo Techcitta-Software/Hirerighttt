@@ -78,12 +78,9 @@ def assert_production_config() -> None:
         errors.append("SESSION_SECRET (or SECRET_KEY) must be at least 32 random characters in production.")
     if not config.cors_origins or "*" in config.cors_origins:
         errors.append("Set CORS_ORIGINS to your exact frontend URL(s) — no wildcards in production.")
-    has_llm = any(
-        os.environ.get(k)
-        for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "LLM_API_KEY")
-    )
+    has_llm = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
     if not has_llm:
-        errors.append("GEMINI_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY) is required in production.")
+        errors.append("GEMINI_API_KEY is required in production (Google AI Studio).")
     if errors:
         strict = os.environ.get("STRICT_PRODUCTION_CONFIG") == "true"
         msg = "\n".join(f"  - {e}" for e in errors)

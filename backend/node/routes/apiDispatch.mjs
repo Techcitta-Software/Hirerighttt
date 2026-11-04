@@ -42,6 +42,10 @@ import {
 import { s3StorageConfigured } from '../storage/s3ObjectStorage.mjs'
 import { resolveTenantId } from '../storage/s3KeyLayout.mjs'
 import { persistProctoringFlags } from '../proctoring/persistProctoringFlags.mjs'
+import {
+  applyFaceDeviationPenaltyToResult,
+  countFaceProctorDeviations,
+} from '../proctoring/proctorScorePenalty.mjs'
 import { reviewLogsToFlagSections } from '../proctoring/reviewLogsToFlagSections.mjs'
 import { stripInterviewResultForCandidate } from '../proctoring/stripProctoringForCandidate.mjs'
 import { generateAndPersistInterviewReportPdf } from '../reports/generateInterviewReportPdf.mjs'
@@ -102,9 +106,10 @@ import {
   recordCandidateJobApplication,
 } from '../vendor/candidateApplications.mjs'
 import { computeEmployerInterviewComposite } from '../atsScorer.mjs'
+import { isInterviewLlmError } from '../interviewLlmErrors.mjs'
 import {
   generateAdaptiveQuestion,
-  generateAdaptiveQuestionLocal,
+  generateAdaptiveQuestionBatch,
   analyzeInterviewSkillMatch,
   resolveInterviewQuestionMode,
   INTERVIEW_TURN_COUNT,
@@ -128,6 +133,8 @@ import {
   resolveExactInterviewRole,
   structuredPlanSummary,
   analyzeOpeningAnswerAlignment,
+  experiencedFallbackTurnNumber,
+  experiencedClosingTurnNumber,
 } from '../interviewQuestionPlan.mjs'
 import { ensureRoleSkillsForRole, initRoleSkillStore } from '../roleSkillStore.mjs'
 import { extractPrimarySkillsFromJd } from '../vendor/atsScore.mjs'
@@ -815,19 +822,35 @@ export function createApiDispatchMiddleware(ctx) {
       })
       const role = job?.roleTrack || job?.title || app.data?.jobTitle || 'Engineer'
       const level = app.data?.experienceYears || job?.experienceLevel || '1–3 years'
+      if (!llmConfigured()) {
+        return json(res, 503, {
+          error: 'Interview preview requires GEMINI_API_KEY on the server.',
+          code: 'LLM_QUESTION_REQUIRED',
+        })
+      }
       const questions = []
       const history = []
-      for (let turn = 0; turn < INTERVIEW_TURN_COUNT; turn++) {
-        const question = generateAdaptiveQuestionLocal({
-          ctx: digest,
-          role,
-          level,
-          jobDescription,
-          history,
-          lastAnswer: '',
-        })
-        questions.push(question)
-        history.push({ question, answer: '' })
+      const previewSeed = randomBytes(8).toString('hex')
+      try {
+        for (let turn = 0; turn < INTERVIEW_TURN_COUNT; turn++) {
+          const question = await generateAdaptiveQuestion({
+            ctx: digest,
+            profile,
+            role,
+            level,
+            jobDescription,
+            history,
+            lastAnswer: '',
+            varietySeed: previewSeed,
+          })
+          questions.push(question)
+          history.push({ question, answer: 'Preview placeholder answer for next turn.' })
+        }
+      } catch (err) {
+        if (isInterviewLlmError(err)) {
+          return json(res, err.status || 503, { error: err.message, code: err.code })
+        }
+        throw err
       }
       return json(res, 200, {
         questionMode: 'adaptive',
@@ -1241,42 +1264,60 @@ export function createApiDispatchMiddleware(ctx) {
         interviewTotalTurns = interviewPlanSummary.totalTurns || INTERVIEW_TURN_COUNT
       }
 
-      const first =
-        questionMode === 'vendor_jd'
-          ? await generateVendorJobQuestion(
-              {
-                ctx,
-                profile,
-                role,
-                jobTitle: role,
-                roleTrack,
-                level,
-                jobDescription: effectiveJd,
-                plan: jdPlan,
-                requiredSkills,
-                history: [],
-                lastAnswer: '',
-                candidateName: account?.name,
-                varietySeed: varietySeed,
-              },
-              { callLlm: callLlmApi },
-            )
-          : await generateAdaptiveQuestion({
+      let first
+      let questions
+      let sessionFallbackTurn = null
+      let sessionClosingTurn = null
+      let preloadedQuestionBatch = false
+      try {
+        if (questionMode === 'vendor_jd') {
+          first = await generateVendorJobQuestion(
+            {
               ctx,
               profile,
               role,
+              jobTitle: role,
+              roleTrack,
               level,
               jobDescription: effectiveJd,
-              explicitRoleTrack,
+              plan: jdPlan,
+              requiredSkills,
               history: [],
               lastAnswer: '',
-              accountName: account?.name,
-              roleSkills,
-              planSummary: interviewPlanSummary,
-              totalTurns: interviewTotalTurns,
-              varietySeed,
-            })
-      const questions = [first]
+              candidateName: account?.name,
+              varietySeed: varietySeed,
+            },
+            { callLlm: callLlmApi },
+          )
+          questions = [first]
+        } else {
+          const batch = await generateAdaptiveQuestionBatch({
+            ctx,
+            profile,
+            role,
+            level,
+            jobDescription: effectiveJd,
+            explicitRoleTrack,
+            accountName: account?.name,
+            roleSkills,
+            planSummary: interviewPlanSummary,
+            totalTurns: interviewTotalTurns,
+            varietySeed,
+          })
+          questions = batch.questions
+          first = questions[0]
+          sessionFallbackTurn = batch.fallbackTurn
+          sessionClosingTurn = batch.closingTurn
+          preloadedQuestionBatch = true
+          interviewPlanSummary = batch.planSummary || interviewPlanSummary
+          interviewTotalTurns = batch.totalTurns || interviewTotalTurns
+        }
+      } catch (err) {
+        if (isInterviewLlmError(err)) {
+          return json(res, err.status || 503, { error: err.message, code: err.code })
+        }
+        throw err
+      }
       const agentLabel =
         first.focus === 'vendor-jd-llm'
           ? 'vendor-jd-llm'
@@ -1342,6 +1383,9 @@ export function createApiDispatchMiddleware(ctx) {
         planSummary: interviewPlanSummary,
         totalTurns: interviewTotalTurns,
         varietySeed,
+        preloadedQuestionBatch,
+        fallbackTurn: sessionFallbackTurn,
+        closingTurn: sessionClosingTurn,
       }
       db.interviewSessions[sessionId] = session
       await saveDb(db)
@@ -1351,6 +1395,7 @@ export function createApiDispatchMiddleware(ctx) {
         agent: agentLabel,
         adaptive,
         llm: llmConfigured(),
+        varietySeed,
         total: adaptive ? interviewTotalTurns : questions.length,
         questionIndex: 0,
         question: questions[0],
@@ -1420,47 +1465,78 @@ export function createApiDispatchMiddleware(ctx) {
         return json(res, 200, { complete: true, turn: history.length })
       }
       const lastAnswer = String(body.lastAnswer || '')
-      const next =
-        session.questionMode === 'vendor_jd'
-          ? await generateVendorJobQuestion(
-              {
+      const nextTurn = history.length + 1
+      const fallbackTurn =
+        session.fallbackTurn ??
+        (session.planSummary?.fresher ? null : experiencedFallbackTurnNumber())
+      const closingTurn =
+        session.closingTurn ??
+        (session.planSummary?.fresher ? null : experiencedClosingTurnNumber())
+      const deferredTurn = fallbackTurn === nextTurn || closingTurn === nextTurn
+      if (session.preloadedQuestionBatch && session.questionMode !== 'vendor_jd' && !deferredTurn) {
+        const cached = (session.questions || [])[nextTurn - 1]
+        if (cached?.text && cached.text.length >= 24) {
+          db.interviewSessions[sessionId] = session
+          await saveDb(db)
+          return json(res, 200, { question: cached, turn: nextTurn, preloaded: true })
+        }
+      }
+      let next
+      try {
+        next =
+          session.questionMode === 'vendor_jd'
+            ? await generateVendorJobQuestion(
+                {
+                  ctx,
+                  profile,
+                  role: session.role,
+                  jobTitle: session.role,
+                  roleTrack: session.roleTrack || session.role,
+                  level: session.level,
+                  jobDescription: session.jobDescription,
+                  plan: session.jdPlan,
+                  requiredSkills: session.primarySkills,
+                  history,
+                  lastAnswer,
+                  candidateName: account?.name,
+                  varietySeed: session.varietySeed,
+                },
+                { callLlm: callLlmApi },
+              )
+            : await generateAdaptiveQuestion({
                 ctx,
                 profile,
-                role: session.role,
-                jobTitle: session.role,
-                roleTrack: session.roleTrack || session.role,
-                level: session.level,
-                jobDescription: session.jobDescription,
-                plan: session.jdPlan,
-                requiredSkills: session.primarySkills,
+                role: String(body.role || session.role),
+                level: String(body.level || session.level),
+                jobDescription: String(body.jobDescription || session.jobDescription || ''),
+                roleSkills: session.roleSkills || null,
+                planSummary: session.planSummary || null,
+                openingAnalysis: session.openingAnalysis || null,
+                totalTurns: sessionTotalTurns,
+                varietySeed: session.varietySeed || '',
+                explicitRoleTrack:
+                  body.explicitRoleTrack === true || session.explicitRoleTrack === true,
                 history,
                 lastAnswer,
-                candidateName: account?.name,
-                varietySeed: session.varietySeed,
-              },
-              { callLlm: callLlmApi },
-            )
-          : await generateAdaptiveQuestion({
-              ctx,
-              profile,
-              role: String(body.role || session.role),
-              level: String(body.level || session.level),
-              jobDescription: String(body.jobDescription || session.jobDescription || ''),
-              roleSkills: session.roleSkills || null,
-              planSummary: session.planSummary || null,
-              openingAnalysis: session.openingAnalysis || null,
-              totalTurns: sessionTotalTurns,
-              varietySeed: session.varietySeed || '',
-              explicitRoleTrack:
-                body.explicitRoleTrack === true || session.explicitRoleTrack === true,
-              history,
-              lastAnswer,
-              accountName: account?.name,
-            })
-      session.questions = [...(session.questions || []), next]
+                accountName: account?.name,
+              })
+      } catch (err) {
+        if (isInterviewLlmError(err)) {
+          return json(res, err.status || 503, { error: err.message, code: err.code })
+        }
+        throw err
+      }
+      if (session.preloadedQuestionBatch && deferredTurn) {
+        const updated = [...(session.questions || [])]
+        while (updated.length < nextTurn) updated.push({ text: '', focus: 'pending' })
+        updated[nextTurn - 1] = next
+        session.questions = updated
+      } else {
+        session.questions = [...(session.questions || []), next]
+      }
       db.interviewSessions[sessionId] = session
       await saveDb(db)
-      return json(res, 200, { question: next, turn: history.length + 1 })
+      return json(res, 200, { question: next, turn: nextTurn, preloaded: false })
     }
 
     /** Interactive turn: Ava acknowledges answer before next question */
@@ -2192,6 +2268,9 @@ export function createApiDispatchMiddleware(ctx) {
         result.compositeScore = composite.compositeScore
         result.resumeFitScore = composite.atsScore
       }
+
+      const deviationCount = countFaceProctorDeviations(clientIntegrity, proctoring)
+      applyFaceDeviationPenaltyToResult(result, deviationCount)
 
       db.interviews[email] = result
       if (session) {

@@ -5,8 +5,11 @@
 
 import { scoreInterview, type Question } from './interviewEngine'
 import { classifyQuestionScoringProfile, scoreAnswerRubrics } from './interviewRubrics'
+import { computeSessionRoleSkillsFit } from './roleSkillsFitScoring'
+import { getSkillsForRole } from './roleSkillStore'
+import { resolveExactInterviewRole } from './interviewQuestionPlan'
 import type { InterviewResult, SavedProfile } from './store'
-import { firstName, getUser } from './store'
+import { candidateFullName } from './store'
 import type { IntegritySnapshot } from './interviewAgentClient'
 
 const STOP = new Set([
@@ -67,7 +70,8 @@ export function buildResumeInterviewQuestions(
   profile: SavedProfile | null,
   jobDescription?: string,
 ): Question[] {
-  const name = firstName() || getUser()?.name?.split(' ')[0] || 'there'
+  const fullName = (profile?.fullName || profile?.name || candidateFullName()).trim().replace(/\s+/g, ' ')
+  const name = fullName && fullName !== 'Candidate' ? fullName : 'there'
   const resumeText = profile?.resumeText || ''
   const skills = extractTokensFromResume(resumeText, profile?.skills || [])
   const companies = extractCompanies(profile, resumeText)
@@ -359,12 +363,20 @@ export function runLocalInterviewScore(options: {
   integrity: IntegritySnapshot
 }): InterviewResult {
   const skills = options.profile?.skills ?? []
+  const exactRole = resolveExactInterviewRole(options.profile, options.role)
+  const requiredRoleSkills = getSkillsForRole(exactRole)
+  const ctx = {
+    skills,
+    resumeSnippet: options.profile?.resumeText?.slice(0, 4000) ?? '',
+  }
+  const roleSkillsAnalysis = computeSessionRoleSkillsFit(ctx, requiredRoleSkills, options.answers)
   const rubricAnswers = options.questions.map((q, i) => {
     const extended = q as Question & { scoringProfile?: string; focus?: string; topic?: string }
     const { rubrics, score, scoringProfile } = scoreAnswerRubrics(
       extended,
       options.answers[i] ?? '',
       skills,
+      { ctx, requiredRoleSkills },
     )
     return {
       question: q.text,
@@ -387,9 +399,15 @@ export function runLocalInterviewScore(options: {
     }
   })
 
-  const rubricAgg = { correctness: [] as number[], depth: [] as number[], communication: [] as number[] }
+  const rubricAgg = {
+    correctness: [] as number[],
+    depth: [] as number[],
+    communication: [] as number[],
+    roleSkillsFit: [] as number[],
+  }
   for (const a of rubricAnswers) {
     for (const r of a.rubrics ?? []) {
+      if (r.score == null || Number.isNaN(Number(r.score))) continue
       if (r.id in rubricAgg) rubricAgg[r.id as keyof typeof rubricAgg].push(r.score)
     }
   }
@@ -397,6 +415,7 @@ export function runLocalInterviewScore(options: {
     { label: 'Answer Correctness', score: avg(rubricAgg.correctness) },
     { label: 'Depth', score: avg(rubricAgg.depth) },
     { label: 'Communication', score: avg(rubricAgg.communication) },
+    { label: 'Role Skills Fit', score: avg(rubricAgg.roleSkillsFit) || roleSkillsAnalysis.fitScore },
   ]
   let overall = Math.round(rubricAnswers.reduce((s, a) => s + a.score, 0) / Math.max(rubricAnswers.length, 1))
 
@@ -414,7 +433,7 @@ export function runLocalInterviewScore(options: {
 
   overall = overall || scored.overall
 
-  const fit = resumeFitScore(options.answers, options.profile)
+  const fit = requiredRoleSkills.length ? roleSkillsAnalysis.fitScore : resumeFitScore(options.answers, options.profile)
   const strengths = [...scored.strengths]
   const improvements = [...scored.improvements]
   if (fit >= 70) strengths.unshift('Answers align well with skills/projects on your resume.')
@@ -429,6 +448,7 @@ export function runLocalInterviewScore(options: {
     categories,
     answers: rubricAnswers,
     resumeFitScore: fit,
+    roleSkillsAnalysis,
     strengths: strengths.slice(0, 6),
     improvements: improvements.slice(0, 6),
     integrity: options.integrity,
