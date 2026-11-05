@@ -322,7 +322,7 @@ function isSeniorExperienceLevel(level: string): boolean {
   return false
 }
 
-function isThinAnswer(text: string): boolean {
+export function isThinAnswer(text: string): boolean {
   return clean(text).split(/\s+/).filter(Boolean).length < 12
 }
 
@@ -378,7 +378,7 @@ function questionMentions(history: { question?: Question }[], label: string): bo
   })
 }
 
-function buildClaimedSkillQuestion(first: string, skill: string, role: string): string {
+export function buildClaimedSkillQuestion(first: string, skill: string, role: string): string {
   const fullStackLike = /full[\s-]?stack|mern|mean/i.test(skill)
   const mathLike = /math|statistic|calculus|algebra|geometry/i.test(skill)
   if (fullStackLike) {
@@ -400,7 +400,7 @@ function buildClaimedSkillQuestion(first: string, skill: string, role: string): 
   )
 }
 
-function buildFirstAdaptiveQuestionLocal(
+export function buildFirstAdaptiveQuestionLocal(
   first: string,
   role: string,
   level: string,
@@ -450,7 +450,7 @@ function buildFirstAdaptiveQuestionLocal(
   }
 }
 
-function pickResumeTopic(ctx: ProfileDigest, history: { question?: Question }[]) {
+export function pickResumeTopic(ctx: ProfileDigest, history: { question?: Question }[]) {
   const asked = new Set(
     history.map((h) => clean(h.question?.topic || h.question?.text?.slice(0, 40)).toLowerCase()),
   )
@@ -469,7 +469,7 @@ function pickResumeTopic(ctx: ProfileDigest, history: { question?: Question }[])
   return null
 }
 
-function buildResumeTopicQuestion(
+export function buildResumeTopicQuestion(
   first: string,
   role: string,
   level: string,
@@ -508,7 +508,7 @@ function buildResumeTopicQuestion(
   }
 }
 
-function nextResumeSkillInJobDescription(
+export function nextResumeSkillInJobDescription(
   jobDescription: string,
   ctx: ProfileDigest,
   history: { question?: Question }[],
@@ -528,7 +528,7 @@ function nextResumeSkillInJobDescription(
   return ''
 }
 
-function buildLevelFallbackQuestion(first: string, role: string, level: string, turnNumber: number): string {
+export function buildLevelFallbackQuestion(first: string, role: string, level: string, turnNumber: number): string {
   if (turnNumber >= INTERVIEW_TURN_COUNT) {
     return spokenLead(
       first,

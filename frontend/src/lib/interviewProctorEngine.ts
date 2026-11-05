@@ -172,7 +172,7 @@ export class InterviewProctorEngine {
   private touchIncident(
     type: FlagType,
     nowMs: number,
-    videoEl: HTMLVideoElement,
+    _videoEl: HTMLVideoElement,
     metrics: {
       yawDeg?: number
       pitchDeg?: number

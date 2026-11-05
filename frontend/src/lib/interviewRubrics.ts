@@ -99,16 +99,7 @@ export function scoreAnswerRubrics(
   const profile = classifyQuestionScoringProfile(question)
   const weights = getRubricWeights(profile)
 
-  const keywords = (question.keywords || []).map((k) => k.toLowerCase())
-  const keywordsHit = keywords.filter((k) => lower.includes(k))
-  const keywordCoverage =
-    keywords.length > 0
-      ? Math.round((keywordsHit.length / Math.min(keywords.length, 6)) * 100)
-      : wordCount >= 20
-        ? 65
-        : 30
 
-  const skillsHit = profileSkills.filter((s) => s.length >= 2 && lower.includes(s.toLowerCase()))
   // Correctness is AI-only in production scoring; local fallback omits it.
   const correctness: number | null = null
 
