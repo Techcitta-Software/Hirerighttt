@@ -25,20 +25,19 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
         </div>
         <div>
           <h4>For Job Seekers</h4>
-          <Link to="/job-seekers">Overview</Link>
+          <Link to="/why">Why us?</Link>
           <Link to="/signup">Create account</Link>
           <Link to="/interview">AI Interview</Link>
         </div>
         <div>
           <h4>Resources</h4>
-          <Link to="/resources">Help center</Link>
-          <Link to="/how-it-works">How it works</Link>
+          <Link to="/career-view">360° Report</Link>
+          <Link to="/solutions">For organizations</Link>
           <Link to="/contact">Contact</Link>
         </div>
         <div>
           <h4>About HireRight</h4>
-          <Link to="/about">About us</Link>
-          <Link to="/pricing">Pricing</Link>
+                    <Link to="/pricing">Pricing</Link>
           <Link to="/privacy">Privacy Policy</Link>
           <Link to="/terms">Terms &amp; Conditions</Link>
           <Link to="/cookies">Cookie Policy</Link>

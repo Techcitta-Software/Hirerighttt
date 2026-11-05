@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { HrIcon, type HrIconName } from '../components/HrIcon'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import styles from './WhyPage.module.css'
 
@@ -66,201 +66,201 @@ export function WhyPage() {
 
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <MarketingNavBar />
 
-      <main className={styles.shell}>
-        <motion.div
-          className={styles.hero}
-          initial="hidden"
-          animate="show"
-          variants={staggerContainer}
-        >
-          <motion.div className={styles.badge} variants={fadeUp}>
-            <HrIcon name="zap" size={14} /> THE FUTURE OF HIRING
+      <main className={styles.main}>
+        {/* HERO */}
+        <section className={styles.hero}>
+          <motion.div
+            className={styles.heroInner}
+            initial="hidden"
+            animate="show"
+            variants={staggerContainer}
+          >
+            <motion.div className={styles.badge} variants={fadeUp}>
+              <HrIcon name="zap" size={14} /> The future of hiring
+            </motion.div>
+            <motion.h1 className={styles.title} variants={fadeUp}>
+              Why HireRighttt?{' '}
+              <span className={styles.titleAccent}>The proof is in the interview.</span>
+            </motion.h1>
+            <motion.p className={styles.subtitle} variants={fadeUp}>
+              Resume screening is broken: keyword scanners filter out strong candidates while
+              recruiters lose weeks to repetitive first calls. We built a better way to hire.
+            </motion.p>
+            <motion.div className={styles.heroActions} variants={fadeUp}>
+              <Link to="/organizations/signup" className={styles.btnPrimary}>
+                Start hiring
+              </Link>
+              <Link to="/signup" className={styles.btnGhost}>
+                I&apos;m a candidate
+              </Link>
+            </motion.div>
           </motion.div>
-          <motion.h1 className={styles.title} variants={fadeUp}>
-            Why HireRight? <em>The Proof Is In The Interview.</em>
-          </motion.h1>
-          <motion.p className={styles.subtitle} variants={fadeUp}>
-            Traditional resume screening is broken: 80% of top engineers are filtered out by keyword scanners, while recruiters spend weeks on repetitive initial calls. We built a better way.
-          </motion.p>
-        </motion.div>
+        </section>
 
-        {/* VISUAL PARADIGM COMPARISON CARDS */}
-        <div className={styles.paradigmGrid}>
-          <div style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: '18px', padding: '28px', boxShadow: '0 4px 16px rgba(239,68,68,0.06)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <span className={styles.compareIconBad} aria-hidden>
-                <HrIcon name="close" size={22} />
-              </span>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#991b1b', fontWeight: 800 }}>The Broken Resume Funnel</h3>
-                <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>Legacy Keyword ATS Filters</span>
-              </div>
+        <div className={styles.container}>
+          {/* PARADIGM */}
+          <section className={styles.section}>
+            <div className={styles.paradigmGrid}>
+              <article className={`${styles.paradigmCard} ${styles.paradigmBad}`}>
+                <header className={styles.paradigmHead}>
+                  <span className={styles.compareIconBad} aria-hidden>
+                    <HrIcon name="close" size={22} />
+                  </span>
+                  <div>
+                    <h3>The broken resume funnel</h3>
+                    <span>Legacy keyword ATS filters</span>
+                  </div>
+                </header>
+                <ul>
+                  <li><strong>Easily gamed:</strong> keyword stuffing and AI-written bullet points trick scanners.</li>
+                  <li><strong>High rejection:</strong> 80% of hands-on engineers are filtered out before an interview.</li>
+                  <li><strong>Zero verification:</strong> proxy and ghostwriter risk with unmonitored take-home tests.</li>
+                  <li><strong>Recruiter drag:</strong> 45–60 minutes lost per introductory phone screen.</li>
+                </ul>
+              </article>
+
+              <article className={`${styles.paradigmCard} ${styles.paradigmGood}`}>
+                <header className={styles.paradigmHead}>
+                  <span className={styles.compareIconGood} aria-hidden>
+                    <HrIcon name="check" size={22} strokeWidth={2.5} />
+                  </span>
+                  <div>
+                    <h3>The HireRighttt advantage</h3>
+                    <span>Multimodal spoken AI interviews</span>
+                  </div>
+                </header>
+                <ul>
+                  <li><strong>Live spoken evaluation:</strong> Ava adapts questions to each candidate&apos;s answers.</li>
+                  <li><strong>Integrity proctoring:</strong> computer vision confirms a single, present candidate.</li>
+                  <li><strong>Instant scorecard:</strong> a 360° candidate profile and career-readiness score.</li>
+                  <li><strong>60% time reclaimed:</strong> review timestamped key moments in about 3 minutes.</li>
+                </ul>
+              </article>
             </div>
-            <ul style={{ margin: 0, paddingLeft: '18px', color: '#475569', fontSize: '0.9rem', lineHeight: 1.7 }}>
-              <li><strong>Easily Gamed:</strong> Keyword stuffing and ChatGPT-written bullet points trick scanners.</li>
-              <li><strong>High Rejection:</strong> 80% of hands-on engineers are filtered out before an interview.</li>
-              <li><strong>Zero Verification:</strong> High proxy/ghostwriter risk with unmonitored take-home tests.</li>
-              <li><strong>Recruiter Drag:</strong> 45–60 minutes lost per introductory telephone screen.</li>
-            </ul>
-          </div>
+          </section>
 
-          <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: '18px', padding: '28px', boxShadow: '0 4px 16px rgba(22,163,74,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <span className={styles.compareIconGood} aria-hidden>
-                <HrIcon name="check" size={22} strokeWidth={2.5} />
-              </span>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#166534', fontWeight: 800 }}>The HireRight Advantage</h3>
-                <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600 }}>Multimodal Spoken AI Studio</span>
-              </div>
+          {/* COMPARISON TABLE */}
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <span className={styles.eyebrow}>Side by side</span>
+              <h2>Resume boards vs. HireRighttt</h2>
             </div>
-            <ul style={{ margin: 0, paddingLeft: '18px', color: '#334155', fontSize: '0.9rem', lineHeight: 1.7 }}>
-              <li><strong>Live Spoken Evaluation:</strong> Ava questions candidates dynamically based on live responses.</li>
-              <li><strong>Multi-Person Proctoring:</strong> Computer vision ensures single-candidate presence & integrity.</li>
-              <li><strong>Instant Certified Dossier:</strong> 360° Candidate Persona, 0–1000 career readiness score.</li>
-              <li><strong>60% Time Reclaimed:</strong> Hiring teams review timestamped video moments in 3 minutes.</li>
-            </ul>
-          </div>
-        </div>
+            <div className={styles.matrixCard}>
+              <table className={styles.matrixTable}>
+                <thead>
+                  <tr>
+                    <th>Evaluation dimension</th>
+                    <th>Legacy job boards &amp; ATS</th>
+                    <th>HireRighttt AI interviews</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {COMPARISONS.map((row) => (
+                    <tr key={row.feature}>
+                      <td>{row.feature}</td>
+                      <td>
+                        <span className={styles.tableMarkBad}>
+                          <HrIcon name="close" size={16} /> <span>{row.legacy}</span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.tableMarkGood}>
+                          <HrIcon name="check" size={16} strokeWidth={2.5} /> <span>{row.hireright}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-        {/* COMPARISON TABLE */}
-        <div className={styles.matrixCard}>
-          <h2 style={{ fontSize: '1.8rem', color: '#090d16', marginBottom: 20 }}>
-            Resume Boards vs. HireRight
-          </h2>
-          <table className={styles.matrixTable}>
-            <thead>
-              <tr>
-                <th>Evaluation Dimension</th>
-                <th>Legacy Job Boards & ATS</th>
-                <th>HireRight AI Studio</th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARISONS.map((row) => (
-                <tr key={row.feature}>
-                  <td>{row.feature}</td>
-                  <td>
-                    <span className={styles.tableMarkBad}>
-                      <HrIcon name="close" size={14} /> {row.legacy}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={styles.tableMarkGood}>
-                      <HrIcon name="check" size={14} strokeWidth={2.5} /> {row.hireright}
-                    </span>
-                  </td>
-                </tr>
+          {/* PILLARS */}
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <span className={styles.eyebrow}>Our core values</span>
+              <h2>Built on four pillars of integrity</h2>
+            </div>
+            <div className={styles.pillarsGrid}>
+              {PILLARS.map((p) => (
+                <div key={p.title} className={styles.pillarCard}>
+                  <div className={styles.pillarIcon}>
+                    <HrIcon name={p.icon} size={26} />
+                  </div>
+                  <h3>{p.title}</h3>
+                  <p>{p.desc}</p>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* CORE PILLARS */}
-        <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <span style={{ color: '#2563eb', fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.05em' }}>
-            OUR CORE VALUES
-          </span>
-          <h2 style={{ fontSize: '2.2rem', color: '#090d16', marginTop: 8 }}>
-            Built on Four Pillars of Integrity
-          </h2>
-        </div>
-
-        <div className={styles.pillarsGrid}>
-          {PILLARS.map((p) => (
-            <div key={p.title} className={styles.pillarCard}>
-              <div className={styles.pillarIcon}>
-                <HrIcon name={p.icon} size={26} />
-              </div>
-              <h3>{p.title}</h3>
-              <p>{p.desc}</p>
             </div>
-          ))}
-        </div>
+          </section>
 
-        {/* RECRUITER ROI CALCULATOR */}
-        <div className={styles.roiCard}>
-          <div style={{ textAlign: 'center', maxWidth: 600, margin: '0 auto 20px' }}>
-            <span style={{ color: '#2563eb', fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.05em' }}>
-              RECRUITER TIME & COST SAVINGS
-            </span>
-            <h2 style={{ fontSize: '1.9rem', color: '#090d16', marginTop: 6 }}>
-              Calculate Your Monthly ROI
-            </h2>
-          </div>
-
-          <div className={styles.roiGrid}>
-            <div className={styles.roiControl}>
-              <label>Monthly Candidates Screened: {candidatesPerMonth}</label>
-              <input
-                type="range"
-                min="10"
-                max="300"
-                step="5"
-                value={candidatesPerMonth}
-                onChange={(e) => setCandidatesPerMonth(Number(e.target.value))}
-                className={styles.roiSlider}
-              />
-              <p style={{ color: '#64748b', fontSize: '0.88rem' }}>
-                Based on an average of 45 minutes saved per candidate screen and $65/hr recruiter cost.
-              </p>
-            </div>
-
-            <div className={styles.roiDisplayBox}>
-              <div className={styles.roiStat}>
-                <span>Recruiter Hours Reclaimed:</span>
-                <strong>{hoursSaved} hrs / mo</strong>
+          {/* ROI */}
+          <section className={styles.section}>
+            <div className={styles.roiCard}>
+              <div className={styles.sectionHead}>
+                <span className={styles.eyebrow}>Recruiter time &amp; cost savings</span>
+                <h2>Calculate your monthly ROI</h2>
               </div>
-              <div className={styles.roiStat}>
-                <span>Estimated Cost Savings:</span>
-                <strong>${dollarsSaved.toLocaleString()} / mo</strong>
-              </div>
-              <div className={styles.roiStat}>
-                <span>Time-to-Hire Reduction:</span>
-                <strong>60% faster</strong>
+
+              <div className={styles.roiGrid}>
+                <div className={styles.roiControl}>
+                  <label htmlFor="roi-candidates">
+                    Monthly candidates screened: <strong>{candidatesPerMonth}</strong>
+                  </label>
+                  <input
+                    id="roi-candidates"
+                    type="range"
+                    min="10"
+                    max="300"
+                    step="5"
+                    value={candidatesPerMonth}
+                    onChange={(e) => setCandidatesPerMonth(Number(e.target.value))}
+                    className={styles.roiSlider}
+                  />
+                  <p className={styles.roiNote}>
+                    Based on an average of 45 minutes saved per candidate screen and a $65/hr recruiter cost.
+                  </p>
+                </div>
+
+                <div className={styles.roiDisplayBox}>
+                  <div className={styles.roiStat}>
+                    <span>Recruiter hours reclaimed</span>
+                    <strong>{hoursSaved} hrs / mo</strong>
+                  </div>
+                  <div className={styles.roiStat}>
+                    <span>Estimated cost savings</span>
+                    <strong>${dollarsSaved.toLocaleString()} / mo</strong>
+                  </div>
+                  <div className={styles.roiStat}>
+                    <span>Time-to-hire reduction</span>
+                    <strong>60% faster</strong>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* BOTTOM CTA */}
-        <div style={{ textAlign: 'center', marginTop: 40 }}>
-          <h2 style={{ fontSize: '2rem', color: '#090d16', marginBottom: 12 }}>
-            Experience the Difference First-Hand
-          </h2>
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 24 }}>
-            <Link
-              to="/interview"
-              style={{
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-                color: '#fff',
-                padding: '14px 28px',
-                borderRadius: 12,
-                fontWeight: 700,
-              }}
-            >
-              Take Sample Interview →
-            </Link>
-            <Link
-              to="/signup"
-              style={{
-                background: 'rgba(30, 41, 59, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#fff',
-                padding: '14px 28px',
-                borderRadius: 12,
-                fontWeight: 700,
-              }}
-            >
-              Get Started
-            </Link>
-          </div>
+          {/* CTA */}
+          <section className={styles.section}>
+            <div className={styles.cta}>
+              <h2>Experience the difference first-hand</h2>
+              <p>Try an AI interview as a candidate, or set up your hiring workspace in minutes.</p>
+              <div className={styles.heroActions}>
+                <Link to="/signup" className={styles.btnPrimary}>
+                  Take a sample interview
+                </Link>
+                <Link to="/organizations/signup" className={styles.btnGhost}>
+                  Create organization account
+                </Link>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
 
-      <SiteFooter />
+      <MarketingFooter />
     </div>
   )
 }

@@ -91,7 +91,17 @@ async function waitForApiHealth(maxMs = 120_000) {
   return false
 }
 
-run('python', ['run.py'], { cwd: join(repoRoot, 'backend') })
+const uvicornArgs = [
+  '-m',
+  'uvicorn',
+  'app.main:app',
+  '--host',
+  '0.0.0.0',
+  '--port',
+  String(apiPort),
+  '--reload',
+]
+run('python', uvicornArgs, { cwd: join(repoRoot, 'backend') })
 await waitForApiHealth()
 run(viteCmd, [], { cwd: join(repoRoot, 'frontend'), shell: true })
 

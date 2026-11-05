@@ -11,17 +11,17 @@ import styles from './SiteNav.module.css'
 
 
 const MARKETING_NAV = [
-  { to: '/job-seekers', label: 'For Job Seekers' },
-  { to: '/why', label: 'Why HireRight' },
-  { to: '/solutions', label: 'Solutions' },
-  { to: '/resources', label: 'Resources' },
-  { to: '/about', label: 'About Us' },
+  { to: '/why', label: 'Why us?' },
+  { to: '/pricing', label: 'Pricing' },
+  { to: '/career-view', label: '360° Report' },
+  { to: '/solutions', label: 'For organizations' },
+  { to: '/contact', label: 'Contact us' },
 ]
 
 const LANDING_NAV = [
   { to: '/jobs', label: 'Find jobs' },
   { to: '/solutions', label: 'For employers' },
-  { to: '/how-it-works', label: 'How it works' },
+  { to: '/why', label: 'Why us?' },
 ]
 
 const JOBSEEKER_NAV = [

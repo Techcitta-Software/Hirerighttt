@@ -1,27 +1,45 @@
+/* Why us? — sized for 100% zoom on desktop, fluid down to phone widths */
+
 .page {
+  --why-gap: 75px;
   min-height: 100vh;
   background: #ffffff;
-  color: var(--hr-text, #141638);
+  color: var(--color-text-primary, #141638);
   display: flex;
   flex-direction: column;
+  font-family: var(--font-sans);
 }
 
-.shell {
-  width: var(--hr-layout-width, 85%);
-  max-width: var(--hr-layout-width, 85%);
+.main {
+  flex: 1;
+}
+
+.container {
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 0 24px 80px;
+  padding: 0 clamp(1rem, 4vw, 2rem);
   box-sizing: border-box;
 }
 
+.section {
+  padding-bottom: var(--why-gap);
+}
+
+/* ── Hero ── */
 .hero {
+  background:
+    radial-gradient(60% 80% at 50% 0%, rgba(80, 70, 229, 0.1), transparent 70%),
+    #f7f6ff;
+  border-bottom: 1px solid #ece9ff;
+  padding: clamp(3rem, 6vw, 4.5rem) clamp(1rem, 4vw, 2rem);
+  margin-bottom: var(--why-gap);
+}
+
+.heroInner {
+  max-width: 860px;
+  margin: 0 auto;
   text-align: center;
-  padding: 3rem 1.25rem 2.5rem;
-  max-width: 56rem;
-  margin: 0 auto 2rem;
-  background: linear-gradient(135deg, var(--hr-navy-deep, #060d18), var(--hr-navy, #0a1628));
-  border-radius: 0 0 20px 20px;
-  color: #fff;
 }
 
 .badge {
@@ -30,119 +48,168 @@
   gap: 8px;
   padding: 6px 16px;
   border-radius: 999px;
-  background: #f5f2ff;
+  background: #ffffff;
   border: 1px solid #ded3ff;
-  color: #6036eb;
-  font-size: 0.8rem;
+  color: #5046e5;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  margin-bottom: 20px;
+  margin-bottom: 1.25rem;
 }
 
 .title {
-  font-size: var(--text-page-title);
+  margin: 0 0 1.25rem;
+  font-size: clamp(2rem, 4.6vw, 3.5rem);
   font-weight: 800;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
-  color: #fff;
-  margin-bottom: 18px;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  color: #141638;
 }
 
-.title em {
-  font-style: normal;
-  color: var(--hr-accent, #7047ff);
+.titleAccent {
+  display: block;
+  background: var(--hr-brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .subtitle {
-  font-size: var(--text-lead);
+  margin: 0 auto 2rem;
+  max-width: 680px;
+  font-size: clamp(1.0625rem, 1.5vw, 1.25rem);
   line-height: 1.65;
-  color: #d6d7e5;
-  max-width: 720px;
-  margin: 0 auto 36px;
+  color: #475569;
 }
 
-/* Comparison Table Matrix */
-.matrixCard {
-  background: #ffffff;
-  border: 1px solid #e5e5ef;
-  border-radius: 20px;
-  padding: 36px;
-  margin-bottom: 64px;
-  overflow-x: auto;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+  justify-content: center;
 }
 
-.matrixTable {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 640px;
-}
-
-.matrixTable th {
-  padding: 16px 20px;
-  font-size: 1rem;
+.btnPrimary,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.8rem 1.75rem;
+  border-radius: 999px;
+  font-size: 1.0625rem;
   font-weight: 700;
-  border-bottom: 2px solid #e5e5ef;
-  text-align: left;
-  color: #141638;
+  text-decoration: none;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
-.matrixTable th:nth-child(2) {
-  color: #5f6686;
+.btnPrimary {
+  background: var(--hr-brand-gradient);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(80, 70, 229, 0.3);
 }
 
-.matrixTable th:nth-child(3) {
-  color: #7047ff;
-  background: #f5f2ff;
-  border-radius: 10px 10px 0 0;
+.btnPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(80, 70, 229, 0.38);
 }
 
-.matrixTable td {
-  padding: 16px 20px;
-  font-size: 0.92rem;
-  border-bottom: 1px solid #f5f3fb;
-  color: #363b5c;
-}
-
-.matrixTable tr:last-child td {
-  border-bottom: none;
-}
-
-.matrixTable td:first-child {
-  font-weight: 600;
-  color: #141638;
-}
-
-.matrixTable td:nth-child(2) {
-  color: #ef4444;
-}
-
-.matrixTable td:nth-child(3) {
-  color: #059669;
-  background: #f0fdf4;
-  font-weight: 600;
-}
-
-/* Pillars Grid */
-.pillarsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
-  margin-bottom: 64px;
-}
-
-.pillarCard {
+.btnGhost {
   background: #ffffff;
-  border: 1px solid #e5e5ef;
-  border-radius: 16px;
-  padding: 1.5rem 1.25rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  color: #141638;
+  border: 1.5px solid #d6d7e5;
 }
 
-.pillarCard:hover {
-  border-color: #d6d7e5;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+.btnGhost:hover {
+  border-color: #5046e5;
+  color: #5046e5;
+}
+
+/* ── Section headings ── */
+.sectionHead {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 2.25rem;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #5046e5;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sectionHead h2 {
+  margin: 0;
+  font-size: clamp(1.625rem, 3vw, 2.25rem);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #141638;
+}
+
+/* ── Paradigm cards ── */
+.paradigmGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.paradigmCard {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 1.75rem;
+  border: 1px solid;
+}
+
+.paradigmBad {
+  border-color: #fecaca;
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.06);
+}
+
+.paradigmGood {
+  border-color: #bbf7d0;
+  box-shadow: 0 4px 16px rgba(22, 163, 74, 0.08);
+}
+
+.paradigmHead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+}
+
+.paradigmHead h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.paradigmHead div > span {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.paradigmBad h3 { color: #991b1b; }
+.paradigmBad .paradigmHead div > span { color: #dc2626; }
+.paradigmGood h3 { color: #166534; }
+.paradigmGood .paradigmHead div > span { color: #16a34a; }
+
+.paradigmCard ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.paradigmCard li + li {
+  margin-top: 0.35rem;
 }
 
 .compareIconBad,
@@ -150,160 +217,250 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.65rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
   flex-shrink: 0;
 }
 
-.compareIconBad {
-  background: #fef2f2;
-  color: #dc2626;
+.compareIconBad { background: #fef2f2; color: #dc2626; }
+.compareIconGood { background: #f0fdf4; color: #16a34a; }
+
+/* ── Comparison table ── */
+.matrixCard {
+  background: #ffffff;
+  border: 1px solid #e5e5ef;
+  border-radius: 20px;
+  padding: 0.5rem 1.5rem 1rem;
+  overflow-x: auto;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
 }
 
-.compareIconGood {
-  background: #f0fdf4;
-  color: #16a34a;
+.matrixTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
 }
+
+.matrixTable th {
+  padding: 1.1rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 800;
+  border-bottom: 2px solid #e5e5ef;
+  text-align: left;
+  color: #141638;
+}
+
+.matrixTable th:nth-child(2) { color: #5f6686; }
+.matrixTable th:nth-child(3) { color: #5046e5; background: #f5f2ff; border-radius: 10px 10px 0 0; }
+
+.matrixTable td {
+  padding: 1.1rem 1.25rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  border-bottom: 1px solid #f0eef8;
+  color: #363b5c;
+  vertical-align: top;
+}
+
+.matrixTable tr:last-child td { border-bottom: none; }
+.matrixTable td:first-child { font-weight: 700; color: #141638; width: 22%; }
+.matrixTable td:nth-child(3) { background: #f7fdf9; font-weight: 600; }
 
 .tableMarkBad,
 .tableMarkGood {
   display: inline-flex;
   align-items: flex-start;
-  gap: 0.35rem;
+  gap: 0.5rem;
 }
 
-.tableMarkBad {
-  color: #5f6686;
+.tableMarkBad { color: #5f6686; }
+.tableMarkBad svg { color: #dc2626; margin-top: 0.2em; flex-shrink: 0; }
+.tableMarkGood { color: #1f2a44; }
+.tableMarkGood svg { color: #16a34a; margin-top: 0.2em; flex-shrink: 0; }
+
+/* ── Pillars ── */
+.pillarsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.5rem;
 }
 
-.tableMarkGood {
-  color: #363b5c;
+.pillarCard {
+  background: #ffffff;
+  border: 1px solid #e5e5ef;
+  border-radius: 16px;
+  padding: 1.5rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.pillarCard:hover {
+  border-color: #c7c2ff;
+  box-shadow: 0 10px 28px rgba(80, 70, 229, 0.1);
+  transform: translateY(-2px);
 }
 
 .pillarIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 12px;
-  background: #f5f3fb;
-  color: #141638;
-  margin-bottom: 16px;
+  background: #f1efff;
+  color: #5046e5;
+  margin-bottom: 1rem;
 }
 
 .pillarCard h3 {
-  font-size: 1.2rem;
-  font-weight: 700;
+  margin: 0 0 0.6rem;
+  font-size: 1.1875rem;
+  font-weight: 800;
+  line-height: 1.3;
   color: #141638;
-  margin-bottom: 10px;
 }
 
 .pillarCard p {
-  font-size: 0.9rem;
-  color: #5f6686;
-  line-height: 1.55;
   margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #5f6686;
 }
 
-/* ROI Calculator */
+/* ── ROI ── */
 .roiCard {
   background: #ffffff;
   border: 1px solid #e5e5ef;
   border-radius: 20px;
-  padding: 40px;
-  margin-bottom: 64px;
+  padding: clamp(1.5rem, 4vw, 2.75rem);
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
 }
 
 .roiGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
-  margin-top: 30px;
-}
-
-@media (max-width: 768px) {
-  .roiGrid {
-    grid-template-columns: 1fr;
-  }
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.25rem;
+  align-items: center;
 }
 
 .roiControl {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.9rem;
 }
 
 .roiControl label {
-  font-size: 0.95rem;
+  font-size: 1.0625rem;
   font-weight: 600;
   color: #141638;
 }
 
+.roiControl label strong {
+  color: #5046e5;
+}
+
 .roiSlider {
   width: 100%;
-  accent-color: #7047ff;
+  accent-color: #5046e5;
   height: 6px;
-  border-radius: 4px;
   cursor: pointer;
+}
+
+.roiNote {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9375rem;
+  line-height: 1.55;
 }
 
 .roiDisplayBox {
   background: #faf9ff;
   border: 1px solid #e5e5ef;
   border-radius: 16px;
-  padding: 28px;
+  padding: 1.75rem;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 16px;
+  gap: 1rem;
 }
 
 .roiStat {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 1rem;
+  gap: 1rem;
+  font-size: 1.0625rem;
 }
 
-.roiStat span:first-child {
-  color: #5f6686;
+.roiStat span { color: #5f6686; }
+.roiStat strong { font-size: 1.4rem; color: #5046e5; white-space: nowrap; }
+
+/* ── CTA ── */
+.cta {
+  text-align: center;
+  background: linear-gradient(135deg, #251e6d 0%, #181248 100%);
+  border-radius: 24px;
+  padding: clamp(2rem, 5vw, 3.5rem) 1.5rem;
+  color: #ffffff;
 }
 
-.roiStat strong {
-  font-size: 1.4rem;
-  color: #7047ff;
+.cta h2 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.625rem, 3vw, 2.25rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #ffffff;
 }
 
-.paradigmGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
-  margin-bottom: 48px;
+.cta p {
+  margin: 0 auto 1.75rem;
+  max-width: 560px;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.82);
 }
 
-@media (max-width: 640px) {
-  .shell {
-    padding: 0 16px 60px;
+.cta .btnPrimary {
+  background: #ffffff;
+  color: #251e6d;
+  box-shadow: none;
+}
+
+.cta .btnGhost {
+  background: transparent;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.cta .btnGhost:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .pillarsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .hero {
-    padding: 2.25rem 1rem 2rem;
-    border-radius: 0 0 16px 16px;
-  }
-  .paradigmGrid {
+}
+
+@media (max-width: 768px) {
+  .paradigmGrid,
+  .roiGrid {
     grid-template-columns: 1fr;
-    gap: 18px;
   }
-  .matrixCard {
-    padding: 20px 14px;
+  .page {
+    --why-gap: 56px;
   }
+}
+
+@media (max-width: 560px) {
   .pillarsGrid {
     grid-template-columns: 1fr;
-    gap: 16px;
   }
-  .roiCard {
-    padding: 24px 16px;
+  .heroActions > a {
+    width: 100%;
+  }
+  .matrixCard {
+    padding: 0.25rem 0.75rem 0.75rem;
   }
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import styles from './SolutionsPage.module.css'
 import { fadeUp, staggerContainer } from '../motion/variants'
 
@@ -290,7 +290,7 @@ export function SolutionsPage() {
 
       {/* Navigation in 85% Shell */}
       <div className={styles.shell}>
-        <SiteNav />
+        <MarketingNavBar />
       </div>
 
       {/* Hero Section */}
@@ -657,7 +657,7 @@ export function SolutionsPage() {
         </section>
       </div>
 
-      <SiteFooter />
+      <MarketingFooter />
     </div>
   )
 }

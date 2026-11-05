@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import styles from './AuthPages.module.css'
 
 export function ContactPage() {
@@ -33,7 +33,7 @@ export function ContactPage() {
 
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <MarketingNavBar />
       <div className={styles.shell} style={{ paddingTop: '2rem' }}>
         <div className={styles.card}>
           <span className={styles.kicker}>SUPPORT</span>
@@ -87,7 +87,7 @@ export function ContactPage() {
           )}
         </div>
       </div>
-      <SiteFooter />
+      <MarketingFooter />
     </div>
   )
 }

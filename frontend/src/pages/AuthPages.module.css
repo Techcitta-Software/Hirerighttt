@@ -628,7 +628,7 @@
   display: grid;
   grid-template-columns: 48% 52%;
   background: #ffffff;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   overflow: hidden;
 }
 
@@ -715,7 +715,7 @@
   line-height: 1.18;
   letter-spacing: -0.01em;
   color: #ffffff;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .leftSubtitle {
@@ -723,7 +723,7 @@
   font-size: clamp(1rem, 1.25vw, 1.125rem);
   line-height: 1.55;
   color: rgba(255, 255, 255, 0.82);
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .leftChecklist {
@@ -742,7 +742,7 @@
   font-size: clamp(1.025rem, 1.2vw, 1.15rem);
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.95);
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .checkIcon {
@@ -757,7 +757,7 @@
   margin: 0;
   font-size: 0.95rem;
   color: rgba(255, 255, 255, 0.7);
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .splitRight {
@@ -798,7 +798,7 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #111827;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .welcomeSub {
@@ -806,7 +806,7 @@
   font-size: 1.025rem;
   color: #6b7280;
   line-height: 1.5;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .loginForm {
@@ -837,7 +837,7 @@
   font-size: 0.95rem;
   font-weight: 600;
   color: #1f2937;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .requiredMark {
@@ -864,7 +864,7 @@
   font-weight: 600;
   color: #4f46e5;
   text-decoration: none;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .forgotLink:hover {
@@ -881,7 +881,7 @@
   color: #111827;
   background: #ffffff;
   box-sizing: border-box;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -910,7 +910,7 @@
   margin-top: 0.5rem;
   box-shadow: 0 4px 14px rgba(80, 70, 229, 0.35);
   transition: background 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .loginPillBtn:hover:not(:disabled) {
@@ -931,14 +931,14 @@
   gap: 0.45rem;
   margin-top: 1.25rem;
   text-align: center;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .subLinkLine {
   margin: 0;
   font-size: 0.95rem;
   color: #374151;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .switchModeLink {
@@ -949,7 +949,7 @@
   font-weight: 700;
   cursor: pointer;
   font-size: inherit;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .switchModeLink:hover {
@@ -960,7 +960,7 @@
   color: #4f46e5;
   font-weight: 700;
   text-decoration: none;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .discoveryLink:hover {
@@ -978,7 +978,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .quickDemoLabel {
@@ -989,7 +989,7 @@
   color: #64748b;
   text-transform: uppercase;
   text-align: left;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .demoCandidateBigBtn {
@@ -1003,7 +1003,7 @@
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1030,7 +1030,7 @@
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1061,7 +1061,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .demoFillUnderlineBtn:hover {
@@ -1075,7 +1075,7 @@
   text-align: center;
   font-size: 0.98rem;
   color: #1e293b;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .demoBottomSignupLink {
@@ -1086,7 +1086,7 @@
   font-weight: 700;
   font-size: inherit;
   cursor: pointer;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .demoBottomSignupLink:hover {
@@ -1101,7 +1101,7 @@
   padding: 0.75rem 1rem;
   font-size: 0.925rem;
   margin-bottom: 1rem;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .successBanner {
@@ -1112,7 +1112,7 @@
   padding: 0.75rem 1rem;
   font-size: 0.925rem;
   margin-bottom: 1rem;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1141,7 +1141,7 @@
   color: #374151;
   cursor: pointer;
   transition: all 0.15s ease;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .splitRoleBtnActive {
@@ -1160,7 +1160,7 @@
   color: #4b5563;
   line-height: 1.45;
   cursor: pointer;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .termsRow input {
@@ -1176,7 +1176,7 @@
   color: #4f46e5;
   font-weight: 600;
   text-decoration: none;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .termsLink:hover {
@@ -1195,3 +1195,65 @@
   }
 }
 
+
+/* ── Responsive hardening for login / signup at every viewport ── */
+@media (min-width: 901px) {
+  .splitPage {
+    height: 100dvh;
+  }
+  .splitLeft {
+    min-height: 0;
+    height: 100dvh;
+  }
+  .splitRight {
+    max-height: 100dvh;
+    align-items: flex-start;
+  }
+  .splitFormWrap {
+    margin: auto;
+  }
+}
+
+@media (min-width: 901px) and (max-height: 760px) {
+  .splitLeftInner {
+    padding: 2rem 2.5rem;
+  }
+  .splitRight {
+    padding: 1.75rem 2rem;
+  }
+}
+
+@media (min-width: 1500px) {
+  .splitFormWrap {
+    max-width: 480px;
+  }
+  .splitLeftCopy {
+    max-width: 500px;
+  }
+}
+
+@media (max-width: 900px) {
+  .splitPage {
+    height: auto;
+    min-height: 100dvh;
+  }
+  .splitFormWrap {
+    max-width: 520px;
+  }
+  .leftChecklist,
+  .leftFooter {
+    display: none;
+  }
+  .splitLeftCopy {
+    padding: 0.5rem 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .splitRight {
+    padding: 1.75rem 1.1rem;
+  }
+  .leftHeadline {
+    font-size: 1.65rem;
+  }
+}

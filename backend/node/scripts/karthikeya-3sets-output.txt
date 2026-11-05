@@ -1,0 +1,147 @@
+﻿
+--- Candidate ---
+Name: Darisi Karthikeya | Role: Senior AI Developer | Level: 2-5 years | Sets: 3
+
+--- Interview plan (same structure each set; wording varies by varietySeed) ---
+Turns: 8 | Fresher: false
+  Q1: greet; roles, responsibilities, experience and exposure at most recent employer; relates to Senior AI Developer
+  Q2 technical: Python; difficulty from experience; conceptual, not résumé story
+  Q3 technical: Retrieval-Augmented Generation (RAG); difficulty from experience; conceptual, not résumé story
+  Q4 technical: LangChain; difficulty from experience; conceptual, not résumé story
+  Q5: real résumé project — how it was implemented for Senior AI Developer; use only evidenced tools
+  Q6: technical follow-up on the same project — testing, debugging or design choices; depth from experience
+  Q7: fallback follow-up on recent work / prior answers
+  Q8: varied closing thanks (not identical every session)
+Skills for theory slots: Python, Retrieval-Augmented Generation (RAG), LangChain
+
+[Set 1/3] varietySeed=400ea09da26b2a6a
+node : [Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing 
+high demand. Spikes in demand are usually temporary. Please try again later.
+At line:1 char:189
++ ... lyContinue; node scripts/generate-resume-questions.mjs "c:\Users\ADMI ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([Gemini LLM] mo...ry again later.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+🔥 [Gemini LLM] model=gemini-3.1-flash-lite tier=quality native | prompt=1920 completion=614 total=2534
+[Set 1] Gemini busy — retry 2/8 in 12s…
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+🔥 [Gemini LLM] model=gemini-3.1-flash-lite tier=quality native | prompt=1901 completion=917 total=2818
+
+========================================================================
+SET 1 — batch questions (one API call per set)
+========================================================================
+
+Q1 [Experience] Professional Experience
+  Hello Darisi Karthikeya, it is a pleasure to meet you. To start, could you walk me through your primary roles and responsibilities during your tenure as a Senior AI Developer at Techcitta Software Private Limited, and how those experiences shaped your approach to building AI-driven solutions?
+
+Q2 [Technical] Python
+  In the context of Python development for AI applications, how do you differentiate between the use of multi-threading and multi-processing when handling high-concurrency LLM inference tasks?
+
+Q3 [Technical] Retrieval-Augmented Generation (RAG)
+  When designing a Retrieval-Augmented Generation (RAG) system, what are the theoretical trade-offs between using a dense vector search versus a hybrid search approach in terms of retrieval precision and recall?
+
+Q4 [Technical] LangChain
+  How does LangChain's 'Chain' abstraction conceptually differ from its 'Expression Language' (LCEL) in terms of state management and component composability?
+
+Q5 [Experience] Multi-Agent AI Orchestration for YouTube Content
+  Regarding your work on the Multi-Agent AI Orchestration for YouTube Content project, how did you structure the agent communication flow to ensure that the specialized agents remained context-aware during the content extraction and analysis phases?
+
+Q6 [Experience] Multi-Agent AI Orchestration for YouTube Content
+  In that same Multi-Agent YouTube project, what specific strategies or tools did you implement to debug or trace the decision-making path of the agents when they produced unexpected or hallucinated outputs?
+
+Q7 [deferred — fallback API after prior answers]
+
+Q8 [deferred — closing API after fallback]
+
+
+[Set 2/3] varietySeed=2b327c98dece398e
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Gemini LLM] model=gemini-3.1-flash-lite tier=quality failed HTTP 503: This model is currently experiencing high 
+demand. Spikes in demand are usually temporary. Please try again later.
+[Set 2] Gemini busy — retry 2/8 in 12s…
+[Gemini LLM] model="gemini-3.1-flash-lite" error: fetch failed
+[Gemini LLM] model="gemini-3.1-flash-lite" error: fetch failed
+[Gemini LLM] model="gemini-3.1-flash-lite" error: fetch failed
+[Gemini LLM] model="gemini-3.1-flash-lite" error: fetch failed
+[Gemini LLM] model="gemini-3.1-flash-lite" error: fetch failed
+[Set 2] Gemini busy — retry 3/8 in 24s…
+🔥 [Gemini LLM] model=gemini-3.1-flash-lite tier=quality native | prompt=1901 completion=582 total=2483
+
+========================================================================
+SET 2 — batch questions (one API call per set)
+========================================================================
+
+Q1 [Experience] Professional Experience
+  Hello Darisi Karthikeya, it is a pleasure to meet you. To start, could you walk me through your primary roles and responsibilities as a Senior AI Developer at Techcitta Software Private Limited, and how that experience has shaped your expertise in building generative AI solutions?
+
+Q2 [Technical] Python Theory
+  In the context of Python for AI development, how do decorators and context managers typically enhance the modularity and resource management of backend services?
+
+Q3 [Technical] RAG Theory
+  Conceptually, what are the primary trade-offs between dense retrieval and sparse retrieval methods when architecting a RAG pipeline for high-precision information extraction?
+
+Q4 [Technical] LangChain Theory
+  Within the LangChain framework, how do 'Runnable' interfaces and the LCEL (LangChain Expression Language) fundamentally change the way we compose complex chains compared to older inheritance-based approaches?
+
+Q5 [Experience] Multi-Agent AI Orchestration Project
+  Regarding your project 'Multi-Agent AI Orchestration for YouTube Content,' how did you structure the interaction between specialized agents to ensure context was maintained throughout the retrieval and analysis process?
+
+Q6 [Problem Solving] Project Technical Depth
+  For that same multi-agent YouTube project, what specific strategies or tools did you implement to debug or trace agentic decision-making, especially when an agent failed to retrieve the correct context from the video data?
+
+Q7 [deferred — fallback API after prior answers]
+
+Q8 [deferred — closing API after fallback]
+
+
+[Set 3/3] varietySeed=d997c080df0ac39d
+🔥 [Gemini LLM] model=gemini-3.1-flash-lite tier=quality native | prompt=1901 completion=981 total=2882
+
+========================================================================
+SET 3 — batch questions (one API call per set)
+========================================================================
+
+Q1 [Experience] Professional Experience
+  Hello Darisi Karthikeya, it is a pleasure to meet you. To start, could you provide an overview of your roles and core responsibilities during your tenure as a Senior AI Developer at Techcitta Software Private Limited, and how that experience has shaped your professional approach to AI development?
+
+Q2 [Technical] Python
+  In the context of Python for high-performance AI applications, how do you conceptually differentiate between the use of synchronous versus asynchronous programming patterns when handling multiple concurrent LLM API calls?
+
+Q3 [Technical] Retrieval-Augmented Generation (RAG)
+  Conceptually, what are the primary trade-offs when selecting a chunking strategy for a RAG pipeline, and how does the choice of chunk size and overlap impact the semantic integrity of the retrieved context?
+
+Q4 [Technical] LangChain
+  Within the LangChain framework, how does the concept of 'LCEL' (LangChain Expression Language) fundamentally change the way developers compose and chain complex agentic workflows compared to traditional imperative coding?
+
+Q5 [Experience] Multi-Agent AI Orchestration for YouTube Content
+  Regarding your project 'Multi-Agent AI Orchestration for YouTube Content', could you walk me through the architectural decisions you made to coordinate the specialized agents and how you ensured they maintained coherent state throughout the processing workflow?
+
+Q6 [Experience] Multi-Agent AI Orchestration for YouTube Content
+  Building on that YouTube orchestration project, what specific strategies or tools did you implement to debug or trace the decision-making path of your agents when they encountered ambiguous or complex user queries?
+
+Q7 [deferred — fallback API after prior answers]
+
+Q8 [deferred — closing API after fallback]
+
+
+--- Quick compare (Q2 theory text fingerprints) ---
+Set 1: In the context of Python development for AI applications, how do you differentiate between the use of multi-threading an…
+Set 2: In the context of Python for AI development, how do decorators and context managers typically enhance the modularity and…
+Set 3: In the context of Python for high-performance AI applications, how do you conceptually differentiate between the use of …

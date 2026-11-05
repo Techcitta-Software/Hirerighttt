@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import {
   acceptEssentialCookiesOnly,
   getCookieConsent,
@@ -22,7 +22,7 @@ function LegalShell({
 }) {
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <MarketingNavBar />
       <div className={styles.shell}>
         <article className={styles.card}>
           <span className={styles.kicker}>{kicker}</span>
@@ -31,7 +31,7 @@ function LegalShell({
           <div className={styles.prose}>{children}</div>
         </article>
       </div>
-      <SiteFooter tone="light" />
+      <MarketingFooter />
     </div>
   )
 }

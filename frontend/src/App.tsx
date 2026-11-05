@@ -1,18 +1,14 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { initSupabaseAuthSync } from './lib/supabaseSync'
 import { AnimatePresence, motion } from 'framer-motion'
 import { HomePage } from './pages/HomePage'
-import { HowItWorksPage } from './pages/HowItWorksPage'
 import { SolutionsPage } from './pages/SolutionsPage'
-import { WhoItsForPage } from './pages/WhoItsForPage'
 import { WhyPage } from './pages/WhyPage'
-import { ResourcesPage } from './pages/ResourcesPage'
 import { PricingPage } from './pages/PricingPage'
 import { InterviewRetakePricingPage } from './pages/InterviewRetakePricingPage'
-import { FaqPage } from './pages/FaqPage'
 import { CareerViewPage } from './pages/CareerViewPage'
-import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
+import { LoginPage, LogoutPage, OrganizationSignupPage, SettingsPage, SignupPage } from './pages/AuthPages'
 import {
   DashboardPage,
   InterviewReportPage,
@@ -57,19 +53,20 @@ function AnimatedRoutes() {
       >
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
-          <Route path="/how-it-works" element={<HowItWorksPage />} />
           <Route path="/solutions" element={<SolutionsPage />} />
-          <Route path="/job-seekers" element={<WhoItsForPage />} />
-          <Route path="/who-its-for" element={<WhoItsForPage />} />
+          {/* Product explainer content lives only on the home page. */}
+          <Route path="/how-it-works" element={<Navigate to="/" replace />} />
+          <Route path="/job-seekers" element={<Navigate to="/" replace />} />
+          <Route path="/who-its-for" element={<Navigate to="/" replace />} />
+          <Route path="/resources" element={<Navigate to="/" replace />} />
+          <Route path="/about" element={<Navigate to="/why" replace />} />
+          <Route path="/faqs" element={<Navigate to="/" replace />} />
+          <Route path="/faq" element={<Navigate to="/" replace />} />
           <Route path="/career-view" element={<CareerViewPage />} />
           <Route path="/360-career-view" element={<CareerViewPage />} />
           <Route path="/career" element={<CareerViewPage />} />
           <Route path="/why" element={<WhyPage />} />
-          <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/about" element={<FaqPage />} />
-          <Route path="/faqs" element={<FaqPage />} />
-          <Route path="/faq" element={<FaqPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
@@ -79,6 +76,7 @@ function AnimatedRoutes() {
           <Route path="/cookie-policy" element={<CookiePolicyPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/organizations/signup" element={<OrganizationSignupPage />} />
           <Route path="/logout" element={<LogoutPage />} />
           <Route path="/apply/:companySlug/:code" element={<CandidateApplyPage />} />
           <Route path="/apply/:code" element={<CandidateApplyPage />} />

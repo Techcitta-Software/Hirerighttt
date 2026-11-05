@@ -4,11 +4,11 @@ import styles from './MarketingFooter.module.css'
 
 const FOOTER_LINKS = [
   { to: '/', label: 'Home' },
-  { to: '/how-it-works', label: 'How It Works' },
-  { to: '/career-view', label: '360° Career View' },
-  { to: '/who-its-for', label: 'Who It’s For' },
-  { to: '/faqs', label: 'FAQs' },
-  { to: '/contact', label: 'Contact' },
+  { to: '/why', label: 'Why us?' },
+  { to: '/pricing', label: 'Pricing' },
+  { to: '/career-view', label: '360° Report' },
+  { to: '/solutions', label: 'For organizations' },
+  { to: '/contact', label: 'Contact us' },
   { to: '/privacy', label: 'Privacy Policy' },
   { to: '/terms', label: 'Terms & Conditions' },
   { to: '/cookies', label: 'Cookie Policy' },

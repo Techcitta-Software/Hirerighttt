@@ -270,7 +270,7 @@ export function HomePage() {
     if (user && user.role === 'employer') {
       navigate('/employer/dashboard')
     } else {
-      navigate('/signup?role=employer')
+      navigate('/organizations/signup')
     }
   }
 
@@ -279,7 +279,7 @@ export function HomePage() {
   function handleFastStartSubmit(e: FormEvent) {
     e.preventDefault()
     if (roleSelection === 'vendor') {
-      navigate('/signup?role=employer')
+      navigate('/organizations/signup')
     } else {
       navigate('/signup', {
         state: { firstName: firstName.trim() || undefined, reason: 'fast_start_discovery' },
@@ -288,7 +288,7 @@ export function HomePage() {
   }
 
   function handleVendorClick() {
-    navigate('/signup?role=employer')
+    navigate('/organizations/signup')
   }
 
   return (
@@ -1178,24 +1178,32 @@ export function HomePage() {
             </div>
 
             <div className={styles.footerLinks}>
-              <Link to="/" className={styles.footerLink}>
-                home
+              <Link to="/why" className={styles.footerLink}>
+                why us?
               </Link>
-              <Link to="/how-it-works" className={styles.footerLink}>
-                how it works
+              <Link to="/pricing" className={styles.footerLink}>
+                pricing
               </Link>
-              <Link to="/signup?role=employer" className={styles.footerLink}>
-                for vendors
+              <Link to="/career-view" className={styles.footerLink}>
+                360° report
               </Link>
-              <Link to="/faqs" className={styles.footerLink}>
-                faqs
+              <Link to="/solutions" className={styles.footerLink}>
+                for organizations
+              </Link>
+              <Link to="/contact" className={styles.footerLink}>
+                contact us
+              </Link>
+              <Link to="/privacy" className={styles.footerLink}>
+                privacy
+              </Link>
+              <Link to="/terms" className={styles.footerLink}>
+                terms
               </Link>
             </div>
           </div>
 
           <p className={styles.footerCopyright}>
-            © 2026 HireRighttt. all rights reserved. [replace legal entity, contact address,
-            privacy and terms links before launch]
+            © {new Date().getFullYear()} HireRighttt. all rights reserved.
           </p>
         </div>
       </footer>

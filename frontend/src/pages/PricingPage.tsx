@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { HrIcon } from '../components/HrIcon'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import styles from './PricingPage.module.css'
 
@@ -50,7 +50,7 @@ const PLANS = [
     period: '/ month',
     popular: false,
     ctaText: 'Contact Enterprise Sales →',
-    ctaLink: '/about',
+    ctaLink: '/contact',
     ctaStyle: 'secondary',
     features: [
       'Everything in Pro Recruiter',
@@ -66,7 +66,7 @@ const PLANS = [
 export function PricingPage() {
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <MarketingNavBar />
       <main className={styles.shell}>
         <motion.header
           className={styles.header}
@@ -125,7 +125,7 @@ export function PricingPage() {
           ))}
         </motion.div>
       </main>
-      <SiteFooter />
+      <MarketingFooter />
     </div>
   )
 }

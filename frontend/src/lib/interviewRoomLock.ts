@@ -3,6 +3,20 @@ export type InterviewFocusViolation =
   | 'FULLSCREEN_EXIT'
   | 'WINDOW_BLUR'
 
+/** Integrity log event type for a focus / fullscreen violation. */
+export type InterviewIntegrityFocusEvent = 'TAB_OR_WINDOW_LEFT' | 'FULLSCREEN_EXITED'
+
+export function integrityEventTypeForViolation(
+  reason: InterviewFocusViolation,
+): InterviewIntegrityFocusEvent {
+  return reason === 'FULLSCREEN_EXIT' ? 'FULLSCREEN_EXITED' : 'TAB_OR_WINDOW_LEFT'
+}
+
+/** Fullscreen is mandatory, including on devices that cannot support it. */
+export function shouldRequireInterviewFullscreen(): boolean {
+  return typeof window !== 'undefined'
+}
+
 export type FullscreenRequestResult = 'granted' | 'unsupported' | 'denied'
 
 export type FullscreenRequestDetail = {
@@ -30,7 +44,7 @@ export function fullscreenDeniedUserMessage(detail?: Pick<FullscreenRequestDetai
     )
   }
   return (
-    'Fullscreen is required on desktop. Click Join again and approve the fullscreen prompt when it appears.'
+    'Fullscreen is required. Click Join again and approve the fullscreen prompt when it appears.'
   )
 }
 
@@ -84,19 +98,14 @@ export function violationMessage(reason: InterviewFocusViolation): string {
 
 export type InterviewRoomGuardOptions = {
   requireFullscreen: boolean
-  /** Ignore violations briefly after attach (fullscreen transition). */
-  graceMs?: number
   onViolation: (detail: { reason: InterviewFocusViolation; message: string }) => void
 }
 
 export function attachInterviewRoomGuard(options: InterviewRoomGuardOptions): () => void {
-  const graceMs = options.graceMs ?? 900
-  const startedAt = Date.now()
   let ended = false
 
   const fire = (reason: InterviewFocusViolation) => {
     if (ended) return
-    if (Date.now() - startedAt < graceMs) return
     ended = true
     options.onViolation({ reason, message: violationMessage(reason) })
   }
@@ -116,24 +125,50 @@ export function attachInterviewRoomGuard(options: InterviewRoomGuardOptions): ()
   }
 
   const onBlur = () => {
-    window.setTimeout(() => {
-      if (ended || document.hidden) return
-      if (!document.hasFocus()) fire('WINDOW_BLUR')
-    }, 350)
+    fire(document.hidden ? 'TAB_HIDDEN' : 'WINDOW_BLUR')
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const key = event.key.toLowerCase()
+    const fullscreenExit = key === 'escape' || key === 'f11'
+    const navigation = key === 'f5' ||
+      ((event.ctrlKey || event.metaKey) && ['l', 't', 'w', 'r', 'n', 'tab'].includes(key)) ||
+      (event.altKey && ['tab', 'f4', 'arrowleft', 'arrowright', 'home'].includes(key))
+    if (!fullscreenExit && !navigation) return
+    event.preventDefault()
+    fire(fullscreenExit ? 'FULLSCREEN_EXIT' : 'TAB_HIDDEN')
+  }
+
+  const onBeforeUnload = (event: BeforeUnloadEvent) => {
+    fire('TAB_HIDDEN')
+    event.preventDefault()
+    event.returnValue = ''
   }
 
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('pagehide', onPageHide)
+  window.addEventListener('blur', onBlur)
+  window.addEventListener('beforeunload', onBeforeUnload)
   document.addEventListener('fullscreenchange', onFullscreen)
   document.addEventListener('webkitfullscreenchange', onFullscreen)
-  window.addEventListener('blur', onBlur)
+  window.addEventListener('keydown', onKeyDown, true)
+
+  // Catch exits during async setup before the guard was attached.
+  queueMicrotask(() => {
+    if (ended) return
+    if (document.hidden) fire('TAB_HIDDEN')
+    else if (options.requireFullscreen && !isInterviewFullscreenActive()) fire('FULLSCREEN_EXIT')
+    else if (!document.hasFocus()) fire('WINDOW_BLUR')
+  })
 
   return () => {
     ended = true
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('pagehide', onPageHide)
+    window.removeEventListener('blur', onBlur)
+    window.removeEventListener('beforeunload', onBeforeUnload)
     document.removeEventListener('fullscreenchange', onFullscreen)
     document.removeEventListener('webkitfullscreenchange', onFullscreen)
-    window.removeEventListener('blur', onBlur)
+    window.removeEventListener('keydown', onKeyDown, true)
   }
 }

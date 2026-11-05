@@ -1,0 +1,33 @@
+ARJUN KUMAR REDDY
+AI Associate Engineer | 2 years of experience
+Hyderabad, India | arjun.reddy@example.com
+FICTIONAL CANDIDATE - FOR INTERVIEW TESTING ONLY
+
+SUMMARY
+AI Associate Engineer with two years of hands-on experience building Python machine-learning services and retrieval-augmented generation prototypes. Worked on data preparation, model evaluation, SQL analysis, and FastAPI inference endpoints under a senior engineer.
+
+EXPERIENCE
+AI Associate Engineer | Example AI Labs (fictional)
+November 2024 - October 2026 | 2 years
+- Cleaned and analyzed support-ticket data using Python, pandas, and SQL.
+- Trained and compared TF-IDF/logistic regression and transformer-based ticket classifiers.
+- Used stratified train/validation/test splits, macro-F1, and confusion matrices.
+- Built FastAPI prediction endpoints with input validation and structured error handling.
+- Helped build a document-search assistant with embeddings, FAISS, and an LLM API.
+- Added evaluation examples and logged retrieval failures for review with senior engineers.
+
+SKILLS
+Python, Machine Learning, SQL, pandas, NumPy, scikit-learn, NLP, embeddings, RAG, FAISS, FastAPI, Git, pytest.
+
+PROJECTS
+Support Ticket Classification
+Built a classifier to route tickets to support categories. Prepared anonymized text, handled duplicate tickets, compared baseline models, and analyzed errors for minority categories. Exposed predictions through a FastAPI endpoint.
+
+Internal Documentation Assistant
+Built a RAG prototype for a fictional internal documentation collection. Implemented text chunking, embedding generation, FAISS retrieval, and source references. Tested retrieval quality and cases where documents did not contain an answer.
+
+EDUCATION
+B.Tech in Computer Science | Example Institute of Technology (fictional)
+2020 - 2024
+
+All names, employment, education, and project details above are synthetic.

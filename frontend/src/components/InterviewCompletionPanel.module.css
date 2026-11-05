@@ -1,0 +1,248 @@
+.root {
+  min-height: calc(100vh - 66px);
+  display: grid;
+  place-items: center;
+  padding: 32px 16px 56px;
+  background:
+    radial-gradient(1200px 480px at 12% -10%, rgba(37, 99, 235, 0.06), transparent 55%),
+    radial-gradient(900px 420px at 100% 0%, rgba(15, 23, 42, 0.04), transparent 50%),
+    #f8fafc;
+}
+
+.shell {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.hero {
+  text-align: left;
+}
+
+.kicker {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display, var(--font));
+  font-size: clamp(1.65rem, 3.2vw, 2.15rem);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.lede {
+  margin: 12px 0 0;
+  max-width: 38rem;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 8px;
+}
+
+.metaLabel {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.metaItem strong {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progressBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progressHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.progressPct {
+  font-variant-numeric: tabular-nums;
+  color: #64748b;
+  font-weight: 550;
+}
+
+.progressTrack {
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 55%, #38bdf8 100%);
+  transition: width 0.45s ease;
+}
+
+.steps {
+  margin: 0;
+  padding: 6px 4px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border-radius: 10px;
+}
+
+.stepMark {
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1.5px solid #cbd5e1;
+  color: transparent;
+  background: #f8fafc;
+}
+
+.status_done .stepMark,
+.status_skipped .stepMark {
+  border-color: #059669;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.status_active .stepMark {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  animation: pulseMark 1.4s ease-in-out infinite;
+}
+
+.status_pending {
+  opacity: 0.62;
+}
+
+.stepBody strong {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.stepBody p {
+  margin: 3px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #64748b;
+}
+
+.recording {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.recordingHead h2 {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.recordingHead p {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #64748b;
+}
+
+.video {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  max-height: min(42vh, 360px);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #0f172a;
+}
+
+.footerNote {
+  margin: 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+@keyframes pulseMark {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.18);
+  }
+}
+
+@media (max-width: 640px) {
+  .meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .title {
+    font-size: 1.55rem;
+  }
+}

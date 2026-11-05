@@ -3,7 +3,7 @@
   width: 100%;
   background: #0e0b24;
   color: #e2e8f0;
-  font-family: var(--font, 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(--font, 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
   -webkit-font-smoothing: antialiased;
   padding: 1.25rem 0 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);

@@ -1,8 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
-import { HrIcon } from '../components/HrIcon'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {
@@ -202,11 +201,25 @@ async function authenticateWithEmailPassword(
 
 type AuthMode = 'login' | 'signup'
 
+/** Candidate / job seeker sign-up. Organization sign-up lives at /organizations/signup. */
 export function SignupPage() {
-  return <LoginPage initialMode="signup" />
+  const { search } = useLocation()
+  const role = new URLSearchParams(search).get('role')
+  if (role === 'employer' || role === 'recruiter' || role === 'vendor') {
+    return <Navigate to="/organizations/signup" replace />
+  }
+  return <LoginPage initialMode="signup" fixedRole="jobseeker" />
 }
 
-export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
+/** Vendor / employer / recruiter organization sign-up. */
+export function OrganizationSignupPage() {
+  return <LoginPage initialMode="signup" fixedRole="employer" />
+}
+
+export function LoginPage({
+  initialMode,
+  fixedRole,
+}: { initialMode?: AuthMode; fixedRole?: RoleType } = {}) {
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -218,7 +231,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   useEffect(() => {
     if (initialMode) {
       setAuthMode(initialMode)
-    } else if (location.pathname === '/signup') {
+    } else if (location.pathname === '/signup' || location.pathname === '/organizations/signup') {
       setAuthMode('signup')
     } else if (location.pathname === '/login') {
       setAuthMode('login')
@@ -258,9 +271,10 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   // Signup state
   const searchRole = new URLSearchParams(location.search).get('role')
   const initialRole: RoleType =
-    searchRole === 'employer' || searchRole === 'recruiter' || searchRole === 'vendor'
+    fixedRole ??
+    (searchRole === 'employer' || searchRole === 'recruiter' || searchRole === 'vendor'
       ? 'employer'
-      : 'jobseeker'
+      : 'jobseeker')
   const [signupRole, setSignupRole] = useState<RoleType>(initialRole)
   const [signupName, setSignupName] = useState('')
   const [signupPhone, setSignupPhone] = useState('')
@@ -272,13 +286,17 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
   // Sync signup role if query parameters change
   useEffect(() => {
+    if (fixedRole) {
+      setSignupRole(fixedRole)
+      return
+    }
     const role = new URLSearchParams(location.search).get('role')
     if (role === 'employer' || role === 'recruiter' || role === 'vendor') {
       setSignupRole('employer')
     } else if (role === 'jobseeker' || role === 'candidate') {
       setSignupRole('jobseeker')
     }
-  }, [location.search])
+  }, [location.search, fixedRole])
 
   function switchMode(newMode: AuthMode) {
     setAuthMode(newMode)
@@ -286,7 +304,7 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
     if (newMode === 'signup') {
       setSuccessMessage('')
     }
-    if (newMode === 'signup' && location.pathname !== '/signup') {
+    if (newMode === 'signup' && location.pathname === '/login') {
       window.history.replaceState(null, '', '/login?mode=signup')
     } else if (newMode === 'login' && location.pathname !== '/login') {
       window.history.replaceState(null, '', '/login')
@@ -321,27 +339,6 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
   function fillLoginAdmin() {
     setLoginEmail(DEMO_ADMIN.email)
     setLoginPassword(DEMO_ADMIN.password)
-    setError('')
-  }
-
-  function fillSignupCandidate() {
-    setSignupRole('jobseeker')
-    setSignupName('Arjun Sharma')
-    setSignupPhone('+91 98765 43210')
-    setSignupEmail('candidate@hireright.com')
-    setSignupPassword('password123')
-    setTermsAgreed(true)
-    setError('')
-  }
-
-  function fillSignupVendor() {
-    setSignupRole('employer')
-    setSignupName('Sarah Jenkins')
-    setSignupCompanyName('TechCitta Solutions')
-    setSignupPhone('+91 98765 12345')
-    setSignupEmail('vendor@hireright.com')
-    setSignupPassword('password123')
-    setTermsAgreed(true)
     setError('')
   }
 
@@ -594,7 +591,29 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
           <BrandLogo to="/" size="lg" dark className={styles.brandLink} />
 
           <div className={styles.splitLeftCopy}>
-            {authMode === 'signup' ? (
+            {authMode === 'signup' && signupRole === 'employer' ? (
+              <>
+                <h1 className={styles.leftHeadline}>
+                  Hire with proof,
+                  <br />
+                  not guesswork.
+                </h1>
+                <ul className={styles.leftChecklist}>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Screen every applicant with structured AI interviews</span>
+                  </li>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Compare candidates on clear, bias-aware scorecards</span>
+                  </li>
+                  <li>
+                    <span className={styles.checkIcon}>✓</span>
+                    <span>Share job links and manage your whole pipeline in one place</span>
+                  </li>
+                </ul>
+              </>
+            ) : authMode === 'signup' ? (
               <>
                 <h1 className={styles.leftHeadline}>
                   Your future starts with
@@ -634,7 +653,9 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
 
           <p className={styles.leftFooter}>
             {authMode === 'signup'
-              ? 'No resume required to get started'
+              ? signupRole === 'employer'
+                ? 'Built for hiring teams, agencies and vendors'
+                : 'No resume required to get started'
               : 'Your Personal AI Career Companion'}
           </p>
         </div>
@@ -728,6 +749,12 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                     </button>
                   </p>
                   <p className={styles.subLinkLine}>
+                    Hiring?{' '}
+                    <Link to="/organizations/signup" className={styles.switchModeLink}>
+                      Create an organization account
+                    </Link>
+                  </p>
+                  <p className={styles.subLinkLine}>
                     Just exploring?{' '}
                     <Link to="/career-view" className={styles.discoveryLink}>
                       Start My Career Discovery
@@ -809,31 +836,17 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
             /* SIGNUP VIEW */
             <div className={styles.authContainer}>
               <header className={styles.formHeader}>
-                <h1 className={styles.welcomeTitle}>Create your account</h1>
+                <h1 className={styles.welcomeTitle}>
+                  {signupRole === 'employer' ? 'Create your organization account' : 'Create your account'}
+                </h1>
                 <p className={styles.welcomeSub}>
-                  It takes under a minute. You can begin your career discovery right after.
+                  {signupRole === 'employer'
+                    ? 'Set up your hiring workspace in under a minute.'
+                    : 'It takes under a minute. You can begin your career discovery right after.'}
                 </p>
               </header>
 
               <form className={styles.loginForm} onSubmit={handleSignupSubmit}>
-                {/* Image 2: Role Switcher */}
-                <div className={styles.splitRoleGrid}>
-                  <button
-                    type="button"
-                    className={`${styles.splitRoleBtn} ${signupRole === 'jobseeker' ? styles.splitRoleBtnActive : ''}`}
-                    onClick={() => setSignupRole('jobseeker')}
-                  >
-                    <HrIcon name="user" size={18} /> Job Seeker
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.splitRoleBtn} ${signupRole === 'employer' ? styles.splitRoleBtnActive : ''}`}
-                    onClick={() => setSignupRole('employer')}
-                  >
-                    <HrIcon name="building" size={18} /> Vendor / Recruiter
-                  </button>
-                </div>
-
                 {sessionStorage.getItem('hireright.intent') === 'upload_resume' && (
                   <div className={styles.successBanner} role="status" style={{ marginBottom: 16 }}>
                     <span>📄</span>
@@ -866,13 +879,13 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                 {signupRole === 'employer' && (
                   <div className={styles.formGroup}>
                     <label htmlFor="signup-company" className={styles.formLabel}>
-                      Vendor / Company Name
+                      Organization / Company name
                     </label>
                     <input
                       id="signup-company"
                       type="text"
                       value={signupCompanyName}
-                      placeholder="TechCitta Solutions"
+                      placeholder="Acme Talent Solutions"
                       onChange={(event) => setSignupCompanyName(event.target.value)}
                       required
                       className={styles.formInput}
@@ -910,7 +923,11 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                     required
                     className={styles.formInput}
                   />
-                  <p className={styles.fieldHint}>Used for interview reminders and job applications.</p>
+                  <p className={styles.fieldHint}>
+                    {signupRole === 'employer'
+                      ? 'Used for account security and hiring notifications.'
+                      : 'Used for interview reminders and job applications.'}
+                  </p>
                 </div>
 
                 <div className={styles.formGroup}>
@@ -966,24 +983,24 @@ export function LoginPage({ initialMode }: { initialMode?: AuthMode } = {}) {
                   </p>
                 </div>
 
-                {/* IMAGE 3: DEMO SELECTION BUTTONS */}
-                <div className={styles.quickDemoAccessWrap}>
-                  <div className={styles.demoTwoBtnRow}>
-                    <button
-                      type="button"
-                      className={styles.demoFillUnderlineBtn}
-                      onClick={fillSignupCandidate}
-                    >
-                      Fill Candidate Demo
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.demoFillUnderlineBtn}
-                      onClick={fillSignupVendor}
-                    >
-                      Fill Vendor Demo
-                    </button>
-                  </div>
+                <div className={styles.authLinksBelow}>
+                  <p className={styles.subLinkLine}>
+                    {signupRole === 'employer' ? (
+                      <>
+                        Looking for a job?{' '}
+                        <Link to="/signup" className={styles.switchModeLink}>
+                          Candidate sign up
+                        </Link>
+                      </>
+                    ) : (
+                      <>
+                        Hiring?{' '}
+                        <Link to="/organizations/signup" className={styles.switchModeLink}>
+                          Organization sign up
+                        </Link>
+                      </>
+                    )}
+                  </p>
                 </div>
               </form>
             </div>

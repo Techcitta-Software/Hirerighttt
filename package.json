@@ -12,12 +12,12 @@
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "cd backend && python run.py",
+    "dev:backend": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8787 --reload",
     "dev:all": "node scripts/dev-all.mjs",
     "build": "npm --prefix frontend run build",
     "lint": "npm --prefix frontend run lint",
     "preview": "npm --prefix frontend run preview",
-    "start": "cd backend && python run.py",
+    "start": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8787",
     "db:init": "cd backend && python db_init.py",
     "db:verify": "cd backend && python db_init.py --verify"
   },

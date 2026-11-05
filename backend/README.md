@@ -7,7 +7,7 @@ backend/
   app/              FastAPI application
   db/sql/           Postgres schema
   data/             Static JSON assets
-  run.py            Entry point
+  run.py            Uvicorn launcher (optional; prefer python -m uvicorn)
   db_init.py        Schema apply / verify
   requirements.txt
   Dockerfile
@@ -15,5 +15,7 @@ backend/
 
 ```bash
 pip install -r requirements.txt
-python run.py
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8787 --reload
 ```
+
+Production (no reload): omit `--reload`. Render/Docker use `$PORT` when set.
