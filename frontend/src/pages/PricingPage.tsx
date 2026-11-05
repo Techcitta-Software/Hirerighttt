@@ -81,7 +81,7 @@ export function PricingPage() {
             Hire the best. <em>Priced for everyone.</em>
           </motion.h1>
           <motion.p className={styles.subtitle} variants={fadeUp}>
-            Whether you are a job seeker proving your skills or an employer screening hundreds of candidates, HireRight has the right plan for you.
+            Whether you are a job seeker proving your skills or an employer screening hundreds of candidates, HireRighttt has the right plan for you.
           </motion.p>
         </motion.header>
 

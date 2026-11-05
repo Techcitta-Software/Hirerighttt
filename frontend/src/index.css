@@ -1,7 +1,7 @@
 @import './styles/typography.css';
 
 :root {
-  --hr-layout-width: 85%;
+  --hr-layout-width: min(1200px, calc(100% - 2rem));
   --hr-navy: #07122a;
   --hr-navy-deep: #050b18;
   --hr-red: #e53935;

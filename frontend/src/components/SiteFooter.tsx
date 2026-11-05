@@ -36,7 +36,7 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
           <Link to="/contact">Contact</Link>
         </div>
         <div>
-          <h4>About HireRight</h4>
+          <h4>About HireRighttt</h4>
                     <Link to="/pricing">Pricing</Link>
           <Link to="/privacy">Privacy Policy</Link>
           <Link to="/terms">Terms &amp; Conditions</Link>
@@ -44,7 +44,7 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
         </div>
       </div>
       <div className={styles.bottom}>
-        <span>© {new Date().getFullYear()} HireRight. All rights reserved.</span>
+        <span>© {new Date().getFullYear()} HireRighttt. All rights reserved.</span>
         <span className={styles.legalInline}>
           <Link to="/privacy">Privacy</Link>
           <span aria-hidden>·</span>

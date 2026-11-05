@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import type { InterviewResult } from '../lib/store'
-import { CandidateInterviewRecordingSection } from './CandidateInterviewRecordingSection'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import { openStoredScorecardPdf } from '../lib/interviewReportUpload'
 import { buildQaRowsFromInterview } from '../lib/scorecardQaRows'
@@ -44,8 +43,6 @@ export function CareerIntelligenceDashboard({
   skills = [],
   onRetake,
   onContinue,
-  interviewSessionId,
-  localPreviewUrl,
 }: Props) {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
@@ -800,17 +797,6 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
       </section>
-
-      {interviewSessionId || result.sessionId || localPreviewUrl ? (
-        <div className={styles.reportVideoBlock}>
-          <CandidateInterviewRecordingSection
-            sessionId={interviewSessionId || result.sessionId}
-            localPreviewUrl={localPreviewUrl}
-            title="Your interview video"
-            description="Full session recording from your AI interview — review it below your scorecard."
-          />
-        </div>
-      ) : null}
 
       {/* Footer Ribbon */}
       <footer className={styles.footerRibbon}>

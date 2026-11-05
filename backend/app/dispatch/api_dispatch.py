@@ -1256,6 +1256,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
 
         if method == "GET" and path == "/api/interview/recordings/playback":
             email = await runtime.require_auth_email(request)
+            # Interview videos are not exposed to candidates; admins/recruiters use the vendor endpoints.
+            return _json(403, {"error": "Interview recordings are not available to candidates."})
             session_id = str(request.query_params.get("sessionId") or "").strip()
             if not session_id:
                 return _json(400, {"error": "sessionId is required."})

@@ -1089,7 +1089,6 @@ export function ProfilePage() {
   const [portfolio, setPortfolio] = useState(profileExtras?.portfolio || '')
 
   const [visibleToEmployers, setVisibleToEmployers] = useState(true)
-  const [shareRecording, setShareRecording] = useState(false)
   const [emailAlerts, setEmailAlerts] = useState(true)
 
   useEffect(() => {
@@ -1847,22 +1846,6 @@ export function ProfilePage() {
                     </div>
                     <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
                       Employers can find your profile and score in search.
-                    </div>
-                  </div>
-                </label>
-
-                <label className={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={shareRecording}
-                    onChange={(e) => setShareRecording(e.target.checked)}
-                  />
-                  <div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0f172a' }}>
-                      Share my interview recording
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      Off by default. Employers see only the scored report.
                     </div>
                   </div>
                 </label>

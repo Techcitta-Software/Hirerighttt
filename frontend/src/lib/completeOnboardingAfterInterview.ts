@@ -37,7 +37,7 @@ export type PostInterviewReportState = {
 
 export const PENDING_REPORT_UPLOAD_KEY = 'hireright.pendingReportUpload'
 
-/** Right after scoring — show the full career report once (not the workspace home). */
+/** Right after scoring — show the interview-complete page (details + Dashboard button). */
 export function goToInterviewReportAfterCompletion(
   navigate: NavigateFunction,
   options?: { uploadReport?: boolean },
@@ -53,7 +53,7 @@ export function goToInterviewReportAfterCompletion(
     fromInterview: true,
     autoContinueDashboard: immediateFlow,
   }
-  navigate('/dashboard/report', { replace: true, state })
+  navigate('/interview/complete', { replace: true, state })
 }
 
 /** From the report — continue to the candidate workspace (SaaS home). */

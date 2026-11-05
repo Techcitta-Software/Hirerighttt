@@ -173,24 +173,6 @@ export function InterviewCompletionPanel({ summary, steps }: Props) {
           ))}
         </ol>
 
-        {(summary.recordingUrl || summary.recordingNote) && (
-          <aside className={styles.recording}>
-            <div className={styles.recordingHead}>
-              <h2>Session recording</h2>
-              {summary.recordingNote ? <p>{summary.recordingNote}</p> : null}
-            </div>
-            {summary.recordingUrl ? (
-              <video
-                className={styles.video}
-                src={summary.recordingUrl}
-                controls
-                playsInline
-                preload="metadata"
-              />
-            ) : null}
-          </aside>
-        )}
-
         <p className={styles.footerNote}>
           Stay on this page. Your scorecard opens automatically when scoring finishes.
         </p>

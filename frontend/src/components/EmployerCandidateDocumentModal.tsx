@@ -9,6 +9,7 @@ import {
   type VendorCandidateRecordingLink,
 } from '../lib/vendorApi'
 import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
+import { isAdminUser } from '../lib/adminAccess'
 import { HrIcon } from './HrIcon'
 import styles from './EmployerCandidateDocumentModal.module.css'
 
@@ -208,8 +209,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   <>
                     <p className={styles.sectionHint}>
                       {isResume
-                        ? 'Scroll down for the interview recording when available.'
-                        : 'HireRighttt scorecard PDF — scroll down for this candidate’s original interview video.'}
+                        ? 'Resume preview.'
+                        : 'HireRighttt scorecard PDF.'}
                     </p>
                     <iframe
                       className={styles.docFrameTwoPage}
@@ -229,7 +230,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                 ) : null}
               </section>
 
-              {!isResume ? (
+              {!isResume && isAdminUser() ? (
                 <section className={styles.videoSection} aria-label="Interview video">
                   <div className={styles.videoSectionHeader}>
                     <HrIcon name="video" size={18} />

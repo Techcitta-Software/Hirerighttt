@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { IntegrityLogEvent, InterviewFlagSection, InterviewProctoringSummary } from '../lib/store'
 import { apiFetch } from '../lib/api'
+import { isAdminUser } from '../lib/adminAccess'
 import styles from './VideoProctorTimeline.module.css'
 
 type Props = {
@@ -23,7 +24,7 @@ function flagLabel(type: InterviewFlagSection['type']) {
   return 'Looking away'
 }
 
-export function VideoProctorTimeline({
+function VideoProctorTimelineInner({
   sessionId,
   candidateEmail,
   logs = [],
@@ -226,4 +227,10 @@ export function VideoProctorTimeline({
       </p>
     </section>
   )
+}
+
+/** Interview video is admin-only; everyone else renders nothing. */
+export function VideoProctorTimeline(props: Props) {
+  if (!isAdminUser()) return null
+  return <VideoProctorTimelineInner {...props} />
 }

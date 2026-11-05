@@ -19,6 +19,8 @@ import {
 import { AdminDashboard } from './pages/AdminDashboard'
 import { InterviewPage } from './pages/InterviewPage'
 import { InterviewNowPage } from './pages/InterviewNowPage'
+import { InterviewCompletePage } from './pages/InterviewCompletePage'
+import { RequireAdmin } from './components/RequireAdmin'
 import { EmployerDashboard } from './pages/EmployerDashboard'
 import { CandidateApplyPage } from './pages/CandidateApplyPage'
 import { JobInviteEntryPage } from './pages/JobInviteEntryPage'
@@ -89,6 +91,14 @@ function AnimatedRoutes() {
                 <RequireOnboardingAccess>
                   <ProfileWizard />
                 </RequireOnboardingAccess>
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/interview/complete"
+            element={
+              <RequireAuth role="jobseeker">
+                <InterviewCompletePage />
               </RequireAuth>
             }
           />
@@ -229,7 +239,9 @@ function AnimatedRoutes() {
               path="/admin"
               element={
                 <RequireAuth role="employer">
-                  <AdminDashboard />
+                  <RequireAdmin>
+                    <AdminDashboard />
+                  </RequireAdmin>
                 </RequireAuth>
               }
             />

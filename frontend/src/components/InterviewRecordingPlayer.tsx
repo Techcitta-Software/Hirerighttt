@@ -15,6 +15,7 @@ import {
   getPlaybackFaceLandmarker,
 } from '../lib/proctorPlaybackLandmarks'
 import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
+import { isAdminUser } from '../lib/adminAccess'
 import styles from './InterviewRecordingPlayer.module.css'
 
 type Props = {
@@ -39,7 +40,7 @@ function flagTypeLabel(type: InterviewFlagSection['type']) {
   return 'Looking away / gaze deviation'
 }
 
-export function InterviewRecordingPlayer({
+function InterviewRecordingPlayerInner({
   playbackUrl,
   events = [],
   proctoring,
@@ -348,4 +349,10 @@ export function InterviewRecordingPlayer({
       ) : null}
     </div>
   )
+}
+
+/** Interview video is admin-only; everyone else renders nothing. */
+export function InterviewRecordingPlayer(props: Props) {
+  if (!isAdminUser()) return null
+  return <InterviewRecordingPlayerInner {...props} />
 }

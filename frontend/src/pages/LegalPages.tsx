@@ -40,7 +40,7 @@ export function PrivacyPolicyPage() {
   return (
     <LegalShell kicker="LEGAL" title="Privacy Policy">
       <p>
-        HireRight (&quot;we&quot;, &quot;us&quot;) provides AI-assisted interviews, career scorecards, and hiring
+        HireRighttt (&quot;we&quot;, &quot;us&quot;) provides AI-assisted interviews, career scorecards, and hiring
         tools for candidates and employers. This Privacy Policy explains what personal data we collect, why we
         collect it, and your choices.
       </p>
@@ -112,7 +112,7 @@ export function PrivacyPolicyPage() {
       </p>
 
       <h2>Children</h2>
-      <p>HireRight is not directed at children under 16. We do not knowingly collect their data.</p>
+      <p>HireRighttt is not directed at children under 16. We do not knowingly collect their data.</p>
 
       <h2>Changes</h2>
       <p>
@@ -132,13 +132,13 @@ export function TermsPage() {
   return (
     <LegalShell kicker="LEGAL" title="Terms & Conditions">
       <p>
-        By accessing or using HireRight, you agree to these Terms &amp; Conditions. If you do not agree, do
+        By accessing or using HireRighttt, you agree to these Terms &amp; Conditions. If you do not agree, do
         not use the service.
       </p>
 
       <h2>Service</h2>
       <p>
-        HireRight offers AI-assisted interviews, candidate profiles, employer job posting, and application
+        HireRighttt offers AI-assisted interviews, candidate profiles, employer job posting, and application
         workflows. Features may change; we strive to maintain reasonable availability but do not guarantee
         uninterrupted access.
       </p>
@@ -152,7 +152,7 @@ export function TermsPage() {
 
       <h2>Your content</h2>
       <p>
-        You retain ownership of resumes, answers, and materials you submit. You grant HireRight a license to
+        You retain ownership of resumes, answers, and materials you submit. You grant HireRighttt a license to
         host, process, and display that content to operate the service (including AI scoring and sharing with
         employers you apply to).
       </p>
@@ -178,7 +178,7 @@ export function TermsPage() {
 
       <h2>Termination</h2>
       <p>
-        You may stop using HireRight at any time. We may suspend accounts that violate these terms or pose
+        You may stop using HireRighttt at any time. We may suspend accounts that violate these terms or pose
         security risks.
       </p>
 
@@ -213,13 +213,13 @@ export function CookiePolicyPage() {
   return (
     <LegalShell kicker="LEGAL" title="Cookie Policy">
       <p>
-        This policy explains how HireRight uses cookies and similar technologies (including local storage) on
+        This policy explains how HireRighttt uses cookies and similar technologies (including local storage) on
         our website and application.
       </p>
 
       <h2>Our approach: essential only</h2>
       <p>
-        We designed HireRight to collect only what is necessary. We do <strong>not</strong> use advertising
+        We designed HireRighttt to collect only what is necessary. We do <strong>not</strong> use advertising
         or cross-site tracking cookies. We do not sell cookie data.
       </p>
 

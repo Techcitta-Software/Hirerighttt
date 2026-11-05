@@ -37,7 +37,7 @@ export function ContactPage() {
       <div className={styles.shell} style={{ paddingTop: '2rem' }}>
         <div className={styles.card}>
           <span className={styles.kicker}>SUPPORT</span>
-          <h1>Contact HireRight</h1>
+          <h1>Contact HireRighttt</h1>
           <p>
             Questions about demos, hiring, or your AI interview? We collect only the fields below to respond
             to you.
@@ -72,7 +72,7 @@ export function ContactPage() {
                   required
                 />
                 <span>
-                  I consent to HireRight processing my name, email, and message to reply to this inquiry, as
+                  I consent to HireRighttt processing my name, email, and message to reply to this inquiry, as
                   described in the{' '}
                   <Link to="/privacy" className={styles.termsLink}>
                     Privacy Policy

@@ -76,7 +76,7 @@ const SOLUTION_CARDS = [
   },
 ]
 
-// "Why HireRight" feature list with images from public/Solutions
+// "Why HireRighttt" feature list with images from public/Solutions
 const WHY_FEATURES = [
   {
     id: 'interviews',
@@ -183,7 +183,7 @@ const METRICS = [
 const TESTIMONIALS = [
   {
     quote:
-      'HireRight has completely transformed how we manage our recruitment pipeline. The AI matching is incredibly accurate and saves us hours every day.',
+      'HireRighttt has completely transformed how we manage our recruitment pipeline. The AI matching is incredibly accurate and saves us hours every day.',
     name: 'Priya Nair',
     role: 'Head of Talent Acquisition',
     company: 'Infosys',
@@ -199,7 +199,7 @@ const TESTIMONIALS = [
   },
   {
     quote:
-      'We\'ve seen a 35% increase in submission rates since we started using HireRight. The platform is intuitive and the support team is fantastic.',
+      'We\'ve seen a 35% increase in submission rates since we started using HireRighttt. The platform is intuitive and the support team is fantastic.',
     name: 'Anita Kapoor',
     role: 'Delivery Head - Staffing',
     company: 'Wipro',
@@ -307,12 +307,12 @@ export function SolutionsPage() {
             </motion.div>
 
             <motion.h1 className={styles.heroTitle} variants={fadeUp}>
-              How HireRight <br />
+              How HireRighttt <br />
               <span className={styles.highlightText}>works for modern</span> hiring teams
             </motion.h1>
 
             <motion.p className={styles.heroSubtitle} variants={fadeUp}>
-              HireRight helps staffing and recruitment teams streamline every step of the hiring
+              HireRighttt helps staffing and recruitment teams streamline every step of the hiring
               process with AI-powered matching, automation, and intelligent insights.
             </motion.p>
 
@@ -497,11 +497,11 @@ export function SolutionsPage() {
         </section>
       </div>
 
-      {/* Why HireRight Showcase with dynamic side image from public/Solutions */}
+      {/* Why HireRighttt Showcase with dynamic side image from public/Solutions */}
       <div className={styles.shell}>
         <section className={styles.whySection}>
           <div className={styles.whyHeader}>
-            <div className={styles.whyKicker}>WHY HireRight</div>
+            <div className={styles.whyKicker}>WHY HireRighttt</div>
             <h2 className={styles.whyTitle}>Everything you need to hire the right talent</h2>
           </div>
 
@@ -629,7 +629,7 @@ export function SolutionsPage() {
               <div>
                 <h2 className={styles.ctaTitle}>Ready to transform your hiring?</h2>
                 <p className={styles.ctaDesc}>
-                  Join thousands of recruitment teams who trust HireRight to find and hire the best
+                  Join thousands of recruitment teams who trust HireRighttt to find and hire the best
                   talent, faster.
                 </p>
               </div>
