@@ -274,6 +274,13 @@ export function LoginPage({
     (searchRole === 'employer' || searchRole === 'recruiter' || searchRole === 'vendor'
       ? 'employer'
       : 'jobseeker')
+  const orgType = new URLSearchParams(location.search).get('type')
+  const orgTypeCopy =
+    orgType === 'college'
+      ? { label: 'College / institution name', placeholder: 'Sunrise Institute of Technology' }
+      : orgType === 'staffing'
+        ? { label: 'Staffing company name', placeholder: 'Acme Staffing Partners' }
+        : { label: 'Organization / company name', placeholder: 'Acme Talent Solutions' }
   const [signupRole, setSignupRole] = useState<RoleType>(initialRole)
   const [signupName, setSignupName] = useState('')
   const [signupPhone, setSignupPhone] = useState('')
@@ -644,6 +651,7 @@ export function LoginPage({
                   <input
                     id="login-email"
                     type="email"
+                    spellCheck={false}
                     value={loginEmail}
                     placeholder="you@example.com"
                     onChange={(event) => setLoginEmail(event.target.value)}
@@ -658,7 +666,7 @@ export function LoginPage({
                     <label htmlFor="login-password" className={styles.formLabel}>
                       Password
                     </label>
-                    <Link to="/contact" className={styles.forgotLink}>
+                    <Link to="/forgot-password" className={styles.forgotLink}>
                       Forgot password?
                     </Link>
                   </div>
@@ -675,7 +683,13 @@ export function LoginPage({
                 </div>
 
                 <button type="submit" className={styles.loginPillBtn} disabled={loading}>
-                  {loading ? 'LOGGING IN...' : 'LOG IN'}
+                  {loading ? (
+                    <>
+                      <span className="ds-spinner" aria-hidden="true" /> Logging in…
+                    </>
+                  ) : (
+                    'Log in'
+                  )}
                 </button>
 
                 <div className={styles.authLinksBelow}>
@@ -752,13 +766,13 @@ export function LoginPage({
                 {signupRole === 'employer' && (
                   <div className={styles.formGroup}>
                     <label htmlFor="signup-company" className={styles.formLabel}>
-                      Organization / Company name
+                      {orgTypeCopy.label}
                     </label>
                     <input
                       id="signup-company"
                       type="text"
                       value={signupCompanyName}
-                      placeholder="Acme Talent Solutions"
+                      placeholder={orgTypeCopy.placeholder}
                       onChange={(event) => setSignupCompanyName(event.target.value)}
                       required
                       className={styles.formInput}
@@ -773,6 +787,7 @@ export function LoginPage({
                   <input
                     id="signup-email"
                     type="email"
+                    spellCheck={false}
                     value={signupEmail}
                     placeholder="you@example.com"
                     onChange={(event) => setSignupEmail(event.target.value)}
@@ -840,7 +855,13 @@ export function LoginPage({
                 </label>
 
                 <button type="submit" className={styles.loginPillBtn} disabled={loading}>
-                  {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}
+                  {loading ? (
+                    <>
+                      <span className="ds-spinner" aria-hidden="true" /> Creating account…
+                    </>
+                  ) : (
+                    'Create account'
+                  )}
                 </button>
 
                 <div className={styles.authLinksBelow}>
@@ -1018,6 +1039,7 @@ export function SettingsPage() {
                 Email
                 <input
                   type="email"
+                  spellCheck={false}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"

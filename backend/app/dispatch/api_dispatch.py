@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import secrets
@@ -28,6 +29,7 @@ from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import runtime
 from app.services.ats_composite import compute_employer_interview_composite
+from app.server.json_safe import json_safe
 from app.services import interview_api as ia
 from app.services.interview_invites import (
     INVITE_JOIN_WINDOW_MINUTES,
@@ -42,6 +44,7 @@ from app.services.interview_invites import (
     send_interview_invite_email,
     validate_invite_start,
 )
+from app.services.interview_consent import parse_interview_consent
 from app.services.interview_review import vendor_may_view_interview_session
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
@@ -113,7 +116,7 @@ def build_dispatch_context() -> DispatchContext:
 
 def _json(status: int, body: dict, *, headers: dict | None = None) -> JSONResponse:
     h = {"Cache-Control": "no-store"} if headers is None else {**headers, "Cache-Control": headers.get("Cache-Control", "no-store")}
-    return JSONResponse(status_code=status, content=body, headers=h)
+    return JSONResponse(status_code=status, content=json_safe(body), headers=h)
 
 
 def _vendor_recruiter_scope(access: dict) -> dict:
@@ -171,6 +174,9 @@ async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
         return None
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+logger = logging.getLogger("hireright.api")
 
 
 async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Response | None:
@@ -631,6 +637,15 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not ctx.rate_limit(f"ivstart:{email}", 12):
                 return _json(429, {"error": "Interview start rate limited. Wait a minute."})
             body = await runtime.read_json_body(request)
+            consent_record = parse_interview_consent(body.get("consent"), runtime.client_ip(request))
+            if not consent_record:
+                return _json(
+                    400,
+                    {
+                        "error": "Please agree to the recording, face tracking and AI scoring notice before starting.",
+                        "code": "CONSENT_REQUIRED",
+                    },
+                )
             if body.get("inviteToken") and config.database_url:
                 pool = db_store.db_pool(config.database_url)
                 invite = await get_interview_invite_by_token(pool, str(body["inviteToken"]))
@@ -773,6 +788,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "fallbackTurn": session_fallback_turn,
                 "closingTurn": session_closing_turn,
                 "integrity": {"faceViolations": 0, "singlePersonOk": True, "maxFacesSeen": 1},
+                "consent": consent_record,
             }
             db.setdefault("interviewSessions", {})[session_id] = session
             await ctx.save_db(db)
@@ -1518,6 +1534,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
     except NotImplementedError as exc:
         return _json(501, {"error": str(exc)})
     except Exception:
+        # Never swallow errors silently: without this line a failing endpoint is invisible in production logs.
+        logger.exception("API dispatch failed for %s %s", method, path)
         return _json(500, {"error": "Server error"})
 
     from app.dispatch.route_extensions import try_extended_routes

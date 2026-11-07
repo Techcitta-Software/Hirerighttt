@@ -133,7 +133,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
           <div>
-            <h2>1. Key Achievements</h2>
+            <h2>Key Achievements</h2>
             <h3>Share your top achievements that you&apos;re proud of.</h3>
           </div>
           <span className={styles.helper}>
@@ -187,7 +187,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
           <div>
-            <h2>2. Performance Metrics</h2>
+            <h2>Performance Metrics</h2>
             <h3>Highlight your impact using numbers and results.</h3>
           </div>
           <span className={styles.helper}>Add measurable results</span>
@@ -269,7 +269,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
           <div>
-            <h2>3. Awards & Recognitions</h2>
+            <h2>Awards & Recognitions</h2>
             <h3>
               List any awards, certifications, or recognitions you&apos;ve
               received.
@@ -321,7 +321,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
           <div>
-            <h2>4. Certifications</h2>
+            <h2>Certifications</h2>
             <h3>Add relevant certifications that strengthen your profile.</h3>
           </div>
           <span className={styles.helper}>

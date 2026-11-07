@@ -5,9 +5,9 @@
   right: 0;
   z-index: 9999;
   padding: 16px 20px;
-  background: #0f172a;
-  color: #e2e8f0;
-  border-top: 1px solid #334155;
+  background: #141638;
+  color: #e5e5ef;
+  border-top: 1px solid #363b5c;
   box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.35);
 }
 
@@ -48,7 +48,7 @@
 }
 
 .links a {
-  color: #93c5fd;
+  color: #c4b5fd;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -68,12 +68,13 @@
   font-size: 0.82rem;
   font-weight: 700;
   cursor: pointer;
-  background: #2563eb;
+  background: var(--hr-brand-solid, #5046e5);
   color: #fff;
+  transition: background-color 0.15s ease;
 }
 
 .acceptBtn:hover {
-  background: #1d4ed8;
+  background: var(--hr-brand-solid-hover, #4338ca);
 }
 
 .secondaryBtn {

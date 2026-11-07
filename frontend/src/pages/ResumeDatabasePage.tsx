@@ -88,6 +88,18 @@ export function ResumeDatabasePage() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedCandidate, setSelectedCandidate] = useState<StoredResumeCandidate | null>(null)
+  const dossierCloseRef = useRef<HTMLButtonElement | null>(null)
+
+  // Dossier modal: Escape closes it, and focus moves into it when it opens.
+  useEffect(() => {
+    if (!selectedCandidate) return
+    dossierCloseRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedCandidate(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedCandidate])
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
@@ -191,7 +203,7 @@ export function ResumeDatabasePage() {
 
   return (
     <div className={styles.page}>
-      <main className={styles.shell}>
+      <div className={styles.shell}>
         <motion.header
           className={styles.header}
           initial="hidden"
@@ -209,7 +221,7 @@ export function ResumeDatabasePage() {
               Centralized repository storing every candidate's extracted resume, skills, contact dossier, and proctored AI interview scorecards.
             </motion.p>
             {loadError ? (
-              <motion.p className={styles.subtitle} variants={fadeUp} role="alert">
+              <motion.p className={`ds-alert ds-alert--error ${styles.loadError}`} variants={fadeUp} role="alert">
                 {loadError}
               </motion.p>
             ) : null}
@@ -369,7 +381,11 @@ export function ResumeDatabasePage() {
                     </span>
                   </div>
 
-                  {c.summary && <div className={styles.resumeSnippet}>"{c.summary}"</div>}
+                  {c.summary && (
+                    <div className={styles.resumeSnippet}>
+                      <span className={styles.resumeSnippetText}>"{c.summary}"</span>
+                    </div>
+                  )}
 
                   <div className={styles.skillPills}>
                     {c.skills.slice(0, 5).map((s) => (
@@ -475,7 +491,7 @@ export function ResumeDatabasePage() {
             <p>Try adjusting your search query or filter criteria.</p>
           </div>
         )}
-      </main>
+      </div>
 
       {/* Candidate Dossier & Resume Viewer Modal */}
       <AnimatePresence>
@@ -490,10 +506,13 @@ export function ResumeDatabasePage() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="dossier-title"
             >
               <div className={styles.modalHeader}>
                 <div>
-                  <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <h2 id="dossier-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <HrIcon name="document" size={22} /> {selectedCandidate.name} — Full Resume &
                     Profile Dossier
                   </h2>
@@ -503,7 +522,9 @@ export function ResumeDatabasePage() {
                 </div>
                 <button
                   type="button"
+                  ref={dossierCloseRef}
                   className={styles.closeBtn}
+                  aria-label="Close dossier"
                   onClick={() => setSelectedCandidate(null)}
                 >
                   <HrIcon name="close" size={18} />

@@ -238,15 +238,7 @@ img {
   display: block;
 }
 
-:focus-visible {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
-
-::selection {
-  background: #dbeafe;
-  color: #1e40af;
-}
+/* Focus ring + text selection are themed in styles/system.css (brand purple). */
 
 @keyframes float {
 

@@ -192,7 +192,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
     <MotionStack className={styles.stack}>
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
-          <h2>1. Add Your Skills</h2>
+          <h2>Add Your Skills</h2>
           <h3>Add skills relevant to the roles you&apos;re interested in.</h3>
         </div>
 
@@ -297,7 +297,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
 
       <MotionItem as="section" className={styles.card}>
         <div className={styles.sectionHead}>
-          <h2>2. Work Experience</h2>
+          <h2>Work Experience</h2>
           <h3>Add your work experience details (optional for freshers).</h3>
         </div>
 

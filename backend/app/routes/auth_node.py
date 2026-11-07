@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import secrets
 from datetime import datetime, timezone
@@ -16,8 +17,12 @@ from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import runtime
+from app.services import password_reset as pw_reset
+from app.services.interview_invites import public_app_origin
+from app.services.mail_service import send_mail, smtp_configured
 
 router = APIRouter()
+logger = logging.getLogger("hireright.auth")
 
 
 @router.post("/signup", status_code=201)
@@ -145,6 +150,80 @@ async def login(request: Request, body: dict) -> dict:
             "primaryOrganizationId": user.get("primaryOrganizationId"),
         },
     }
+
+
+@router.post("/password/forgot")
+async def forgot_password(request: Request, body: dict) -> dict:
+    """Email a single-use reset link. Always answers the same way so it can't reveal which emails have accounts."""
+    ip = runtime.client_ip(request)
+    email = str(body.get("email") or "").strip().lower()
+    if not runtime.rate_limit(f"pwforgot-ip:{ip}", 10, 15 * 60_000):
+        raise HTTPException(status_code=429, detail="Too many reset requests. Try again in a few minutes.")
+    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    response = {"ok": True, "message": pw_reset.GENERIC_REQUEST_MESSAGE}
+    if not runtime.rate_limit(f"pwforgot-email:{email}", 3, 60 * 60_000):
+        return response
+    if not config.database_url.strip():
+        raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
+    db = runtime.load_db()
+    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    if not user or user.get("status") != "active":
+        return response
+    token = pw_reset.new_reset_token()
+    await asyncio.to_thread(pw_reset.store_reset_token, config.database_url, email, token, ip)
+    try:
+        link = f"{public_app_origin()}/reset-password?token={token}"
+    except RuntimeError:
+        logger.error("Password reset requested but PUBLIC_APP_URL is not set; email not sent.")
+        return response
+    subject, body_html, text = pw_reset.reset_email_content(str(user.get("name") or ""), link)
+
+    async def _deliver() -> None:
+        try:
+            if not smtp_configured():
+                if is_prod_like:
+                    logger.error("Password reset requested but email is not configured.")
+                else:
+                    logger.warning("Email not configured; dev password reset link for %s: %s", email, link)
+                return
+            await send_mail(to=email, subject=subject, html=body_html, text=text)
+        except Exception:  # noqa: BLE001 — never surface delivery errors to the requester
+            logger.exception("Failed to send password reset email")
+
+    # Deliver in the background so response time does not reveal whether the account exists.
+    asyncio.get_running_loop().create_task(_deliver())
+    return response
+
+
+@router.post("/password/reset")
+async def reset_password(request: Request, body: dict) -> dict:
+    ip = runtime.client_ip(request)
+    if not runtime.rate_limit(f"pwreset:{ip}", 10, 15 * 60_000):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
+    token = str(body.get("token") or "").strip()
+    password = str(body.get("password") or "")
+    if not token:
+        raise HTTPException(status_code=400, detail="This reset link is incomplete. Request a new one.")
+    password_error = pw_reset.validate_new_password(password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    if not config.database_url.strip():
+        raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
+    email = await asyncio.to_thread(pw_reset.consume_reset_token, config.database_url, token)
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="This reset link is invalid or has expired. Request a new one.",
+        )
+    db = runtime.load_db()
+    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    if not user or user.get("status") != "active":
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
+    user["passwordHash"] = hash_password(password)
+    await runtime.save_db(db)
+    await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
+    return {"ok": True, "message": "Your password has been reset. Log in with your new password."}
 
 
 @router.post("/logout")

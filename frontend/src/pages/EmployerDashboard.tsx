@@ -5,6 +5,15 @@ import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
 import { InviteCandidatesPanel } from '../components/InviteCandidatesPanel'
+import { CandidateSearchBar, HighlightText } from '../components/CandidateSearchBar'
+import {
+  candidateScore,
+  matchesQuickFilter,
+  needsIntegrityReview,
+  searchCandidates,
+  type CandidateQuickFilter,
+  type CandidateSort,
+} from '../lib/candidateSearch'
 import { apiHealth } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
@@ -79,6 +88,9 @@ type CandidatesDirectoryTableProps = {
   rows: EmployerApplicant[]
   emptyTitle: string
   emptyBody: string
+  /** Current search text: used to highlight matches and to explain an empty result. */
+  query?: string
+  onClearSearch?: () => void
   onViewDocument: (kind: EmployerDocumentKind, applicant: EmployerApplicant) => void
 }
 
@@ -87,17 +99,19 @@ function CandidatesDirectoryTable({
   rows,
   emptyTitle,
   emptyBody,
+  query = '',
+  onClearSearch,
   onViewDocument,
 }: CandidatesDirectoryTableProps) {
   return (
-    <table className={styles.candidatesTable}>
+    <table className={`${styles.candidatesTable} ${styles.directoryTable}`}>
       <thead>
         <tr>
-          <th style={{ width: '28%' }}>NAME</th>
-          <th style={{ width: '20%' }}>ROLE</th>
-          <th style={{ width: '16%' }}>EXPERIENCE</th>
-          <th style={{ width: '22%' }}>RESUME</th>
-          <th style={{ width: '24%' }}>REPORT ON HIRERIGHTTT</th>
+          <th scope="col" style={{ width: '27%' }}>Name</th>
+          <th scope="col" style={{ width: '18%' }}>Role</th>
+          <th scope="col" style={{ width: '14%' }}>Experience</th>
+          <th scope="col" style={{ width: '20%' }}>Resume</th>
+          <th scope="col" style={{ width: '28%' }}>HireRighttt report</th>
         </tr>
       </thead>
       <tbody>
@@ -105,8 +119,25 @@ function CandidatesDirectoryTable({
           <tr>
             <td colSpan={5}>
               <div className={styles.emptyState}>
-                <h3>{emptyTitle}</h3>
-                <p>{emptyBody}</p>
+                {query.trim() ? (
+                  <>
+                    <h3>No candidates match “{query.trim()}”</h3>
+                    <p>
+                      Try fewer words, a different spelling, or search by a skill or role. Every word you type must
+                      appear on the candidate.
+                    </p>
+                    {onClearSearch ? (
+                      <button type="button" className={styles.docLinkBtn} onClick={onClearSearch}>
+                        Clear search
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <h3>{emptyTitle}</h3>
+                    <p>{emptyBody}</p>
+                  </>
+                )}
               </div>
             </td>
           </tr>
@@ -119,25 +150,33 @@ function CandidatesDirectoryTable({
 
             return (
               <tr key={cand.id}>
-                <td>
+                <td className={styles.directoryNameCell}>
                   <div className={styles.candidateCell}>
-                    <div className={styles.avatar}>{initials}</div>
+                    <div className={styles.avatar} aria-hidden="true">{initials}</div>
                     <div>
-                      <div className={styles.candidateName}>{cand.candidateName}</div>
+                      <div className={styles.candidateName}>
+                        <HighlightText text={cand.candidateName} query={query} />
+                      </div>
                       <div className={styles.candidateContact}>
-                        {cand.candidateEmail}
-                        {cand.candidatePhone ? ` · ${cand.candidatePhone}` : ''}
+                        <HighlightText text={cand.candidateEmail} query={query} />
+                        {cand.candidatePhone ? <> · <HighlightText text={cand.candidatePhone} query={query} /></> : null}
                       </div>
                     </div>
                   </div>
                 </td>
-                <td>
-                  <span className={styles.roleTag}>{cand.role || '—'}</span>
+                <td data-label="Role">
+                  {cand.role ? (
+                    <span className={styles.roleTag}>
+                      <HighlightText text={cand.role} query={query} />
+                    </span>
+                  ) : (
+                    <span className={styles.docMuted}>—</span>
+                  )}
                 </td>
-                <td>
+                <td data-label="Experience">
                   <span className={styles.experienceText}>{cand.experienceYears || '—'}</span>
                 </td>
-                <td>
+                <td data-label="Resume">
                   {resumeReady ? (
                     <button
                       type="button"
@@ -151,16 +190,24 @@ function CandidatesDirectoryTable({
                     <span className={styles.docMuted}>No resume</span>
                   )}
                 </td>
-                <td>
+                <td data-label="Report">
                   {reportReady ? (
-                    <button
-                      type="button"
-                      className={styles.docLinkBtn}
-                      onClick={() => onViewDocument('report', cand)}
-                    >
-                      <HrIcon name="sparkle" size={14} />
-                      View HireRighttt report
-                    </button>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className={styles.docLinkBtn}
+                        style={{ whiteSpace: 'nowrap' }}
+                        onClick={() => onViewDocument('report', cand)}
+                      >
+                        <HrIcon name="sparkle" size={14} />
+                        View report
+                      </button>
+                      {candidateScore(cand) !== null ? (
+                        <span className={styles.roleTag} title="Overall interview score">
+                          {Math.round(candidateScore(cand) as number)}/100
+                        </span>
+                      ) : null}
+                    </span>
                   ) : (
                     <span className={styles.docMuted}>No interview yet</span>
                   )}
@@ -208,6 +255,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [scoreFilter, setScoreFilter] = useState('')
   const [integrityFilter, setIntegrityFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [quickFilter, setQuickFilter] = useState<CandidateQuickFilter>('all')
+  const [sortMode, setSortMode] = useState<CandidateSort>('best_match')
+  const [showMoreFilters, setShowMoreFilters] = useState(false)
 
   // Modals
   const [showCreateJobModal, setShowCreateJobModal] = useState(false)
@@ -365,6 +415,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const showCandidateTable = isCandidatesView
 
   function handleClearFilters() {
+    setQuickFilter('all')
+    setSortMode('best_match')
     setSearchFilter('')
     setRoleFilter('')
     setJobFilter('')
@@ -377,6 +429,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const hasActiveFilters = Boolean(
     searchFilter || roleFilter || jobFilter || expFilter || scoreFilter || integrityFilter || statusFilter
   )
+
+  const moreFilterCount = [roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter].filter(Boolean).length
 
   const activeFilterCount = [
     searchFilter,
@@ -395,17 +449,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }
 
-  const filteredApplicants = useMemo(() => {
+  const advancedFiltered = useMemo(() => {
     return applicants.filter((app) => {
-      // Search: name, email, or phone
-      if (searchFilter.trim()) {
-        const q = searchFilter.trim().toLowerCase()
-        const matchesName = app.candidateName.toLowerCase().includes(q)
-        const matchesEmail = app.candidateEmail.toLowerCase().includes(q)
-        const matchesPhone = String(app.candidatePhone ?? '').toLowerCase().includes(q)
-        if (!matchesName && !matchesEmail && !matchesPhone) return false
-      }
-
       // Role text search
       if (roleFilter.trim()) {
         const q = roleFilter.trim().toLowerCase()
@@ -454,7 +499,24 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
       return true
     })
-  }, [applicants, searchFilter, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
+  }, [applicants, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
+
+  // Ranked multi-word search (name, email, phone, role, skills, resume text) + quick filter + sort.
+  const filteredApplicants = useMemo(
+    () => searchCandidates(advancedFiltered, { query: searchFilter, quick: quickFilter, sort: sortMode }),
+    [advancedFiltered, searchFilter, quickFilter, sortMode],
+  )
+
+  const quickCounts = useMemo<Record<CandidateQuickFilter, number>>(
+    () => ({
+      all: advancedFiltered.length,
+      interviewed: advancedFiltered.filter((c) => matchesQuickFilter(c, 'interviewed')).length,
+      not_interviewed: advancedFiltered.filter((c) => matchesQuickFilter(c, 'not_interviewed')).length,
+      score_70: advancedFiltered.filter((c) => matchesQuickFilter(c, 'score_70')).length,
+      review: advancedFiltered.filter((c) => needsIntegrityReview(c)).length,
+    }),
+    [advancedFiltered],
+  )
 
   async function handleStatusChange(id: string, newStatus: EmployerApplicant['status']) {
     setApplicants((prev) =>
@@ -659,9 +721,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     <div className={styles.pageBleed}>
     <div className={styles.page}>
       <div className={styles.shell}>
-        {portalLoading && (
+        {portalLoading && isCandidatesView && (
           <p className={styles.portalSyncNote} role="status">
-            Loading candidates…
+            <span className="ds-spinner" aria-hidden="true" /> Loading candidates…
           </p>
         )}
         {isCandidatesView && (
@@ -703,23 +765,51 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               transition={{ duration: 0.3, delay: 0.03 }}
             >
               <div className={styles.jobsHeader}>
-                <h3 className={styles.jobsTitle}>
+                <h2 className={styles.jobsTitle}>
                   <HrIcon name="briefcase" size={20} /> Active Job Openings &amp; Shareable Assessment Links
-                </h3>
-                <button
-                  type="button"
-                  className={styles.createJobBtn}
-                  onClick={() => setShowCreateJobModal(true)}
-                >
-                  <HrIcon name="plus" size={14} /> Create New Job Opening
-                </button>
+                </h2>
+                {jobs.length > 0 || portalLoading ? (
+                  <button
+                    type="button"
+                    className={styles.createJobBtn}
+                    onClick={() => setShowCreateJobModal(true)}
+                  >
+                    <HrIcon name="plus" size={14} /> Create New Job Opening
+                  </button>
+                ) : null}
               </div>
 
               <div className={styles.jobsGrid}>
+                {jobs.length === 0 && portalLoading && (
+                  <div className={styles.jobsSkeleton} role="status" aria-label="Loading job openings">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className={styles.jobSkeletonCard}>
+                        <span className="ds-skeleton ds-skeleton-line" style={{ width: '60%' }} />
+                        <span className="ds-skeleton ds-skeleton-line" style={{ width: '35%' }} />
+                        <span className="ds-skeleton ds-skeleton-row" />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {jobs.length === 0 && !portalLoading && (
-                  <p className={styles.portalSyncNote}>
-                    No job openings yet. Create an opening and share the link with candidates.
-                  </p>
+                  <div className={`ds-empty ${styles.jobsEmpty}`}>
+                    <span className="ds-empty__icon" aria-hidden="true">
+                      <HrIcon name="briefcase" size={20} />
+                    </span>
+                    <p className="ds-empty__title">No job openings yet</p>
+                    <p className="ds-empty__body">
+                      Create an opening and share the link with candidates.
+                    </p>
+                    <div className="ds-empty__actions">
+                      <button
+                        type="button"
+                        className={styles.createJobBtn}
+                        onClick={() => setShowCreateJobModal(true)}
+                      >
+                        <HrIcon name="plus" size={14} /> Create New Job Opening
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {jobs.map((job) => {
                   const count = jobCounts[job.id] ?? 0
@@ -811,7 +901,24 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {showCandidateTable && (
         <>
-        {/* Refined Candidate Filters Card (matches SearchCandidatesPanel design) */}
+        <CandidateSearchBar
+          query={searchFilter}
+          onQuery={setSearchFilter}
+          quick={quickFilter}
+          onQuick={setQuickFilter}
+          sort={sortMode}
+          onSort={setSortMode}
+          shown={filteredApplicants.length}
+          total={applicants.length}
+          counts={quickCounts}
+          moreOpen={showMoreFilters}
+          moreActiveCount={moreFilterCount}
+          onToggleMore={() => setShowMoreFilters((v) => !v)}
+          onReset={handleClearFilters}
+        />
+
+        {/* Advanced filters (role, job, experience, score, integrity, status) stay one click away */}
+        {showMoreFilters && (
         <motion.div
           className={styles.filterBarCard}
           initial={{ opacity: 0, y: 12 }}
@@ -840,29 +947,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
           {/* Structured Fields Grid */}
           <div className={styles.filterGrid}>
-            {/* Candidate Search (Name, Email, Phone) */}
-            <div className={`${styles.filterFieldGroup} ${styles.filterSpan2}`}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-candidate">
-                Candidate contact or name
-              </label>
-              <div className={styles.filterInputWrap}>
-                <span className={styles.filterInputIcon}>
-                  <HrIcon name="search" size={16} />
-                </span>
-                <input
-                  id="filter-candidate"
-                  type="text"
-                  className={`${styles.filterInputField} ${styles.filterInputFieldWithIcon}`}
-                  placeholder="Search name, email, or phone..."
-                  value={searchFilter}
-                  onChange={(e) => setSearchFilter(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSearchCandidatesClick()
-                  }}
-                />
-              </div>
-            </div>
-
             {/* Target Job Search */}
             <div className={styles.filterFieldGroup}>
               <label className={styles.filterFieldLabel} htmlFor="filter-job">
@@ -1010,6 +1094,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             </div>
           </div>
         </motion.div>
+        )}
 
         <InviteCandidatesPanel jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
 
@@ -1030,19 +1115,23 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     ? `Interviews · ${selectedJobTitle}`
                     : 'Candidates'}
               </h2>
-              <div className={styles.countText}>
-                Showing {filteredApplicants.length} of {applicants.length} candidates
-              </div>
+              {!isCandidatesView && (
+                <div className={styles.countText}>
+                  Showing {filteredApplicants.length} of {applicants.length} candidates
+                </div>
+              )}
             </div>
 
             <div className={styles.headerActions}>
-              <button
-                type="button"
-                className={styles.clearFiltersBtn}
-                onClick={handleClearFilters}
-              >
-                Clear filters
-              </button>
+              {!isCandidatesView && (
+                <button
+                  type="button"
+                  className={styles.clearFiltersBtn}
+                  onClick={handleClearFilters}
+                >
+                  Clear filters
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.addCandidateBtn}
@@ -1060,6 +1149,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 rows={filteredApplicants}
                 emptyTitle="No candidates yet"
                 emptyBody="No matching profiles yet. Try search or wait for candidates to complete interviews."
+                query={searchFilter}
+                onClearSearch={() => setSearchFilter('')}
                 onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
               />
             ) : (

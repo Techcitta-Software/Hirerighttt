@@ -5,6 +5,7 @@ import { readStoredInterviewInvite } from './interviewInviteGate'
  * Generates interactive, resume-tailored questions and rubric scoring.
  */
 import type { Question } from './interviewEngine'
+import type { InterviewConsent } from './interviewConsent'
 import type { AnswerAnalysis, IntegrityLogEvent, InterviewResult, SavedProfile } from './store'
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
@@ -166,6 +167,8 @@ export type InterviewStartOptions = {
   primarySkills?: string[]
   atsScore?: number
   jdMatchScore?: number
+  /** Candidate's recording / face-tracking / AI-scoring consent. The server refuses to start without it. */
+  consent?: InterviewConsent
 }
 
 const INTERVIEW_START_TIMEOUT_MS = 90_000
@@ -215,9 +218,16 @@ export async function startInterviewSession(
         primarySkills: opts.primarySkills,
         atsScore: opts.atsScore,
         jdMatchScore: opts.jdMatchScore,
+        consent: opts.consent,
       }),
     })
     const data = await res.json().catch(() => ({} as Record<string, unknown>))
+    if ((data as { code?: string }).code === 'CONSENT_REQUIRED') {
+      // Never fall back to an offline session when consent is missing.
+      const consentErr = new Error(String((data as { error?: string }).error || 'Consent is required to start the interview.'))
+      consentErr.name = 'ConsentRequiredError'
+      throw consentErr
+    }
     if (res.ok) {
       const adaptive = data.adaptive !== false && Boolean(data.adaptive ?? data.mode === 'adaptive')
       const questions = data.questions as Question[] | undefined
@@ -300,7 +310,7 @@ export async function startInterviewSession(
       )
     }
   } catch (err) {
-    if (isVendorJob) throw err
+    if (isVendorJob || (err instanceof Error && err.name === 'ConsentRequiredError')) throw err
     console.warn('[interview] server start failed — continuing offline (no video/review sync):', err)
   }
 

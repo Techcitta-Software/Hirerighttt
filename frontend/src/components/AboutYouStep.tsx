@@ -72,7 +72,7 @@ export function AboutYouStep({
   const narrativeSection = showNarrativeSection ? (
     <MotionItem as="section" className={styles.card}>
       <div className={styles.sectionHead}>
-        <h2>2. Tell Us About Yourself</h2>
+        <h2>Tell Us About Yourself</h2>
         <h3>Help us know you better in a few words.</h3>
       </div>
 
@@ -113,7 +113,7 @@ export function AboutYouStep({
   const snapshotSection = showSnapshotSection ? (
     <MotionItem as="section" className={styles.card}>
       <div className={styles.sectionHead}>
-        <h2>3. Your Current Snapshot</h2>
+        <h2>Your Current Snapshot</h2>
       </div>
       <div className={styles.threeCol}>
         <SelectField

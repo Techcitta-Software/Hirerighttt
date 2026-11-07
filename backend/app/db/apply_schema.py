@@ -13,6 +13,7 @@ SCHEMA_FILES = [
     "schema-interview-invites.sql",
     "schema-files.sql",
     "schema-role-skills.sql",
+    "schema-password-reset.sql",
 ]
 
 EXPECTED_TABLES = [
@@ -52,6 +53,7 @@ EXPECTED_TABLES = [
     "interview_recordings",
     "interview_artifacts",
     "role_skill_library",
+    "password_reset_tokens",
 ]
 
 

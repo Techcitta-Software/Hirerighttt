@@ -19,18 +19,10 @@ from app.server import runtime
 from app.assessment.contracts import AssessmentError
 from app.assessment.personalized import handle_personalized, wants_personalized
 from app.assessment.service import handle as handle_assessment
+from app.server.json_safe import json_safe
 
 logger = logging.getLogger("hireright.api")
 
-
-def json_safe(value):
-    if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [json_safe(v) for v in value]
-    if isinstance(value, (datetime, date, UUID)):
-        return str(value)
-    return value
 
 NATIVE_API_EXACT = frozenset(
     {
@@ -39,6 +31,8 @@ NATIVE_API_EXACT = frozenset(
         "/api/signup",
         "/api/login",
         "/api/logout",
+        "/api/password/forgot",
+        "/api/password/reset",
         "/api/me",
         "/api/profile",
         "/api/llm-status",
@@ -88,8 +82,11 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def python_api_dispatch(request: Request, call_next):
         path = request.url.path
-        if request.method == "OPTIONS" and path.startswith("/api"):
-            return JSONResponse(status_code=204, content={})
+        if request.method == "OPTIONS":
+            # Let CORSMiddleware (registered earlier, so it runs inside this one) answer preflights with
+            # Access-Control-Allow-* headers. Answering here returned a bare 204 and browsers blocked
+            # every cross-origin call (e.g. frontend on Vercel → API on Render).
+            return await call_next(request)
         if path.startswith("/api") and not _use_native_handler(path):
             try:
                 # The emailed invite landing page is opened BEFORE the candidate signs in, so it is not auth-gated here.

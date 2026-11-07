@@ -29,6 +29,7 @@ import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
 import { ProfileWizard } from './pages/ProfileWizard'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ContactPage } from './pages/ContactPage'
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordResetPages'
 import { CookiePolicyPage, PrivacyPolicyPage, TermsPage } from './pages/LegalPages'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
 import { AuthInvalidModal } from './components/AuthInvalidModal'
@@ -50,6 +51,8 @@ const ROUTE_TITLES: Record<string, string> = {
   '/signup': 'Get started',
   '/organizations/signup': 'Organization sign up',
   '/login': 'Log in',
+  '/forgot-password': 'Reset your password',
+  '/reset-password': 'Choose a new password',
   '/privacy': 'Privacy Policy',
   '/terms': 'Terms & Conditions',
   '/cookies': 'Cookie Policy',
@@ -104,6 +107,8 @@ function AnimatedRoutes() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/organizations/signup" element={<OrganizationSignupPage />} />
           <Route path="/logout" element={<LogoutPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/apply/:companySlug/:code" element={<CandidateApplyPage />} />
           <Route path="/apply/:code" element={<CandidateApplyPage />} />
           <Route path="/jobs/:companySlug/:code" element={<JobInviteEntryPage />} />

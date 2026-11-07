@@ -85,6 +85,10 @@ class _Pool:
         return _Conn(self.rows)
 
 
+# Waiting-room consent the frontend now sends with every interview start.
+CONSENT = {"version": "2026-11-07", "recording": True, "faceTracking": True, "aiScoring": True}
+
+
 @pytest.fixture
 def env(monkeypatch):
     pool = _Pool()
@@ -211,7 +215,7 @@ def test_interview_started_from_the_link_is_built_from_the_candidates_resume(env
     res = client.post(
         "/api/interview/start",
         headers=_auth("tok-asha"),
-        json={"role": "Full Stack Engineer", "level": "3 – 5 Years", "inviteToken": token},
+        json={"role": "Full Stack Engineer", "level": "3 – 5 Years", "inviteToken": token, "consent": CONSENT},
     )
     assert res.status_code == 200, res.text
     assert res.json()["total"] == 8
@@ -223,7 +227,7 @@ def test_interview_started_from_the_link_is_built_from_the_candidates_resume(env
 def test_someone_else_cannot_use_the_link(env):
     client, *_ = env
     token = _send_invite(client).json()["invites"][0]["inviteUrl"].rsplit("/", 1)[1]
-    res = client.post("/api/interview/start", headers=_auth("tok-other"), json={"inviteToken": token})
+    res = client.post("/api/interview/start", headers=_auth("tok-other"), json={"inviteToken": token, "consent": CONSENT})
     assert res.status_code == 403
     assert "email address that received" in res.json()["error"]
 
@@ -233,7 +237,7 @@ def test_expired_link_is_refused(env):
     token = _send_invite(client).json()["invites"][0]["inviteUrl"].rsplit("/", 1)[1]
     pool.rows[token]["scheduled_end"] = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
     pool.rows[token]["scheduled_start"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat().replace("+00:00", "Z")
-    res = client.post("/api/interview/start", headers=_auth("tok-asha"), json={"inviteToken": token})
+    res = client.post("/api/interview/start", headers=_auth("tok-asha"), json={"inviteToken": token, "consent": CONSENT})
     assert res.status_code == 410
     page = client.get(f"/api/interview-invites/{token}").json()["invite"]
     assert page["status"] == "expired" and page["canStart"] is False

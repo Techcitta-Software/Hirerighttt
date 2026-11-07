@@ -62,6 +62,12 @@ export type IntegrityLogEvent = {
     | 'INTERVIEW_BANNED'
     | 'TAB_OR_WINDOW_LEFT'
     | 'FULLSCREEN_EXITED'
+    | 'COPY_PASTE_ATTEMPT'
+    | 'BLOCKED_SHORTCUT'
+    | 'DEVTOOLS_SUSPECTED'
+    | 'MULTIPLE_MONITORS'
+    | 'SCREENSHOT_ATTEMPT'
+    | 'VIRTUAL_CAMERA_SUSPECTED'
   severity: 'warn' | 'block' | 'ban'
   message: string
   questionIndex?: number

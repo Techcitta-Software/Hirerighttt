@@ -55,25 +55,44 @@ export function ContactPage() {
               : 'Questions about hiring or your AI interview? We collect only the fields below to respond to you.'}
           </p>
           {sent ? (
-            <p className={styles.success}>Thanks {name || 'there'}. We’ll reply to {email || 'your inbox'}.</p>
+            <p className={styles.success} role="status">
+              Thanks {name || 'there'}. We’ll reply to {email || 'your inbox'}.
+            </p>
           ) : (
             <form className={styles.form} onSubmit={handleSubmit}>
               <label>
                 Name
-                <input value={name} onChange={(e) => setName(e.target.value)} required />
+                <input
+                  name="name"
+                  autoComplete="name"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
               </label>
               <label>
                 Email
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <input
+                  type="email"
+                  name="email"
+                  autoComplete="email"
+                  spellCheck={false}
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
               </label>
               <label>
                 Message
                 <textarea
+                  name="message"
+                  placeholder="How can we help?"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   required
                   rows={5}
-                  style={{ width: '100%', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}
                 />
               </label>
               <label className={styles.termsRow}>
@@ -98,7 +117,15 @@ export function ContactPage() {
                 </div>
               ) : null}
               <button type="submit" className={styles.submit} disabled={!dataConsent || sending}>
-                {sending ? 'Sending…' : isDemo ? 'Request demo' : 'Send message'}
+                {sending ? (
+                  <>
+                    <span className="ds-spinner" aria-hidden="true" /> Sending…
+                  </>
+                ) : isDemo ? (
+                  'Request demo'
+                ) : (
+                  'Send message'
+                )}
               </button>
             </form>
           )}

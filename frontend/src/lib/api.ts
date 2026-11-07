@@ -88,7 +88,8 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const token = getApiToken()
   if (token) headers.Authorization = `Bearer ${token}`
-  const timeoutMs = import.meta.env.DEV ? 25_000 : 45_000
+  // Interview start can take up to ~36s while the server fails over between Gemini keys/models.
+  const timeoutMs = 45_000
   const signal =
     options.signal ??
     (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
@@ -98,7 +99,11 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 async function request(path: string, options: RequestInit = {}) {
   const res = await apiFetch(path, options)
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`)
+  if (!res.ok) {
+    // Dispatch routes answer { error }, native FastAPI routes answer { detail }.
+    const message = data.error || (typeof data.detail === 'string' ? data.detail : '')
+    throw new Error(message || `Request failed (${res.status})`)
+  }
   return data
 }
 
@@ -167,6 +172,23 @@ export type ApiUser = {
   companyName?: string
   phone?: string
   primaryOrganizationId?: string
+}
+
+/** Emails a single-use reset link. The server answers the same way whether or not the account exists. */
+export async function apiRequestPasswordReset(email: string): Promise<string> {
+  const data = await request('/api/password/forgot', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+  return String(data.message || '')
+}
+
+export async function apiResetPassword(token: string, password: string): Promise<string> {
+  const data = await request('/api/password/reset', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  })
+  return String(data.message || '')
 }
 
 export async function apiLogin(

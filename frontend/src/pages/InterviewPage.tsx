@@ -1,3 +1,5 @@
+import { attachInterviewContentGuard, looksLikeVirtualCamera, type ContentGuardEvent } from '../lib/interviewContentGuard'
+import { InterviewWatermark } from '../components/InterviewWatermark'
 import { ReviewEventTracker, saveReviewEvents } from '../lib/interviewReview'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -31,6 +33,8 @@ import {
   startInterviewSession,
   type IntegritySnapshot,
 } from '../lib/interviewAgentClient'
+import type { InterviewConsent } from '../lib/interviewConsent'
+import { InterviewConsentPanel } from '../components/InterviewConsentPanel'
 import { InterviewRecorder } from '../lib/interviewRecorder'
 import {
   inviteAccessFromStored,
@@ -42,6 +46,7 @@ import {
   applyToJob,
   attachInterviewToApplicant,
   candidateFullName,
+  getUser,
 
   getInterviewResult,
   getProfile,
@@ -247,7 +252,33 @@ export function InterviewPage() {
       requireFullscreen: interviewLockRequireFullscreenRef.current,
       onViolation: handleInterviewRoomViolation,
     })
+    // Copy / paste / developer-tool protection. Attempts are blocked and recorded for recruiter review.
+    const detachContentGuard = attachInterviewContentGuard({
+      clearClipboard: () => void navigator.clipboard?.writeText(''),
+      onEvent: (event: ContentGuardEvent) => {
+        const elapsedSec = Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000)
+        reviewRef.current.events.push({
+          id: crypto.randomUUID(),
+          eventType: event.kind,
+          severity: 'warn',
+          message: event.message,
+          timestamp: new Date().toISOString(),
+          formattedTime: `${Math.floor(elapsedSec / 60)}:${String(Math.floor(elapsedSec % 60)).padStart(2, '0')}`,
+          startOffsetSec: elapsedSec,
+          durationSec: 0,
+          reviewOnly: true,
+        })
+        if (event.notify) {
+          setGuardNotice('Copying, pasting and developer tools are turned off during the interview. This was recorded.')
+          window.clearTimeout(guardNoticeTimer.current)
+          guardNoticeTimer.current = window.setTimeout(() => setGuardNotice(''), 4000)
+        }
+      },
+    })
     return () => {
+      detachContentGuard()
+      window.clearTimeout(guardNoticeTimer.current)
+      setGuardNotice('')
       roomGuardDetachRef.current?.()
       roomGuardDetachRef.current = null
       document.body.style.overflow = ''
@@ -295,8 +326,12 @@ export function InterviewPage() {
   const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>(() => defaultAnalysisSteps())
   const [analysisIntegrityEnded, setAnalysisIntegrityEnded] = useState(false)
   const reviewRef = useRef(new ReviewEventTracker())
+  const [guardNotice, setGuardNotice] = useState('')
+  const guardNoticeTimer = useRef<number | undefined>(undefined)
   const [reviewSyncError, setReviewSyncError] = useState('')
-  const recordingConsent = true
+  // Nothing is recorded (and the camera is not opened) until the candidate agrees in the waiting room.
+  const [interviewConsent, setInterviewConsent] = useState<InterviewConsent | null>(null)
+  const recordingConsent = interviewConsent !== null
   const sessionIdRef = useRef<string | null>(null)
   const varietySeedRef = useRef<string>('')
   const totalTurnsRef = useRef(MAX_ADAPTIVE_QUESTIONS)
@@ -713,12 +748,12 @@ export function InterviewPage() {
     }
   }
 
-  // Auto-prompt devices when lobby opens (CloudHire-style)
+  // Prompt for camera & mic once the candidate has agreed to recording.
   useEffect(() => {
-    if (stage !== 'setup' || streamReady || skipCamera) return
+    if (stage !== 'setup' || streamReady || skipCamera || !interviewConsent) return
     void enableDevices()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage])
+  }, [stage, interviewConsent])
 
   function setTrackEnabled(kind: 'video' | 'audio', enabled: boolean) {
     streamRef.current?.getTracks().forEach((track) => {
@@ -1004,6 +1039,19 @@ export function InterviewPage() {
   async function joinInterviewRoom() {
     if (!canStart || starting) return
 
+    const camLabel = streamRef.current?.getVideoTracks()[0]?.label
+    if (looksLikeVirtualCamera(camLabel)) {
+      setDeviceError(
+        `A virtual camera was detected (${camLabel}). Switch to your real webcam and turn off camera software such as OBS or ManyCam to join.`,
+      )
+      return
+    }
+    const extended = Boolean((window.screen as unknown as { isExtended?: boolean }).isExtended)
+    if (extended && import.meta.env.VITE_BLOCK_MULTI_MONITOR === 'true') {
+      setDeviceError('More than one display is connected. Disconnect extra monitors and join again.')
+      return
+    }
+
     interviewLockRequireFullscreenRef.current = shouldRequireInterviewFullscreen()
     if (interviewLockRequireFullscreenRef.current) {
       const fs = await requestInterviewFullscreen()
@@ -1115,6 +1163,7 @@ export function InterviewPage() {
         primarySkills: targetJobRaw?.primarySkills,
         atsScore: targetJobRaw?.atsScore,
         jdMatchScore: targetJobRaw?.jdMatchScore,
+        consent: interviewConsent ?? undefined,
       })
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
@@ -1574,6 +1623,7 @@ export function InterviewPage() {
   const scheduleAllowsStart =
     !scheduledInviteAccess || scheduledInviteAccess.canStart
   const canStart =
+    recordingConsent &&
     checklist.every(Boolean) &&
     !starting &&
     scheduleAllowsStart &&
@@ -1599,6 +1649,16 @@ export function InterviewPage() {
     sttPhase !== 'transcribing'
   return (
     <div className={`${styles.page} ${stage === 'interview' ? styles.pageLocked : ''}`}>
+      {stage === 'interview' ? (
+        <>
+          <InterviewWatermark label={`${getUser()?.email ?? 'candidate'} · ${(sessionIdRef.current ?? '').slice(0, 8)}`} />
+          {guardNotice ? (
+            <div className={styles.guardNotice} role="status">
+              {guardNotice}
+            </div>
+          ) : null}
+        </>
+      ) : null}
       <header className={styles.appBar}>
         <div className={styles.appBrand}>
           <BrandLogo size="md" />
@@ -1664,6 +1724,12 @@ export function InterviewPage() {
               </p>
             </div>
 
+            {!interviewConsent ? (
+              <InterviewConsentPanel
+                employerName={targetJobRaw?.company}
+                onAccept={(consent) => setInterviewConsent(consent)}
+              />
+            ) : (
             <div className={styles.lobbyGrid}>
               <div className={styles.previewCard}>
                 <div className={styles.previewFrame}>
@@ -1856,6 +1922,7 @@ export function InterviewPage() {
                 )}
               </div>
             </div>
+            )}
           </motion.section>
         )}
 

@@ -190,7 +190,7 @@ export function ResumeUpload({
   return (
     <section className={styles.card}>
       <div className={styles.header}>
-        <h2>1. Upload Your Resume</h2>
+        <h2>Upload Your Resume</h2>
         <button
           type="button"
           className={styles.whyLink}

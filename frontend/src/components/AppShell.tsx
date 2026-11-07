@@ -7,8 +7,11 @@ import styles from './AppShell.module.css'
 export function AppShell() {
   return (
     <div className={styles.shell}>
+      <a href="#app-main" className="ds-skip-link">
+        Skip to content
+      </a>
       <AppNavBar />
-      <main className={styles.main} id="app-main">
+      <main className={styles.main} id="app-main" tabIndex={-1}>
         <Outlet />
       </main>
       <AppFooter />

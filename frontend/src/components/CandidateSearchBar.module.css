@@ -1,0 +1,242 @@
+.wrap {
+  position: sticky;
+  top: 84px; /* sits under the app navbar while scrolling the list */
+  z-index: 20;
+  background: #ffffff;
+  border: 1px solid #e5e5ef;
+  border-radius: 16px;
+  padding: 1rem 1.1rem 0.85rem;
+  margin-bottom: 1.1rem;
+  box-shadow: 0 6px 22px rgba(20, 22, 56, 0.06);
+  font-family: var(--font-sans);
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.inputWrap {
+  position: relative;
+  flex: 1 1 380px;
+  min-width: 0;
+}
+
+.icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8a8fa8;
+  display: inline-flex;
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 50px;
+  padding: 0 46px 0 46px;
+  border: 1.5px solid #d6d7e5;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #141638;
+  font-family: inherit;
+  font-size: 1.0625rem;
+}
+
+.input::placeholder {
+  color: #8a8fa8;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #5046e5;
+  box-shadow: 0 0 0 4px rgba(80, 70, 229, 0.14);
+}
+
+.input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 8px;
+  background: #f1efff;
+  color: #3b32c4;
+  cursor: pointer;
+}
+
+.kbd {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid #d6d7e5;
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: #faf9ff;
+  color: #8a8fa8;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.sortLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #5f6686;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.sort {
+  height: 50px;
+  padding: 0 0.85rem;
+  border: 1.5px solid #d6d7e5;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #141638;
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.moreBtn {
+  position: relative;
+  height: 50px;
+  padding: 0 1.1rem;
+  border: 1.5px solid #d6d7e5;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #141638;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.moreBtnOpen {
+  border-color: #5046e5;
+  background: #f1efff;
+  color: #3b32c4;
+}
+
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 0.45rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #5046e5;
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.chipRow {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
+  border: 1.5px solid #e5e5ef;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.chip:hover {
+  border-color: #c9c6f5;
+}
+
+.chipOn {
+  border-color: #5046e5;
+  background: #f1efff;
+  color: #3b32c4;
+}
+
+.chipCount {
+  color: #8a8fa8;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.chipOn .chipCount {
+  color: #5046e5;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  color: #5f6686;
+  font-size: 0.9375rem;
+}
+
+.statusRow strong {
+  color: #141638;
+}
+
+.reset {
+  border: none;
+  background: none;
+  color: #5046e5;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mark {
+  background: #fff1a8;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    position: static;
+    padding: 0.85rem;
+  }
+  .sortLabel span {
+    display: none;
+  }
+  .input {
+    height: 46px;
+    font-size: 1rem;
+  }
+  .sort,
+  .moreBtn {
+    height: 46px;
+  }
+}
