@@ -76,12 +76,48 @@ def client_ip(request: Request) -> str:
     return "local"
 
 
+# token -> (email, expires_at_monotonic). Every authenticated request used to query Postgres for the
+# session; on a remote database that cost ~0.5-1s per call and a login makes several calls.
+# Entries live briefly and are dropped on logout / password reset (forget_sessions).
+_SESSION_CACHE: dict[str, tuple[str, float]] = {}
+_SESSION_CACHE_TTL_S = 60.0
+
+
+def _cached_session_email(token: str) -> str | None:
+    hit = _SESSION_CACHE.get(token)
+    if not hit:
+        return None
+    email, expires = hit
+    if time.monotonic() >= expires:
+        _SESSION_CACHE.pop(token, None)
+        return None
+    return email
+
+
+def remember_session(token: str, email: str) -> None:
+    if len(_SESSION_CACHE) > 5000:
+        _SESSION_CACHE.clear()
+    _SESSION_CACHE[token] = (email, time.monotonic() + _SESSION_CACHE_TTL_S)
+
+
+def forget_sessions(*, token: str | None = None, email: str | None = None) -> None:
+    if token:
+        _SESSION_CACHE.pop(token, None)
+    if email:
+        for t in [t for t, (e, _) in _SESSION_CACHE.items() if e == email]:
+            _SESSION_CACHE.pop(t, None)
+
+
 async def require_auth_email(request: Request) -> str:
     header = request.headers.get("authorization") or ""
     token = re.sub(r"^Bearer\s+", "", header, flags=re.I).strip()
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    email = await asyncio.to_thread(resolve_session_email, config.database_url, token)
+    email = _cached_session_email(token)
+    if not email:
+        email = await asyncio.to_thread(resolve_session_email, config.database_url, token)
+        if email:
+            remember_session(token, email)
     if not email:
         raise HTTPException(status_code=401, detail="Unauthorized")
     db = load_db()
@@ -128,9 +164,11 @@ def tenant_context_for_user(db: dict[str, Any], user: dict | None) -> dict[str, 
 
 async def register_session(token: str, email: str) -> None:
     await asyncio.to_thread(save_session_token, config.database_url, token, email)
+    remember_session(token, email)
 
 
 async def logout_token(token: str) -> None:
+    forget_sessions(token=token)
     await asyncio.to_thread(delete_session_token, config.database_url, token)
 
 

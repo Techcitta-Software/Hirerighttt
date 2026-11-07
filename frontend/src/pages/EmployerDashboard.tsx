@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
+import { JobApplicantsPanel } from '../components/JobApplicantsPanel'
 import { InviteCandidatesPanel } from '../components/InviteCandidatesPanel'
 import { CandidateSearchBar, HighlightText } from '../components/CandidateSearchBar'
 import {
@@ -831,7 +832,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             Deleting…
                           </p>
                         ) : null}
-                        <h4 className={styles.jobCardTitle}>{job.title}</h4>
+                        <h4 className={styles.jobCardTitle}>
+                          <button
+                            type="button"
+                            className={styles.jobCardTitleBtn}
+                            disabled={isPending || isDeleting}
+                            onClick={() => void openJobApplicantsRoster(job)}
+                          >
+                            {job.title}
+                          </button>
+                        </h4>
                         <div className={styles.jobCardMeta}>
                           <span className={styles.metaBadge}>{job.roleTrack}</span>
                           <span className={styles.metaBadge}>{job.experienceLevel}</span>
@@ -1427,7 +1437,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <div>
                   <h2 id="job-roster-title">Applicants · {jobRosterOpen.title}</h2>
                   <div className={styles.countText}>
-                    Showing {jobRosterRows.length} of {jobRosterRows.length} candidates
+                    Everyone who applied from the job board or your shared link, scored against this job.
                   </div>
                 </div>
                 <button
@@ -1440,21 +1450,12 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 </button>
               </div>
 
-              {jobRosterLoading ? (
-                <p className={styles.portalSyncNote} role="status">
-                  Loading applicants…
-                </p>
-              ) : null}
-              {!jobRosterLoading ? (
-                <div className={styles.tableContainer}>
-                  <CandidatesDirectoryTable
-                    rows={jobRosterRows}
-                    emptyTitle="No applications yet"
-                    emptyBody="Share the job link so candidates can apply with their resume and HireRight report."
-                    onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
-                  />
-                </div>
-              ) : null}
+              <JobApplicantsPanel
+                rows={jobRosterRows}
+                loading={jobRosterLoading}
+                onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
+                onOpenApplicant={(applicant) => setSelectedApplicant(applicant)}
+              />
 
               <div className={styles.modalFooter}>
                 <button type="button" className={styles.cancelBtn} onClick={closeJobApplicantsRoster}>

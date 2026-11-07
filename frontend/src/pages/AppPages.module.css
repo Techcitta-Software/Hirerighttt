@@ -2350,7 +2350,7 @@
 
 .jobsBoardShell {
   max-width: 1280px !important;
-  width: min(1280px, 100%) !important;
+  width: min(1280px, calc(100% - 2 * var(--layout-gutter, 1.5rem))) !important;
 }
 
 .jobsScopeChipActive {
@@ -2361,7 +2361,7 @@
 
 /* ── Redesign: every candidate page sits on the shared 1280px app column ── */
 .pageCandidate .shell {
-  width: min(1280px, 100%);
+  width: min(1280px, calc(100% - 2 * var(--layout-gutter, 1.5rem)));
   max-width: 1280px;
 }
 

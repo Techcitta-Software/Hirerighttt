@@ -78,6 +78,9 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     atsScore: a.data.atsScore,
     jdMatchScore: a.data.jdMatchScore,
     primarySkills: a.data.primarySkills,
+    matchedSkills: a.data.matchedSkills,
+    missingSkills: a.data.missingSkills,
+    source: a.data.source ?? undefined,
     appliedAt: a.appliedAt,
     status: statusMap[a.status] || 'New',
   }

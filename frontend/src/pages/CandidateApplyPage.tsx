@@ -170,6 +170,7 @@ export function CandidateApplyPage() {
             experienceYears: experience,
             resumeText: resumeText.trim(),
             resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
+            source: 'shared_link',
           },
           companySlug || job.companySlug,
         )

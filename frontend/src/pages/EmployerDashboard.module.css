@@ -1373,3 +1373,20 @@
   border-color: #e9e3ff;
   letter-spacing: 0.04em;
 }
+
+/* Job title opens the job's applicants. */
+.jobCardTitleBtn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.jobCardTitleBtn:hover:not(:disabled) {
+  color: #5046e5;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

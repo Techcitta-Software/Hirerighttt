@@ -309,6 +309,25 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     }
 
 
+def vendor_skill_focus(skill_analysis: dict | None, required_skills: list | None, limit: int = 3) -> list[str]:
+    """Skills for the skill-question turns of a vendor job interview.
+
+    Skills found in BOTH the job description and the resume come first (in JD order), so questions test what
+    the candidate claims and the job needs; if fewer than `limit` match, the rest of the JD skills fill in.
+    """
+    analysis = skill_analysis or {}
+    jd_skills = [str(s).strip() for s in (analysis.get("jdSkills") or required_skills or []) if str(s).strip()]
+    matched = {str(s).strip().lower() for s in analysis.get("matchedSkills") or [] if str(s).strip()}
+    ordered = [s for s in jd_skills if s.lower() in matched]
+    ordered += [s for s in analysis.get("matchedSkills") or [] if str(s).strip() and str(s).strip().lower() not in {o.lower() for o in ordered}]
+    for s in jd_skills:
+        if len(ordered) >= limit:
+            break
+        if s.lower() not in {o.lower() for o in ordered}:
+            ordered.append(s)
+    return [str(s) for s in ordered[:limit]]
+
+
 def build_jd_coverage_plan(**kwargs) -> dict:
     jd = str(kwargs.get("jobDescription") or "")
     skills = kwargs.get("requiredSkills") or extract_primary_skills_from_jd(jd, [])

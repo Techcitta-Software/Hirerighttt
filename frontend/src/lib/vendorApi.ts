@@ -45,6 +45,9 @@ export type VendorApplicant = {
     resumeUrl?: string
     candidatePhone?: string
     candidateRole?: string
+    matchedSkills?: string[]
+    missingSkills?: string[]
+    source?: 'job_board' | 'shared_link' | 'invite' | null
   }
 }
 
@@ -379,6 +382,8 @@ export async function applyToPublicJob(
     resumeName?: string
     attachInterviewReport?: boolean
     match?: number
+    /** Where the candidate applied from — shown to the vendor on the job's applicant list. */
+    source?: 'job_board' | 'shared_link' | 'invite'
   },
   companySlug?: string,
 ) {

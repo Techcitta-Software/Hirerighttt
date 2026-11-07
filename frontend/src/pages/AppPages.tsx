@@ -557,6 +557,7 @@ export function JobsPage() {
           resumeName: profile?.resumeName || 'HireRight profile',
           attachInterviewReport: true,
           match: job.match,
+          source: 'job_board',
         },
         job.companySlug || slugifyCompany(job.company),
       )

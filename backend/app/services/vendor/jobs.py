@@ -304,6 +304,15 @@ def _merge_application_payload(application: dict, job: dict, payload: dict) -> N
     application["appliedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+APPLICATION_SOURCES = ("job_board", "shared_link", "invite")
+
+
+def application_source(value: object) -> str | None:
+    """Where the candidate applied from; unknown values are dropped rather than trusted."""
+    v = str(value or "").strip().lower()
+    return v if v in APPLICATION_SOURCES else None
+
+
 def create_job_application(db: dict, job: dict, payload: dict) -> dict:
     email = str(payload.get("candidateEmail") or "").strip().lower()
     if not email:
@@ -340,6 +349,7 @@ def create_job_application(db: dict, job: dict, payload: dict) -> dict:
         "appliedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "data": {
             "candidateName": str(payload.get("candidateName") or "").strip(),
+            "source": application_source(payload.get("source")),
             "candidatePhone": str(payload.get("candidatePhone") or "").strip(),
             "candidateRole": str(payload.get("candidateRole") or "").strip(),
             "experienceYears": str(payload.get("experienceYears") or "").strip(),

@@ -122,20 +122,21 @@ def closing_statement(role: str, seed: str = "") -> dict[str, Any]:
     }
 
 
-def _turn_plan(*, total: int, fresher: bool, role_skills: list[str]) -> dict[int, str]:
+def _turn_plan(*, total: int, fresher: bool, role_skills: list[str], from_job: bool = False) -> dict[int, str]:
     """What each turn is for, so the model stops guessing (theory vs project vs opening)."""
     skills = (role_skills + ["your core stack"] * 3)[:3]
     plan: dict[int, str] = {}
+    job_note = " This skill is required by the job description and appears in the candidate's resume." if from_job else ""
     if fresher:
         plan[1] = "Opening: greet, then ask the candidate to tell you about themselves."
         for i, s in enumerate(skills):
-            plan[2 + i] = f"Conceptual beginner question on {s} (definition, comparison or how it works). No scenario, no story."
+            plan[2 + i] = f"Conceptual beginner question on {s} (definition, comparison or how it works). No scenario, no story.{job_note}"
         plan[5] = "Ask what the candidate built in a real academic or personal project from the resume (do not assume employment)."
         plan[6] = "Technical follow-up on that same project: how it was built, tested or debugged."
         return plan
     plan[1] = "Opening: roles, responsibilities and exposure at the candidate's most recent employer from the resume."
     for i, s in enumerate(skills):
-        plan[2 + i] = f"Conceptual question on {s} (define, compare, how it works, trade-offs). Pitch the difficulty to the experience level. No scenario, no story, no live coding."
+        plan[2 + i] = f"Conceptual question on {s} (define, compare, how it works, trade-offs). Pitch the difficulty to the experience level. No scenario, no story, no live coding.{job_note}"
     plan[5] = "A real project or achievement from the resume: how it was designed and implemented. Use only tools evidenced in the resume."
     plan[6] = "Technical follow-up on that same project: testing, debugging or design trade-offs."
     return plan
@@ -254,8 +255,11 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
     closing_turn = None if fresher else _experienced_closing_turn_number()
     from app.services.interview_agent import _load_required_role_skills
 
-    role_skills = _load_required_role_skills(role, profile or {}) or [str(s) for s in (ctx.get("skills") or [])[:3]]
-    plan = _turn_plan(total=total, fresher=fresher, role_skills=role_skills)
+    # Vendor job interviews pass skillFocus (skills shared by the JD and the resume); everyone else gets the
+    # role's standard skills. Every other turn (opening, projects, follow-up, closing) is identical.
+    skill_focus = [str(s) for s in (input.get("skillFocus") or []) if str(s).strip()]
+    role_skills = skill_focus or _load_required_role_skills(role, profile or {}) or [str(s) for s in (ctx.get("skills") or [])[:3]]
+    plan = _turn_plan(total=total, fresher=fresher, role_skills=role_skills, from_job=bool(skill_focus))
     fresher_closing_turn = total if fresher else None
     turn_numbers = [
         t

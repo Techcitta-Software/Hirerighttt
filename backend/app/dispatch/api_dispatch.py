@@ -292,6 +292,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "candidateEmail": session_email,
                     "candidateUserId": (u or {}).get("id"),
                     "atsEvaluation": ats_evaluation,
+                    "source": body.get("source"),
                 },
             )
             application = created_pack["application"]
@@ -710,42 +711,34 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             preloaded_question_batch = False
             session_fallback_turn = None
             session_closing_turn = None
+            # Vendor / employer jobs: the same interview structure as a normal candidate session, but the
+            # skill turns ask about skills shared by the job description and the candidate's resume.
+            skill_focus = (
+                ia.vendor_skill_focus(skill_analysis, required_skills)
+                if question_mode in ("vendor_jd", "employer") and skill_analysis
+                else []
+            )
             try:
-                if question_mode == "vendor_jd":
-                    first = await ia.generate_vendor_job_question(
-                        {
-                            "ctx": digest,
-                            "profile": profile,
-                            "role": role,
-                            "jobDescription": effective_jd,
-                            "requiredSkills": required_skills,
-                            "history": [],
-                            "lastAnswer": "",
-                            "varietySeed": variety_seed,
-                            "totalTurns": interview_total_turns,
-                        }
-                    )
-                    questions = [first]
-                else:
-                    batch = await ia.generate_adaptive_question_batch(
-                        {
-                            "ctx": digest,
-                            "profile": profile,
-                            "role": role,
-                            "level": level,
-                            "jobDescription": effective_jd,
-                            "accountName": account.get("name") if account else None,
-                            "varietySeed": variety_seed,
-                            "totalTurns": interview_total_turns,
-                            "fresher": fresher,
-                        }
-                    )
-                    questions = batch["questions"]
-                    first = questions[0]
-                    session_fallback_turn = batch.get("fallbackTurn")
-                    session_closing_turn = batch.get("closingTurn")
-                    interview_total_turns = int(batch.get("totalTurns") or interview_total_turns)
-                    preloaded_question_batch = True
+                batch = await ia.generate_adaptive_question_batch(
+                    {
+                        "ctx": digest,
+                        "profile": profile,
+                        "role": role,
+                        "level": level,
+                        "jobDescription": effective_jd,
+                        "accountName": account.get("name") if account else None,
+                        "varietySeed": variety_seed,
+                        "totalTurns": interview_total_turns,
+                        "fresher": fresher,
+                        "skillFocus": skill_focus,
+                    }
+                )
+                questions = batch["questions"]
+                first = questions[0]
+                session_fallback_turn = batch.get("fallbackTurn")
+                session_closing_turn = batch.get("closingTurn")
+                interview_total_turns = int(batch.get("totalTurns") or interview_total_turns)
+                preloaded_question_batch = True
             except Exception as err:
                 from app.services.interview_llm_questions import InterviewLlmQuestionError
 
@@ -777,6 +770,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "roleTrack": role_track,
                 "jdPlan": jd_plan,
                 "primarySkills": (skill_analysis or {}).get("jdSkills") or required_skills,
+                "skillFocus": skill_focus,
                 "questionMode": question_mode,
                 "skillAnalysis": skill_analysis,
                 "startedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -1135,7 +1129,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             fallback_turn = session.get("fallbackTurn")
             closing_turn = session.get("closingTurn")
             deferred_turn = next_turn in (fallback_turn, closing_turn)
-            if session.get("preloadedQuestionBatch") and session.get("questionMode") != "vendor_jd" and not deferred_turn:
+            if session.get("preloadedQuestionBatch") and not deferred_turn:
                 cached = (session.get("questions") or [])[next_turn - 1] if session.get("questions") else None
                 if isinstance(cached, dict) and len(str(cached.get("text") or "")) >= 24:
                     db["interviewSessions"][session_id] = session

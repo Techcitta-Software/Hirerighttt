@@ -245,6 +245,11 @@ export type EmployerApplicant = {
   atsScore?: number
   jdMatchScore?: number
   primarySkills?: string[]
+  /** JD skills found in the resume / missing from it (from the resume-vs-JD ATS check). */
+  matchedSkills?: string[]
+  missingSkills?: string[]
+  /** Where the candidate applied from. */
+  source?: 'job_board' | 'shared_link' | 'invite'
 }
 
 const USERS_KEY = 'hireright.users'

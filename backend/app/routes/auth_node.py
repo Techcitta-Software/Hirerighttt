@@ -222,6 +222,7 @@ async def reset_password(request: Request, body: dict) -> dict:
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
     user["passwordHash"] = hash_password(password)
     await runtime.save_db(db)
+    runtime.forget_sessions(email=email)
     await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
     return {"ok": True, "message": "Your password has been reset. Log in with your new password."}
 

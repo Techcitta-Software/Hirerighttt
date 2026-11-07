@@ -48,6 +48,7 @@ export async function resolveApiBase(): Promise<string> {
   resolveApiBasePromise = (async () => {
     if (await pingHealth('')) {
       runtimeApiBase = ''
+      healthCache = { at: Date.now(), ok: true }
       return runtimeApiBase
     }
     if (import.meta.env.DEV && (await pingHealth(DEV_API_FALLBACK))) {
@@ -70,6 +71,7 @@ export function getApiToken() {
 export function setApiToken(token: string | null) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
   else localStorage.removeItem(TOKEN_KEY)
+  invalidateMeCache()
 }
 
 /** Same-origin `/api` in Vite dev; absolute URL when `VITE_API_URL` or dev fallback is set. */
@@ -81,6 +83,8 @@ export function apiUrl(path: string) {
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   await resolveApiBase()
+  // Any write can change what /api/me returns (profile, interview, applications).
+  if (options.method && options.method.toUpperCase() !== 'GET') invalidateMeCache()
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> | undefined),
   }
@@ -107,8 +111,33 @@ async function request(path: string, options: RequestInit = {}) {
   return data
 }
 
+/**
+ * /api/me is read by several helpers right after login (session sync, profile pull, token check).
+ * Share one in-flight request and reuse the answer for a few seconds instead of fetching it 3×.
+ */
+const ME_CACHE_MS = 4_000
+let meInFlight: { token: string | null; promise: Promise<any> } | null = null
+let meCache: { token: string | null; at: number; data: any } | null = null
+
+export function invalidateMeCache() {
+  meCache = null
+  meInFlight = null
+}
+
 export async function apiMe() {
-  return request('/api/me')
+  const token = getApiToken()
+  if (meCache && meCache.token === token && Date.now() - meCache.at < ME_CACHE_MS) return meCache.data
+  if (meInFlight && meInFlight.token === token) return meInFlight.promise
+  const promise = request('/api/me')
+    .then((data) => {
+      meCache = { token, at: Date.now(), data }
+      return data
+    })
+    .finally(() => {
+      if (meInFlight?.promise === promise) meInFlight = null
+    })
+  meInFlight = { token, promise }
+  return promise
 }
 
 export async function apiHealth() {

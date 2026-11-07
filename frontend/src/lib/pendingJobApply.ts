@@ -71,6 +71,7 @@ export async function finalizePendingJobApplication(): Promise<boolean> {
         experienceYears: profile?.totalExperience || '',
         resumeText,
         resumeName: profile?.resumeName || 'Resume.pdf',
+        source: 'shared_link',
       },
       pending.companySlug,
     )
