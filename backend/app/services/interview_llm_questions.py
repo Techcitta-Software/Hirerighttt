@@ -65,7 +65,9 @@ def _batch_system_prompt(*, total: int, role: str, level: str, fresher: bool) ->
     return f"""You are Ava, a professional interviewer. Generate ALL interview questions for this session in ONE JSON response.
 Total turns in session: {total}. Role: {role}. Experience: {level}.
 Rules:
-- Generate exactly one question per turnNumber in the user payload "turns" list.
+- Generate exactly one question per turnNumber in the user payload "turns" list and follow that turn's "purpose" exactly.
+- Ask ONE short question per turn (at most two sentences, under 45 words). Never combine two questions.
+- category must be exactly one of: Technical, Experience, Problem Solving, Communication.
 - {skip}
 - Each question must be distinct. Theory turns: conceptual only. Project turns: use resume context only.
 Return ONLY: {{"questions":[{{"turnNumber":1,"question":{{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"..."}}}}, ...]}}"""
@@ -96,6 +98,47 @@ def _parse_question(raw: str, prior: list[str] | None = None) -> dict[str, Any] 
         "topic": q.get("topic") or q.get("category") or "Interview",
         "focus": "adaptive-llm",
     }
+
+
+CLOSING_LINES = [
+    "Thank you for your time today. It was helpful hearing about your work on {role}. That is all from my side. Wishing you the best with your next steps.",
+    "I appreciate the detail you shared in this session. That brings us to the end of the {role} interview. Take care, and good luck.",
+    "Thanks for walking me through your experience. We will wrap up here for this {role} conversation. Best wishes for what comes next.",
+    "That is everything I had for today. Thank you for the thoughtful answers, and good luck with your {role} journey.",
+]
+
+
+def closing_statement(role: str, seed: str = "") -> dict[str, Any]:
+    """Fixed thank-you for the last turn. It is a sign-off, not a question, and is never scored."""
+    idx = sum(ord(c) for c in (seed or role)) % len(CLOSING_LINES)
+    return {
+        "text": CLOSING_LINES[idx].format(role=role or "this role"),
+        "category": "Communication",
+        "keywords": [],
+        "hint": "No answer needed. You can say goodbye or end the interview.",
+        "topic": "Closing",
+        "focus": "structured-closing",
+        "scoringProfile": "behavioral",
+    }
+
+
+def _turn_plan(*, total: int, fresher: bool, role_skills: list[str]) -> dict[int, str]:
+    """What each turn is for, so the model stops guessing (theory vs project vs opening)."""
+    skills = (role_skills + ["your core stack"] * 3)[:3]
+    plan: dict[int, str] = {}
+    if fresher:
+        plan[1] = "Opening: greet, then ask the candidate to tell you about themselves."
+        for i, s in enumerate(skills):
+            plan[2 + i] = f"Conceptual beginner question on {s} (definition, comparison or how it works). No scenario, no story."
+        plan[5] = "Ask what the candidate built in a real academic or personal project from the resume (do not assume employment)."
+        plan[6] = "Technical follow-up on that same project: how it was built, tested or debugged."
+        return plan
+    plan[1] = "Opening: roles, responsibilities and exposure at the candidate's most recent employer from the resume."
+    for i, s in enumerate(skills):
+        plan[2 + i] = f"Conceptual question on {s} (define, compare, how it works, trade-offs). Pitch the difficulty to the experience level. No scenario, no story, no live coding."
+    plan[5] = "A real project or achievement from the resume: how it was designed and implemented. Use only tools evidenced in the resume."
+    plan[6] = "Technical follow-up on that same project: testing, debugging or design trade-offs."
+    return plan
 
 
 def _pending_fallback_question() -> dict[str, Any]:
@@ -154,6 +197,10 @@ async def generate_adaptive_question_llm(input: dict) -> dict:
     role = str(input.get("role") or "Full Stack Engineer")
     level = str(input.get("level") or "1–3 years")
     ctx = input.get("ctx") or summarize_profile(input.get("profile"), input.get("accountName") or "Candidate")
+    experienced_flow = total == EXPERIENCED_INTERVIEW_TURN_COUNT
+    if experienced_flow and turn == _experienced_closing_turn_number():
+        return closing_statement(role, str(input.get("varietySeed") or ""))
+    is_fallback_turn = experienced_flow and turn == _experienced_fallback_turn_number()
     prior = [str((h.get("question") or {}).get("text") or h.get("question") or "") for h in history]
     user = json.dumps(
         {
@@ -173,6 +220,11 @@ async def generate_adaptive_question_llm(input: dict) -> dict:
         }
     )
     system = _system_prompt(turn=turn, total=total, role=role, level=level)
+    if is_fallback_turn:
+        system += (
+            "\nThis turn is the FOLLOW-UP on recent work: ask one short, specific follow-up about something the candidate "
+            "said in lastAnswer or about their most recent role. Do not introduce a new unrelated technical topic."
+        )
     for temperature in (0.55, 0.35, 0.22):
         raw = await _gemini_generate(system, user, temperature=temperature)
         q = _parse_question(raw, prior)
@@ -200,10 +252,15 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
     role = str(input.get("role") or "Full Stack Engineer")
     fallback_turn = None if fresher else _experienced_fallback_turn_number()
     closing_turn = None if fresher else _experienced_closing_turn_number()
+    from app.services.interview_agent import _load_required_role_skills
+
+    role_skills = _load_required_role_skills(role, profile or {}) or [str(s) for s in (ctx.get("skills") or [])[:3]]
+    plan = _turn_plan(total=total, fresher=fresher, role_skills=role_skills)
+    fresher_closing_turn = total if fresher else None
     turn_numbers = [
         t
         for t in range(1, total + 1)
-        if fresher or (t != fallback_turn and t != closing_turn)
+        if t != fallback_turn and t != closing_turn and t != fresher_closing_turn
     ]
     user = json.dumps(
         {
@@ -212,7 +269,7 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
             "experienceLevel": level,
             "varietySeed": input.get("varietySeed"),
             "jobDescription": (input.get("jobDescription") or "")[:4000] or None,
-            "turns": [{"turnNumber": t} for t in turn_numbers],
+            "turns": [{"turnNumber": t, "purpose": plan.get(t, "Resume-grounded interview question.")} for t in turn_numbers],
             "candidateSummary": {
                 "skills": (ctx.get("skills") or [])[:16],
                 "jobs": (ctx.get("jobs") or [])[:4],
@@ -239,6 +296,9 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
                 continue
             if closing_turn and turn == closing_turn:
                 ordered[turn - 1] = _pending_closing_question()
+                continue
+            if fresher_closing_turn and turn == fresher_closing_turn:
+                ordered[turn - 1] = closing_statement(role, str(input.get("varietySeed") or ""))
                 continue
             item = next((x for x in items if int(x.get("turnNumber") or 0) == turn), None)
             if not item or not isinstance(item.get("question"), dict):

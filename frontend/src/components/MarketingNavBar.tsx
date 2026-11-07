@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { handleLoginNavigation } from '../lib/authSession'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
@@ -72,7 +71,6 @@ function Chevron({ open }: { open: boolean }) {
  */
 export function MarketingNavBar() {
   const location = useLocation()
-  const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [orgMenuOpen, setOrgMenuOpen] = useState(false)
   const [mobileOrgOpen, setMobileOrgOpen] = useState(false)
@@ -81,12 +79,6 @@ export function MarketingNavBar() {
   function closeAll() {
     setMobileMenuOpen(false)
     setOrgMenuOpen(false)
-  }
-
-  function onLoginClick(event: MouseEvent) {
-    event.preventDefault()
-    closeAll()
-    void handleLoginNavigation(navigate)
   }
 
   useEffect(() => {
@@ -164,11 +156,11 @@ export function MarketingNavBar() {
         </nav>
 
         <div className={styles.navActions}>
-          <Link to="/login" className={styles.navActionLink} onClick={onLoginClick}>
-            Log in
+          <Link to="/contact?demo=1" className={styles.navDemoBtn}>
+            Demo
           </Link>
           <Link to="/signup" className={styles.navCtaBtn}>
-            Sign up
+            Get started
           </Link>
         </div>
 
@@ -220,11 +212,11 @@ export function MarketingNavBar() {
           ),
         )}
         <div className={styles.mobileAuthActions}>
-          <Link to="/login" className={styles.navActionLink} onClick={onLoginClick}>
-            Log in
+          <Link to="/contact?demo=1" className={styles.navDemoBtn} onClick={closeAll}>
+            Demo
           </Link>
           <Link to="/signup" className={styles.navCtaBtn} onClick={closeAll}>
-            Sign up
+            Get started
           </Link>
         </div>
       </div>

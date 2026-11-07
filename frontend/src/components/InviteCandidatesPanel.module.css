@@ -1,0 +1,172 @@
+.panel {
+  background: #ffffff;
+  border: 1px solid #e5e5ef;
+  border-radius: 16px;
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+
+.toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #faf9ff;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+  text-align: left;
+  color: #141638;
+}
+
+.hint {
+  color: #5f6686;
+  font-size: 0.9375rem;
+}
+
+.body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #141638;
+}
+
+.textarea,
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #d6d7e5;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  color: #141638;
+  background: #ffffff;
+}
+
+.textarea:focus,
+.input:focus {
+  outline: 2px solid #5046e5;
+  outline-offset: 1px;
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #5f6686;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.send {
+  align-self: flex-start;
+  padding: 0.75rem 1.6rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--hr-brand-gradient);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.send:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.9375rem;
+}
+
+.warn {
+  margin: 0 0 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.9375rem;
+}
+
+.results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #ece9ff;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.who em {
+  color: #5f6686;
+  font-style: normal;
+}
+
+.ok {
+  color: #16a34a;
+  font-weight: 800;
+}
+
+.fail {
+  color: #d97706;
+  font-weight: 800;
+}
+
+.copy {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid #c9c6f5;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3b32c4;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+}

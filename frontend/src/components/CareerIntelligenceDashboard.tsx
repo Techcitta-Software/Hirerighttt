@@ -212,6 +212,14 @@ export function CareerIntelligenceDashboard({
 
   return (
     <div className={styles.dashboardContainer} id="career-intelligence-dashboard">
+      {result.scoring && !result.scoring.reliable ? (
+        <div className={styles.provisionalBanner} role="status">
+          <strong>Provisional score.</strong>{' '}
+          {result.scoring.notice ||
+            'The AI evaluator was unavailable, so this result uses basic checks only.'}
+        </div>
+      ) : null}
+
       {/* Header Profile Section */}
       <header className={styles.headerCard}>
         <div className={styles.brandRow}>
@@ -487,7 +495,7 @@ export function CareerIntelligenceDashboard({
               <div className={styles.patternStatIcon}>
                 <HrIcon name="calendar" size={18} />
               </div>
-              <div className={styles.patternStatNumber}>{sessionStats?.durationMinutes ?? Math.max(8, qaRows.length * 4)}</div>
+              <div className={styles.patternStatNumber}>{sessionStats?.durationMinutes ?? '—'}</div>
               <div className={styles.patternStatLabel}>Minutes Duration</div>
             </div>
             <div className={styles.patternStatBox}>

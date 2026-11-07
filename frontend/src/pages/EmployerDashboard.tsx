@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
+import { InviteCandidatesPanel } from '../components/InviteCandidatesPanel'
 import { apiHealth } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
@@ -1009,6 +1010,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             </div>
           </div>
         </motion.div>
+
+        <InviteCandidatesPanel jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
 
         {/* Candidates Section Card (Image 2) */}
         <motion.div

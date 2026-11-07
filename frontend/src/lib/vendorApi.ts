@@ -330,6 +330,27 @@ export async function sendApplicantInterviewInvite(
   }>(res)
 }
 
+export type SentInvite = {
+  email: string
+  name?: string
+  inviteUrl: string
+  emailSent: boolean
+  emailError?: string | null
+}
+
+/** Email an open interview link to one or many people (resume-based AI interview opens directly). */
+export async function sendInterviewLinks(payload: {
+  candidates: { email: string; name?: string }[]
+  jobId?: string
+  expiresInDays?: number
+}) {
+  const res = await apiFetch('/api/vendor/interview-invites/send', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return parse<{ ok: boolean; expiresAt: string; smtpConfigured: boolean; invites: SentInvite[] }>(res)
+}
+
 export async function patchApplicantStatus(applicantId: string, status: string) {
   const res = await apiFetch(`/api/vendor/applicants/${applicantId}`, {
     method: 'PATCH',

@@ -2,6 +2,7 @@
  * Auth session helpers (local session + API Bearer token verified via /api/me).
  */
 import type { NavigateFunction } from 'react-router-dom'
+import { consumeInviteReturn } from './inviteReturn'
 import { apiMe, getApiToken, setApiToken } from './api'
 import { isOnboardingComplete, onboardingResumeStep } from './onboardingProgress'
 import { getProfile, getUser, logout, type User } from './store'
@@ -91,6 +92,11 @@ export function resolveAuthenticatedDestination(
   if (user.role === 'employer') return '/employer/dashboard'
 
   const profile = getProfile()
+  // Came from an emailed interview link: go straight back to it once the profile (resume) is ready.
+  if (isOnboardingComplete(profile)) {
+    const inviteBack = consumeInviteReturn()
+    if (inviteBack) return inviteBack
+  }
   if (!isOnboardingComplete(profile)) {
     return `/onboarding?step=${onboardingResumeStep(profile)}`
   }

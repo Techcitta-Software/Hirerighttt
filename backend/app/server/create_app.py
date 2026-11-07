@@ -92,7 +92,11 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=204, content={})
         if path.startswith("/api") and not _use_native_handler(path):
             try:
-                if path.startswith("/api/assessments") or path.startswith("/api/interview"):
+                # The emailed invite landing page is opened BEFORE the candidate signs in, so it is not auth-gated here.
+                is_public_invite_lookup = request.method == "GET" and path.startswith("/api/interview-invites/")
+                if not is_public_invite_lookup and (
+                    path.startswith("/api/assessments") or path.startswith("/api/interview")
+                ):
                     try:
                         email = await runtime.require_auth_email(request)
                         content_type = (request.headers.get("content-type") or "").lower()
@@ -120,6 +124,10 @@ def create_app() -> FastAPI:
                 if handled is not None:
                     return handled
                 return JSONResponse(status_code=404, content={"error": "Not found"})
+            except HTTPException as err:
+                # Auth / permission errors raised inside route handlers must stay 401/403, not become a 500.
+                detail = err.detail if isinstance(err.detail, str) else "Request failed."
+                return JSONResponse(status_code=err.status_code, content={"error": detail})
             except Exception:
                 logger.exception("API dispatch failed for %s", path)
                 return JSONResponse(status_code=500, content={"error": "Server error"})

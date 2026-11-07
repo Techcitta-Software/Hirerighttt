@@ -24,7 +24,12 @@ export const DEMO_ADMIN = {
 
 const DEMO_LIST = [DEMO_CANDIDATE, DEMO_EMPLOYER, DEMO_ADMIN] as const
 
+/** Demo credentials are honoured only in local development or when explicitly enabled. */
+const DEMO_ENABLED =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_ACCOUNTS === 'true'
+
 export function getDemoAccount(email: string, password: string) {
+  if (!DEMO_ENABLED) return undefined
   const normalized = email.trim().toLowerCase()
   return DEMO_LIST.find(
     (d) => d.email === normalized && d.password === password,
@@ -32,6 +37,7 @@ export function getDemoAccount(email: string, password: string) {
 }
 
 export function isDemoEmail(email: string) {
+  if (!DEMO_ENABLED) return false
   const normalized = email.trim().toLowerCase()
   return DEMO_LIST.some((d) => d.email === normalized)
 }

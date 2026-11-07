@@ -5,7 +5,7 @@ import { getUser } from './store'
  * Admin emails: the built-in admin account plus any listed in VITE_ADMIN_EMAILS (comma separated).
  * NOTE: this is a UI gate — the API must also refuse recording access to non-admins.
  */
-const BUILTIN_ADMIN_EMAILS = ['admin@hireright.com']
+const BUILTIN_ADMIN_EMAILS = import.meta.env.DEV ? ['admin@hireright.com'] : []
 
 function adminEmails(): string[] {
   const extra = String(import.meta.env.VITE_ADMIN_EMAILS ?? '')

@@ -99,8 +99,9 @@ def compute_question_role_skills_fit(
             return 68
         return 22
 
-    hits = sum(1 for s in required if skill_evidence_in_answer(s, answer))
-    return _clamp((hits / len(required)) * 88)
+    # The question is not about a required role skill (e.g. opening, microservices design). Penalising the
+    # answer for not naming React/Node/SQL would punish good answers, so this sub-score does not apply.
+    return None
 
 
 def compute_session_role_skills_fit(

@@ -29,13 +29,9 @@ import {
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
 import { ensureNewJobseekerProfileOnServer } from '../lib/initCandidateProfile'
 import { isValidPhone, normalizePhone } from '../lib/phone'
-import {
-  DEMO_ADMIN,
-  DEMO_CANDIDATE,
-  DEMO_EMPLOYER,
-  getDemoAccount,
-  isDemoEmail,
-} from '../lib/authDemo'
+import { isAdminUser } from '../lib/adminAccess'
+import { readInviteEmail } from '../lib/inviteReturn'
+import { getDemoAccount, isDemoEmail } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
 import { consumeSignupLoginHandoff, stashSignupLoginHandoff } from '../lib/authHandoff'
@@ -152,7 +148,8 @@ async function authenticateWithEmailPassword(
     // Backend offline — local store below
   }
 
-  if (!authenticatedUser) {
+  // Browser-local accounts exist for offline development only; production always authenticates on the server.
+  if (!authenticatedUser && !requireApiForAuth()) {
     authenticatedUser = login(targetEmail, password)
   }
 
@@ -241,7 +238,9 @@ export function LoginPage({
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [loading, setLoading] = useState(false)
-  const [loginEmail, setLoginEmail] = useState('')
+  const [loginEmail, setLoginEmail] = useState(
+    () => new URLSearchParams(window.location.search).get('email') || readInviteEmail(),
+  )
   const [loginPassword, setLoginPassword] = useState('')
 
   const explicitLogin = Boolean(
@@ -279,7 +278,9 @@ export function LoginPage({
   const [signupName, setSignupName] = useState('')
   const [signupPhone, setSignupPhone] = useState('')
   const [signupCompanyName, setSignupCompanyName] = useState('')
-  const [signupEmail, setSignupEmail] = useState('')
+  const [signupEmail, setSignupEmail] = useState(
+    () => new URLSearchParams(window.location.search).get('email') || readInviteEmail(),
+  )
   const [signupPassword, setSignupPassword] = useState('')
 
   const [termsAgreed, setTermsAgreed] = useState(false)
@@ -309,37 +310,6 @@ export function LoginPage({
     } else if (newMode === 'login' && location.pathname !== '/login') {
       window.history.replaceState(null, '', '/login')
     }
-  }
-
-  function fillLoginCandidate() {
-    setLoginEmail(DEMO_CANDIDATE.email)
-    setLoginPassword(DEMO_CANDIDATE.password)
-    setError('')
-  }
-
-  function fillLoginEmployer() {
-    setLoginEmail(DEMO_EMPLOYER.email)
-    setLoginPassword(DEMO_EMPLOYER.password)
-    setError('')
-    const params = new URLSearchParams(location.search)
-    if (
-      params.get('role') === 'jobseeker' ||
-      params.get('role') === 'candidate'
-    ) {
-      params.delete('role')
-      const qs = params.toString()
-      window.history.replaceState(
-        null,
-        '',
-        qs ? `${location.pathname}?${qs}` : location.pathname,
-      )
-    }
-  }
-
-  function fillLoginAdmin() {
-    setLoginEmail(DEMO_ADMIN.email)
-    setLoginPassword(DEMO_ADMIN.password)
-    setError('')
   }
 
   function navigateAfterLogin(authenticatedUser: StoredUser, forcedPath?: string) {
@@ -383,31 +353,6 @@ export function LoginPage({
     }
   }, [location.pathname, navigate, explicitLogin])
 
-  async function runQuickLogin(
-    demo: typeof DEMO_CANDIDATE | typeof DEMO_EMPLOYER | typeof DEMO_ADMIN,
-    forcedPath?: string,
-  ) {
-    setError('')
-    setLoading(true)
-    setLoginEmail(demo.email)
-    setLoginPassword(demo.password)
-    try {
-      const { user, error: authError } = await authenticateWithEmailPassword(
-        demo.email,
-        demo.password,
-      )
-      if (!user) {
-        setError(authError ?? 'Demo sign-in failed.')
-        return
-      }
-      navigateAfterLogin(user, forcedPath)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Demo sign-in failed.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function handleLoginSubmit(event: FormEvent) {
     event.preventDefault()
     if (!loginEmail.trim() || !loginPassword.trim()) {
@@ -420,9 +365,7 @@ export function LoginPage({
 
     try {
       const roleParam = new URLSearchParams(location.search).get('role')
-      const demoForLogin = getDemoAccount(targetEmail, loginPassword)
       const loginExpectedRole: RoleType | undefined =
-        demoForLogin?.role ??
         (roleParam === 'employer' || roleParam === 'recruiter' || roleParam === 'vendor'
           ? 'employer'
           : roleParam === 'jobseeker' || roleParam === 'candidate'
@@ -437,9 +380,7 @@ export function LoginPage({
         setError(authError ?? 'Login failed.')
         return
       }
-      const adminDemo =
-        targetEmail === DEMO_ADMIN.email && loginPassword === DEMO_ADMIN.password
-      navigateAfterLogin(user, adminDemo ? '/admin' : undefined)
+      navigateAfterLogin(user, isAdminUser() ? '/admin' : undefined)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please check details.')
     } finally {
@@ -760,74 +701,6 @@ export function LoginPage({
                       Start My Career Discovery
                     </Link>{' '}
                     <span className={styles.noResumeText}>— no resume required.</span>
-                  </p>
-                </div>
-
-                {/* IMAGE 2: QUICK DEMO ACCESS */}
-                <div className={styles.quickDemoAccessWrap}>
-                  <p className={styles.quickDemoLabel}>QUICK DEMO ACCESS</p>
-
-                  <button
-                    type="button"
-                    className={styles.demoCandidateBigBtn}
-                    onClick={() => void runQuickLogin(DEMO_CANDIDATE, '/interview')}
-                    disabled={loading}
-                  >
-                    Candidate · Interview demo
-                  </button>
-
-                  <div className={styles.demoTwoBtnRow}>
-                    <button
-                      type="button"
-                      className={styles.demoRoleBtn}
-                      onClick={() => void runQuickLogin(DEMO_EMPLOYER, '/employer/dashboard')}
-                      disabled={loading}
-                    >
-                      Vendor / Employer
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.demoRoleBtn}
-                      onClick={() => void runQuickLogin(DEMO_ADMIN, '/admin')}
-                      disabled={loading}
-                    >
-                      Admin
-                    </button>
-                  </div>
-
-                  <div className={styles.demoThreeBtnRow}>
-                    <button
-                      type="button"
-                      className={styles.demoFillUnderlineBtn}
-                      onClick={fillLoginCandidate}
-                    >
-                      Fill candidate
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.demoFillUnderlineBtn}
-                      onClick={fillLoginEmployer}
-                    >
-                      Fill vendor
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.demoFillUnderlineBtn}
-                      onClick={fillLoginAdmin}
-                    >
-                      Fill admin
-                    </button>
-                  </div>
-
-                  <p className={styles.demoBottomSignupText}>
-                    Don&apos;t have an account?{' '}
-                    <button
-                      type="button"
-                      className={styles.demoBottomSignupLink}
-                      onClick={() => switchMode('signup')}
-                    >
-                      Sign up
-                    </button>
                   </p>
                 </div>
               </form>

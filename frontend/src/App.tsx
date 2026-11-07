@@ -40,8 +40,32 @@ import { pageTransition } from './motion/variants'
 import { applyClientStorageMigration } from './lib/store'
 import { AppShell } from './components/AppShell'
 
+const ROUTE_TITLES: Record<string, string> = {
+  '/': 'HireRighttt — AI interviews that prove skills',
+  '/why': 'Why HireRighttt?',
+  '/pricing': 'Pricing',
+  '/career-view': '360° Report',
+  '/solutions': 'For organizations',
+  '/contact': 'Contact us',
+  '/signup': 'Get started',
+  '/organizations/signup': 'Organization sign up',
+  '/login': 'Log in',
+  '/privacy': 'Privacy Policy',
+  '/terms': 'Terms & Conditions',
+  '/cookies': 'Cookie Policy',
+}
+
 function AnimatedRoutes() {
   const location = useLocation()
+
+  useEffect(() => {
+    const title = ROUTE_TITLES[location.pathname]
+    document.title = title
+      ? title.startsWith('HireRighttt')
+        ? title
+        : `${title} · HireRighttt`
+      : 'HireRighttt'
+  }, [location.pathname])
 
   return (
     <AnimatePresence mode="wait" initial={false}>

@@ -1,34 +1,45 @@
 import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
+import { apiFetch } from '../lib/api'
 import styles from './AuthPages.module.css'
 
 export function ContactPage() {
+  const [params] = useSearchParams()
+  const isDemo = params.get('demo') === '1'
   const [sent, setSent] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState(() =>
+    new URLSearchParams(window.location.search).get('demo') === '1'
+      ? 'I would like to book a demo of HireRighttt.'
+      : '',
+  )
   const [dataConsent, setDataConsent] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!dataConsent) return
-    let tickets: unknown[] = []
+    if (!dataConsent || sending) return
+    setSending(true)
+    setError('')
     try {
-      tickets = JSON.parse(localStorage.getItem('hireright.tickets') || '[]') as unknown[]
-      if (!Array.isArray(tickets)) tickets = []
-    } catch {
-      tickets = []
+      const res = await apiFetch('/api/contact', {
+        method: 'POST',
+        body: JSON.stringify({ name, email, message, type: isDemo ? 'demo' : 'support' }),
+      })
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(data.error || 'Could not send your message. Please try again.')
+      }
+      setSent(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send your message. Please try again.')
+    } finally {
+      setSending(false)
     }
-    tickets.unshift({
-      name,
-      email,
-      message,
-      createdAt: new Date().toISOString(),
-    })
-    localStorage.setItem('hireright.tickets', JSON.stringify(tickets.slice(0, 50)))
-    setSent(true)
   }
 
   return (
@@ -36,11 +47,12 @@ export function ContactPage() {
       <MarketingNavBar />
       <div className={styles.shell} style={{ paddingTop: '2rem' }}>
         <div className={styles.card}>
-          <span className={styles.kicker}>SUPPORT</span>
-          <h1>Contact HireRighttt</h1>
+          <span className={styles.kicker}>{isDemo ? 'BOOK A DEMO' : 'SUPPORT'}</span>
+          <h1>{isDemo ? 'See HireRighttt in action' : 'Contact HireRighttt'}</h1>
           <p>
-            Questions about demos, hiring, or your AI interview? We collect only the fields below to respond
-            to you.
+            {isDemo
+              ? 'Tell us a little about your hiring needs and we will arrange a walkthrough.'
+              : 'Questions about hiring or your AI interview? We collect only the fields below to respond to you.'}
           </p>
           {sent ? (
             <p className={styles.success}>Thanks {name || 'there'}. We’ll reply to {email || 'your inbox'}.</p>
@@ -80,8 +92,13 @@ export function ContactPage() {
                   .
                 </span>
               </label>
-              <button type="submit" className={styles.submit} disabled={!dataConsent}>
-                Send message
+              {error ? (
+                <div className={styles.errorBanner} role="alert">
+                  {error}
+                </div>
+              ) : null}
+              <button type="submit" className={styles.submit} disabled={!dataConsent || sending}>
+                {sending ? 'Sending…' : isDemo ? 'Request demo' : 'Send message'}
               </button>
             </form>
           )}

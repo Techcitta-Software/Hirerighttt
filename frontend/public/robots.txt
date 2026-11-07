@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /interview
+Disallow: /employer
+Disallow: /admin
+Disallow: /onboarding
+Disallow: /settings
+Disallow: /profile

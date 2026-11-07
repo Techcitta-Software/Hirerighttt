@@ -416,6 +416,12 @@ export function extractResumeProjects(
   }
   const seen = new Set<string>()
   return projects
+    .map((p) => ({
+      ...p,
+      label: p.label.replace(/^[\s\-•*▪●]+/, '').trim(),
+      summary: p.summary.replace(/^[\s\-•*▪●]+/, '').trim(),
+    }))
+    .filter((p) => !/\b(certified|certification|certificate)\b/i.test(p.label))
     .sort((a, b) => b.score - a.score)
     .filter((p) => {
       const key = p.label.slice(0, 48).toLowerCase()

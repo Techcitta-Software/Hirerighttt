@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../components/BrandLogo'
 import { goToCandidateDashboardAfterInterview } from '../lib/completeOnboardingAfterInterview'
 import { getInterviewResult, getProfile, getUser } from '../lib/store'
@@ -38,7 +38,10 @@ export function InterviewCompletePage() {
     { label: 'Interview role', value: result.role || '—' },
     { label: 'Experience level', value: result.level || '—' },
     { label: 'Completed on', value: formatDate(result.date) },
-    { label: 'Overall score', value: `${Math.round(result.overall)} / 100` },
+    {
+      label: result.scoring && !result.scoring.reliable ? 'Provisional score' : 'Overall score',
+      value: `${Math.round(result.overall)} / 100`,
+    },
   ]
 
   return (
@@ -71,6 +74,13 @@ export function InterviewCompletePage() {
             ))}
           </dl>
 
+          {result.scoring && !result.scoring.reliable ? (
+            <p className={styles.notice} role="status">
+              {result.scoring.notice ||
+                'The AI evaluator was unavailable, so this score is provisional and will be reviewed.'}
+            </p>
+          ) : null}
+
           <button
             type="button"
             className={styles.cta}
@@ -78,6 +88,9 @@ export function InterviewCompletePage() {
           >
             Dashboard
           </button>
+          <p className={styles.dispute}>
+            Think this score is wrong? <Link to="/contact">Tell us</Link> and we will review it.
+          </p>
         </section>
       </main>
     </div>

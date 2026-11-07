@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
+import { getUser } from '../lib/store'
+import { rememberInviteReturn } from '../lib/inviteReturn'
 import { apiFetch } from '../lib/api'
 import {
   inviteAccessFromStored,
@@ -27,6 +29,8 @@ type InvitePayload = {
   organizationId?: string | null
   jobDescription?: string
   resumeText?: string
+  resumeReady?: boolean
+  signedInAsInvitee?: boolean
   resumeName?: string | null
   roleTrack?: string
   experienceLevel?: string
@@ -51,6 +55,18 @@ export function InterviewInvitePage() {
   const [retry, setRetry] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const autoRedirected = useRef(false)
+  const me = getUser()
+  const signedInEmail = me?.email?.trim().toLowerCase() || ''
+  const invitedEmail = invite?.candidateEmail?.trim().toLowerCase() || ''
+  const isInvitee = Boolean(signedInEmail) && signedInEmail === invitedEmail
+  const wrongAccount = Boolean(signedInEmail) && Boolean(invitedEmail) && !isInvitee
+  const needsSignIn = Boolean(invite) && !signedInEmail
+
+  // Remember the link so sign-in / sign-up brings the candidate straight back here.
+  useEffect(() => {
+    if (!token || !invite || signedInEmail) return
+    rememberInviteReturn(`/interview/invite/${token}`, invite.candidateEmail)
+  }, [token, invite, signedInEmail])
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
@@ -117,7 +133,7 @@ export function InterviewInvitePage() {
   }, [invite, canStart, now, serverOffsetMs])
 
   function startInterview() {
-    if (!invite || !token || !canStart) return
+    if (!invite || !token || !canStart || !isInvitee) return
     if (autoRedirected.current) return
     autoRedirected.current = true
     persistScheduledInvite({
@@ -170,18 +186,20 @@ export function InterviewInvitePage() {
 
   useEffect(() => {
     if (!canStart || !invite || !token || loading || error || autoRedirected.current) return
+    if (!isInvitee) return
     startInterview()
-  }, [canStart, invite, token, loading, error])
+  }, [canStart, invite, token, loading, error, isInvitee])
 
   const start = invite ? new Date(invite.scheduledStart) : null
+  const isOpenLink = invite ? new Date(invite.scheduledEnd).getTime() - new Date(invite.scheduledStart).getTime() > 24 * 3600 * 1000 : false
   const end = invite ? new Date(invite.scheduledEnd) : null
   const hasEmployerContext = invite?.contextSource === 'employer' || Boolean(invite?.applicationId)
-  const resumeReady = Boolean(invite?.resumeText && invite.resumeText.trim().length > 20)
+  const resumeReady = Boolean(invite?.resumeReady || (invite?.resumeText && invite.resumeText.trim().length > 20))
   const jdReady = Boolean(invite?.jobDescription && invite.jobDescription.trim().length > 20)
 
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <MarketingNavBar />
       <main className={styles.main}>
         <header className={styles.hero}>
           <p className={styles.eyebrow}>AI interview invitation</p>
@@ -203,9 +221,12 @@ export function InterviewInvitePage() {
                 </p>
               </div>
               <div>
-                <span className={styles.label}>Join window (IST)</span>
+                <span className={styles.label}>{isOpenLink ? 'Link active until (IST)' : 'Join window (IST)'}</span>
                 <p className={styles.value}>
-                  Opens{' '}
+                  {isOpenLink ? (
+                    formatIst(invite.scheduledEnd, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                  ) : (
+                  <>Opens{' '}
                   {formatIst(invite.scheduledStart, {
                     weekday: 'short',
                     day: 'numeric',
@@ -214,7 +235,8 @@ export function InterviewInvitePage() {
                     minute: '2-digit',
                   })}{' '}
                   · join by{' '}
-                  {formatIst(invite.scheduledEnd, { hour: '2-digit', minute: '2-digit' })}
+                  {formatIst(invite.scheduledEnd, { hour: '2-digit', minute: '2-digit' })}</>
+                  )}
                 </p>
               </div>
             </div>
@@ -264,24 +286,67 @@ export function InterviewInvitePage() {
                 This interview window has ended. Contact your recruiter for a new link.
               </p>
             )}
-            {canStart && (
+            {canStart && needsSignIn && (
+              <div className={styles.noticeOk}>
+                <strong>Sign in to begin.</strong>
+                <p className={styles.mutedInline}>
+                  Use <b>{invite.candidateEmail}</b> so this invitation matches you. Your interview questions are built
+                  from your own resume, and you will be brought straight back here.
+                </p>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
+                  <Link
+                    to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
+                    state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
+                    className={styles.primaryBtn}
+                  >
+                    I have an account — sign in
+                  </Link>
+                  <Link
+                    to={`/signup?email=${encodeURIComponent(invite.candidateEmail)}`}
+                    state={{ from: `/interview/invite/${token}` }}
+                    className={styles.secondaryBtn}
+                  >
+                    Create my account
+                  </Link>
+                </div>
+              </div>
+            )}
+            {canStart && wrongAccount && (
+              <div className={styles.noticeWarn}>
+                <strong>This invitation is for {invite.candidateEmail}.</strong>
+                <p className={styles.mutedInline}>
+                  You are signed in as {me?.email}. Sign out and sign in with the invited address to continue.
+                </p>
+                <Link to="/logout" className={styles.secondaryBtn}>
+                  Switch account
+                </Link>
+              </div>
+            )}
+            {canStart && isInvitee && (
               <>
-                <p className={styles.noticeOk}>Your slot is open — Ava will use your resume
-                  {hasEmployerContext && jdReady ? ' and this job description' : ''} for personalized questions.</p>
+                <p className={styles.noticeOk}>
+                  Your interview is open — Ava will use your resume
+                  {hasEmployerContext && jdReady ? ' and this job description' : ''} for personalized questions.
+                  {!resumeReady ? ' You will be asked to add your resume first.' : ''}
+                </p>
                 <button type="button" className={styles.primaryBtn} onClick={startInterview}>
                   Start AI interview
                 </button>
               </>
             )}
-            {!canStart && status !== 'expired' && (
-              <Link to="/login" className={styles.secondaryBtn}>
+            {!canStart && status !== 'expired' && needsSignIn && (
+              <Link
+                to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
+                state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
+                className={styles.secondaryBtn}
+              >
                 Sign in to prepare your profile
               </Link>
             )}
           </div>
         )}
       </main>
-      <SiteFooter />
+      <MarketingFooter />
     </div>
   )
 }

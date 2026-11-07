@@ -228,11 +228,19 @@ const EXPERIENCE_SECTION_STOPS = [
   'declaration',
 ]
 
+/**
+ * PDF extraction sometimes glues a section title onto the previous word ("...teamsSkills").
+ * Only break before a known section heading — never split camelCase generally, which used to
+ * turn "TypeScript" into "Type Script" and "PostgreSQL" into "Postgre SQL".
+ */
+const GLUED_SECTION_RE =
+  /([a-z0-9.,)])(Experience|Education|Skills|Projects?|Summary|Certifications?|Achievements?|Objective|Languages|Awards|References)\b/g
+
 function normalizeResumeText(text: string): string {
   return text
     .replace(/\r/g, '\n')
     .replace(/[\u00a0\t]+/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(GLUED_SECTION_RE, '$1\n$2')
     .replace(/\n{3,}/g, '\n\n')
 }
 
@@ -327,11 +335,25 @@ function pickExperience(text: string): string {
   return '12+ Years'
 }
 
+/** Short forms people actually write on resumes -> the canonical skill label. */
+const SKILL_ALIASES: Record<string, string[]> = {
+  'React.js': ['react', 'reactjs'],
+  'Node.js': ['node', 'nodejs'],
+  'Express.js': ['express', 'expressjs'],
+  'Vue.js': ['vue', 'vuejs'],
+  'Next.js': ['nextjs'],
+  PostgreSQL: ['postgres'],
+  'CI/CD': ['ci cd', 'cicd'],
+}
+
 function pickSkills(text: string): string[] {
   const lower = text.toLowerCase()
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const found = SKILL_OPTIONS.filter((skill) => {
-    const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return new RegExp(`\\b${escaped.replace(/\s+/g, '\\s+')}\\b`, 'i').test(lower)
+    const names = [skill, ...(SKILL_ALIASES[skill] ?? [])]
+    return names.some((name) =>
+      new RegExp(`(?<![\\w.])${escape(name).replace(/\s+/g, '\\s+')}(?![\\w])`, 'i').test(lower),
+    )
   })
   return [...new Set(found)].slice(0, 12)
 }
@@ -520,6 +542,13 @@ function pickWorkExperiences(text: string): WorkExperience[] {
         company = foundComp.replace(datePattern, '').trim()
       }
     }
+
+    company = company
+      .replace(/\(\s*\)/g, '')
+      .replace(/[\s,;|\-–—]+$/g, '')
+      .replace(/^[\s,;|\-–—]+/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
 
     // Never hallucinate "Company", "TechCitta", or generic sections
     if (

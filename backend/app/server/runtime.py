@@ -222,6 +222,19 @@ async def require_employer_tenant(request: Request, db: dict[str, Any]) -> dict 
     return {"user": user, "tenant": tenant}
 
 
+def is_platform_admin(email: str | None) -> bool:
+    """Platform admins (ADMIN_EMAILS, comma separated) are the only accounts allowed to view interview video."""
+    import os
+
+    wanted = (email or "").strip().lower()
+    if not wanted:
+        return False
+    allowed = {e.strip().lower() for e in (os.environ.get("ADMIN_EMAILS") or "").split(",") if e.strip()}
+    if config.allow_demo_accounts:
+        allowed.add("admin@hireright.com")
+    return wanted in allowed
+
+
 async def read_json_body(request: Request) -> dict:
     from fastapi import HTTPException
 

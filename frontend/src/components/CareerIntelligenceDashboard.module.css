@@ -1051,3 +1051,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+.provisionalBanner {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 12px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}

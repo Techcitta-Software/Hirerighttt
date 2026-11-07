@@ -125,7 +125,7 @@ export function AdminDashboard() {
       <div className={styles.main}>
         <header className={styles.topbar}>
           <div>
-            <p className={styles.eyebrow}>Recruiter operations</p>
+            <p className={styles.eyebrow}>Recruiter operations · Sample data workspace</p>
             <h1>
               {tab === 'overview' && 'Admin dashboard'}
               {tab === 'candidates' && 'Candidate directory'}

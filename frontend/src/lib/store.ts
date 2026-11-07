@@ -107,7 +107,7 @@ export type CareerScorecard = {
   priorities: { num: number; title: string; text: string }[]
   coachNotes: string
   sessionStats: {
-    durationMinutes: number
+    durationMinutes: number | null
     questionCount: number
     overallInterviewScore: number
     interviewType: string
@@ -166,6 +166,8 @@ export type InterviewResult = {
     answerMatchCount: number
   }
   agent?: string
+  /** How the score was produced. `reliable: false` means the AI evaluator was unavailable. */
+  scoring?: { mode: 'llm' | 'heuristic'; reliable: boolean; notice?: string | null }
   scorecard?: CareerScorecard
   integrity?: {
     faceViolations: number

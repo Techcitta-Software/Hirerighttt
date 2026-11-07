@@ -453,5 +453,11 @@ export function runLocalInterviewScore(options: {
     improvements: improvements.slice(0, 6),
     integrity: options.integrity,
     agent: 'local-resume-agent',
+    scoring: {
+      mode: 'heuristic',
+      reliable: false,
+      notice:
+        'Provisional score: the AI evaluator could not be reached, so this result uses basic on-device checks and should be reviewed by a person.',
+    },
   }
 }

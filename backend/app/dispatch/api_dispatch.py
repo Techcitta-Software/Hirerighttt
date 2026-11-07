@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import secrets
 import subprocess
@@ -808,6 +809,48 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 },
             )
 
+        if method == "POST" and path == "/api/contact":
+            # Public contact / demo-request form. IP rate limited, stored, and emailed when mail is configured.
+            if not ctx.rate_limit(f"contact:{runtime.client_ip(request)}", 5, 3_600_000):
+                return _json(429, {"error": "Too many requests. Please try again later."})
+            body = await runtime.read_json_body(request)
+            name = str(body.get("name") or "").strip()[:120]
+            from_email = str(body.get("email") or "").strip().lower()[:200]
+            message = str(body.get("message") or "").strip()[:4000]
+            kind = "demo" if str(body.get("type") or "") == "demo" else "support"
+            if not name or "@" not in from_email or "." not in from_email.split("@")[-1] or len(message) < 5:
+                return _json(400, {"error": "Name, a valid email and a message are required."})
+            db = ctx.load_db()
+            db.setdefault("contactRequests", []).insert(
+                0,
+                {
+                    "type": kind,
+                    "name": name,
+                    "email": from_email,
+                    "message": message,
+                    "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                },
+            )
+            db["contactRequests"] = db["contactRequests"][:500]
+            await ctx.save_db(db)
+            inbox = (os.environ.get("CONTACT_INBOX_EMAIL") or os.environ.get("SMTP_EMAIL") or "").strip()
+            if inbox:
+                try:
+                    from html import escape
+
+                    from app.services.mail_service import send_mail, smtp_configured
+
+                    if smtp_configured():
+                        await send_mail(
+                            to=inbox,
+                            subject=f"[HireRighttt] {'Demo request' if kind == 'demo' else 'Contact'} from {name}",
+                            html=f"<p><b>{escape(name)}</b> &lt;{escape(from_email)}&gt;</p><p>{escape(message)}</p>",
+                            text=f"{name} <{from_email}>\n\n{message}",
+                        )
+                except Exception:
+                    pass  # stored in the database either way; never fail the visitor's request on mail errors
+            return _json(200, {"ok": True})
+
         if method == "POST" and path == "/api/interview/score":
             email = await runtime.require_auth_email(request)
             if not ctx.rate_limit(f"ivscore:{email}", 10):
@@ -819,7 +862,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            raw_questions = body.get("questions") or session.get("questions")
+            # The server's own question list is authoritative; client-sent questions only if the session has none.
+            raw_questions = session.get("questions") or body.get("questions")
             answers = [str(a) for a in body.get("answers") or []]
             role = str(body.get("role") or session.get("role") or "Full Stack Engineer")
             level = str(body.get("level") or session.get("level") or "1–3 years")
@@ -838,6 +882,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             scored_answers = answers[:pair_count]
             user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
             client_integrity = body.get("integrity") if isinstance(body.get("integrity"), dict) else {}
+            duration_seconds = None
+            try:
+                started = datetime.fromisoformat(str(session.get("startedAt") or "").replace("Z", "+00:00"))
+                duration_seconds = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+            except (ValueError, TypeError):
+                duration_seconds = None
             result = await ia.score_interview_session(
                 {
                     "role": role,
@@ -847,6 +897,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "profile": profile,
                     "integrity": client_integrity,
                     "accountName": user.get("name") if user else None,
+                    "durationSeconds": duration_seconds,
                 }
             )
             result["sessionId"] = session_id
@@ -1403,8 +1454,19 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             job = get_org_job(db, org_id, row.get("job_id")) if org_id and row.get("job_id") else None
             app = get_org_application(db, org_id, row.get("application_id")) if org_id and row.get("application_id") else None
             ctx_json = parse_invite_context(row)
+            viewer_email = None
+            try:
+                viewer_email = await runtime.require_auth_email(request)
+            except Exception:
+                viewer_email = None
+            is_invitee = bool(viewer_email) and viewer_email == str(row.get("candidate_email") or "").strip().lower()
             resume_text = ctx_json.get("resumeText") or (app or {}).get("data", {}).get("resumeText") or (db.get("profiles") or {}).get(row.get("candidate_email"), {}).get("resumeText") or ""
             job_description = ctx_json.get("jobDescription") or (job or {}).get("jobDescription") or (app or {}).get("data", {}).get("jobDescription") or ""
+            resume_ready = len(str(resume_text or "").strip()) > 20
+            if not is_invitee:
+                # Anyone holding the link can see the invite details, but not the candidate's resume or the job description.
+                resume_text = ""
+                job_description = ""
             return _json(
                 200,
                 {
@@ -1421,6 +1483,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "organizationId": org_id,
                         "jobDescription": job_description,
                         "resumeText": resume_text,
+                        "resumeReady": resume_ready,
+                        "signedInAsInvitee": is_invitee,
                         "resumeName": ctx_json.get("resumeName") or (app or {}).get("data", {}).get("resumeName"),
                         "roleTrack": ctx_json.get("roleTrack") or (job or {}).get("roleTrack") or "",
                         "experienceLevel": ctx_json.get("experienceLevel") or (job or {}).get("experienceLevel") or "",

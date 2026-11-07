@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from fastapi import Request
@@ -15,6 +15,7 @@ from app.dispatch.context import DispatchContext
 from app.node_config import config
 from app.server import runtime
 from app.services.interview_invites import (
+    DEFAULT_OPEN_INVITE_DAYS,
     INVITE_JOIN_WINDOW_MINUTES,
     build_interview_invite_email,
     insert_interview_invite,
@@ -224,6 +225,114 @@ async def try_extended_routes(
             },
         )
 
+    if method == "POST" and path == "/api/vendor/interview-invites/send":
+        # Recruiter sends an open interview link to one or many people. The link works any time until it expires,
+        # then takes the candidate straight into an interview built from their own resume.
+        db = ctx.load_db()
+        access = await runtime.require_employer_tenant(request, db)
+        if not access:
+            return None
+        if not config.database_url:
+            return json_fn(503, {"error": "Database required for interview invites."})
+        if not ctx.rate_limit(f"invite-send:{access['user'].get('email')}", 20, 3_600_000):
+            return json_fn(429, {"error": "Invite limit reached for this hour. Try again later."})
+        body = await runtime.read_json_body(request)
+        raw_people = body.get("candidates")
+        if not isinstance(raw_people, list):
+            raw_people = [{"email": body.get("email"), "name": body.get("name")}]
+        people: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for item in raw_people[:50]:
+            if not isinstance(item, dict):
+                continue
+            em = str(item.get("email") or "").strip().lower()
+            if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", em) or em in seen:
+                continue
+            seen.add(em)
+            people.append((em, str(item.get("name") or "").strip()[:120]))
+        if not people:
+            return json_fn(400, {"error": "Provide at least one valid candidate email."})
+        try:
+            days = int(body.get("expiresInDays") or DEFAULT_OPEN_INVITE_DAYS)
+        except (TypeError, ValueError):
+            days = DEFAULT_OPEN_INVITE_DAYS
+        days = max(1, min(30, days))
+        org = access["tenant"]["organization"]
+        org_id = org["id"]
+        job = None
+        if body.get("jobId"):
+            job = get_org_job_for_recruiter(db, org_id, str(body["jobId"]), vendor_scope(access))
+            if not job:
+                return json_fn(404, {"error": "Job not found."})
+        job_title = str(body.get("jobTitle") or (job or {}).get("title") or "AI Interview")[:160]
+        now = datetime.now(timezone.utc)
+        start = now - timedelta(minutes=1)
+        end = now + timedelta(days=days)
+        pool = db_store.db_pool(config.database_url)
+        results = []
+        for em, nm in people:
+            token = new_invite_token()
+            invite_url = invite_public_url(token)
+            context_json = {
+                **runtime.build_job_seeker_invite_context(db, em, body),
+                "source": "employer",
+                "jobDescription": str((job or {}).get("jobDescription") or body.get("jobDescription") or "")[:80000],
+                "roleTrack": (job or {}).get("roleTrack") or body.get("roleTrack") or "",
+                "experienceLevel": (job or {}).get("experienceLevel") or body.get("experienceLevel") or "",
+                "primarySkills": (job or {}).get("requiredSkills") or body.get("primarySkills") or [],
+                "jobTitle": job_title,
+                "interviewDurationMinutes": 20,
+                "openInvite": True,
+            }
+            await insert_interview_invite(
+                pool,
+                {
+                    "token": token,
+                    "organizationId": org_id,
+                    "jobId": (job or {}).get("id"),
+                    "candidateEmail": em,
+                    "candidateName": nm,
+                    "jobTitle": job_title,
+                    "scheduledStart": start.isoformat().replace("+00:00", "Z"),
+                    "scheduledEnd": end.isoformat().replace("+00:00", "Z"),
+                    "createdByUserId": access["user"].get("id"),
+                    "contextJson": context_json,
+                },
+            )
+            sent = False
+            err_text = None
+            if smtp_configured():
+                try:
+                    await send_interview_invite_email(
+                        to=em,
+                        candidateName=nm,
+                        jobTitle=job_title,
+                        company=org.get("name") or org.get("companyName") or "",
+                        scheduledStart=start.isoformat().replace("+00:00", "Z"),
+                        scheduledEnd=end.isoformat().replace("+00:00", "Z"),
+                        durationMinutes=20,
+                        inviteUrl=invite_url,
+                        openInvite=True,
+                    )
+                    with pool.connection() as conn:
+                        conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
+                        conn.commit()
+                    sent = True
+                except Exception as err:
+                    err_text = str(err)
+            else:
+                err_text = "Email is not configured on the server. Share the link manually."
+            results.append({"email": em, "name": nm, "inviteUrl": invite_url, "emailSent": sent, "emailError": err_text})
+        return json_fn(
+            201,
+            {
+                "ok": True,
+                "expiresAt": end.isoformat().replace("+00:00", "Z"),
+                "smtpConfigured": smtp_configured(),
+                "invites": results,
+            },
+        )
+
     if method == "POST" and path == "/api/interview/confirmation-email":
         email = await runtime.require_auth_email(request)
         body = await runtime.read_json_body(request)
@@ -307,6 +416,8 @@ async def try_extended_routes(
         access = await runtime.require_employer_tenant(request, db)
         if not access:
             return None
+        if not runtime.is_platform_admin(access["user"].get("email")):
+            return json_fn(403, {"error": "Interview recordings are visible to platform admins only."})
         candidate_email = str(request.query_params.get("email") or "").strip()
         session_id = str(request.query_params.get("sessionId") or request.query_params.get("interviewId") or "").strip()
         try:
@@ -395,7 +506,11 @@ async def try_extended_routes(
             return json_fn(404, {"error": "Interview not found for this candidate."})
         video_url = None
         recording_status = "No recording available"
-        if config.database_url and s3_storage_configured():
+        if (
+            config.database_url
+            and s3_storage_configured()
+            and runtime.is_platform_admin(access["user"].get("email"))
+        ):
             try:
                 pool = db_store.db_pool(config.database_url)
                 signed = await rec_store.resolve_employer_candidate_recording_playback(

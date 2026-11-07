@@ -194,179 +194,6 @@ def _extract_projects(resume_text: str) -> list[str]:
     return _unique(projectish)[:5]
 
 
-def build_questions(
-    role: str, level: str, profile: dict[str, Any] | None, name: str = "there"
-) -> list[dict[str, Any]]:
-    ctx = summarize_profile(profile, name=name)
-    resume = ctx["resumeSnippet"]
-    skills = _extract_tokens(resume, ctx["skills"])
-    projects = _extract_projects(resume)
-    achievements = ctx["achievements"]
-    jobs = ctx["jobs"]
-    target_role = ctx["role"] if ctx["role"] != "Software professional" else role
-
-    questions: list[dict[str, Any]] = []
-
-    questions.append(
-        {
-            "text": (
-                f"{ctx['name']}, I read your resume for {target_role}. "
-                "Summarize your background in about a minute — what should a hiring manager remember?"
-                if resume
-                else f"{ctx['name']}, introduce yourself for the {target_role} track ({level}). "
-                "What stands out from your experience?"
-            ),
-            "category": "Communication",
-            "keywords": _unique(
-                [
-                    "experience",
-                    "project",
-                    "skill",
-                    "built",
-                    target_role.lower(),
-                    *[s.lower() for s in skills[:4]],
-                ]
-            ),
-            "hint": "Background → top skills → one concrete win from your resume.",
-            "focus": "intro",
-        }
-    )
-
-    if skills:
-        questions.append(
-            {
-                "text": (
-                    f"Your resume highlights {', '.join(skills[:3])}. "
-                    f"Walk me through a real project where you used {skills[0]} — "
-                    "what you built, your role, and the result."
-                ),
-                "category": "Technical",
-                "keywords": _unique(
-                    [
-                        skills[0].lower(),
-                        *([skills[1].lower()] if len(skills) > 1 else []),
-                        "project",
-                        "built",
-                        "result",
-                        "impact",
-                    ]
-                ),
-                "hint": "Name the skill, the project, your actions, and a metric.",
-                "focus": "skill-depth",
-            }
-        )
-    else:
-        questions.append(
-            {
-                "text": (
-                    f"What is your strongest technical skill for a {role} role, "
-                    "and how have you applied it in a real project?"
-                ),
-                "category": "Technical",
-                "keywords": ["skill", "project", "built", "result", role.lower()],
-                "hint": "Pick one skill and give a production example.",
-                "focus": "skill-depth",
-            }
-        )
-
-    if projects:
-        words = [w for w in re.split(r"\W+", projects[0].lower()) if len(w) > 4 and w not in STOP][:5]
-        questions.append(
-            {
-                "text": (
-                    f"On your resume you mention: “{projects[0][:150]}”. "
-                    "What was the hardest part, and how did you solve it?"
-                ),
-                "category": "Problem Solving",
-                "keywords": _unique(["problem", "solution", "approach", "result", "challenge", *words]),
-                "hint": "STAR: situation → task → action → result.",
-                "focus": "experience",
-            }
-        )
-    elif jobs:
-        questions.append(
-            {
-                "text": (
-                    f"Looking at {jobs[0].split(':')[0]}, what was the toughest problem you owned end-to-end?"
-                ),
-                "category": "Problem Solving",
-                "keywords": _unique(["problem", "solution", "approach", "result", "owned", "impact"]),
-                "hint": "Be specific about your ownership and the outcome.",
-                "focus": "experience",
-            }
-        )
-    else:
-        questions.append(
-            {
-                "text": (
-                    "Describe a challenging problem from your experience and how you solved it step by step."
-                ),
-                "category": "Problem Solving",
-                "keywords": ["problem", "solution", "approach", "result", "impact"],
-                "hint": "Use STAR and include a measurable result.",
-                "focus": "experience",
-            }
-        )
-
-    if achievements:
-        questions.append(
-            {
-                "text": (
-                    f"You listed this achievement: “{achievements[0][:140]}”. "
-                    "How did you personally drive that result?"
-                ),
-                "category": "Experience",
-                "keywords": ["result", "impact", "led", "improved", "metric"],
-                "hint": "Your contribution vs the team, plus a metric.",
-                "focus": "achievement",
-            }
-        )
-    elif len(skills) > 1:
-        questions.append(
-            {
-                "text": (
-                    f"Compare your depth in {skills[0]} versus {skills[1]}. "
-                    "Give an example that proves the difference."
-                ),
-                "category": "Experience",
-                "keywords": _unique([skills[0].lower(), skills[1].lower(), "example", "depth", "project"]),
-                "hint": "Contrast two resume skills with proof.",
-                "focus": "achievement",
-            }
-        )
-    else:
-        questions.append(
-            {
-                "text": (
-                    "Tell me about a time you delivered under a tight deadline. "
-                    "What did you prioritize and what shipped?"
-                ),
-                "category": "Experience",
-                "keywords": ["deadline", "priority", "deliver", "shipped", "plan"],
-                "hint": "Priorities, trade-offs, and the outcome.",
-                "focus": "achievement",
-            }
-        )
-
-    questions.append(
-        {
-            "text": (
-                f"Based on your resume, how would you apply {skills[0]} in the first 90 days "
-                f"as a {role}, and what would you learn next?"
-                if skills
-                else f"Where do you want to grow as a {role} over the next two years, "
-                "based on your experience so far?"
-            ),
-            "category": "Communication",
-            "keywords": _unique(["grow", "learn", "goal", "plan", *([skills[0].lower()] if skills else [])]),
-            "hint": "Tie growth to skills already on your resume.",
-            "focus": "growth",
-        }
-    )
-
-    return questions[:6]
-
-
 def _analyze_answer(question: dict[str, Any], answer: str, ctx: dict[str, Any]) -> dict[str, Any]:
     text = _clean(answer)
     lower = text.lower()
@@ -432,6 +259,14 @@ def _analyze_answer(question: dict[str, Any], answer: str, ctx: dict[str, Any]) 
     }
 
 
+def _normalize_role_name(value: str) -> str:
+    v = re.sub(r"[^a-z0-9#+/ ]+", " ", value.lower().replace("-", " "))
+    v = re.sub(r"\b(senior|sr|junior|jr|lead|principal|staff|associate|intern|trainee|i|ii|iii)\b", " ", v)
+    v = re.sub(r"\bengineers?\b", "developer", v)
+    v = re.sub(r"\bprogrammers?\b", "developer", v)
+    return re.sub(r"\s+", " ", v).strip()
+
+
 def _load_required_role_skills(role: str, profile: dict[str, Any] | None) -> list[str]:
     import json
     from pathlib import Path
@@ -442,12 +277,17 @@ def _load_required_role_skills(role: str, profile: dict[str, Any] | None) -> lis
         catalog = json.loads(path.read_text(encoding="utf-8"))
     except OSError:
         return []
-    if exact in catalog and isinstance(catalog[exact], list):
-        return [str(s) for s in catalog[exact][:3]]
-    key = exact.lower()
-    for display, skills in catalog.items():
-        if str(display).lower() == key and isinstance(skills, list):
-            return [str(s) for s in skills[:3]]
+    for candidate in (_clean(role), exact):
+        if candidate in catalog and isinstance(catalog[candidate], list):
+            return [str(s) for s in catalog[candidate][:3]]
+    # Tolerant match: "Senior Full Stack Engineer" -> "Full Stack Developer".
+    for candidate in (_clean(role), exact):
+        key = _normalize_role_name(candidate)
+        if not key:
+            continue
+        for display, skills in catalog.items():
+            if _normalize_role_name(str(display)) == key and isinstance(skills, list):
+                return [str(s) for s in skills[:3]]
     return []
 
 
@@ -473,9 +313,20 @@ def _analyze_answer_detailed(
     if role_fit is not None:
         heuristic["roleSkillsFit"] = role_fit
     merged = merge_rubric_scores(heuristic, llm_row)
+    from app.services.answer_quality import HEURISTIC_CEILING, apply_quality_gate, assess_answer_quality
+
+    quality = assess_answer_quality(question, answer, ctx)
+    merged = apply_quality_gate(merged, quality) | {
+        "feedback": merged.get("feedback"),
+        "source": merged.get("source", "heuristic"),
+    }
     profile = _clean(question.get("scoringProfile")) or heuristic.get("scoringProfile") or classify_question_scoring_profile(question)
     rubrics = build_weighted_rubrics(merged, profile)
     question_score = weighted_question_score(rubrics)
+    if merged.get("source") != "llm":
+        question_score = min(question_score, HEURISTIC_CEILING)
+    if quality["empty"]:
+        question_score = 0
     performance = (
         "Strong"
         if question_score >= 80
@@ -486,6 +337,12 @@ def _analyze_answer_detailed(
         else "Needs work"
     )
     feedback = merged.get("feedback") or base["feedback"]
+    if quality["empty"]:
+        feedback = "No answer was captured for this question."
+    elif "keyword_stuffing" in quality["flags"] or "repetitive" in quality["flags"]:
+        feedback = "The answer repeated terms without explaining anything. Answer in full sentences with a real example."
+    elif "off_topic" in quality["flags"]:
+        feedback = "The answer did not address the question that was asked."
     return {
         **base,
         "score": question_score,
@@ -498,7 +355,19 @@ def _analyze_answer_detailed(
         "rubrics": rubrics,
         "performance": performance,
         "rubricSource": merged.get("source", "heuristic"),
+        "qualityFlags": quality["flags"],
     }
+
+
+def _trusted_answers(questions: list[dict[str, Any]], answers: list[str], ctx: dict[str, Any]) -> list[str]:
+    """Blank out answers that fail the quality gate so they cannot earn resume-fit or skill credit."""
+    from app.services.answer_quality import assess_answer_quality
+
+    out: list[str] = []
+    for i, ans in enumerate(answers):
+        q = questions[i] if i < len(questions) else {}
+        out.append("" if assess_answer_quality(q, ans, ctx)["flags"] else ans)
+    return out
 
 
 def _tag_for_score(score: int) -> str:
@@ -530,6 +399,8 @@ def _build_interview_scorecard(
     strengths: list[str],
     improvements: list[str],
     question_count: int,
+    reliable: bool = True,
+    duration_seconds: int | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
 
@@ -543,7 +414,9 @@ def _build_interview_scorecard(
     rubric_session = []
     for defn in INTERVIEW_RUBRICS:
         scores = rubric_totals.get(defn["id"]) or []
-        score = round(sum(scores) / len(scores)) if scores else 0
+        if not scores:
+            continue
+        score = round(sum(scores) / len(scores))
         rubric_session.append({"label": defn["label"], "score": score})
 
     donuts = [
@@ -604,6 +477,8 @@ def _build_interview_scorecard(
         if career_score >= 550
         else "Skill Enhancement Recommended"
     )
+    if not reliable:
+        status = "Provisional — AI evaluation unavailable"
     name = _clean(ctx.get("name")).split()[0] or "You"
 
     return {
@@ -619,7 +494,7 @@ def _build_interview_scorecard(
         "finalCareerStatus": status,
         "bandInterpretation": f"{name} scored {overall}/100 on the {role} ({level}) interview — {status}.",
         "sessionStats": {
-            "durationMinutes": max(12, question_count * 4),
+            "durationMinutes": round(duration_seconds / 60) if duration_seconds else None,
             "questionCount": question_count,
             "overallInterviewScore": overall,
             "interviewType": f"{role} · Adaptive AI Interview",
@@ -643,8 +518,18 @@ def _finalize_score_payload(
     integrity: dict[str, Any],
     agent: str,
     role_skills_analysis: dict[str, Any] | None = None,
+    duration_seconds: int | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
+
+    llm_scored = bool(analyses) and all(a.get("rubricSource") == "llm" for a in analyses)
+    scoring = {
+        "mode": "llm" if llm_scored else "heuristic",
+        "reliable": llm_scored,
+        "notice": None
+        if llm_scored
+        else "Provisional score: AI evaluation was unavailable, so this result uses basic checks only and should be reviewed by a person.",
+    }
 
     rubric_agg: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
     for a in analyses:
@@ -656,11 +541,15 @@ def _finalize_score_payload(
     categories = []
     for defn in INTERVIEW_RUBRICS:
         scores = rubric_agg.get(defn["id"]) or []
-        score = round(sum(scores) / len(scores)) if scores else 0
+        if not scores:
+            continue  # never report a made-up 0 for a dimension that was not evaluated
+        score = round(sum(scores) / len(scores))
         categories.append({"label": defn["label"], "score": score})
 
     overall = round(sum(a["score"] for a in analyses) / max(len(analyses), 1)) if analyses else 0
-    joined = " ".join(answers or []).lower()
+    joined = " ".join(
+        a["answer"] for a in analyses if not a.get("qualityFlags") and a.get("answer")
+    ).lower()
     skills_referenced = [s for s in ctx["skills"] if s.lower() in joined]
     role_skills_analysis = role_skills_analysis or {}
     if role_skills_analysis.get("requiredSkills"):
@@ -736,6 +625,8 @@ def _finalize_score_payload(
         strengths=strengths_out,
         improvements=improvements_out,
         question_count=len(questions),
+        reliable=scoring["reliable"],
+        duration_seconds=duration_seconds,
     )
 
     return {
@@ -760,6 +651,7 @@ def _finalize_score_payload(
             "tooFarWarnings": int(integrity.get("tooFarWarnings") or 0),
         },
         "agent": agent,
+        "scoring": scoring,
     }
 
 
@@ -772,6 +664,7 @@ async def score_session_async(
     profile: dict[str, Any] | None,
     integrity: dict[str, Any] | None = None,
     name: str = "Candidate",
+    duration_seconds: int | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_llm_eval import evaluate_answers_with_llm, llm_eval_configured
     from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
@@ -779,7 +672,7 @@ async def score_session_async(
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
     role_skills = _load_required_role_skills(role, profile or {})
-    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, answers)
+    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
     llm_by_index = None
     agent = "python-resume-agent"
     if llm_eval_configured():
@@ -813,6 +706,7 @@ async def score_session_async(
         integrity=integrity,
         agent=agent,
         role_skills_analysis=role_skills_analysis,
+        duration_seconds=duration_seconds,
     )
 
 
@@ -825,13 +719,14 @@ def score_session(
     profile: dict[str, Any] | None,
     integrity: dict[str, Any] | None = None,
     name: str = "Candidate",
+    duration_seconds: int | None = None,
 ) -> dict[str, Any]:
     from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
 
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
     role_skills = _load_required_role_skills(role, profile or {})
-    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, answers)
+    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
     analyses = [
         _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None, role_skills)
         for i, q in enumerate(questions)
@@ -846,4 +741,5 @@ def score_session(
         integrity=integrity,
         agent="python-resume-agent",
         role_skills_analysis=role_skills_analysis,
+        duration_seconds=duration_seconds,
     )

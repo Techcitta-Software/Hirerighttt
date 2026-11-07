@@ -6,7 +6,6 @@ from typing import Any
 
 from app.services.interview_agent import (
     _extract_projects,
-    build_questions,
     resolve_candidate_name,
     score_session,
     score_session_async,
@@ -215,15 +214,6 @@ def _fresher_question(turn: int, first: str, skills: list, projects: list, last_
     }
 
 
-def generate_adaptive_question_local(_input: dict) -> dict:
-    from app.services.interview_llm_questions import InterviewLlmQuestionError
-
-    raise InterviewLlmQuestionError(
-        "LLM_QUESTION_REQUIRED",
-        "Static interview questions are disabled. Configure GEMINI_API_KEY.",
-    )
-
-
 async def generate_adaptive_question(input: dict) -> dict:
     from app.services.interview_llm_questions import generate_adaptive_question_llm
 
@@ -280,7 +270,19 @@ def process_interview_interactive(input: dict) -> dict:
     return {"phase": phase, "prompt": "Continue when ready.", "heard": user_text}
 
 
+def _drop_unscored_turns(questions: list, answers: list) -> tuple[list, list]:
+    """The closing sign-off is not a question: exclude it (and its answer) from scoring."""
+    keep = [
+        i
+        for i, q in enumerate(questions)
+        if not (isinstance(q, dict) and q.get("focus") in ("structured-closing", "pending-closing"))
+    ]
+    return [questions[i] for i in keep], [answers[i] if i < len(answers) else "" for i in keep]
+
+
 async def score_interview_session(input: dict) -> dict:
+    scored_questions, scored_answers = _drop_unscored_turns(input.get("questions") or [], input.get("answers") or [])
+    input = {**input, "questions": scored_questions, "answers": scored_answers}
     kwargs = {
         "role": input.get("role") or "Full Stack Engineer",
         "level": input.get("level") or "1–3 years",
@@ -289,6 +291,7 @@ async def score_interview_session(input: dict) -> dict:
         "profile": input.get("profile"),
         "integrity": input.get("integrity"),
         "name": input.get("accountName") or "Candidate",
+        "duration_seconds": input.get("durationSeconds"),
     }
     if llm_eval_configured():
         return await score_session_async(**kwargs)
@@ -312,26 +315,6 @@ def build_jd_coverage_plan(**kwargs) -> dict:
     return {"skills": skills, "topics": skills[:6]}
 
 
-def structured_plan_summary(*_a, **_k) -> dict:
-    return {"totalTurns": INTERVIEW_TURN_COUNT, "fresher": False, "recommendedSkills": []}
-
-
 def resolve_exact_interview_role(profile: dict | None, role: str) -> str:
     profile = profile or {}
     return str(profile.get("currentRole") or role or "Software professional")
-
-
-async def init_role_skill_store() -> None:
-    return None
-
-
-async def ensure_role_skills_for_role(_role: str, **_k) -> list:
-    return []
-
-
-def analyze_opening_answer_alignment(*_a, **_k) -> dict:
-    return {"aligned": True}
-
-
-async def call_llm_api(**_k) -> str | None:
-    return None
