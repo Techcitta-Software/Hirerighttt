@@ -242,7 +242,7 @@ export function ResumeUpload({
         {/* Drop Content */}
         <div className={styles.resumeDropContent}>
           <h3 className={styles.dropPromptTitle}>Upload your latest resume to get started</h3>
-          <h3 className={styles.dropPromptDesc}>We&apos;ll use it to understand your background and make the process easier.</h3>
+          <p className={styles.dropPromptDesc}>We&apos;ll use it to understand your background and make the process easier.</p>
 
           {!file && !existingFileName ? (
             <div

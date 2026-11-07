@@ -61,14 +61,6 @@ def create_app() -> FastAPI:
     allow_origins = config.cors_origins if is_prod_like else list(
         dict.fromkeys([*config.cors_origins, "http://localhost:5173", "http://127.0.0.1:5173"])
     )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=allow_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
-
     app.include_router(health_node_router, prefix="/api")
     app.include_router(auth_node_router, prefix="/api")
     app.include_router(meta_node_router, prefix="/api")
@@ -83,9 +75,7 @@ def create_app() -> FastAPI:
     async def python_api_dispatch(request: Request, call_next):
         path = request.url.path
         if request.method == "OPTIONS":
-            # Let CORSMiddleware (registered earlier, so it runs inside this one) answer preflights with
-            # Access-Control-Allow-* headers. Answering here returned a bare 204 and browsers blocked
-            # every cross-origin call (e.g. frontend on Vercel → API on Render).
+            # Preflights are answered by CORSMiddleware, which wraps this middleware (see below).
             return await call_next(request)
         if path.startswith("/api") and not _use_native_handler(path):
             try:
@@ -129,6 +119,18 @@ def create_app() -> FastAPI:
                 logger.exception("API dispatch failed for %s", path)
                 return JSONResponse(status_code=500, content={"error": "Server error"})
         return await call_next(request)
+
+    # Registered LAST so it is the OUTERMOST middleware: every response — including the ones the
+    # dispatch middleware above returns directly for /api/vendor/*, /api/interview/* … — gets the
+    # Access-Control-Allow-* headers. Registered first, only native routes got them and browsers
+    # blocked the rest whenever the frontend and API are on different origins (Vercel → Render).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

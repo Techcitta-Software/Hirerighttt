@@ -34,3 +34,8 @@
 .securityNote { display: flex; align-items: center; gap: 8px; font-size: 12.5px; line-height: 18px; color: #20ad65; margin-top: 16px; }
 .securityNote svg { width: 16px; height: 16px; flex-shrink: 0; }
 @media (max-width: 650px) { .resumeUploadWrapper { flex-direction: column; } .resumeIconBadge { width: 100%; height: 110px; } .resumeIconBadge svg { width: 70px; height: 90px; } .resumeDropContent { width: 100%; } .card { padding: 20px 16px; } }
+
+/* Redesign: the drop zone is the whole task — the decorative file badge beside it repeated it. */
+.resumeIconBadge { display: none; }
+.dropzone { padding: 28px 20px 24px; border-radius: 12px; }
+.whyLink { white-space: nowrap; }

@@ -19,3 +19,12 @@
 @media(min-width:1440px) { .topbar { margin-inline:-48px; padding-inline:48px; } }
 @media(max-width:760px) { .topbar { margin-inline:-16px; padding-inline:16px; } }
 @media(max-width:480px) { .safe { font-size:12px; } .topbar { gap:12px; } .userWrap { padding-left:12px; } }
+
+/* Redesign: phones lose the sidebar, so the brand moves into the top bar. */
+.mobileBrand { display: none; margin-right: auto; }
+@media (max-width: 760px) {
+  .mobileBrand { display: inline-flex; }
+}
+@media (max-width: 480px) {
+  .safe { display: none; }
+}

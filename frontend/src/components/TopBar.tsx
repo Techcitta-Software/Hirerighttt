@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { firstName, getUser } from '../lib/store'
 import { openSignOutModal } from '../lib/signOutModal'
 import { easeOut } from '../motion/variants'
+import { BrandLogo } from './BrandLogo'
 import styles from './TopBar.module.css'
 
 interface TopBarProps {
@@ -54,6 +55,9 @@ export function TopBar({ userName }: TopBarProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: easeOut }}
     >
+      <span className={styles.mobileBrand}>
+        <BrandLogo to="/" size="sm" />
+      </span>
       <motion.div
         className={styles.safe}
         whileHover={{ scale: 1.01 }}

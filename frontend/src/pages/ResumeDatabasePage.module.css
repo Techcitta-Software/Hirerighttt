@@ -635,3 +635,8 @@
   margin-top: 12px;
   max-width: 620px;
 }
+
+/* Redesign: the uppercase label above the title repeated it. */
+.kicker {
+  display: none;
+}

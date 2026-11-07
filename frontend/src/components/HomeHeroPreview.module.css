@@ -1,0 +1,272 @@
+/* Hero product frame — home palette only (ink #181424, primary #6C47FF, sand surfaces). */
+.frame {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #eae5de;
+  border-radius: 20px;
+  box-shadow:
+    0 1px 2px rgba(24, 20, 36, 0.04),
+    0 24px 60px -24px rgba(24, 20, 36, 0.18);
+  overflow: hidden;
+  text-align: left;
+  animation: frame-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes frame-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0ece6;
+  background: #faf8f5;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #dfd9ce;
+}
+
+.chromeTitle {
+  margin-left: 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4a4458;
+}
+
+.sample {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #594d74;
+  background: #f0ecfa;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 20px 22px 22px;
+  border-right: 1px solid #f0ece6;
+}
+
+.agentRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.avatar {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #6c47ff;
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.agentName {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #181424;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #047857;
+}
+
+.live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.bubbleAgent,
+.bubbleUser {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  padding: 10px 13px;
+  border-radius: 14px;
+  max-width: 100%;
+}
+
+.bubbleAgent {
+  background: #f5f1eb;
+  color: #181424;
+  border-top-left-radius: 4px;
+}
+
+.bubbleUser {
+  align-self: flex-end;
+  background: #6c47ff;
+  color: #ffffff;
+  border-top-right-radius: 4px;
+  max-width: 85%;
+}
+
+.listening {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #797187;
+}
+
+.wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.wave i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: #6c47ff;
+  animation: wave 1.1s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.wave i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.wave i:nth-child(3) {
+  animation-delay: 0.24s;
+}
+.wave i:nth-child(4) {
+  animation-delay: 0.36s;
+}
+.wave i:nth-child(5) {
+  animation-delay: 0.48s;
+}
+
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.report {
+  padding: 22px;
+  background: #fcfbf9;
+}
+
+.reportTitle {
+  margin: 0 0 14px;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #181424;
+}
+
+.areas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.area {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #4a4458;
+  padding: 9px 11px;
+  border: 1px solid #eae5de;
+  border-radius: 10px;
+  background: #ffffff;
+  animation: area-in 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(500ms + var(--i, 0) * 90ms);
+}
+
+@keyframes area-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: #f0ecfa;
+  color: #6c47ff;
+}
+
+@media (max-width: 640px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+
+  .chat {
+    border-right: 0;
+    border-bottom: 1px solid #f0ece6;
+  }
+
+  /* Keep the phone hero short: show the first three report areas only. */
+  .area:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .area,
+  .wave i {
+    animation: none;
+  }
+}

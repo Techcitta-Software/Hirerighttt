@@ -153,12 +153,20 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <main className={styles.main}>
-            <h1>Interview report</h1>
-            <p className={styles.muted}>Complete your AI interview first to generate a career report.</p>
-            <Link to="/interview" className={styles.bannerBtn}>
-              Start AI interview
-              </Link>
+          <main className={styles.main} style={{ paddingTop: 32 }}>
+            <h1 className={styles.reportEmptyTitle}>Interview report</h1>
+            <div className="ds-empty">
+              <span className="ds-empty__icon" aria-hidden="true">
+                <HrIcon name="chart" size={20} />
+              </span>
+              <p className="ds-empty__title">No report yet</p>
+              <p className="ds-empty__body">Complete your AI interview first to generate a career report.</p>
+              <div className="ds-empty__actions">
+                <Link to="/interview" className={styles.bannerBtn}>
+                  Start AI interview
+                </Link>
+              </div>
+            </div>
           </main>
                   </div>
       </div>
@@ -1366,7 +1374,7 @@ export function ProfilePage() {
             </motion.header>
 
             {profileMissing.length > 0 && !profileLoading ? (
-              <div className={styles.toast} role="status" style={{ borderLeft: '4px solid #7047ff' }}>
+              <div className={styles.toast} role="status" style={{ border: '1px solid #ddd6fe' }}>
                 <strong style={{ display: 'block', marginBottom: 6 }}>Still needed for better matches</strong>
                 {profileMissing.map((item) => (
                   <Link

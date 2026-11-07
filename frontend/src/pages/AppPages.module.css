@@ -2342,3 +2342,37 @@
   align-items: center;
   gap: 8px;
 }
+
+/* ── Redesign: jobs board on the shared app column and palette ── */
+.pageJobsBoard {
+  background: #faf9ff !important;
+}
+
+.jobsBoardShell {
+  max-width: 1280px !important;
+  width: min(1280px, 100%) !important;
+}
+
+.jobsScopeChipActive {
+  background: #5046e5;
+  border-color: #5046e5;
+  color: #ffffff;
+}
+
+/* ── Redesign: every candidate page sits on the shared 1280px app column ── */
+.pageCandidate .shell {
+  width: min(1280px, 100%);
+  max-width: 1280px;
+}
+
+.profileShell {
+  max-width: 1280px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.reportEmptyTitle {
+  margin: 0 0 20px;
+  font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+  letter-spacing: -0.03em;
+}

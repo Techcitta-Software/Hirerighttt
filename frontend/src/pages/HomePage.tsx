@@ -11,6 +11,7 @@ import { requireApiForAuth } from '../lib/authConfig'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
 import { MarketingNavBar } from '../components/MarketingNavBar'
+import { HomeHeroPreview } from '../components/HomeHeroPreview'
 import styles from './HomePage.module.css'
 
 interface StageInfo {
@@ -25,42 +26,42 @@ interface StageInfo {
 const CAREER_STAGES: StageInfo[] = [
   {
     id: 'students',
-    label: 'students',
-    title: 'students',
-    description: 'explore careers, understand your interests and learn what future roles may require.',
-    focusTags: ['career exploration', 'foundational strengths', 'internship readiness'],
+    label: 'Students',
+    title: 'Students',
+    description: 'Explore careers, understand your interests and learn what future roles may require.',
+    focusTags: ['Career exploration', 'Foundational strengths', 'Internship readiness'],
     image: '/assets/students-group.jpg',
   },
   {
     id: 'graduates',
-    label: 'fresh graduates',
-    title: 'fresh graduates',
-    description: 'bridge the gap between coursework and industry expectations, discover initial job roles, and practice your first professional interviews.',
-    focusTags: ['entry roles', 'communication skills', 'first-job readiness'],
+    label: 'Fresh graduates',
+    title: 'Fresh graduates',
+    description: 'Bridge the gap between coursework and industry expectations, discover initial job roles, and practice your first professional interviews.',
+    focusTags: ['Entry roles', 'Communication skills', 'First-job readiness'],
     image: '/hero-candidate-new.jpg',
   },
   {
     id: 'job-seekers',
-    label: 'job seekers',
-    title: 'job seekers',
-    description: 'discover how to stand out from typical applicant pools, uncover unrecognized strengths, and present a verified 360° view to recruiters.',
-    focusTags: ['interview practice', 'standing out', 'verified capabilities'],
+    label: 'Job seekers',
+    title: 'Job seekers',
+    description: 'Discover how to stand out from typical applicant pools, uncover unrecognized strengths, and present a verified 360° view to recruiters.',
+    focusTags: ['Interview practice', 'Standing out', 'Verified capabilities'],
     image: '/sidebar_talent_workspace.jpg',
   },
   {
     id: 'professionals',
-    label: 'working professionals',
-    title: 'working professionals',
-    description: 'evaluate promotion readiness, benchmark leadership competencies, and plan structured lateral or upward career moves with confidence.',
-    focusTags: ['promotion roadmap', 'leadership competencies', 'market alignment'],
+    label: 'Working professionals',
+    title: 'Working professionals',
+    description: 'Evaluate promotion readiness, benchmark leadership competencies, and plan structured lateral or upward career moves with confidence.',
+    focusTags: ['Promotion roadmap', 'Leadership competencies', 'Market alignment'],
     image: '/hero-professional.jpg',
   },
   {
     id: 'switchers',
-    label: 'career switchers',
-    title: 'career switchers',
-    description: 'map your transferable skills into new industries, pinpoint exact knowledge gaps, and tell your transition story credibly.',
-    focusTags: ['transferable skills', 'targeted bridge skills', 'role transition'],
+    label: 'Career switchers',
+    title: 'Career switchers',
+    description: 'Map your transferable skills into new industries, pinpoint exact knowledge gaps, and tell your transition story credibly.',
+    focusTags: ['Transferable skills', 'Targeted bridge skills', 'Role transition'],
     image: '/african_exec_hero.jpg',
   },
 ]
@@ -77,39 +78,39 @@ interface ConversationStage {
 const CONVERSATION_STAGES: ConversationStage[] = [
   {
     id: 'stage-1',
-    time: '9:05 pm',
-    title: 'talk for 15 minutes',
+    time: '9:05 PM',
+    title: 'Talk for 15 minutes',
     description:
       'have a natural ai-guided conversation about your interests, experiences, skills, aspirations and challenges.',
-    purpleTags: ['ai-guided conversation'],
-    neutralTags: ['no resume needed'],
+    purpleTags: ['AI-guided conversation'],
+    neutralTags: ['No resume needed'],
   },
   {
     id: 'stage-2',
-    time: '9:20 pm',
-    title: 'discover your 360° view',
+    time: '9:20 PM',
+    title: 'Discover your 360° view',
     description:
       'receive initial insights into strengths, potential gaps, communication, career direction and job readiness.',
-    purpleTags: ['initial insights', 'strengths'],
-    neutralTags: ['gaps'],
+    purpleTags: ['Initial insights', 'Strengths'],
+    neutralTags: ['Gaps'],
   },
   {
     id: 'stage-3',
-    time: '9:25 pm',
-    title: 'know your next steps',
+    time: '9:25 PM',
+    title: 'Know your next steps',
     description:
       'get prioritized recommendations for career exploration, skill improvement and interview preparation.',
-    purpleTags: ['prioritized recommendations'],
+    purpleTags: ['Prioritized recommendations'],
     neutralTags: [],
   },
   {
     id: 'stage-4',
-    time: 'next week',
-    title: 'keep moving forward',
+    time: 'Next week',
+    title: 'Keep moving forward',
     description:
       'practice interviews, follow a development plan and update your insights as you improve.',
-    purpleTags: ['interview practice', 'development plan', 'updated insights'],
-    neutralTags: ['apply to jobs', 'interviews'],
+    purpleTags: ['Interview practice', 'Development plan', 'Updated insights'],
+    neutralTags: ['Apply to jobs', 'Interviews'],
   },
 ]
 
@@ -319,12 +320,12 @@ export function HomePage() {
               </h1>
 
               <p className={styles.subheadSerif}>
-                one 15-minute conversation. your 360° career view.
+                One 15-minute conversation. Your 360° career view.
               </p>
 
               <p className={styles.leadText}>
-                whether you&apos;re a student exploring your future, searching for your first job,
-                preparing for your next opportunity, or planning a career change, hirerighttt helps
+                Whether you&apos;re a student exploring your future, searching for your first job,
+                preparing for your next opportunity, or planning a career change, HireRighttt helps
                 you discover your strengths, understand where you can improve, and take the right
                 next step.
               </p>
@@ -439,6 +440,9 @@ export function HomePage() {
                 </div>
               </div>
             </div>
+            <div className={styles.heroVisual}>
+              <HomeHeroPreview />
+            </div>
           </div>
         </div>
       </section>
@@ -452,11 +456,11 @@ export function HomePage() {
             <div>
               <div className={styles.kicker}>
                 <span className={styles.kickerDot} />
-                9:02 pm · the questions that keep you up
+                9:02 PM · The questions that keep you up
               </div>
 
               <h2 className={styles.editorialH2}>
-                great potential
+                Great potential
                 <br />
                 deserves
                 <br />
@@ -464,15 +468,15 @@ export function HomePage() {
               </h2>
 
               <div className={styles.questionsList}>
-                <div className={styles.questionItem}>not sure which career is right for you?</div>
-                <div className={styles.questionItem}>applying for jobs but struggling to stand out?</div>
+                <div className={styles.questionItem}>Not sure which career is right for you?</div>
+                <div className={styles.questionItem}>Applying for jobs but struggling to stand out?</div>
                 <div className={styles.questionItem}>
-                  preparing for interviews without knowing what to focus on?
+                  Preparing for interviews without knowing what to focus on?
                 </div>
               </div>
 
               <p className={styles.bodyText}>
-                every career journey brings different questions. hirerighttt starts by listening, then
+                Every career journey brings different questions. HireRighttt starts by listening, then
                 helps you turn uncertainty into a practical plan.
               </p>
 
@@ -485,32 +489,20 @@ export function HomePage() {
                   margin: 0,
                 }}
               >
-                we don&apos;t start with a form. we start with you.
+                We don&apos;t start with a form. We start with you.
               </p>
             </div>
 
-            {/* Cozy Late Night Desk Illustration */}
-            <div className={styles.deskIllustrationWrap}>
-              <svg width="280" height="200" viewBox="0 0 280 200" fill="none" aria-hidden="true">
-                <rect x="20" y="160" width="240" height="8" rx="4" fill="#D4CCC0" />
-                <rect x="50" y="168" width="10" height="28" rx="2" fill="#BAAF9E" />
-                <rect x="220" y="168" width="10" height="28" rx="2" fill="#BAAF9E" />
-                {/* Desk Lamp */}
-                <path d="M70 160 L90 90 L115 105" stroke="#6C47FF" strokeWidth="4" strokeLinecap="round" />
-                <path d="M105 85 L135 105 L115 125 Z" fill="#6C47FF" />
-                <polygon points="125,108 200,160 135,160" fill="rgba(254, 240, 138, 0.35)" />
-                {/* Laptop */}
-                <rect x="130" y="115" width="80" height="45" rx="3" fill="#1C1838" />
-                <rect x="135" y="120" width="70" height="35" rx="2" fill="#2E285C" />
-                <polygon points="120,160 220,160 210,155 130,155" fill="#A89E90" />
-                {/* Coffee Mug */}
-                <rect x="95" y="145" width="14" height="15" rx="3" fill="#E88065" />
-                <path d="M109 148 C114 148 114 157 109 157" stroke="#E88065" strokeWidth="2" fill="none" />
-              </svg>
-              <span style={{ fontSize: '0.8rem', color: '#888099', marginTop: '0.5rem' }}>
-                9:02 pm · reflection &amp; quiet focus
-              </span>
-            </div>
+            <figure className={styles.questionsPhoto}>
+              <img
+                src="/assets/night-desk-focus.jpg"
+                alt="A young man working on a laptop at a desk late in the evening"
+                width={1024}
+                height={571}
+                loading="lazy"
+                decoding="async"
+              />
+            </figure>
           </div>
         </div>
       </section>
@@ -523,10 +515,10 @@ export function HomePage() {
           <div className={styles.narrowContainer} style={{ padding: 0 }}>
             <div className={styles.kicker}>
               <span className={styles.kickerDot} />
-              9:05 pm · the conversation begins
+              9:05 PM · The conversation begins
             </div>
 
-            <h2 className={styles.editorialH2}>career clarity starts with a conversation.</h2>
+            <h2 className={styles.editorialH2}>Career clarity starts with a conversation.</h2>
 
             <div ref={timelineRef} className={styles.timelineScrollTrack}>
               {/* Continuous background track line */}
@@ -554,7 +546,7 @@ export function HomePage() {
 
             <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
               <Link to="/signup" className={styles.primaryBtn}>
-                start my 15-minute discovery
+                Start my 15-minute discovery
               </Link>
             </div>
           </div>
@@ -569,69 +561,69 @@ export function HomePage() {
           <div className={styles.narrowContainer} style={{ textAlign: 'center', padding: 0 }}>
             <div className={styles.kicker}>
               <span className={styles.kickerDot} />
-              9:20 pm · what the conversation shows
+              9:20 PM · What the conversation shows
             </div>
 
             <h2 className={styles.editorialH2}>
-              more than a score. a<br />
+              More than a score. A<br />
               clearer view of your career.
             </h2>
 
             <p className={styles.bodyText}>
-              your personalized career intelligence report brings together what your first
+              Your personalized career intelligence report brings together what your first
               conversation reveals, and turns it into practical guidance you can act on.
             </p>
           </div>
 
           <div className={styles.reportCardsGrid}>
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>strengths &amp; potential</h3>
+              <h3 className={styles.reportCardTitle}>Strengths &amp; potential</h3>
               <p className={styles.reportCardDesc}>
-                recognize the strengths you demonstrate and the abilities you can build on.
+                Recognize the strengths you demonstrate and the abilities you can build on.
               </p>
             </div>
 
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>career direction</h3>
+              <h3 className={styles.reportCardTitle}>Career direction</h3>
               <p className={styles.reportCardDesc}>
-                explore job roles and career paths aligned with your interests and aspirations.
+                Explore job roles and career paths aligned with your interests and aspirations.
               </p>
             </div>
 
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>skill gap discovery</h3>
+              <h3 className={styles.reportCardTitle}>Skill gap discovery</h3>
               <p className={styles.reportCardDesc}>
-                identify potential skills and knowledge gaps relevant to the direction you want to
+                Identify potential skills and knowledge gaps relevant to the direction you want to
                 take.
               </p>
             </div>
 
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>communication insights</h3>
+              <h3 className={styles.reportCardTitle}>Communication insights</h3>
               <p className={styles.reportCardDesc}>
-                understand how you express your ideas, experiences and goals.
+                Understand how you express your ideas, experiences and goals.
               </p>
             </div>
 
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>job &amp; interview readiness</h3>
+              <h3 className={styles.reportCardTitle}>Job &amp; interview readiness</h3>
               <p className={styles.reportCardDesc}>
-                see where to focus your preparation before pursuing opportunities.
+                See where to focus your preparation before pursuing opportunities.
               </p>
             </div>
 
             <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>personalized action roadmap</h3>
+              <h3 className={styles.reportCardTitle}>Personalized action roadmap</h3>
               <p className={styles.reportCardDesc}>
-                get a practical plan with recommended priorities for the next 30, 60 and 90 days.
+                Get a practical plan with recommended priorities for the next 30, 60 and 90 days.
               </p>
             </div>
           </div>
 
           <div className={styles.narrowContainer} style={{ padding: 0 }}>
             <div className={styles.disclaimerNotice}>
-              initial insights are based on a short conversation and are not a certification of
-              ability. deeper assessments and practice help validate findings.
+              Initial insights are based on a short conversation and are not a certification of
+              ability. Deeper assessments and practice help validate findings.
             </div>
 
             <div className={styles.reportCtaRow}>
@@ -640,10 +632,10 @@ export function HomePage() {
                 className={styles.secondaryBtn}
                 onClick={() => setShowSampleModal(true)}
               >
-                view sample 360° report
+                View sample 360° report
               </button>
               <span className={styles.metaReassurance}>
-                the sample is an example, not a real assessment
+                The sample is an example, not a real assessment
               </span>
             </div>
           </div>
@@ -657,61 +649,61 @@ export function HomePage() {
         <div className={styles.container}>
           <div className={styles.kicker}>
             <span className={styles.kickerDot} />
-            the weeks after · you&apos;re not on your own
+            The weeks after · You&apos;re not on your own
           </div>
 
           <h2 className={styles.editorialH2}>
-            we don&apos;t just show you what to
+            We don&apos;t just show you what to
             <br />
-            improve. we help you get there.
+            improve. We help you get there.
           </h2>
 
           <div className={styles.milestonesGrid}>
             <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>day 3</span>
-              <h3 className={styles.milestoneTitle}>ai interview practice</h3>
+              <span className={styles.milestoneDay}>Day 3</span>
+              <h3 className={styles.milestoneTitle}>AI interview practice</h3>
               <p className={styles.milestoneDesc}>
-                prepare for technical, behavioral and hr interviews with guided, role-specific
+                Prepare for technical, behavioral and HR interviews with guided, role-specific
                 practice.
               </p>
               <div>
-                <span className={styles.tagPill}>technical</span>
-                <span className={styles.tagPill}>behavioral</span>
-                <span className={styles.tagPill}>hr</span>
+                <span className={styles.tagPill}>Technical</span>
+                <span className={styles.tagPill}>Behavioral</span>
+                <span className={styles.tagPill}>HR</span>
               </div>
             </div>
 
             <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>day 12</span>
-              <h3 className={styles.milestoneTitle}>personalized skill development</h3>
+              <span className={styles.milestoneDay}>Day 12</span>
+              <h3 className={styles.milestoneTitle}>Personalized skill development</h3>
               <p className={styles.milestoneDesc}>
-                know what to learn next and why it matters for your target role.
+                Know what to learn next and why it matters for your target role.
               </p>
               <div>
-                <span className={styles.tagPill}>target role</span>
+                <span className={styles.tagPill}>Target role</span>
               </div>
             </div>
 
             <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>day 30</span>
-              <h3 className={styles.milestoneTitle}>career &amp; job readiness</h3>
+              <span className={styles.milestoneDay}>Day 30</span>
+              <h3 className={styles.milestoneTitle}>Career &amp; job readiness</h3>
               <p className={styles.milestoneDesc}>
-                understand the capabilities employers may expect and prepare for relevant
+                Understand the capabilities employers may expect and prepare for relevant
                 opportunities.
               </p>
               <div>
-                <span className={styles.tagPill}>readiness</span>
+                <span className={styles.tagPill}>Readiness</span>
               </div>
             </div>
 
             <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>day 60</span>
-              <h3 className={styles.milestoneTitle}>progress &amp; growth</h3>
+              <span className={styles.milestoneDay}>Day 60</span>
+              <h3 className={styles.milestoneTitle}>Progress &amp; growth</h3>
               <p className={styles.milestoneDesc}>
-                track completed actions and improve your career readiness over time.
+                Track completed actions and improve your career readiness over time.
               </p>
               <div>
-                <span className={styles.tagPill}>progress tracking</span>
+                <span className={styles.tagPill}>Progress tracking</span>
               </div>
             </div>
           </div>
@@ -726,11 +718,11 @@ export function HomePage() {
           <div className={styles.readyContentWrap}>
             <div className={styles.kicker}>
               <span className={styles.kickerDot} />
-              day 45 · when you feel ready
+              Day 45 · When you feel ready
             </div>
 
             <h2 className={styles.editorialH2}>
-              when you&apos;re
+              When you&apos;re
               <br />
               ready, the next
               <br />
@@ -738,38 +730,38 @@ export function HomePage() {
             </h2>
 
             <p className={styles.bodyText} style={{ maxWidth: '680px' }}>
-              vendors post the roles they are hiring for. you browse them, apply, and take the
+              Vendors post the roles they are hiring for. You browse them, apply, and take the
               interview, with your preparation already behind you.
             </p>
 
             <div className={styles.threeColumnSteps}>
               <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>browse</span>
-                <h3 className={styles.threeStepTitle}>see open roles</h3>
-                <p className={styles.threeStepDesc}>read the requirements posted by vendors.</p>
+                <span className={styles.threeStepCategory}>Browse</span>
+                <h3 className={styles.threeStepTitle}>See open roles</h3>
+                <p className={styles.threeStepDesc}>Read the requirements posted by vendors.</p>
               </div>
 
               <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>apply</span>
-                <h3 className={styles.threeStepTitle}>apply with confidence</h3>
+                <span className={styles.threeStepCategory}>Apply</span>
+                <h3 className={styles.threeStepTitle}>Apply with confidence</h3>
                 <p className={styles.threeStepDesc}>
-                  apply to roles that fit, and choose what you share.
+                  Apply to roles that fit, and choose what you share.
                 </p>
               </div>
 
               <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>interview</span>
-                <h3 className={styles.threeStepTitle}>give the interview</h3>
+                <span className={styles.threeStepCategory}>Interview</span>
+                <h3 className={styles.threeStepTitle}>Give the interview</h3>
                 <p className={styles.threeStepDesc}>
-                  take the interview for a role you applied to.
+                  Take the interview for a role you applied to.
                 </p>
               </div>
             </div>
 
             <div style={{ marginTop: '1rem' }}>
-              <span className={styles.tagPill}>job postings</span>
-              <span className={styles.tagPill}>apply</span>
-              <span className={styles.tagPill}>interview</span>
+              <span className={styles.tagPill}>Job postings</span>
+              <span className={styles.tagPill}>Apply</span>
+              <span className={styles.tagPill}>Interview</span>
             </div>
           </div>
         </div>
@@ -788,11 +780,11 @@ export function HomePage() {
             <div className={styles.vendorLeftCol}>
               <div className={styles.vendorKickerPill}>
                 <span className={styles.kickerDot} />
-                monday, 10:00 am · for vendors, the other side of the table
+                Monday, 10:00 AM · For vendors, the other side of the table
               </div>
 
               <h2 className={styles.vendorHeading}>
-                see the <span className={styles.italicPurple}>person</span>
+                See the <span className={styles.italicPurple}>person</span>
                 <br />
                 behind the
                 <br />
@@ -800,19 +792,19 @@ export function HomePage() {
               </h2>
 
               <p className={styles.leadText} style={{ maxWidth: '520px' }}>
-                vendors post the jobs they have open and what each role needs, read the career
+                Vendors post the jobs they have open and what each role needs, read the career
                 reports of candidates who apply, and interview the people who fit.
               </p>
 
               <div className={styles.vendorChecklist}>
                 <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> post job requirements
+                  <span className={styles.vendorCheckPillCheck}>✓</span> Post job requirements
                 </span>
                 <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> review candidate reports
+                  <span className={styles.vendorCheckPillCheck}>✓</span> Review candidate reports
                 </span>
                 <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> interview applicants
+                  <span className={styles.vendorCheckPillCheck}>✓</span> Interview applicants
                 </span>
               </div>
 
@@ -856,8 +848,8 @@ export function HomePage() {
                   <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
                 <span>
-                  reports are initial insights from a short conversation. they support your judgment
-                  and do not replace it. candidates decide what they share.
+                  Reports are initial insights from a short conversation. They support your judgment
+                  and do not replace it. Candidates decide what they share.
                 </span>
               </div>
             </div>
@@ -869,36 +861,36 @@ export function HomePage() {
               <div className={styles.vendorPreviewMockup}>
                 <div className={styles.vendorMockupHeader}>
                   <span className={styles.vendorMockupTitleSmall}>EXAMPLE VENDOR VIEW</span>
-                  <span className={styles.mockupDisclaimerPill}>made-up candidates, not real data</span>
+                  <span className={styles.mockupDisclaimerPill}>Made-up candidates, not real data</span>
                 </div>
 
                 <div className={styles.roleTitleRow}>
-                  <h4 className={styles.vendorMockupRole}>junior business analyst</h4>
+                  <h4 className={styles.vendorMockupRole}>Junior business analyst</h4>
                   <span className={styles.openRolePill}>
                     <span className={styles.openRoleDot} />
-                    open role
+                    Open role
                   </span>
                 </div>
 
                 <div className={styles.roleSkillsRow}>
-                  <span className={styles.skillRequirementPill}>clear communication</span>
-                  <span className={styles.skillRequirementPill}>spreadsheets</span>
-                  <span className={styles.skillRequirementPill}>basic sql</span>
+                  <span className={styles.skillRequirementPill}>Clear communication</span>
+                  <span className={styles.skillRequirementPill}>Spreadsheets</span>
+                  <span className={styles.skillRequirementPill}>Basic SQL</span>
                 </div>
 
                 {/* Candidate A Card */}
                 <div className={styles.candidateMockupCard}>
                   <div className={styles.candidateAvatarA}>A</div>
                   <div className={styles.candidateContent}>
-                    <div className={styles.candidateMockupName}>candidate a</div>
+                    <div className={styles.candidateMockupName}>Candidate A</div>
                     <p className={styles.candidateMockupBio}>
-                      shared career view: explains ideas clearly, curious about data. focus area:
-                      sql practice.
+                      Shared career view: explains ideas clearly, curious about data. Focus area:
+                      SQL practice.
                     </p>
                     <div>
-                      <span className={styles.pillStrengths}>strengths</span>
-                      <span className={styles.pillSkillGaps}>skill gaps</span>
-                      <span className={styles.pillReadiness}>interview readiness</span>
+                      <span className={styles.pillStrengths}>Strengths</span>
+                      <span className={styles.pillSkillGaps}>Skill gaps</span>
+                      <span className={styles.pillReadiness}>Interview readiness</span>
                     </div>
                   </div>
                 </div>
@@ -907,14 +899,14 @@ export function HomePage() {
                 <div className={styles.candidateMockupCard}>
                   <div className={styles.candidateAvatarB}>B</div>
                   <div className={styles.candidateContent}>
-                    <div className={styles.candidateMockupName}>candidate b</div>
+                    <div className={styles.candidateMockupName}>Candidate B</div>
                     <p className={styles.candidateMockupBio}>
-                      shared career view: strong in operations, moving from support. focus area:
+                      Shared career view: strong in operations, moving from support. Focus area:
                       structured interview answers.
                     </p>
                     <div>
-                      <span className={styles.pillSwitcher}>career switcher</span>
-                      <span className={styles.pillReadiness}>readiness focus</span>
+                      <span className={styles.pillSwitcher}>Career switcher</span>
+                      <span className={styles.pillReadiness}>Readiness focus</span>
                     </div>
                   </div>
                 </div>
@@ -931,11 +923,11 @@ export function HomePage() {
         <div className={styles.container}>
           <div className={styles.kicker}>
             <span className={styles.kickerDot} />
-            any morning · whoever you are
+            Any morning · Whoever you are
           </div>
 
           <h2 className={styles.editorialH2}>
-            whatever your career
+            Whatever your career
             <br />
             stage, there&apos;s a next step.
           </h2>
@@ -989,39 +981,39 @@ export function HomePage() {
         <div className={styles.container}>
           <div className={styles.kicker}>
             <span className={styles.kickerDot} />
-            before you decide · what makes this different
+            Before you decide · What makes this different
           </div>
 
           <h2 className={styles.editorialH2}>
-            not just another job portal. a career
+            Not just another job portal. A career
             <br />
             companion that starts with you.
           </h2>
 
           <div className={styles.comparisonThreeCol}>
             <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>job portals</h3>
-              <p className={styles.comparisonColBody}>show openings.</p>
+              <h3 className={styles.comparisonColTitle}>Job portals</h3>
+              <p className={styles.comparisonColBody}>Show openings.</p>
             </div>
 
             <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>courses</h3>
-              <p className={styles.comparisonColBody}>teach individual skills.</p>
+              <h3 className={styles.comparisonColTitle}>Courses</h3>
+              <p className={styles.comparisonColBody}>Teach individual skills.</p>
             </div>
 
             <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>interview tools</h3>
-              <p className={styles.comparisonColBody}>focus on practice.</p>
+              <h3 className={styles.comparisonColTitle}>Interview tools</h3>
+              <p className={styles.comparisonColBody}>Focus on practice.</p>
             </div>
           </div>
 
           <div className={styles.narrowContainer} style={{ padding: 0 }}>
             <p className={styles.leadText}>
-              hirerighttt starts by understanding your career situation and connects discovery,
+              HireRighttt starts by understanding your career situation and connects discovery,
               guidance and improvement in one experience.
             </p>
             <div className={styles.punchlineQuote}>
-              from &ldquo;what should i do?&rdquo; to &ldquo;here&apos;s my next step.&rdquo;
+              From &ldquo;What should I do?&rdquo; to &ldquo;Here&apos;s my next step.&rdquo;
             </div>
           </div>
         </div>
@@ -1035,45 +1027,45 @@ export function HomePage() {
           <div className={styles.narrowContainer} style={{ padding: 0 }}>
             <div className={styles.kicker}>
               <span className={styles.kickerDot} />
-              before you begin · what to expect
+              Before you begin · What to expect
             </div>
 
-            <h2 className={styles.editorialH2}>you decide how much to share.</h2>
+            <h2 className={styles.editorialH2}>You decide how much to share.</h2>
 
             <div className={styles.principlesStack}>
               <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>nothing mandatory first.</span>
+                <span className={styles.principleTitle}>Nothing mandatory first.</span>
                 <p className={styles.principleDesc}>
-                  no long profile or resume upload before you start. you can add more later if you
+                  No long profile or resume upload before you start. You can add more later if you
                   choose.
                 </p>
               </div>
 
               <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>your voice only with your permission.</span>
+                <span className={styles.principleTitle}>Your voice only with your permission.</span>
                 <p className={styles.principleDesc}>
-                  if voice is available, we ask first. a text option is offered where supported.
+                  If voice is available, we ask first. A text option is offered where supported.
                 </p>
               </div>
 
               <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>a clear notice before personal details.</span>
+                <span className={styles.principleTitle}>A clear notice before personal details.</span>
                 <p className={styles.principleDesc}>
-                  you&apos;ll see the privacy notice before any personal information is collected.
+                  You&apos;ll see the privacy notice before any personal information is collected.
                 </p>
               </div>
 
               <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>you choose what vendors see.</span>
+                <span className={styles.principleTitle}>You choose what vendors see.</span>
                 <p className={styles.principleDesc}>
-                  vendors read your report only when you apply or choose to share it.
+                  Vendors read your report only when you apply or choose to share it.
                 </p>
               </div>
 
               <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>a first look, not a verdict.</span>
+                <span className={styles.principleTitle}>A first look, not a verdict.</span>
                 <p className={styles.principleDesc}>
-                  insights are initial, not a certification of ability, and we never promise a job.
+                  Insights are initial, not a certification of ability, and we never promise a job.
                 </p>
               </div>
             </div>
@@ -1096,11 +1088,11 @@ export function HomePage() {
                   className={styles.kickerDot}
                   style={{ backgroundColor: '#A78BFA' }}
                 />
-                10:30 pm · you breathe out
+                10:30 PM · You breathe out
               </div>
 
               <h2 className={styles.closingH2}>
-                your next
+                Your next
                 <br />
                 opportunity
                 <br />
@@ -1110,12 +1102,12 @@ export function HomePage() {
               </h2>
 
               <p className={styles.closingLead}>
-                give yourself 15 minutes to understand your strengths, discover what to work on,
+                Give yourself 15 minutes to understand your strengths, discover what to work on,
                 and build a clearer path toward the career you want.
               </p>
 
               <div className={styles.roleToggleWrap}>
-                <span className={styles.roleToggleLabel}>i&apos;m joining as</span>
+                <span className={styles.roleToggleLabel}>I&apos;m joining as</span>
                 <button
                   type="button"
                   className={`${styles.roleToggleBtn} ${
@@ -1123,7 +1115,7 @@ export function HomePage() {
                   }`}
                   onClick={() => setRoleSelection('candidate')}
                 >
-                  a candidate
+                  A candidate
                 </button>
                 <button
                   type="button"
@@ -1132,22 +1124,22 @@ export function HomePage() {
                   }`}
                   onClick={() => setRoleSelection('vendor')}
                 >
-                  a vendor
+                  A vendor
                 </button>
               </div>
 
               {/* Fast start form */}
               <form className={styles.fastStartCard} onSubmit={handleFastStartSubmit}>
-                <span className={styles.stepIndicator}>step 1 of 1 · what should we call you?</span>
+                <span className={styles.stepIndicator}>Step 1 of 1 · What should we call you?</span>
                 <input
                   type="text"
                   className={styles.fastStartInput}
-                  placeholder="your first name"
+                  placeholder="Your first name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                 />
                 <button type="submit" className={styles.primaryBtn} style={{ width: '100%' }}>
-                  start my career discovery
+                  Start my career discovery
                 </button>
                 <span
                   style={{
@@ -1156,7 +1148,7 @@ export function HomePage() {
                     textAlign: 'center',
                   }}
                 >
-                  no resume required to get started • personalized ai-powered guidance
+                  No resume required to get started • personalized AI-powered guidance
                 </span>
               </form>
             </div>
@@ -1173,37 +1165,37 @@ export function HomePage() {
             <div className={styles.footerBrand}>
               HireRighttt
               <span style={{ fontSize: '0.85rem', color: '#8880A8', marginLeft: '0.75rem' }}>
-                your personal ai career companion
+                Your personal AI career companion
               </span>
             </div>
 
             <div className={styles.footerLinks}>
               <Link to="/why" className={styles.footerLink}>
-                why us?
+                Why us?
               </Link>
               <Link to="/pricing" className={styles.footerLink}>
-                pricing
+                Pricing
               </Link>
               <Link to="/career-view" className={styles.footerLink}>
-                360° report
+                360° Report
               </Link>
               <Link to="/solutions" className={styles.footerLink}>
-                for organizations
+                For organizations
               </Link>
               <Link to="/contact" className={styles.footerLink}>
-                contact us
+                Contact us
               </Link>
               <Link to="/privacy" className={styles.footerLink}>
-                privacy
+                Privacy
               </Link>
               <Link to="/terms" className={styles.footerLink}>
-                terms
+                Terms
               </Link>
             </div>
           </div>
 
           <p className={styles.footerCopyright}>
-            © {new Date().getFullYear()} HireRighttt. all rights reserved.
+            © {new Date().getFullYear()} HireRighttt. All rights reserved.
           </p>
         </div>
       </footer>
@@ -1304,11 +1296,11 @@ export function HomePage() {
                   Personalized 30-60-90 Day Roadmap Preview
                 </div>
                 <div style={{ fontSize: '0.85rem', color: '#565063', lineHeight: 1.5 }}>
-                  • <strong>Next 30 Days:</strong> complete SQL basics and take guided technical interview practice.
+                  • <strong>Next 30 Days:</strong> Complete SQL basics and take guided technical interview practice.
                   <br />
-                  • <strong>Next 60 Days:</strong> build two business case studies and refine behavioral story structures.
+                  • <strong>Next 60 Days:</strong> Build two business case studies and refine behavioral story structures.
                   <br />
-                  • <strong>Next 90 Days:</strong> apply to verified partner roles with unlocked candidate report.
+                  • <strong>Next 90 Days:</strong> Apply to verified partner roles with unlocked candidate report.
                 </div>
               </div>
 
@@ -1318,7 +1310,7 @@ export function HomePage() {
                   className={styles.primaryBtn}
                   onClick={() => setShowSampleModal(false)}
                 >
-                  start my career discovery
+                  Start my career discovery
                 </Link>
               </div>
             </motion.div>

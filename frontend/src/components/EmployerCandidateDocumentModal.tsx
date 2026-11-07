@@ -50,6 +50,15 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     ? `Resume — ${applicant.candidateName}`
     : `HireRighttt report — ${applicant.candidateName}`
 
+  // Escape closes the viewer, like every other dialog in the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)

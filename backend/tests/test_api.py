@@ -34,3 +34,12 @@ def test_cors_preflight_on_dispatch_route(client: TestClient) -> None:
         headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
     )
     assert res.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_cors_headers_on_dispatch_responses(client: TestClient) -> None:
+    """Routes answered by the dispatch middleware must carry CORS headers too (Vercel → Render)."""
+    res = client.get("/api/vendor/jobs", headers={"Origin": "http://localhost:5173"})
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    res = client.get("/api/does-not-exist", headers={"Origin": "http://localhost:5173"})
+    assert res.status_code == 404
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:5173"

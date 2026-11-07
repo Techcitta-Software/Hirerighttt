@@ -199,6 +199,17 @@ async function authenticateWithEmailPassword(
 type AuthMode = 'login' | 'signup'
 
 /** Candidate / job seeker sign-up. Organization sign-up lives at /organizations/signup. */
+/** Checklist tick for the dark auth panel (drawn icon instead of a text glyph). */
+function CheckIcon() {
+  return (
+    <span className={styles.checkIcon} aria-hidden="true">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
+        <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  )
+}
+
 export function SignupPage() {
   const { search } = useLocation()
   const role = new URLSearchParams(search).get('role')
@@ -548,15 +559,15 @@ export function LoginPage({
                 </h1>
                 <ul className={styles.leftChecklist}>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Screen every applicant with structured AI interviews</span>
                   </li>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Compare candidates on clear, bias-aware scorecards</span>
                   </li>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Share job links and manage your whole pipeline in one place</span>
                   </li>
                 </ul>
@@ -570,15 +581,15 @@ export function LoginPage({
                 </h1>
                 <ul className={styles.leftChecklist}>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Save your 360° Career View and come back anytime</span>
                   </li>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Follow your 30, 60 and 90 day action roadmap</span>
                   </li>
                   <li>
-                    <span className={styles.checkIcon}>✓</span>
+                    <CheckIcon />
                     <span>Track your progress as your insights improve</span>
                   </li>
                 </ul>

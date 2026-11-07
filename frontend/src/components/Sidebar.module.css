@@ -288,3 +288,8 @@
     display: none;
   }
 }
+
+/* Redesign: the decorative constellation lines crossed the headline text; removed for legibility. */
+.constellation {
+  display: none;
+}

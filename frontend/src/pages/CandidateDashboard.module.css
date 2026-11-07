@@ -1408,3 +1408,37 @@
     animation: none;
   }
 }
+
+/* ── Redesign: shared app content edge (same 1280px column as Jobs, Candidates, Talent vault) ── */
+.heroBand,
+.dashboardBody {
+  padding-inline: max(clamp(16px, 3vw, 40px), calc((100% - 1280px) / 2));
+}
+
+/* Section labels repeated their headings ("Next steps" above "Complete your profile").
+   The heading carries the section on its own. The page-level label stays as a quiet caption. */
+.eyebrow {
+  display: none;
+}
+
+/* Phones: metrics two-up so the overview stays on one screen. */
+@media (max-width: 720px) {
+  .kpiGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .kpiCard {
+    padding: 14px;
+  }
+
+  .kpiHint {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 340px) {
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+}

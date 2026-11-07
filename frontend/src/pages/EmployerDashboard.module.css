@@ -1358,3 +1358,18 @@
     max-width: 100%;
   }
 }
+
+/* ── Redesign: page headers are a plain band (same as the candidate dashboard), not a boxed card ── */
+.heroCard {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 8px 0 24px;
+}
+
+.heroBadge {
+  background: #f5f3ff;
+  border-color: #e9e3ff;
+  letter-spacing: 0.04em;
+}

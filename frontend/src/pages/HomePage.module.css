@@ -10,7 +10,7 @@
 
 .page {
   /* Visible whitespace between any two sections = 75px (each section contributes half). */
-  --section-gap: 75px;
+  --section-gap: 128px;
   --bg-page: #FAF8F5;
   --bg-surface: #FFFFFF;
   --bg-surface-soft: #F5F1EB;
@@ -51,7 +51,7 @@
 
 .container {
   width: 100%;
-  max-width: 1140px;
+  max-width: 1248px;
   margin: 0 auto;
   padding: 0 1.5rem;
   box-sizing: border-box;
@@ -86,12 +86,11 @@
   align-items: center;
   gap: 0.5rem;
   font-family: var(--font-sans);
-  font-size: 0.85rem;
-  font-weight: 500;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--color-ink-muted);
-  text-transform: lowercase;
-  letter-spacing: -0.01em;
-  margin-bottom: 1.25rem;
+  letter-spacing: 0.01em;
+  margin-bottom: 1rem;
 }
 
 .kickerDot {
@@ -104,20 +103,15 @@
 
 .editorialH1 {
   font-family: var(--font-serif);
-  font-size: clamp(2.35rem, 4.4vw, 5.2rem);
-  font-weight: 500;
-  line-height: 1.12;
-  letter-spacing: -0.02em;
+  font-size: clamp(2.5rem, 4.3vw, 4.25rem);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
   color: var(--color-ink);
-  margin: 0 auto clamp(0.75rem, 1vw, 1.25rem);
-  text-align: center;
+  margin: 0 0 1.25rem;
+  text-align: left;
 }
 
-@media (min-width: 980px) {
-  .editorialH1 {
-    white-space: nowrap;
-  }
-}
 
 .heroBlueHighlight {
   color: #2563EB;
@@ -125,24 +119,22 @@
 
 .editorialH2 {
   font-family: var(--font-serif);
-  font-size: clamp(2.1rem, 4vw, 3.2rem);
-  font-weight: 400;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  font-size: clamp(2rem, 3.4vw, 2.85rem);
+  font-weight: 650;
+  line-height: 1.14;
+  letter-spacing: -0.03em;
   color: var(--color-ink);
-  margin: 0 0 1rem 0;
-  text-transform: lowercase;
+  margin: 0 0 1.25rem 0;
 }
 
 .subheadSerif {
-  font-family: var(--font-serif);
-  font-size: clamp(1.1rem, 1.55vw, 1.65rem);
-  font-style: italic;
-  font-weight: 400;
-  color: #4A4458;
-  margin: 0 auto clamp(0.85rem, 1.1vw, 1.35rem);
-  line-height: 1.35;
-  text-align: center;
+  font-family: var(--font-sans);
+  font-size: clamp(1.1rem, 1.35vw, 1.35rem);
+  font-weight: 650;
+  color: var(--color-ink);
+  margin: 0 0 1rem;
+  line-height: 1.4;
+  text-align: left;
 }
 
 .bodyText {
@@ -153,12 +145,12 @@
 }
 
 .leadText {
-  font-size: clamp(0.925rem, 1.05vw, 1.15rem);
-  line-height: 1.68;
-  color: #554D64;
-  max-width: clamp(560px, 46vw, 760px);
-  margin: 0 auto clamp(1.75rem, 2.4vw, 2.75rem);
-  text-align: center;
+  font-size: clamp(1rem, 1.05vw, 1.125rem);
+  line-height: 1.7;
+  color: var(--color-ink-subtle);
+  max-width: 36rem;
+  margin: 0 0 2.25rem;
+  text-align: left;
 }
 
 .highlightPillText {
@@ -179,32 +171,32 @@
 .heroCapsuleStack {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.7rem, 0.85vw, 1rem);
+  gap: 0.75rem;
   width: 100%;
-  max-width: clamp(440px, 31vw, 560px);
-  margin: 0 auto;
+  max-width: 520px;
+  margin: 0;
 }
 
 .capsuleCard {
   background: #FFFFFF;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  border: 1px solid var(--border-light);
   border-radius: 9999px;
-  padding: clamp(0.38rem, 0.42vw, 0.55rem) clamp(0.42rem, 0.48vw, 0.65rem) clamp(0.38rem, 0.42vw, 0.55rem) clamp(1.2rem, 1.35vw, 1.6rem);
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.02);
+  padding: 0.45rem 0.5rem 0.45rem 1.35rem;
+  box-shadow: 0 1px 2px rgba(24, 20, 36, 0.04);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.85rem;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
   text-align: left;
 }
 
 .capsuleCard:hover {
-  border-color: #CBD5E1;
-  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08), 0 2px 5px rgba(15, 23, 42, 0.03);
-  transform: translateY(-1px);
+  border-color: var(--border-subtle);
+  box-shadow: 0 10px 26px -12px rgba(24, 20, 36, 0.18);
+  transform: translateY(-2px);
 }
 
 .capsuleLeft {
@@ -216,24 +208,24 @@
 }
 
 .capsuleTextPrimary {
-  font-size: clamp(0.85rem, 0.9vw, 1.02rem);
-  font-weight: 500;
-  color: #1E293B;
+  font-size: 0.975rem;
+  font-weight: 600;
+  color: var(--color-ink);
   white-space: nowrap;
 }
 
 .capsuleTextSecondary {
-  font-size: clamp(0.74rem, 0.78vw, 0.88rem);
-  font-weight: 400;
-  color: #94A3B8;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-ink-muted);
   margin-left: 0.25rem;
 }
 
 .recruiterIconCircle {
-  width: clamp(28px, 1.9vw, 34px);
-  height: clamp(28px, 1.9vw, 34px);
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: #EEF2FF;
+  background: var(--color-primary-soft);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -241,25 +233,32 @@
 }
 
 .capsuleActionBtn {
-  background: #0F172A;
+  background: var(--color-primary);
   color: #FFFFFF !important;
   border: none;
   border-radius: 9999px;
-  padding: clamp(0.55rem, 0.6vw, 0.72rem) clamp(1.15rem, 1.25vw, 1.55rem);
+  min-height: 42px;
+  padding: 0 1.25rem;
   font-family: var(--font-sans);
-  font-size: clamp(0.82rem, 0.88vw, 0.95rem);
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background-color 0.2s ease, transform 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.15s ease;
 }
 
 .capsuleActionBtn:hover {
-  background: #1E293B;
+  background: var(--color-primary-hover);
+}
+
+.capsuleActionBtn:active,
+.primaryBtn:active,
+.secondaryBtn:active {
+  transform: translateY(1px);
 }
 
 .capsuleActionBtn svg {
@@ -274,18 +273,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
+  min-height: 48px;
   background-color: var(--color-primary);
   color: #FFFFFF !important;
   font-family: var(--font-sans);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 0.975rem;
+  font-weight: 700;
   text-decoration: none;
   border: 1px solid var(--color-primary);
   border-radius: 9999px;
-  padding: 0.8rem 1.75rem;
+  padding: 0 1.6rem;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(108, 71, 255, 0.25);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 2px rgba(24, 20, 36, 0.08);
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
   white-space: nowrap;
 }
 
@@ -293,24 +294,26 @@
   background-color: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(108, 71, 255, 0.35);
+  box-shadow: 0 10px 22px -10px rgba(108, 71, 255, 0.55);
 }
 
 .secondaryBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background-color: transparent;
+  gap: 0.45rem;
+  min-height: 48px;
+  background-color: #FFFFFF;
   color: var(--color-ink) !important;
   font-family: var(--font-sans);
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 0.975rem;
+  font-weight: 700;
   text-decoration: none;
   border: 1px solid var(--border-subtle);
   border-radius: 9999px;
-  padding: 0.8rem 1.6rem;
+  padding: 0 1.5rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
   white-space: nowrap;
 }
 
@@ -372,29 +375,61 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
-  padding: calc(var(--section-gap) / 2) 1.5rem;
+  padding: clamp(2.5rem, 5vw, 4.5rem) 1.5rem;
   position: relative;
   background-color: var(--bg-page);
   box-sizing: border-box;
 }
 
 .heroGrid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
   align-items: center;
-  text-align: center;
+  gap: clamp(2.5rem, 5vw, 5rem);
   width: 100%;
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
 .heroLeft {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
+  text-align: left;
+  min-width: 0;
+}
+
+.heroVisual {
+  min-width: 0;
+}
+
+@media (max-width: 1023px) {
+  .heroGrid {
+    grid-template-columns: 1fr;
+    max-width: 680px;
+  }
+}
+
+/* Questions section photo (replaces the old desk drawing) */
+.questionsPhoto {
+  margin: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  box-shadow: 0 24px 60px -30px rgba(24, 20, 36, 0.35);
+}
+
+.questionsPhoto img {
   width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Frames the person and keeps the generator mark in the bottom-right corner out of view. */
+  object-position: 38% 40%;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.questionsPhoto:hover img {
+  transform: scale(1.025);
 }
 
 .heroChatWindow {
@@ -915,13 +950,12 @@
 
 .vendorHeading {
   font-family: var(--font-serif);
-  font-size: clamp(2.35rem, 4.5vw, 3.6rem);
-  font-weight: 400;
+  font-size: clamp(2.2rem, 3.8vw, 3.1rem);
+  font-weight: 650;
   line-height: 1.12;
   letter-spacing: -0.02em;
   color: var(--color-ink);
   margin: 0 0 1.25rem 0;
-  text-transform: lowercase;
 }
 
 .italicPurple {
@@ -1457,12 +1491,11 @@
 
 .closingH2 {
   font-family: var(--font-serif);
-  font-size: clamp(2.4rem, 4.5vw, 3.8rem);
-  font-weight: 400;
+  font-size: clamp(2.3rem, 4vw, 3.25rem);
+  font-weight: 650;
   line-height: 1.1;
   color: #FFFFFF;
   margin: 0 0 1.25rem 0;
-  text-transform: lowercase;
 }
 
 .closingLead {
@@ -1748,4 +1781,31 @@
   .capsuleActionBtn {
     justify-content: center;
   }
+}
+
+/* ── Redesign: one card-title weight across report, milestone, step and comparison cards ── */
+.reportCardTitle,
+.milestoneTitle,
+.threeStepTitle,
+.comparisonColTitle,
+.stepTimeTitle,
+.principleTitle {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* Linked cards lift slightly on hover (state feedback, not decoration). */
+.reportCard,
+.milestoneCard,
+.threeStepCard,
+.comparisonColCard {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.reportCard:hover,
+.milestoneCard:hover,
+.threeStepCard:hover,
+.comparisonColCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px -18px rgba(24, 20, 36, 0.22);
 }
