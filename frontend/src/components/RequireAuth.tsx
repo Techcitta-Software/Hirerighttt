@@ -10,6 +10,7 @@ import {
 import { ensureApiSession } from '../lib/apiSession'
 import { getUser, type UserRole } from '../lib/store'
 import { moonshineStt } from '../lib/moonshineStt'
+import { PageLoader } from './RisingArrowLoader'
 
 type Props = {
   children: ReactNode
@@ -76,9 +77,7 @@ export function RequireAuth({ children, role }: Props) {
 
   if (!ready) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }} role="status">
-        Verifying your session…
-      </div>
+      <PageLoader label="Verifying your session…" />
     )
   }
 

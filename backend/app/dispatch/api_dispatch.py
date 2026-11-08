@@ -45,6 +45,7 @@ from app.services.interview_invites import (
     validate_invite_start,
 )
 from app.services.interview_consent import parse_interview_consent
+from app.services.interview_integrity import authoritative_answers, invite_attempt_used, session_is_stale
 from app.services.interview_review import vendor_may_view_interview_session
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
@@ -647,12 +648,26 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "code": "CONSENT_REQUIRED",
                     },
                 )
+            invite_token = ""
             if body.get("inviteToken") and config.database_url:
                 pool = db_store.db_pool(config.database_url)
                 invite = await get_interview_invite_by_token(pool, str(body["inviteToken"]))
                 access = validate_invite_start(invite, email)
                 if not access.get("ok"):
                     return _json(access["status"], {"error": access["error"], "code": "INVITE_ACCESS_DENIED"})
+                invite_token = str(body["inviteToken"])
+                if invite_attempt_used(ctx.load_db(), invite_token):
+                    return _json(
+                        409,
+                        {
+                            "error": "You have already completed the interview for this invitation.",
+                            "code": "INVITE_ALREADY_USED",
+                        },
+                    )
+                # The invite knows which application it is for; never lose that job context because the
+                # browser's stored copy was missing (new tab, cleared storage, different device).
+                if invite and invite.get("application_id") and not body.get("applicationId"):
+                    body["applicationId"] = invite["application_id"]
             db = ctx.load_db()
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
             account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
@@ -771,6 +786,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "jdPlan": jd_plan,
                 "primarySkills": (skill_analysis or {}).get("jdSkills") or required_skills,
                 "skillFocus": skill_focus,
+                "inviteToken": invite_token or None,
                 "questionMode": question_mode,
                 "skillAnalysis": skill_analysis,
                 "startedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -871,6 +887,18 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session = (db.get("interviewSessions") or {}).get(session_id)
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
+            if session.get("status") == "completed" and session.get("result"):
+                # Already scored: return the stored result. Re-scoring would let a candidate resubmit answers.
+                return _json(
+                    200,
+                    {
+                        "interview": strip_interview_result_for_candidate(session["result"]),
+                        "sessionId": session_id,
+                        "alreadyScored": True,
+                    },
+                )
+            if session_is_stale(session):
+                return _json(410, {"error": "This interview session has expired. Please start a new interview.", "code": "SESSION_EXPIRED"})
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
             # The server's own question list is authoritative; client-sent questions only if the session has none.
             raw_questions = session.get("questions") or body.get("questions")
@@ -885,6 +913,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     questions.append({"text": q, "category": "Technical", "keywords": [], "hint": ""})
             if not questions:
                 return _json(400, {"error": "Questions required to score interview."})
+            # Answers the server recorded turn by turn win; the browser only supplies the final turn's answer.
+            answers = authoritative_answers(session, answers, questions)
             pair_count = min(len(questions), len(answers))
             if not pair_count:
                 return _json(400, {"error": "At least one answer is required to score the interview."})
@@ -925,6 +955,17 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             deviations = count_face_proctor_deviations(client_integrity, proctoring)
             apply_face_deviation_penalty_to_result(result, deviations)
             db.setdefault("interviews", {})[email] = result
+            # A job interview belongs to that job's application: the vendor sees this score for this job,
+            # not whatever interview the candidate took last.
+            scored_application = None
+            if session.get("applicationId") and session.get("organizationId"):
+                scored_application = update_application_interview(
+                    db,
+                    str(session["applicationId"]),
+                    str(session["organizationId"]),
+                    result,
+                    {"interviewSessionId": session_id, "interviewSource": "job"},
+                )
             session["status"] = "completed"
             session["answers"] = scored_answers
             session["questions"] = scored_questions
@@ -932,6 +973,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session["completedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             db["interviewSessions"][session_id] = session
             await ctx.save_db(db)
+            if scored_application and config.database_url:
+                try:
+                    await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, scored_application)
+                except Exception:
+                    logger.exception("Could not save job interview result to application %s", session.get("applicationId"))
             if config.database_url and s3_storage_configured():
                 try:
                     pool = db_store.db_pool(config.database_url)
@@ -1477,6 +1523,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 # Anyone holding the link can see the invite details, but not the candidate's resume or the job description.
                 resume_text = ""
                 job_description = ""
+            can_reschedule = False
+            if is_invitee:
+                from app.dispatch.schedule_routes import reschedule_refusal
+
+                viewer = next((u for u in db.get("users") or [] if u.get("email") == viewer_email), None)
+                can_reschedule = reschedule_refusal(row, viewer, db) is None
             return _json(
                 200,
                 {
@@ -1505,6 +1557,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "contextSource": ctx_json.get("source"),
                         "status": access.get("status"),
                         "canStart": access.get("canStart"),
+                        "canReschedule": can_reschedule,
                         "interviewPath": f"/interview/invite/{row.get('token')}",
                     }
                 },
@@ -1531,6 +1584,15 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         # Never swallow errors silently: without this line a failing endpoint is invisible in production logs.
         logger.exception("API dispatch failed for %s %s", method, path)
         return _json(500, {"error": "Server error"})
+
+    from app.dispatch.schedule_routes import try_schedule_routes
+
+    try:
+        sched = await try_schedule_routes(request, ctx, _json)
+    except HTTPException as err:
+        return _json(err.status_code, {"error": err.detail if isinstance(err.detail, str) else "Request failed."})
+    if sched is not None:
+        return sched
 
     from app.dispatch.route_extensions import try_extended_routes
 

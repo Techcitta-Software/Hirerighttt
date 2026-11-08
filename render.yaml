@@ -35,7 +35,9 @@ services:
       - key: PUBLIC_APP_URL
         value: https://hire-rightt.vercel.app
       - key: INVITE_JOIN_WINDOW_MINUTES
-        value: "5"
+        value: "15"
+      - key: CRON_SECRET
+        generateValue: true
       - key: DISABLE_SUPABASE
         value: "true"
       - key: AWS_REGION

@@ -76,9 +76,22 @@ async def health() -> dict:
     }
 
 
+# The app checks /api/health before loading most pages; a fresh database round trip each time added ~1s
+# of dead air per page. A healthy ping is reused briefly; a failed one is always re-checked.
+PING_CACHE_SECONDS = 15.0
+_ping_cache: dict = {"at": 0.0, "value": None}
+
+
 async def _async_ping() -> dict:
     if not config.database_url:
         return {"ok": False, "reason": "DATABASE_URL not set"}
     import asyncio
+    import time
 
-    return await asyncio.to_thread(ping_database, config.database_url)
+    cached = _ping_cache["value"]
+    if cached is not None and cached.get("ok") and time.monotonic() - _ping_cache["at"] < PING_CACHE_SECONDS:
+        return cached
+    value = await asyncio.to_thread(ping_database, config.database_url)
+    _ping_cache["at"] = time.monotonic()
+    _ping_cache["value"] = value
+    return value

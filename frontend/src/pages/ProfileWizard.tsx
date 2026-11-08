@@ -27,6 +27,7 @@ import { firstName, getProfile, saveProfile } from '../lib/store'
 import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
 import { beginImmediateInterview } from '../lib/interviewTestMode'
+import { consumeInviteReturn } from '../lib/inviteReturn'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
@@ -188,6 +189,16 @@ export function ProfileWizard() {
       nextCompleted,
     )
     setCompletedThrough(uiCompletedThrough(nextCompleted))
+
+    // Arrived from an emailed interview link: once the resume/profile is saved, go back to that interview
+    // (its job and time slot) instead of starting a new, unrelated one from this wizard.
+    if (step === 1) {
+      const inviteBack = consumeInviteReturn()
+      if (inviteBack) {
+        navigate(inviteBack, { replace: true })
+        return
+      }
+    }
 
     if (step === 2 && !isScheduled) {
       beginImmediateInterview(navigate)

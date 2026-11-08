@@ -40,6 +40,7 @@ import { SignOutModal } from './components/SignOutModal'
 import { pageTransition } from './motion/variants'
 import { applyClientStorageMigration } from './lib/store'
 import { AppShell } from './components/AppShell'
+import { GlobalLoadingIndicator } from './components/GlobalLoadingIndicator'
 
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'HireRighttt — AI interviews that prove skills',
@@ -292,6 +293,7 @@ function App() {
     <div className="hr-ui">
       <BrowserRouter>
         <AnimatedRoutes />
+        <GlobalLoadingIndicator />
         <CookieConsentBanner />
         <SignOutModal />
         <AuthInvalidModal />

@@ -250,6 +250,8 @@ export type EmployerApplicant = {
   missingSkills?: string[]
   /** Where the candidate applied from. */
   source?: 'job_board' | 'shared_link' | 'invite'
+  /** Which interview the score comes from: this job's interview, or the candidate's general one. */
+  interviewSource?: 'job' | 'general'
 }
 
 const USERS_KEY = 'hireright.users'

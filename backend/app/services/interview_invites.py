@@ -10,8 +10,10 @@ from urllib.parse import urlparse
 
 from app.services.mail_service import send_mail, smtp_configured
 
-configured_join = int(os.environ.get("INVITE_JOIN_WINDOW_MINUTES") or 5)
-INVITE_JOIN_WINDOW_MINUTES = min(30, max(1, configured_join if configured_join == configured_join else 5))
+# How long after the slot starts the candidate can still join. 15 minutes leaves room for signing in and a
+# camera check (5 minutes made late-by-a-little candidates miss their interview).
+configured_join = int(os.environ.get("INVITE_JOIN_WINDOW_MINUTES") or 15)
+INVITE_JOIN_WINDOW_MINUTES = min(30, max(1, configured_join if configured_join == configured_join else 15))
 
 
 def invite_join_window_end(scheduled_start: datetime | str, join_minutes: int = INVITE_JOIN_WINDOW_MINUTES) -> datetime:

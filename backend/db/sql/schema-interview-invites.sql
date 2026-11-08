@@ -19,3 +19,8 @@ CREATE INDEX IF NOT EXISTS idx_interview_invites_candidate ON interview_invites 
 
 -- Resume + JD snapshot for personalized interviews at invite time
 ALTER TABLE interview_invites ADD COLUMN IF NOT EXISTS context_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Reminders (24h / 2h before the slot) and candidate self-service rescheduling
+ALTER TABLE interview_invites ADD COLUMN IF NOT EXISTS reminder_24h_sent_at TIMESTAMPTZ;
+ALTER TABLE interview_invites ADD COLUMN IF NOT EXISTS reminder_2h_sent_at TIMESTAMPTZ;
+ALTER TABLE interview_invites ADD COLUMN IF NOT EXISTS reschedule_count INTEGER NOT NULL DEFAULT 0;

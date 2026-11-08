@@ -363,3 +363,11 @@
     margin-left: 0;
   }
 }
+
+.ivSource {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #5f6686;
+}

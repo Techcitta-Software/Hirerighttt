@@ -81,6 +81,7 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     matchedSkills: a.data.matchedSkills,
     missingSkills: a.data.missingSkills,
     source: a.data.source ?? undefined,
+    interviewSource: a.data.interviewSource,
     appliedAt: a.appliedAt,
     status: statusMap[a.status] || 'New',
   }

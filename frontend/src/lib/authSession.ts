@@ -2,7 +2,7 @@
  * Auth session helpers (local session + API Bearer token verified via /api/me).
  */
 import type { NavigateFunction } from 'react-router-dom'
-import { consumeInviteReturn } from './inviteReturn'
+import { consumeInviteReturn, peekInviteReturn, rememberInviteReturn } from './inviteReturn'
 import { apiMe, getApiToken, setApiToken } from './api'
 import { isOnboardingComplete, onboardingResumeStep } from './onboardingProgress'
 import { getProfile, getUser, logout, type User } from './store'
@@ -70,6 +70,9 @@ export async function isApiSessionValid(): Promise<boolean> {
   }
 }
 
+/** Legacy completedSteps value once the profile (resume) step of onboarding is saved. */
+const PROFILE_STEP_DONE = 3
+
 /** Post-login route (mirrors AuthPages.navigateAfterLogin rules). */
 export function resolveAuthenticatedDestination(
   user: User,
@@ -92,10 +95,18 @@ export function resolveAuthenticatedDestination(
   if (user.role === 'employer') return '/employer/dashboard'
 
   const profile = getProfile()
-  // Came from an emailed interview link: go straight back to it once the profile (resume) is ready.
-  if (isOnboardingComplete(profile)) {
-    const inviteBack = consumeInviteReturn()
-    if (inviteBack) return inviteBack
+  // Came from an emailed interview link (booked slot or recruiter invite). The interview only needs the
+  // profile step (resume) — not the whole onboarding — so: profile done -> straight back to the link;
+  // otherwise finish the profile first and the wizard brings the candidate back to the link.
+  const pendingInvite =
+    peekInviteReturn() || (fromPath && fromPath.startsWith('/interview/invite/') ? fromPath : null)
+  if (pendingInvite) {
+    if ((profile?.completedSteps ?? 0) >= PROFILE_STEP_DONE) {
+      consumeInviteReturn()
+      return pendingInvite
+    }
+    rememberInviteReturn(pendingInvite)
+    return '/onboarding?step=1'
   }
   if (!isOnboardingComplete(profile)) {
     return `/onboarding?step=${onboardingResumeStep(profile)}`

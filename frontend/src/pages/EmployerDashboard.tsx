@@ -338,12 +338,15 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     void refreshJobCountsForJobs(mapped, loadSeq)
   }
 
-  async function loadOrgCandidatesFromApi(filters?: {
-    name?: string
-    job?: string
-    keywords?: string
-  }) {
-    const { candidates } = await fetchOrganizationCandidates(filters)
+  async function loadOrgCandidatesFromApi(
+    filters?: {
+      name?: string
+      job?: string
+      keywords?: string
+    },
+    opts?: { background?: boolean },
+  ) {
+    const { candidates } = await fetchOrganizationCandidates(filters, opts)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
     setPortalSyncNote(`${jobSeekers.length} candidate profiles available.`)
@@ -390,14 +393,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           fresh.forEach((a) => seenApplicationAlertIdsRef.current.add(a.id))
           for (const alert of fresh) {
             try {
-              const { total, applicants: roster } = await fetchJobApplicants(alert.jobId)
+              const { total, applicants: roster } = await fetchJobApplicants(alert.jobId, { background: true })
               setJobCounts((prev) => ({ ...prev, [alert.jobId]: total ?? roster.length }))
             } catch {
               /* ignore per-job refresh errors */
             }
           }
           if (isCandidatesView) {
-            void loadOrgCandidatesFromApi()
+            void loadOrgCandidatesFromApi(undefined, { background: true })
           }
         }
       } catch {
@@ -722,11 +725,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     <div className={styles.pageBleed}>
     <div className={styles.page}>
       <div className={styles.shell}>
-        {portalLoading && isCandidatesView && (
-          <p className={styles.portalSyncNote} role="status">
-            <span className="ds-spinner" aria-hidden="true" /> Loading candidates…
-          </p>
-        )}
         {isCandidatesView && (
           <>
             <motion.div className={styles.heroCard} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>

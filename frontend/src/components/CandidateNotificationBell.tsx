@@ -59,7 +59,7 @@ export function CandidateNotificationBell() {
         const ok = await ensureApiSession()
         if (!ok || cancelled) return
         const [res, alertsRes] = await Promise.all([
-          fetchOpenJobs({ summary: true, scope: 'matched', limit: 30 }),
+          fetchOpenJobs({ summary: true, scope: 'matched', limit: 30, background: true }),
           fetchCandidateJobAlerts().catch(() => ({ alerts: [] as { jobId: string; title: string; company: string }[] })),
         ])
         const fromJobs = (res.jobs ?? []).map((j) => ({

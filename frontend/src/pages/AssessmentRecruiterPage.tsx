@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { PageLoader } from '../components/RisingArrowLoader'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { HrIcon } from '../components/HrIcon'
@@ -128,7 +129,7 @@ export function AssessmentRecruiterPage() {
         </section>
 
         {error && <p className={styles.error}>{error}</p>}
-        {loading && <p>Loading…</p>}
+        {loading && <PageLoader label="Loading assessments…" />}
 
         {!loading && org && (
           <div className={styles.grid2}>

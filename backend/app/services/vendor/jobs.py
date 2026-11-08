@@ -400,10 +400,15 @@ def attach_candidate_report_to_application(
             application["data"][key] = profile[pkey]
     if options.get("attachInterviewReport") is False:
         return application
+    # The interview taken for THIS job always wins; never replace it with the candidate's latest
+    # interview for some other role or a practice run.
+    if application["data"].get("interviewSource") == "job":
+        return application
     interview = options.get("interview") or (db.get("interviews") or {}).get(email)
     if not interview:
         return application
     application["data"]["interviewResult"] = interview
+    application["data"]["interviewSource"] = "general"
     if isinstance(interview.get("overall"), (int, float)):
         application["data"]["interviewScore"] = interview["overall"]
     if not application["data"].get("candidateRole") and interview.get("role"):

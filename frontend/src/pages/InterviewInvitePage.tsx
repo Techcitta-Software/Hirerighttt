@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { PageLoader } from '../components/RisingArrowLoader'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
@@ -23,6 +24,7 @@ type InvitePayload = {
   serverNow?: string
   status: string
   canStart: boolean
+  canReschedule?: boolean
   interviewPath: string
   applicationId?: string | null
   jobId?: string | null
@@ -55,6 +57,9 @@ export function InterviewInvitePage() {
   const [retry, setRetry] = useState(0)
   const [now, setNow] = useState(() => Date.now())
   const autoRedirected = useRef(false)
+  const [newSlot, setNewSlot] = useState('')
+  const [rescheduling, setRescheduling] = useState(false)
+  const [rescheduleMsg, setRescheduleMsg] = useState('')
   const me = getUser()
   const signedInEmail = me?.email?.trim().toLowerCase() || ''
   const invitedEmail = invite?.candidateEmail?.trim().toLowerCase() || ''
@@ -136,6 +141,12 @@ export function InterviewInvitePage() {
     if (!invite || !token || !canStart || !isInvitee) return
     if (autoRedirected.current) return
     autoRedirected.current = true
+    if (!resumeReady) {
+      // Questions are built from the resume: add it first, then the wizard returns here.
+      rememberInviteReturn(`/interview/invite/${token}`, invite.candidateEmail)
+      navigate('/onboarding?step=1', { replace: true })
+      return
+    }
     persistScheduledInvite({
       token,
       scheduledStart: invite.scheduledStart,
@@ -190,6 +201,42 @@ export function InterviewInvitePage() {
     startInterview()
   }, [canStart, invite, token, loading, error, isInvitee])
 
+  async function reschedule() {
+    if (!token || !newSlot) return
+    const when = new Date(newSlot)
+    if (Number.isNaN(when.getTime())) {
+      setRescheduleMsg('Choose a valid date and time.')
+      return
+    }
+    setRescheduling(true)
+    setRescheduleMsg('')
+    try {
+      const res = await apiFetch(`/api/interview-invites/${encodeURIComponent(token)}/reschedule`, {
+        method: 'POST',
+        body: JSON.stringify({ scheduledStart: when.toISOString() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not move your interview.')
+      setRescheduleMsg(
+        data.emailSent
+          ? 'Your interview has been moved. We emailed you the new time.'
+          : 'Your interview has been moved.',
+      )
+      setNewSlot('')
+      setRetry((value) => value + 1)
+    } catch (e) {
+      setRescheduleMsg(e instanceof Error ? e.message : 'Could not move your interview.')
+    } finally {
+      setRescheduling(false)
+    }
+  }
+
+  const minSlot = useMemo(() => {
+    const d = new Date(Date.now() + 20 * 60000)
+    d.setSeconds(0, 0)
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  }, [])
+
   const start = invite ? new Date(invite.scheduledStart) : null
   const isOpenLink = invite ? new Date(invite.scheduledEnd).getTime() - new Date(invite.scheduledStart).getTime() > 24 * 3600 * 1000 : false
   const end = invite ? new Date(invite.scheduledEnd) : null
@@ -207,7 +254,7 @@ export function InterviewInvitePage() {
           {invite?.company && <p className={styles.sub}>{invite.company}</p>}
         </header>
 
-        {loading && <p className={styles.muted}>Loading…</p>}
+        {loading && <PageLoader label="Loading your interview…" />}
         {error && <div role="alert"><p className={styles.error}>{error}</p><button type="button" className={styles.secondaryBtn} onClick={() => setRetry(value => value + 1)}>Try again</button></div>}
 
         {invite && start && end && (
@@ -281,10 +328,42 @@ export function InterviewInvitePage() {
                 )}
               </div>
             )}
-            {(status === 'expired' || status === 'invalid') && (
+            {(status === 'expired' || status === 'invalid') && !invite.canReschedule && (
               <p className={styles.error}>
                 This interview window has ended. Contact your recruiter for a new link.
               </p>
+            )}
+            {isInvitee && invite.canReschedule && (status === 'too_early' || status === 'expired') && (
+              <div className={styles.noticeWarn}>
+                <strong>{status === 'expired' ? 'Missed your slot? Pick a new time.' : 'Need a different time?'}</strong>
+                <p className={styles.mutedInline}>Choose a new slot; we will email you the updated link details.</p>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
+                  <label className="ds-sr-only" htmlFor="invite-new-slot">
+                    New interview date and time
+                  </label>
+                  <input
+                    id="invite-new-slot"
+                    type="datetime-local"
+                    min={minSlot}
+                    value={newSlot}
+                    onChange={(e) => setNewSlot(e.target.value)}
+                    style={{ minHeight: 42, padding: '0 10px', borderRadius: 10, border: '1px solid #d6d7e5' }}
+                  />
+                  <button
+                    type="button"
+                    className={styles.primaryBtn}
+                    onClick={() => void reschedule()}
+                    disabled={!newSlot || rescheduling}
+                  >
+                    {rescheduling ? 'Moving…' : 'Move my interview'}
+                  </button>
+                </div>
+                {rescheduleMsg && (
+                  <p className={styles.mutedInline} role="status" style={{ marginTop: 8 }}>
+                    {rescheduleMsg}
+                  </p>
+                )}
+              </div>
             )}
             {canStart && needsSignIn && (
               <div className={styles.noticeOk}>

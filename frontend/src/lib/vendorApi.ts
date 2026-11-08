@@ -48,6 +48,8 @@ export type VendorApplicant = {
     matchedSkills?: string[]
     missingSkills?: string[]
     source?: 'job_board' | 'shared_link' | 'invite' | null
+    /** 'job' = interview taken for this job; 'general' = the candidate's latest career interview. */
+    interviewSource?: 'job' | 'general'
   }
 }
 
@@ -121,6 +123,8 @@ export async function fetchOpenJobs(options?: {
   scope?: 'matched' | 'all'
   limit?: number
   offset?: number
+  /** Notification polling: refresh without raising the loading veil. */
+  background?: boolean
 }) {
   const qs = new URLSearchParams()
   if (options?.summary) qs.set('summary', '1')
@@ -129,7 +133,7 @@ export async function fetchOpenJobs(options?: {
   if (options?.limit != null) qs.set('limit', String(options.limit))
   if (options?.offset != null) qs.set('offset', String(options.offset))
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
-  const res = await apiFetch(`/api/jobs${suffix}`)
+  const res = await apiFetch(`/api/jobs${suffix}`, { background: options?.background })
   return parse<OpenJobsResponse>(res)
 }
 
@@ -171,8 +175,8 @@ export async function markVendorJobDeletedForCandidates(jobId: string) {
   return parse<{ ok: boolean; jobId: string; candidateApplicationsUpdated: number }>(res)
 }
 
-export async function fetchJobApplicants(jobId: string) {
-  const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}/applicants`)
+export async function fetchJobApplicants(jobId: string, opts?: { background?: boolean }) {
+  const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}/applicants`, { background: opts?.background })
   return parse<{ job: VendorJob; applicants: VendorApplicant[]; total: number }>(res)
 }
 
@@ -257,7 +261,7 @@ export async function fetchOrganizationCandidates(params?: {
   experienceYears?: string
   keywords?: string
   jobId?: string
-}) {
+}, opts?: { background?: boolean }) {
   const qs = new URLSearchParams()
   if (params?.name) qs.set('name', params.name)
   if (params?.job) qs.set('job', params.job)
@@ -265,7 +269,7 @@ export async function fetchOrganizationCandidates(params?: {
   if (params?.keywords) qs.set('keywords', params.keywords)
   if (params?.jobId) qs.set('jobId', params.jobId)
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
-  const res = await apiFetch(`/api/vendor/candidates${suffix}`)
+  const res = await apiFetch(`/api/vendor/candidates${suffix}`, { background: opts?.background })
   return parse<{ organizationId: string; total: number; candidates: OrgCandidateRecord[] }>(res)
 }
 

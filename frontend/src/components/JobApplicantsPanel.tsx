@@ -213,7 +213,23 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                       <ScoreCell value={a.jdMatchScore} label="JD match" />
                     </td>
                     <td data-label="HireRighttt score">
-                      {iv === null ? <span className={styles.muted}>Not interviewed</span> : <ScoreCell value={iv} label="HireRighttt score" />}
+                      {iv === null ? (
+                        <span className={styles.muted}>Not interviewed</span>
+                      ) : (
+                        <>
+                          <ScoreCell value={iv} label="HireRighttt score" />
+                          <span
+                            className={styles.ivSource}
+                            title={
+                              a.interviewSource === 'job'
+                                ? 'Interview taken for this job'
+                                : "The candidate's general career interview, not one for this job"
+                            }
+                          >
+                            {a.interviewSource === 'job' ? 'Job interview' : 'Career interview'}
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td data-label="Matched skills">
                       {skills.length ? (

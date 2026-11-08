@@ -5,6 +5,8 @@ const DEV_API_FALLBACK = (
   import.meta.env.VITE_DEV_API_FALLBACK || 'http://127.0.0.1:8787'
 ).replace(/\/$/, '')
 
+import { trackRequest } from './loadingTracker'
+
 let runtimeApiBase = ENV_API_BASE
 let resolveApiBasePromise: Promise<string> | null = null
 
@@ -81,10 +83,14 @@ export function apiUrl(path: string) {
   return base ? `${base}${p}` : p
 }
 
-export async function apiFetch(path: string, options: RequestInit = {}) {
+/** `background: true` marks a refresh nobody is waiting on, so it never raises the loading veil. */
+export type ApiFetchOptions = RequestInit & { background?: boolean }
+
+export async function apiFetch(path: string, { background = false, ...options }: ApiFetchOptions = {}) {
   await resolveApiBase()
   // Any write can change what /api/me returns (profile, interview, applications).
   if (options.method && options.method.toUpperCase() !== 'GET') invalidateMeCache()
+  const settled = background ? () => undefined : trackRequest(path)
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> | undefined),
   }
@@ -97,7 +103,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   const signal =
     options.signal ??
     (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
-  return fetch(apiUrl(path), { ...options, headers, signal })
+  return fetch(apiUrl(path), { ...options, headers, signal }).finally(settled)
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -140,10 +146,22 @@ export async function apiMe() {
   return promise
 }
 
-export async function apiHealth() {
+let healthInFlight: Promise<boolean> | null = null
+
+/** Is the API up? Cached for 20s, and callers that ask at the same moment share one request. */
+export function apiHealth(): Promise<boolean> {
   if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_MS) {
-    return healthCache.ok
+    return Promise.resolve(healthCache.ok)
   }
+  if (!healthInFlight) {
+    healthInFlight = checkApiHealth().finally(() => {
+      healthInFlight = null
+    })
+  }
+  return healthInFlight
+}
+
+async function checkApiHealth(): Promise<boolean> {
   await resolveApiBase()
   let ok = false
   if (ENV_API_BASE) {

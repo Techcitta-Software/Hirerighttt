@@ -47,8 +47,10 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   const message = `Hi ${name},\n\nYour 15-minute AI interview ${scheduled ? 'is scheduled' : 'is ready to schedule'}.\n${scheduled ? `${dateText}\n${timeText}\n` : ''}\nWe look forward to meeting you!\n\n– Team HireRight`
   function downloadCalendar() {
     if (!scheduled) { onEditStep(4); return }
+    // The calendar event opens the candidate's own invite link (their slot, their job), not a generic interview.
+    const inviteLink = localStorage.getItem('hireright.lastInviteUrl') || `${window.location.origin}/interview`
     const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRight//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + 15 * 60000))}`, 'SUMMARY:HireRight 15-Minute AI Interview', `URL:${window.location.origin}/interview`, 'DESCRIPTION:Prepare your camera and microphone for your AI interview.', 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
+    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRight//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + 15 * 60000))}`, 'SUMMARY:HireRight 15-Minute AI Interview', `URL:${inviteLink}`, `DESCRIPTION:Join your AI interview: ${inviteLink} — prepare your camera and microphone.`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
     const url = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url

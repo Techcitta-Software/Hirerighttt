@@ -1,0 +1,28 @@
+name: Interview reminders
+
+# Sends the 24-hour and 2-hour reminder emails for booked AI interview slots.
+# Needs two repository secrets: API_BASE_URL (e.g. https://your-api.onrender.com) and CRON_SECRET
+# (the same value as the API's CRON_SECRET environment variable). Without them the job does nothing.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send due reminders
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "API_BASE_URL / CRON_SECRET not set; skipping."
+            exit 0
+          fi
+          # The API may be asleep on a free plan; allow time for it to wake up.
+          curl --fail --silent --show-error --max-time 120 --retry 2 --retry-delay 20 \
+            -X POST "$API_BASE_URL/api/internal/interview-reminders" \
+            -H "X-Cron-Secret: $CRON_SECRET"
