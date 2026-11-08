@@ -33,6 +33,36 @@ def provision_employer_tenant(db: dict, user: dict, *, plan_id: str = "plan-star
 
     from datetime import datetime, timedelta, timezone
 
+    # The user already belongs to an organization (recorded on the account): re-attach to it instead of
+    # creating a new, empty organization (which orphaned all of that organization's jobs).
+    primary_id = user.get("primaryOrganizationId")
+    primary = next((o for o in db.get("organizations") or [] if o.get("id") == primary_id), None) if primary_id else None
+    if primary:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        members.append(
+            {
+                "id": secrets.token_hex(8),
+                "organizationId": primary["id"],
+                "userId": user["id"],
+                "role": "owner",
+                "joinedAt": now,
+            }
+        )
+        subs = db.setdefault("organizationSubscriptions", [])
+        if not any(s.get("organizationId") == primary["id"] for s in subs):
+            subs.append(
+                {
+                    "id": secrets.token_hex(8),
+                    "organizationId": primary["id"],
+                    "planId": plan_id,
+                    "status": "trialing",
+                    "trialEndsAt": (datetime.now(timezone.utc) + timedelta(days=trial_days)).isoformat().replace("+00:00", "Z"),
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
+        return primary
+
     db.setdefault("organizations", [])
     db.setdefault("organizationSubscriptions", [])
     org_id = secrets.token_hex(8)

@@ -415,6 +415,72 @@ def _save_relational(conn: Connection, db: dict[str, Any]) -> None:
             )
         )
 
+    # Organization memberships and subscriptions. These were only ever written at sign-up, so a membership
+    # created in memory (e.g. the demo vendor's tenant) vanished on restart and the vendor got a NEW
+    # organization each time, orphaning every job created before.
+    member_rows = _dedupe_by(
+        [
+            {
+                "id": m["id"],
+                "organization_id": m["organizationId"],
+                "user_id": m["userId"],
+                "role": m.get("role") or "recruiter",
+                "invited_by_user_id": m.get("invitedByUserId"),
+                "joined_at": m.get("joinedAt"),
+            }
+            for m in db.get("organizationMembers") or []
+            if m.get("id") and m.get("organizationId") and m.get("userId")
+        ],
+        lambda r: f"{r['organization_id']}\0{r['user_id']}",
+    )
+    _, changed, _ = _diff_rows("organization_members", member_rows, lambda r: f"{r['organization_id']}\0{r['user_id']}")
+    if changed:
+        statements.append(
+            (
+                """INSERT INTO organization_members (id, organization_id, user_id, role, invited_by_user_id, joined_at)
+                   SELECT x.id, x.organization_id, x.user_id, x.role, x.invited_by_user_id, COALESCE(x.joined_at::timestamptz, NOW())
+                   FROM jsonb_to_recordset(%s::jsonb) AS x(id text, organization_id text, user_id text, role text,
+                     invited_by_user_id text, joined_at timestamptz)
+                   WHERE EXISTS (SELECT 1 FROM organizations o WHERE o.id = x.organization_id)
+                     AND EXISTS (SELECT 1 FROM users u WHERE u.id = x.user_id)
+                   ON CONFLICT (organization_id, user_id) DO UPDATE SET role = EXCLUDED.role""",
+                _recordset(changed),
+            )
+        )
+
+    sub_rows = _dedupe_by(
+        [
+            {
+                "id": sub["id"],
+                "organization_id": sub["organizationId"],
+                "plan_id": sub.get("planId") or "plan-starter",
+                "status": sub.get("status") or "trialing",
+                "trial_ends_at": sub.get("trialEndsAt"),
+                "created_at": sub.get("createdAt"),
+                "updated_at": sub.get("updatedAt"),
+            }
+            for sub in db.get("organizationSubscriptions") or []
+            if sub.get("id") and sub.get("organizationId")
+        ],
+        lambda r: r["organization_id"],
+    )
+    _, changed, _ = _diff_rows("organization_subscriptions", sub_rows, lambda r: r["organization_id"])
+    if changed:
+        statements.append(
+            (
+                # Billing fields are owned by the billing flow, so existing rows are never overwritten from memory.
+                """INSERT INTO organization_subscriptions (id, organization_id, plan_id, status, trial_ends_at, created_at, updated_at)
+                   SELECT x.id, x.organization_id, x.plan_id, x.status, x.trial_ends_at::timestamptz,
+                     COALESCE(x.created_at::timestamptz, NOW()), COALESCE(x.updated_at::timestamptz, NOW())
+                   FROM jsonb_to_recordset(%s::jsonb) AS x(id text, organization_id text, plan_id text, status text,
+                     trial_ends_at text, created_at text, updated_at text)
+                   WHERE EXISTS (SELECT 1 FROM organizations o WHERE o.id = x.organization_id)
+                     AND EXISTS (SELECT 1 FROM subscription_plans p WHERE p.id = x.plan_id)
+                   ON CONFLICT (organization_id) DO NOTHING""",
+                _recordset(changed),
+            )
+        )
+
     profile_rows = [
         {"email": email, "user_id": _user_id_for_email(db, email), "data": db["profiles"].get(email)}
         for email in db.get("profiles") or {}

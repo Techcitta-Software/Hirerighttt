@@ -1,24 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
-import {
-  findUserByEmail,
-  getEmployerJobByCode,
-  getUser,
-  saveUser,
-  type EmployerJob,
-} from '../lib/store'
+import { getEmployerJobByCode, getUser, isLoggedIn, type EmployerJob } from '../lib/store'
 import { parseResumeFile } from '../lib/resumeParser'
 import { HrIcon } from '../components/HrIcon'
 import { resolvePublicJob } from '../lib/resolvePublicJob'
 import { vendorJobToEmployerJob } from '../lib/employerCandidateUtils'
 import { applyToPublicJob } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
-import { apiHealth } from '../lib/api'
+import { apiHealth, getApiToken } from '../lib/api'
 import { isValidPhone, normalizePhone } from '../lib/phone'
-import { companySlugMatches } from '../lib/jobLink'
+import { companySlugMatches, slugifyCompany } from '../lib/jobLink'
+import { setPendingJob } from '../lib/pendingJobApply'
 import styles from './CandidateApplyPage.module.css'
 
 type ApplyJob = EmployerJob & { companySlug?: string }
@@ -30,7 +25,14 @@ function localJobToApply(job: EmployerJob): ApplyJob {
 export function CandidateApplyPage() {
   const { code, companySlug } = useParams<{ code: string; companySlug?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const sessionUser = getUser()
+  // Applying always happens from the candidate's own account. (This page used to create an account on the
+  // fly with a default password when nobody was signed in.)
+  const signedInCandidate = Boolean(
+    isLoggedIn() && sessionUser && sessionUser.role !== 'employer' && getApiToken(),
+  )
+  const signedInEmployer = sessionUser?.role === 'employer'
 
   const [job, setJob] = useState<ApplyJob | null>(() => {
     if (!code) return null
@@ -39,7 +41,7 @@ export function CandidateApplyPage() {
   })
   const [loadingJob, setLoadingJob] = useState(true)
   const [name, setName] = useState(sessionUser?.name || '')
-  const [email, setEmail] = useState(sessionUser?.email || '')
+  const [email] = useState(sessionUser?.email || '')
   const [phone, setPhone] = useState(sessionUser?.phone || '')
   const [experience, setExperience] = useState('3 years')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
@@ -87,6 +89,28 @@ export function CandidateApplyPage() {
     }
   }, [code, companySlug, sessionUser?.email])
 
+  /** Remember this job, then sign up / log in. Onboarding (or the return trip) completes the application. */
+  function startAuth(path: '/signup' | '/login') {
+    if (job) {
+      const slug = companySlug || job.companySlug || slugifyCompany(job.company)
+      setPendingJob(
+        {
+          shareableCode: job.shareableCode,
+          companySlug: slug,
+          jobId: job.id,
+          title: job.title,
+          company: job.company,
+          role: job.roleTrack || job.title,
+          level: job.experienceLevel || '',
+          jd: job.jobDescription || '',
+          primarySkills: job.requiredSkills,
+        },
+        slug,
+      )
+    }
+    navigate(path, { state: { from: location.pathname, reason: 'job_apply' } })
+  }
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -125,11 +149,11 @@ export function CandidateApplyPage() {
       return
     }
 
-    const targetEmail = email.trim().toLowerCase()
-    if (findUserByEmail(targetEmail)?.role === 'employer') {
-      setError('This email is registered as an employer. Use a candidate email to apply.')
+    if (!signedInCandidate || !sessionUser) {
+      setError('Sign in with your candidate account to apply.')
       return
     }
+    const targetEmail = sessionUser.email.trim().toLowerCase()
 
     setLoading(true)
     setError('')
@@ -137,16 +161,6 @@ export function CandidateApplyPage() {
 
     try {
       const phoneNorm = normalizePhone(phone) || phone.trim()
-      saveUser(
-        {
-          name: name.trim(),
-          email: targetEmail,
-          password: sessionUser?.password || 'password123',
-          role: 'jobseeker',
-          phone: phoneNorm,
-        },
-        true,
-      )
 
       const useApi = await apiHealth()
       if (useApi) {
@@ -332,10 +346,32 @@ export function CandidateApplyPage() {
                 Continue to AI interview →
               </button>
             </div>
+          ) : signedInEmployer ? (
+            <div className={styles.error} role="alert">
+              This link is for candidates. Sign out of your employer account and sign in as a candidate to apply.
+            </div>
+          ) : !signedInCandidate ? (
+            <div className={styles.signInGate}>
+              <h3 className={styles.formSectionTitle}>
+                <HrIcon name="form" size={22} /> Sign in to apply
+              </h3>
+              <p className={styles.muted}>
+                Your application, resume and HireRighttt interview stay together in your candidate account. New
+                here? Create a free account; after a short profile setup your application is sent automatically.
+              </p>
+              <div className={styles.gateActions}>
+                <button type="button" className={styles.submitBtn} onClick={() => startAuth('/signup')}>
+                  Create a free account
+                </button>
+                <button type="button" className={styles.secondaryBtn} onClick={() => startAuth('/login')}>
+                  I already have an account
+                </button>
+              </div>
+            </div>
           ) : (
             <>
               <h3 className={styles.formSectionTitle}>
-                <HrIcon name="form" size={22} /> Apply with resume (sign-in required on server)
+                <HrIcon name="form" size={22} /> Apply with your resume
               </h3>
 
               <form onSubmit={handleSubmit}>
@@ -357,10 +393,11 @@ export function CandidateApplyPage() {
                     <input
                       type="email"
                       required
+                      readOnly
+                      aria-readonly="true"
+                      title="Applications are sent from the account you are signed in with."
                       className={styles.input}
-                      placeholder="you@example.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
 

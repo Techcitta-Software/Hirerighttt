@@ -308,3 +308,49 @@
     gap: 14px;
   }
 }
+
+/* Sign-in gate shown to signed-out visitors of a shared job link */
+.signInGate {
+  margin-top: 8px;
+}
+
+.gateActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.gateActions .submitBtn {
+  width: auto;
+  margin-top: 0;
+  padding-inline: 22px;
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 6px;
+  border: 1px solid #d6d7e5;
+  background: #ffffff;
+  color: #141638;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.secondaryBtn:hover {
+  border-color: #7047ff;
+  color: #5046e5;
+}
+
+@media (max-width: 520px) {
+  .gateActions .submitBtn,
+  .secondaryBtn {
+    width: 100%;
+  }
+}

@@ -68,6 +68,11 @@ def _is_fresher(profile: dict | None, level: str, ctx: dict | None = None) -> bo
     work = (profile or {}).get("workExperiences") or []
     if jobs or any((item or {}).get("company") or (item or {}).get("jobTitle") for item in work):
         return False
+    # The candidate's OWN stated experience (not the job's required level): "4 years", "2+ yrs", "3-5 years".
+    stated = str((profile or {}).get("totalExperience") or "")
+    years = re.search(r"(\d+(?:\.\d+)?)\s*(?:\+|-|–|to)?\s*(?:\d+\s*)?(?:years?|yrs?)\b", stated, re.I)
+    if years and float(years.group(1)) >= 1:
+        return False
     return True
 
 

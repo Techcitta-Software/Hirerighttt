@@ -92,9 +92,9 @@ def seed_demo_users_if_needed(db: dict[str, Any]) -> tuple[dict[str, Any], bool]
         account = next((u for u in db["users"] if u.get("email") == demo["email"]), None)
         if not account:
             continue
-        before = len(db.get("organizations") or [])
+        before = (len(db.get("organizations") or []), len(db.get("organizationMembers") or []))
         provision_employer_tenant(db, account, plan_id="plan-pro")
-        if len(db.get("organizations") or []) > before:
+        if (len(db.get("organizations") or []), len(db.get("organizationMembers") or [])) != before:
             changed = True
         member = next((m for m in db.get("organizationMembers") or [] if m.get("userId") == account["id"]), None)
         if member and not account.get("primaryOrganizationId"):

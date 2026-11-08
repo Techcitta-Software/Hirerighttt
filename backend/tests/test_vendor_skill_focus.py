@@ -66,3 +66,14 @@ def test_batch_uses_skill_focus_for_skill_turns(monkeypatch: pytest.MonkeyPatch)
     purposes = {t["turnNumber"]: t["purpose"] for t in captured["turns"]}
     assert "Kafka" in purposes[2] and "PostgreSQL" in purposes[3] and "Go" in purposes[4]
     assert len(out["questions"]) == qmod.EXPERIENCED_INTERVIEW_TURN_COUNT
+
+
+def test_stated_experience_selects_the_experienced_interview() -> None:
+    from app.services.interview_api import _is_fresher
+
+    assert _is_fresher({"totalExperience": "4 years"}, "3-5 years", {}) is False
+    assert _is_fresher({"totalExperience": "2+ yrs"}, "", {}) is False
+    assert _is_fresher({"totalExperience": "Fresher / 0 years"}, "", {}) is True
+    assert _is_fresher({"totalExperience": "0 years"}, "", {}) is True
+    # The job's required level alone does not make a candidate experienced.
+    assert _is_fresher({}, "3-5 years", {}) is True
