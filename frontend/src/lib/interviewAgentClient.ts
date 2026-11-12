@@ -10,7 +10,7 @@ import type { AnswerAnalysis, IntegrityLogEvent, InterviewResult, SavedProfile }
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
-import { candidateFullName } from './store'
+import { candidateFullName, getUser, resolveCandidateName } from './store'
 import { INTERVIEW_TURN_COUNT } from './adaptiveInterview'
 import {
   generateAdaptiveQuestionClient,
@@ -25,11 +25,8 @@ import {
 
 function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | null {
   if (!profile) return null
-  const display = candidateFullName()
-  const resolved =
-    profile.fullName?.trim() ||
-    profile.name?.trim() ||
-    (display && display !== 'Candidate' ? display : '')
+  const display = resolveCandidateName(profile, getUser()) || candidateFullName()
+  const resolved = display && display !== 'Candidate' ? display : ''
   if (!resolved) return profile
   return {
     ...profile,

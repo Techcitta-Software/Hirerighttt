@@ -6,7 +6,9 @@ In-memory DbShape synced to Neon on save_db().
 from __future__ import annotations
 
 import copy
+import functools
 import json
+import os
 import random
 import string
 import threading
@@ -98,15 +100,118 @@ def _pool_conninfo(database_url: str) -> str:
     return make_conninfo(**kwargs)
 
 
+# --- Short-lived read cache ---------------------------------------------------------------------------
+# Several hot GET routes used to query Postgres on EVERY request (open jobs, org jobs, all employer
+# applications, a candidate's applications). With a remote database that is ~1s per call and the
+# connection pool (10) becomes the ceiling: 1000 users => minutes of queueing. These helpers keep a
+# result for READ_CACHE_TTL_S seconds, let only ONE thread refresh it (single-flight; the rest reuse the
+# result), and every write below invalidates it so a user always sees their own change at once.
+# Set READ_CACHE_TTL_S=0 to disable. State is per process: with several API instances another
+# instance's write is visible after at most one TTL.
+_READ_TTL_S = float(os.environ.get("READ_CACHE_TTL_S", "4") or 0)
+_read_state_lock = threading.Lock()
+_read_fresh_at: dict[tuple, float] = {}
+_read_values: dict[tuple, Any] = {}
+_read_key_locks: dict[tuple, threading.Lock] = {}
+_read_epoch = 0
+
+
+def invalidate_read_caches() -> None:
+    global _read_epoch
+    with _read_state_lock:
+        _read_epoch += 1
+        _read_fresh_at.clear()
+        _read_values.clear()
+
+
+def read_cache_epoch() -> int:
+    return _read_epoch
+
+
+def _read_key_lock(key: tuple) -> threading.Lock:
+    with _read_state_lock:
+        return _read_key_locks.setdefault(key, threading.Lock())
+
+
+def _throttled_sync(fn):
+    """For `fn(database_url, db, *args)` that merges rows into `db`: skip the query while the last merge is fresh."""
+
+    @functools.wraps(fn)
+    def wrapper(database_url, db, *args):
+        if _READ_TTL_S <= 0:
+            return fn(database_url, db, *args)
+        key = (fn.__name__, id(db), args)
+        if time.monotonic() - _read_fresh_at.get(key, -1e9) < _READ_TTL_S:
+            return db
+        with _read_key_lock(key):
+            if time.monotonic() - _read_fresh_at.get(key, -1e9) < _READ_TTL_S:
+                return db
+            epoch = _read_epoch
+            out = fn(database_url, db, *args)
+            if _read_epoch == epoch:  # a write during the query means this result may already be stale
+                _read_fresh_at[key] = time.monotonic()
+            return out
+
+    return wrapper
+
+
+def _cached_rows(fn):
+    """For `fn(database_url, key) -> list[dict]`: reuse the rows for a short time (callers get copies)."""
+
+    @functools.wraps(fn)
+    def wrapper(database_url, *args):
+        if _READ_TTL_S <= 0:
+            return fn(database_url, *args)
+        key = (fn.__name__, args)
+        if time.monotonic() - _read_fresh_at.get(key, -1e9) < _READ_TTL_S and key in _read_values:
+            return [copy.deepcopy(r) for r in _read_values[key]]
+        with _read_key_lock(key):
+            if time.monotonic() - _read_fresh_at.get(key, -1e9) < _READ_TTL_S and key in _read_values:
+                return [copy.deepcopy(r) for r in _read_values[key]]
+            epoch = _read_epoch
+            rows = fn(database_url, *args)
+            if _read_epoch == epoch:
+                _read_values[key] = rows
+                _read_fresh_at[key] = time.monotonic()
+            return [copy.deepcopy(r) for r in rows]
+
+    return wrapper
+
+
+def _invalidates_reads(fn):
+    """Writers: drop cached reads once the write has landed (and also if it failed half-way)."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            invalidate_read_caches()
+
+    return wrapper
+
+
 def _ensure_pool(database_url: str) -> ConnectionPool:
     global _pool
     with _pool_lock:
         if _pool is None:
             _pool = ConnectionPool(
                 conninfo=_pool_conninfo(database_url),
-                min_size=1,
-                max_size=10,
-                kwargs={"row_factory": dict_row},
+                min_size=int(os.environ.get("DB_POOL_MIN", "2") or 2),
+                max_size=int(os.environ.get("DB_POOL_MAX", "10") or 10),
+                kwargs={
+                    "row_factory": dict_row,
+                    "connect_timeout": 15,
+                    # Neon closes idle connections; keepalives help the OS notice, and the checks below replace dead ones.
+                    "keepalives": 1,
+                    "keepalives_idle": 30,
+                    "keepalives_interval": 10,
+                    "keepalives_count": 3,
+                },
+                check=ConnectionPool.check_connection,  # test a pooled connection before handing it out
+                max_idle=120,  # recycle before the server's idle timeout
+                max_lifetime=900,
+                reconnect_timeout=60,
                 open=True,
             )
         return _pool
@@ -591,6 +696,7 @@ def _save_relational(conn: Connection, db: dict[str, Any]) -> None:
 _queued_save: dict[str, Any] | None = None
 
 
+@_invalidates_reads
 def save_db(db: dict[str, Any], database_url: str) -> None:
     global _queued_save
     url = _require_database_url(database_url)
@@ -650,9 +756,18 @@ def resolve_session_email(database_url: str, token: str) -> str | None:
     pool = _ensure_pool(url)
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT email FROM hireright_sessions WHERE token = %s AND expires_at > NOW()",
+            "SELECT email, expires_at, (expires_at < NOW() + INTERVAL '6 days') AS renew "
+            "FROM hireright_sessions WHERE token = %s AND expires_at > NOW()",
             (token,),
         ).fetchone()
+        if row and row.get("renew"):
+            # Sliding session: someone who keeps using the product stays signed in. A fixed 7 days from login
+            # signed out daily users every week. This writes at most about once a day per active session.
+            conn.execute(
+                "UPDATE hireright_sessions SET expires_at = NOW() + INTERVAL '7 days' WHERE token = %s",
+                (token,),
+            )
+            conn.commit()
     return row["email"] if row else None
 
 
@@ -706,6 +821,7 @@ def close_store() -> None:
 # --- Additional helpers used by api dispatch (direct Postgres) ---
 
 
+@_throttled_sync
 def sync_open_jobs_from_database(database_url: str, db: dict[str, Any]) -> dict[str, Any]:
     if not database_url.strip():
         return db
@@ -725,6 +841,7 @@ def sync_open_jobs_from_database(database_url: str, db: dict[str, Any]) -> dict[
     return db
 
 
+@_invalidates_reads
 def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
     if not job.get("id") or not job.get("shareableCode"):
         return
@@ -762,6 +879,7 @@ def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
         conn.commit()
 
 
+@_throttled_sync
 def sync_org_jobs_from_database(database_url: str, db: dict[str, Any], organization_id: str) -> dict[str, Any]:
     org_id = str(organization_id or "").strip()
     if not database_url.strip() or not org_id:
@@ -801,6 +919,7 @@ def find_job_by_shareable_code(database_url: str, shareable_code: str) -> dict[s
     return _map_job_row(row) if row else None
 
 
+@_invalidates_reads
 def delete_job_record(database_url: str, job_id: str, organization_id: str) -> bool:
     jid = str(job_id or "").strip()
     org_id = str(organization_id or "").strip()
@@ -817,6 +936,7 @@ def delete_job_record(database_url: str, job_id: str, organization_id: str) -> b
         return (cur.rowcount or 0) > 0
 
 
+@_throttled_sync
 def sync_employer_applications_from_database(database_url: str, db: dict[str, Any]) -> dict[str, Any]:
     if not database_url.strip():
         return db
@@ -844,6 +964,7 @@ def sync_employer_applications_from_database(database_url: str, db: dict[str, An
     return db
 
 
+@_invalidates_reads
 def upsert_job_application_record(database_url: str, email: str, record: dict[str, Any]) -> None:
     if not database_url.strip() or not email or not record.get("id"):
         return
@@ -885,6 +1006,7 @@ def mark_job_applications_deleted_in_postgres(database_url: str, job_id: str, pa
         return cur.rowcount or 0
 
 
+@_invalidates_reads
 def delete_job_application_record(database_url: str, email: str, application_id: str) -> None:
     if not database_url.strip() or not email or not application_id:
         return
@@ -898,6 +1020,7 @@ def delete_job_application_record(database_url: str, email: str, application_id:
         conn.commit()
 
 
+@_cached_rows
 def load_job_applications_for_email(database_url: str, email: str) -> list[dict[str, Any]]:
     if not database_url.strip() or not email:
         return []
@@ -918,6 +1041,7 @@ def load_job_applications_for_email(database_url: str, email: str) -> list[dict[
     return out
 
 
+@_invalidates_reads
 def upsert_employer_application_record(database_url: str, app: dict[str, Any]) -> None:
     if not database_url.strip() or not app.get("id"):
         return

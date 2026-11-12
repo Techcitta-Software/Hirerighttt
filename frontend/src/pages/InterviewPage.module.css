@@ -2033,3 +2033,39 @@
     width: 100%;
   }
 }
+
+/* Interview room is locked down: page text cannot be selected or dragged (the answer box stays editable). */
+.pageLocked,
+.pageLocked * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.pageLocked textarea,
+.pageLocked input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.pageLocked img,
+.pageLocked video {
+  -webkit-user-drag: none;
+}
+
+.guardNotice {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483001;
+  max-width: min(92vw, 560px);
+  padding: 0.7rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(20, 22, 56, 0.94);
+  color: #ffffff;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}

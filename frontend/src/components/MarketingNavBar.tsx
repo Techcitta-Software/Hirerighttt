@@ -1,26 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
-type NavChild = { to: string; label: string; desc: string }
 type NavItem = {
   to: string
   label: string
   match: readonly string[]
-  children?: readonly NavChild[]
 }
-
-const ORGANIZATION_MENU: readonly NavChild[] = [
-  { to: '/solutions', label: 'Platform overview', desc: 'AI interviews, scorecards and pipeline' },
-  { to: '/pricing', label: 'Pricing for teams', desc: 'Plans for recruiters and agencies' },
-  { to: '/contact', label: 'Talk to sales', desc: 'Enterprise, ATS and API needs' },
-  {
-    to: '/organizations/signup',
-    label: 'Organization sign up',
-    desc: 'Create your vendor / employer account',
-  },
-]
 
 const MARKETING_NAV: readonly NavItem[] = [
   { to: '/why', label: 'Why us?', match: ['/why'] },
@@ -31,10 +18,9 @@ const MARKETING_NAV: readonly NavItem[] = [
     match: ['/career-view', '/360-career-view', '/career'],
   },
   {
-    to: '/solutions',
-    label: 'For organizations',
+    to: '/organizations/signup',
+    label: 'Organisations',
     match: ['/solutions', '/organizations/signup'],
-    children: ORGANIZATION_MENU,
   },
   { to: '/contact', label: 'Contact us', match: ['/contact'] },
 ]
@@ -47,59 +33,21 @@ function navLinkClass(pathname: string, match: readonly string[]) {
   return `${styles.navLink} ${isActive(pathname, match) ? styles.navLinkActive : ''}`
 }
 
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`}
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
-}
-
 /**
  * Public marketing header for pre-login pages only (not used on candidate dashboard / app shell).
  */
 export function MarketingNavBar() {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [orgMenuOpen, setOrgMenuOpen] = useState(false)
-  const [mobileOrgOpen, setMobileOrgOpen] = useState(false)
-  const orgRef = useRef<HTMLLIElement>(null)
-
   function closeAll() {
     setMobileMenuOpen(false)
-    setOrgMenuOpen(false)
   }
 
   useEffect(() => {
-    closeAll()
+    setMobileMenuOpen(false)
   }, [location.pathname])
 
-  useEffect(() => {
-    if (!orgMenuOpen) return
-    function onPointerDown(e: globalThis.MouseEvent) {
-      if (!orgRef.current?.contains(e.target as Node)) setOrgMenuOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOrgMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [orgMenuOpen])
+  const orgState = (to: string) => (to === '/organizations/signup' ? { explicitSignup: true } : undefined)
 
   return (
     <header className={styles.navbar}>
@@ -108,58 +56,18 @@ export function MarketingNavBar() {
 
         <nav aria-label="Main Navigation" className={styles.navCenter}>
           <ul className={styles.navLinks}>
-            {MARKETING_NAV.map((item) =>
-              item.children ? (
-                <li
-                  key={item.label}
-                  ref={orgRef}
-                  className={styles.hasMenu}
-                  onMouseEnter={() => setOrgMenuOpen(true)}
-                  onMouseLeave={() => setOrgMenuOpen(false)}
-                >
-                  <button
-                    type="button"
-                    className={`${navLinkClass(location.pathname, item.match)} ${styles.menuTrigger}`}
-                    aria-haspopup="menu"
-                    aria-expanded={orgMenuOpen}
-                    onClick={() => setOrgMenuOpen((v) => !v)}
-                  >
-                    {item.label}
-                    <Chevron open={orgMenuOpen} />
-                  </button>
-                  {orgMenuOpen && (
-                    <div className={styles.dropdown} role="menu">
-                      {item.children.map((child) => (
-                        <Link
-                          key={child.to}
-                          to={child.to}
-                          role="menuitem"
-                          className={styles.dropdownItem}
-                          onClick={() => setOrgMenuOpen(false)}
-                        >
-                          <span className={styles.dropdownLabel}>{child.label}</span>
-                          <span className={styles.dropdownDesc}>{child.desc}</span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </li>
-              ) : (
-                <li key={item.to}>
-                  <Link to={item.to} className={navLinkClass(location.pathname, item.match)}>
-                    {item.label}
-                  </Link>
-                </li>
-              ),
-            )}
+            {MARKETING_NAV.map((item) => (
+              <li key={item.to}>
+                <Link to={item.to} state={orgState(item.to)} className={navLinkClass(location.pathname, item.match)}>
+                  {item.label}
+                </Link>
+              </li>
+            ))}
           </ul>
         </nav>
 
         <div className={styles.navActions}>
-          <Link to="/contact?demo=1" className={styles.navDemoBtn}>
-            Demo
-          </Link>
-          <Link to="/signup" className={styles.navCtaBtn}>
+          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn}>
             Get started
           </Link>
         </div>
@@ -178,44 +86,19 @@ export function MarketingNavBar() {
       </div>
 
       <div className={`${styles.mobileMenuDrawer} ${mobileMenuOpen ? styles.mobileOpen : ''}`}>
-        {MARKETING_NAV.map((item) =>
-          item.children ? (
-            <div key={item.label} className={styles.mobileGroup}>
-              <button
-                type="button"
-                className={`${navLinkClass(location.pathname, item.match)} ${styles.menuTrigger}`}
-                aria-expanded={mobileOrgOpen}
-                onClick={() => setMobileOrgOpen((v) => !v)}
-              >
-                {item.label}
-                <Chevron open={mobileOrgOpen} />
-              </button>
-              {mobileOrgOpen && (
-                <div className={styles.mobileSub}>
-                  {item.children.map((child) => (
-                    <Link key={child.to} to={child.to} className={styles.mobileSubLink} onClick={closeAll}>
-                      {child.label}
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={navLinkClass(location.pathname, item.match)}
-              onClick={closeAll}
-            >
-              {item.label}
-            </Link>
-          ),
-        )}
-        <div className={styles.mobileAuthActions}>
-          <Link to="/contact?demo=1" className={styles.navDemoBtn} onClick={closeAll}>
-            Demo
+        {MARKETING_NAV.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            state={orgState(item.to)}
+            className={navLinkClass(location.pathname, item.match)}
+            onClick={closeAll}
+          >
+            {item.label}
           </Link>
-          <Link to="/signup" className={styles.navCtaBtn} onClick={closeAll}>
+        ))}
+        <div className={styles.mobileAuthActions}>
+          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={closeAll}>
             Get started
           </Link>
         </div>

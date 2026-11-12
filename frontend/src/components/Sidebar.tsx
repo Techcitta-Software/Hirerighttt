@@ -141,19 +141,6 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
         </div>
       )}
 
-      {step === 2 && (
-        <div className={styles.progressCard}>
-          <strong>Your Progress</strong>
-          <div className={styles.ring}>
-            <span>75%</span>
-          </div>
-          <p>
-            Great going! Just a<br />
-            few more steps.
-          </p>
-        </div>
-      )}
-
       <div className={`${styles.why} ${step === 3 ? styles.trustCard : ''}`}>
         <h3>
           {step === 3 ? (

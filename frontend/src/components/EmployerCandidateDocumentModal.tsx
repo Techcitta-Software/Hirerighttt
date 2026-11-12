@@ -9,8 +9,10 @@ import {
   type VendorCandidateRecordingLink,
 } from '../lib/vendorApi'
 import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
-import { isAdminUser } from '../lib/adminAccess'
+import { canViewInterviewVideo } from '../lib/adminAccess'
 import { HrIcon } from './HrIcon'
+import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
+import { downloadScorecardPdf } from '../lib/printScorecard'
 import styles from './EmployerCandidateDocumentModal.module.css'
 
 export type EmployerDocumentKind = 'resume' | 'report'
@@ -46,6 +48,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     import('../lib/store').IntegrityLogEvent[]
   >([])
   const isResume = kind === 'resume'
+  const inlineReport = !isResume && Boolean(applicant.interviewResult)
+  const [downloading, setDownloading] = useState(false)
   const title = isResume
     ? `Resume — ${applicant.candidateName}`
     : `HireRighttt report — ${applicant.candidateName}`
@@ -61,7 +65,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    setLoading(!inlineReport)
     setLoadError('')
     setDocumentLink(null)
     setRecordingLink(null)
@@ -72,15 +76,20 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
 
     void (async () => {
       try {
-        const primary = isResume
-          ? await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
-          : await fetchVendorCandidateReportDocument(applicant.candidateEmail)
+        let primary: VendorCandidateDocumentLink | null = null
+        if (!inlineReport) {
+          // Only the resume view (or a report with no interview data) needs a stored document.
+          primary = isResume
+            ? await fetchVendorCandidateResumeDocument(applicant.candidateEmail)
+            : await fetchVendorCandidateReportDocument(applicant.candidateEmail)
+        }
 
         if (cancelled) return
-        setDocumentLink(primary)
+        if (primary) setDocumentLink(primary)
+        if (inlineReport) setLoading(false)
 
         const sessionHint =
-          primary.sessionId ||
+          primary?.sessionId ||
           applicant.interviewResult?.sessionId ||
           null
 
@@ -168,12 +177,22 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     }
   }, [
     isResume,
+    inlineReport,
     applicant.candidateEmail,
     applicant.candidateName,
     applicant.interviewResult?.sessionId,
   ])
 
-  function handleDownload() {
+  async function handleDownload() {
+    if (inlineReport) {
+      setDownloading(true)
+      try {
+        await downloadScorecardPdf(applicant.candidateName)
+      } finally {
+        setDownloading(false)
+      }
+      return
+    }
     if (!documentLink?.downloadUrl) return
     window.open(documentLink.downloadUrl, '_blank', 'noopener,noreferrer')
   }
@@ -213,6 +232,17 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
             </p>
           ) : (
             <div className={styles.scrollStack}>
+              {inlineReport ? (
+                <section className={styles.reportSection} aria-label="HireRighttt report">
+                  <CareerIntelligenceDashboard
+                    result={applicant.interviewResult!}
+                    candidateName={applicant.candidateName}
+                    candidateRole={applicant.role || applicant.jobTitle}
+                    candidateExperience={applicant.experienceYears}
+                    skills={applicant.primarySkills ?? []}
+                  />
+                </section>
+              ) : (
               <section className={styles.resumeSection} aria-label={isResume ? 'Resume preview' : 'Report preview'}>
                 {pdfReady ? (
                   <>
@@ -238,13 +268,17 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   <p className={styles.empty}>No document available.</p>
                 ) : null}
               </section>
+              )}
 
-              {!isResume && isAdminUser() ? (
+              {!isResume && canViewInterviewVideo() ? (
                 <section className={styles.videoSection} aria-label="Interview video">
                   <div className={styles.videoSectionHeader}>
                     <HrIcon name="video" size={18} />
-                    <h3 className={styles.videoTitle}>Interview video</h3>
+                    <h3 className={styles.videoTitle}>Interview recording</h3>
                   </div>
+                  <p className={styles.sectionHint}>
+                    Full session video from secure storage, with camera flags marked on the timeline.
+                  </p>
 
                   {recordingLoading ? (
                     <p className={styles.loading}>Loading interview video…</p>
@@ -284,11 +318,11 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
           <button
             type="button"
             className={styles.primaryBtn}
-            disabled={!documentLink?.downloadUrl}
-            onClick={handleDownload}
+            disabled={downloading || (!inlineReport && !documentLink?.downloadUrl)}
+            onClick={() => void handleDownload()}
           >
             <HrIcon name="download" size={16} />
-            Download
+            {downloading ? 'Preparing…' : inlineReport ? 'Download report PDF' : 'Download'}
           </button>
         </div>
       </div>

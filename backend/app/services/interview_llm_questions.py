@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Any
-
-import httpx
 
 
 class InterviewLlmQuestionError(Exception):
@@ -17,6 +16,8 @@ class InterviewLlmQuestionError(Exception):
         self.status = status
 
 
+# The browser gives up after ~45s, so key/model failover plus retries must finish (or fail cleanly) inside this.
+REQUEST_DEADLINE_SECONDS = 36.0
 PENDING_FALLBACK_FOCUS = "pending-fallback"
 PENDING_CLOSING_FOCUS = "pending-closing"
 MAX_ROLE_SKILLS = 3
@@ -34,12 +35,7 @@ def _experienced_closing_turn_number() -> int:
     return EXPERIENCED_INTERVIEW_TURN_COUNT
 
 
-def _gemini_key() -> str:
-    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-
-
-def _quality_model() -> str:
-    return os.environ.get("PRIMARY_MODEL") or os.environ.get("FAST_MODEL") or "gemini-2.0-flash"
+from app.services.gemini_client import generate_content  # noqa: E402
 
 
 def _system_prompt(*, turn: int, total: int, role: str, level: str) -> str:
@@ -165,21 +161,11 @@ def _pending_closing_question() -> dict[str, Any]:
 
 
 async def _gemini_generate(system: str, user: str, *, temperature: float, max_tokens: int = 2048) -> str:
-    key = _gemini_key()
-    model = _quality_model()
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    body = {
-        "systemInstruction": {"parts": [{"text": system}]},
-        "contents": [{"role": "user", "parts": [{"text": user}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
-    }
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        res = await client.post(url, headers={"Content-Type": "application/json", "x-goog-api-key": key}, json=body)
-        if not res.is_success:
-            return ""
-        data = res.json()
-        parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-        return "".join(p.get("text") or "" for p in parts if not p.get("thought"))
+    """Generate text with key rotation and model fallback. Returns "" only if every key and model failed."""
+    result = await generate_content(
+        system=system, user=user, temperature=temperature, max_tokens=max_tokens, timeout=25.0, total_budget=30.0
+    )
+    return result.text if result else ""
 
 
 async def generate_adaptive_question_llm(input: dict) -> dict:
@@ -226,7 +212,10 @@ async def generate_adaptive_question_llm(input: dict) -> dict:
             "\nThis turn is the FOLLOW-UP on recent work: ask one short, specific follow-up about something the candidate "
             "said in lastAnswer or about their most recent role. Do not introduce a new unrelated technical topic."
         )
+    deadline = time.time() + REQUEST_DEADLINE_SECONDS
     for temperature in (0.55, 0.35, 0.22):
+        if time.time() > deadline:
+            break
         raw = await _gemini_generate(system, user, temperature=temperature)
         q = _parse_question(raw, prior)
         if q:
@@ -322,7 +311,10 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
 
         return all(slot_ok(i) for i in range(total))
 
+    deadline = time.time() + REQUEST_DEADLINE_SECONDS
     for temperature in (0.55, 0.42, 0.35, 0.28):
+        if time.time() > deadline:
+            break
         raw = await _gemini_generate(system, user, temperature=temperature, max_tokens=8192)
         if apply_batch(raw):
             return {

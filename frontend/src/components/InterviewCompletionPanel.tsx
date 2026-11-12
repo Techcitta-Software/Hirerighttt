@@ -102,12 +102,12 @@ export function InterviewCompletionPanel({ summary, steps }: Props) {
     if (summary.integrityEnded) {
       return greet ? `Thanks, ${greet} — this session is closed` : 'This session is closed'
     }
-    return greet ? `Thank you, ${greet}` : 'Thank you'
+    return greet ? `Congratulations, ${greet}!` : 'Congratulations!'
   }, [greet, summary.integrityEnded])
 
   const subcopy = summary.integrityEnded
-    ? 'We ended the interview for room integrity. Answers already given are still being scored for your record.'
-    : 'Your interview is complete. We are finishing the secure wrap-up and building your report — this usually takes under a minute.'
+    ? 'This interview was ended early. The answers you already gave are still being reviewed for your record.'
+    : 'You completed your interview — well done. Thank you for the time and thought you put into your answers. We are preparing your personalised scorecard now.'
 
   return (
     <section className={styles.root} aria-live="polite" aria-busy={progress < 100}>
@@ -156,25 +156,8 @@ export function InterviewCompletionPanel({ summary, steps }: Props) {
           </div>
         </div>
 
-        <ol className={styles.steps}>
-          {steps.map((step) => (
-            <li
-              key={step.id}
-              className={`${styles.step} ${styles[`status_${step.status}`]}`}
-            >
-              <span className={styles.stepMark} aria-hidden="true">
-                {step.status === 'done' || step.status === 'skipped' ? '✓' : step.status === 'active' ? '·' : ''}
-              </span>
-              <div className={styles.stepBody}>
-                <strong>{step.label}</strong>
-                {step.detail ? <p>{step.detail}</p> : null}
-              </div>
-            </li>
-          ))}
-        </ol>
-
         <p className={styles.footerNote}>
-          Stay on this page. Your scorecard opens automatically when scoring finishes.
+          Please keep this page open — your scorecard will appear automatically in a moment.
         </p>
       </div>
     </section>

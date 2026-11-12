@@ -268,8 +268,13 @@ export function ResumeUpload({
                 type="file"
                 accept=".pdf,.doc,.docx,.txt,.text,.md,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                 className={styles.hiddenInput}
+                // The input lives inside the clickable dropzone: without this its own click bubbles up and
+                // re-triggers inputRef.click(), which can swallow the file dialog.
+                onClick={(event) => event.stopPropagation()}
                 onChange={(event) => {
                   void validateAndSet(event.target.files?.[0] ?? null)
+                  // allow re-selecting the same file after removing it
+                  event.target.value = ''
                 }}
               />
               <div className={styles.dropzoneHint}>Supports PDF, DOC, DOCX (Max 5MB)</div>

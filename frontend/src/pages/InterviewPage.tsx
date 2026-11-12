@@ -1,5 +1,4 @@
 import { attachInterviewContentGuard, looksLikeVirtualCamera, type ContentGuardEvent } from '../lib/interviewContentGuard'
-import { InterviewWatermark } from '../components/InterviewWatermark'
 import { ReviewEventTracker, saveReviewEvents } from '../lib/interviewReview'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -33,8 +32,7 @@ import {
   startInterviewSession,
   type IntegritySnapshot,
 } from '../lib/interviewAgentClient'
-import type { InterviewConsent } from '../lib/interviewConsent'
-import { InterviewConsentPanel } from '../components/InterviewConsentPanel'
+import { buildInterviewConsent, type InterviewConsent } from '../lib/interviewConsent'
 import { InterviewRecorder } from '../lib/interviewRecorder'
 import {
   inviteAccessFromStored,
@@ -47,6 +45,7 @@ import {
   attachInterviewToApplicant,
   candidateFullName,
   getUser,
+  resolveCandidateName,
 
   getInterviewResult,
   getProfile,
@@ -330,7 +329,13 @@ export function InterviewPage() {
   const guardNoticeTimer = useRef<number | undefined>(undefined)
   const [reviewSyncError, setReviewSyncError] = useState('')
   // Nothing is recorded (and the camera is not opened) until the candidate agrees in the waiting room.
-  const [interviewConsent, setInterviewConsent] = useState<InterviewConsent | null>(null)
+  // The consent screen was removed: candidates go straight to the camera check. The server still requires a
+  // consent object to start a session, so one is supplied automatically. The version tag marks these records as
+  // "not prompted" so they cannot be mistaken for an explicit acceptance of the consent wording.
+  const [interviewConsent] = useState<InterviewConsent | null>(() => ({
+    ...buildInterviewConsent(),
+    version: 'no-prompt',
+  }))
   const recordingConsent = interviewConsent !== null
   const sessionIdRef = useRef<string | null>(null)
   const varietySeedRef = useRef<string>('')
@@ -1134,8 +1139,8 @@ export function InterviewPage() {
         baseProfile && inviteCtx?.resumeText?.trim()
           ? { ...baseProfile, resumeText: inviteCtx.resumeText }
           : baseProfile
-      if (mergedProfile?.fullName || mergedProfile?.name) {
-        setCandidateDisplayName(mergedProfile.fullName || mergedProfile.name || candidateDisplayName)
+      if (mergedProfile) {
+        setCandidateDisplayName(resolveCandidateName(mergedProfile, getUser()) || candidateDisplayName)
       }
       historyRef.current = []
       interviewStartedAtRef.current = Date.now()
@@ -1651,7 +1656,6 @@ export function InterviewPage() {
     <div className={`${styles.page} ${stage === 'interview' ? styles.pageLocked : ''}`}>
       {stage === 'interview' ? (
         <>
-          <InterviewWatermark label={`${getUser()?.email ?? 'candidate'} · ${(sessionIdRef.current ?? '').slice(0, 8)}`} />
           {guardNotice ? (
             <div className={styles.guardNotice} role="status">
               {guardNotice}
@@ -1724,12 +1728,7 @@ export function InterviewPage() {
               </p>
             </div>
 
-            {!interviewConsent ? (
-              <InterviewConsentPanel
-                employerName={targetJobRaw?.company}
-                onAccept={(consent) => setInterviewConsent(consent)}
-              />
-            ) : (
+            {(
             <div className={styles.lobbyGrid}>
               <div className={styles.previewCard}>
                 <div className={styles.previewFrame}>

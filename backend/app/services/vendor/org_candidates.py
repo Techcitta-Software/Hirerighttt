@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from typing import Any
 
-from app.db.store import db_pool
+from app.db.store import db_pool, read_cache_epoch
 from app.db.talent_index import search_candidate_talent
 from app.services.vendor.jobs import list_job_applications, list_org_jobs
 
@@ -160,7 +163,35 @@ def _build_recruiter_team_email_set(db: dict) -> set[str]:
     return emails
 
 
-def _find_user(db: dict, email: str, user_id: str | None) -> dict | None:
+class _Index:
+    """Per-request lookup tables. The helpers below used to scan every user / membership for every candidate
+    (O(candidates x users)), which froze the API for seconds once a few thousand accounts existed."""
+
+    def __init__(self, db: dict):
+        self.users_by_id: dict[str, dict] = {}
+        self.users_by_email: dict[str, dict] = {}
+        for u in db.get("users") or []:
+            uid = u.get("id")
+            if uid and uid not in self.users_by_id:
+                self.users_by_id[uid] = u
+            em = str(u.get("email") or "").lower()
+            if em and em not in self.users_by_email:
+                self.users_by_email[em] = u
+        self.membership_by_user: dict[str, dict] = {}
+        for m in db.get("organizationMembers") or []:
+            uid = m.get("userId")
+            if uid and uid not in self.membership_by_user:
+                self.membership_by_user[uid] = m
+
+
+def _find_user(db: dict, email: str, user_id: str | None, idx: "_Index | None" = None) -> dict | None:
+    if idx is not None:
+        if user_id:
+            user = idx.users_by_id.get(user_id)
+            if user:
+                return user
+        em = str(email or "").strip().lower()
+        return idx.users_by_email.get(em) if em else None
     if user_id:
         user = next((u for u in db.get("users") or [] if u.get("id") == user_id), None)
         if user:
@@ -171,19 +202,24 @@ def _find_user(db: dict, email: str, user_id: str | None) -> dict | None:
     return next((u for u in db.get("users") or [] if str(u.get("email") or "").lower() == em), None)
 
 
-def _is_employer_or_recruiter_account(db: dict, email: str, user_id: str | None, recruiter_emails: set[str]) -> bool:
+def _is_employer_or_recruiter_account(
+    db: dict, email: str, user_id: str | None, recruiter_emails: set[str], idx: "_Index | None" = None
+) -> bool:
     em = str(email or "").strip().lower()
     if not em:
         return True
     if em in recruiter_emails:
         return True
-    user = _find_user(db, email, user_id)
+    user = _find_user(db, email, user_id, idx)
     if not user:
         return False
     if user.get("role") == "employer":
         return True
     if user.get("primaryOrganizationId"):
-        membership = next((m for m in db.get("organizationMembers") or [] if m.get("userId") == user.get("id")), None)
+        if idx is not None:
+            membership = idx.membership_by_user.get(user.get("id"))
+        else:
+            membership = next((m for m in db.get("organizationMembers") or [] if m.get("userId") == user.get("id")), None)
         if membership and str(membership.get("role") or "") in ("owner", "admin", "recruiter"):
             return True
     return False
@@ -365,6 +401,31 @@ def list_job_candidates(db: dict, organization_id: str, job_id: str, filters: di
     return {"total": len(filtered), "candidates": filtered, "jobId": job_id}
 
 
+# The "every job seeker on the platform" roster is the same for all recruiters and used to be re-read from Postgres
+# (profiles + interview JSON for ALL users) on every request, inside the event loop. Share it for a few seconds.
+_SEEKER_ROSTER_TTL_S = 8.0
+_seeker_roster_lock = threading.Lock()
+_seeker_roster: dict[str, Any] = {"at": -1e9, "epoch": -1, "rows": []}
+
+
+def _all_job_seeker_roster_cached(database_url: str, db: dict) -> list[dict]:
+    """Blocking (runs in a worker thread). One thread refreshes; concurrent callers reuse the result."""
+
+    def fresh() -> bool:
+        return (
+            time.monotonic() - _seeker_roster["at"] < _SEEKER_ROSTER_TTL_S
+            and _seeker_roster["epoch"] == read_cache_epoch()
+        )
+
+    if not fresh():
+        with _seeker_roster_lock:
+            if not fresh():
+                epoch = read_cache_epoch()
+                rows = _load_all_job_seeker_roster_from_postgres(database_url, db)
+                _seeker_roster.update(at=time.monotonic(), epoch=epoch, rows=rows)
+    return [dict(r) for r in _seeker_roster["rows"]]
+
+
 async def list_organization_candidates(
     db: dict,
     organization_id: str,
@@ -374,6 +435,7 @@ async def list_organization_candidates(
 ) -> dict[str, Any]:
     filters = filters or {}
     recruiter_emails = _build_recruiter_team_email_set(db)
+    idx = _Index(db)
     recruiter_job_ids = None
     if recruiter_scope and recruiter_scope.get("createdByUserId"):
         recruiter_job_ids = {j["id"] for j in list_org_jobs(db, organization_id, recruiter_scope)}
@@ -384,7 +446,7 @@ async def list_organization_candidates(
         if not row or not row.get("candidateEmail"):
             return
         if _is_employer_or_recruiter_account(
-            db, row.get("candidateEmail"), row.get("candidateUserId"), recruiter_emails
+            db, row.get("candidateEmail"), row.get("candidateUserId"), recruiter_emails, idx
         ):
             return
         key = str(row.get("candidateUserId") or row.get("candidateEmail") or "").lower()
@@ -425,8 +487,9 @@ async def list_organization_candidates(
         )
 
     if database_url.strip():
-        for user_id in _list_organization_talent_user_ids(database_url, organization_id):
-            user = next((u for u in db.get("users") or [] if u.get("id") == user_id), None)
+        talent_user_ids = await asyncio.to_thread(_list_organization_talent_user_ids, database_url, organization_id)
+        for user_id in talent_user_ids:
+            user = idx.users_by_id.get(user_id)
             if not user or user.get("role") == "employer":
                 continue
             profile = (db.get("profiles") or {}).get(user.get("email") or "") or {}
@@ -442,7 +505,7 @@ async def list_organization_candidates(
         result = session.get("result") or _stored_interview_for_email(db, email)
         if not result:
             continue
-        user = _find_user(db, email, None)
+        user = _find_user(db, email, None, idx)
         profile = (db.get("profiles") or {}).get(email) or {}
         app = None
         app_id = session.get("applicationId")
@@ -481,7 +544,7 @@ async def list_organization_candidates(
             )
         )
 
-    for row in _load_all_job_seeker_roster_from_postgres(database_url, db):
+    for row in await asyncio.to_thread(_all_job_seeker_roster_cached, database_url, db):
         add(row)
 
     if database_url.strip():
@@ -491,7 +554,9 @@ async def list_organization_candidates(
     candidates = [
         row
         for row in candidates
-        if not _is_employer_or_recruiter_account(db, row.get("candidateEmail"), row.get("candidateUserId"), recruiter_emails)
+        if not _is_employer_or_recruiter_account(
+            db, row.get("candidateEmail"), row.get("candidateUserId"), recruiter_emails, idx
+        )
         and (not recruiter_job_ids or not row.get("jobId") or row.get("jobId") in recruiter_job_ids)
         and _matches_filters(row, filters)
     ]

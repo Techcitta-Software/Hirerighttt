@@ -7,7 +7,7 @@ const FOOTER_LINKS = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/career-view', label: '360° Report' },
-  { to: '/solutions', label: 'For organizations' },
+  { to: '/solutions', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
   { to: '/privacy', label: 'Privacy Policy' },
   { to: '/terms', label: 'Terms & Conditions' },

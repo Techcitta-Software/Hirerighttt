@@ -5,28 +5,19 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Any
 
-import httpx
-
+from app.services.gemini_client import gemini_configured, generate_content
 from app.services.interview_rubric_scoring import classify_question_scoring_profile, _clean
 
 
-def _gemini_key() -> str:
-    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-
-
 def llm_eval_configured() -> bool:
-    return bool(_gemini_key())
+    return gemini_configured()
 
 
-def _fast_model() -> str:
-    return (
-        os.environ.get("FAST_MODEL")
-        or os.environ.get("ASSESSMENT_EVALUATION_MODEL")
-        or os.environ.get("PRIMARY_MODEL")
-        or "gemini-2.0-flash"
-    )
+def _fast_model() -> str | None:
+    return os.environ.get("FAST_MODEL") or os.environ.get("ASSESSMENT_EVALUATION_MODEL") or None
 
 
 EVAL_SYSTEM = """You are Ava, HireRight's interview evaluator. Score EACH candidate answer on three dimensions (integers 0–100):
@@ -56,10 +47,8 @@ async def evaluate_answers_with_llm(
     role: str,
     level: str,
 ) -> dict[int, dict[str, Any]] | None:
-    key = _gemini_key()
-    if not key or not questions:
+    if not gemini_configured() or not questions:
         return None
-
     items = []
     for i, q in enumerate(questions):
         profile = _clean(q.get("scoringProfile")) or classify_question_scoring_profile(q)
@@ -91,48 +80,43 @@ async def evaluate_answers_with_llm(
 
     model = _fast_model()
 
+    deadline = time.time() + 38.0  # the browser waits ~45s for the score; fall back to provisional scoring after that
     for temperature in (0.12, 0.08):
+        if time.time() > deadline:
+            break
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-                body = {
-                    "systemInstruction": {"parts": [{"text": EVAL_SYSTEM}]},
-                    "contents": [{"role": "user", "parts": [{"text": user}]}],
-                    "generationConfig": {
-                        "temperature": temperature,
-                        "responseMimeType": "application/json",
-                        "maxOutputTokens": 4096,
-                    },
+            result = await generate_content(
+                system=EVAL_SYSTEM,
+                user=user,
+                temperature=temperature,
+                max_tokens=4096,
+                json_mode=True,
+                primary_model=model,
+                timeout=25.0,
+                total_budget=20.0,
+            )
+            if not result:
+                continue
+            match = re.search(r"\{[\s\S]*\}", result.text)
+            if not match:
+                continue
+            parsed = json.loads(match.group(0))
+            rows = parsed.get("answers")
+            if not isinstance(rows, list):
+                continue
+            by_index: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                idx = int(row.get("index") or 0)
+                if not idx:
+                    continue
+                by_index[idx] = {
+                    "correctness": row.get("correctness"),
+                    "depth": row.get("depth"),
+                    "communication": row.get("communication"),
+                    "feedback": row.get("feedback"),
                 }
-                headers = {"Content-Type": "application/json", "x-goog-api-key": key}
-
-                res = await client.post(url, headers=headers, json=body)
-                if not res.is_success:
-                    continue
-                data = res.json()
-                parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-                raw = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
-
-                match = re.search(r"\{[\s\S]*\}", raw)
-                if not match:
-                    continue
-                parsed = json.loads(match.group(0))
-                rows = parsed.get("answers")
-                if not isinstance(rows, list):
-                    continue
-                by_index: dict[int, dict[str, Any]] = {}
-                for row in rows:
-                    idx = int(row.get("index") or 0)
-                    if not idx:
-                        continue
-                    by_index[idx] = {
-                        "correctness": row.get("correctness"),
-                        "depth": row.get("depth"),
-                        "communication": row.get("communication"),
-                        "feedback": row.get("feedback"),
-                    }
-                if by_index:
-                    return by_index
+            if by_index:
+                return by_index
         except Exception:
             continue
     return None

@@ -13,7 +13,18 @@ router = APIRouter()
 
 
 @router.get("/llm-status")
-async def llm_status() -> dict:
+async def llm_status(request: Request) -> dict:
+    from app.node_config import is_prod_like
+    from app.services.gemini_client import status_snapshot, verify_keys
+
+    detail: dict = {"failover": status_snapshot()}
+    # Live key check (one tiny request per key). Development only, so it cannot be used to burn quota in production.
+    if request.query_params.get("verify") == "1" and not is_prod_like:
+        detail["verify"] = await verify_keys()
+    return {**(await _llm_status_core()), **detail}
+
+
+async def _llm_status_core() -> dict:
     if not llm_configured():
         return {
             "active": False,

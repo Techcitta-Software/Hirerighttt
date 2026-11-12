@@ -68,6 +68,8 @@ async def signup(request: Request, body: dict) -> dict:
     if employer_err:
         raise HTTPException(status_code=400, detail=employer_err)
     created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    # scrypt is deliberately slow (tens of ms of CPU): never run it on the event loop thread.
+    password_hash = await asyncio.to_thread(hash_password, password)
     try:
         registered = await asyncio.to_thread(
             register_account,
@@ -77,7 +79,7 @@ async def signup(request: Request, body: dict) -> dict:
                 "name": name,
                 "email": email,
                 "phone": phone,
-                "passwordHash": hash_password(password),
+                "passwordHash": password_hash,
                 "role": role,
                 "companyName": company_name if role == "employer" else None,
                 "createdAt": created_at,
@@ -119,13 +121,19 @@ async def signup(request: Request, body: dict) -> dict:
 @router.post("/login")
 async def login(request: Request, body: dict) -> dict:
     ip = runtime.client_ip(request)
-    if not runtime.rate_limit(f"login:{ip}", 20):
-        raise HTTPException(status_code=429, detail="Too many login attempts. Try again shortly.")
     email = str(body.get("email") or "").strip().lower()
     password = str(body.get("password") or "")
+    # Throttle per account (brute force) plus a generous per-IP ceiling. A flat 20/min per IP locked out whole
+    # offices and campuses, where hundreds of people share one public address.
+    if not runtime.rate_limit(f"login:{ip}", 300) or not runtime.rate_limit(f"login-email:{email}", 10):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again shortly.")
     db = runtime.load_db()
     user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
-    if not user or user.get("status") != "active" or not verify_password(password, user.get("passwordHash") or ""):
+    if (
+        not user
+        or user.get("status") != "active"
+        or not await asyncio.to_thread(verify_password, password, user.get("passwordHash") or "")
+    ):
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
     expected = body.get("expectedRole")
     expected_role = expected if expected in ("employer", "jobseeker") else None
@@ -134,7 +142,7 @@ async def login(request: Request, body: dict) -> dict:
     if role_err:
         raise HTTPException(status_code=403, detail=role_err)
     if not str(user.get("passwordHash") or "").startswith("scrypt$"):
-        user["passwordHash"] = hash_password(password)
+        user["passwordHash"] = await asyncio.to_thread(hash_password, password)
         await runtime.save_db(db)
     token = secrets.token_hex(16)
     await runtime.register_session(token, email)

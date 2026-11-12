@@ -18,8 +18,18 @@ def _recruiter_emails(db: dict) -> set[str]:
 
 
 def assert_vendor_may_view_candidate_documents(
-    db: dict, organization_id: str, candidate_email: str, recruiter_scope: dict | None = None
+    db: dict,
+    organization_id: str,
+    candidate_email: str,
+    recruiter_scope: dict | None = None,
+    *,
+    require_link: bool = False,
 ) -> None:
+    """Resumes and reports follow the talent-search model (any job seeker is visible to recruiters).
+
+    `require_link=True` is the strict rule used for interview VIDEO: the candidate must have applied to, been invited
+    by, or interviewed for this organization. Being a registered job seeker is not enough.
+    """
     email = str(candidate_email or "").strip().lower()
     if not email:
         err = ValueError("Candidate email is required.")
@@ -50,7 +60,7 @@ def assert_vendor_may_view_candidate_documents(
         and (not recruiter_job_ids or s.get("jobId") in recruiter_job_ids)
         for s in (db.get("interviewSessions") or {}).values()
     )
-    job_seeker = user and user.get("role") != "employer"
+    job_seeker = bool(user and user.get("role") != "employer") and not require_link
     if not linked_app and not linked_session and not job_seeker:
         err = ValueError("Candidate not found.")
         err.status = 404  # type: ignore[attr-defined]

@@ -17,7 +17,7 @@ def employer_can_review_recording(db: dict, organization_id: str, candidate_emai
     from app.services.vendor.candidate_documents import assert_vendor_may_view_candidate_documents
 
     try:
-        assert_vendor_may_view_candidate_documents(db, org_id, candidate_email, None)
+        assert_vendor_may_view_candidate_documents(db, org_id, candidate_email, None, require_link=True)
         return True
     except Exception:
         return False

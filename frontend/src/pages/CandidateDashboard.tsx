@@ -1,4 +1,3 @@
-import { CandidateReviewEvents } from '../components/CandidateReviewEvents'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HrIcon } from '../components/HrIcon'
@@ -672,10 +671,6 @@ export function DashboardPage() {
                 </article>
               </div>
             </section>
-
-            <div className={styles.reviewWrap}>
-              <CandidateReviewEvents sessionId={interview?.sessionId} />
-            </div>
           </div>
 
           <aside className={styles.sideStack}>

@@ -71,7 +71,15 @@ export function InterviewInvitePage() {
   useEffect(() => {
     if (!token || !invite || signedInEmail) return
     rememberInviteReturn(`/interview/invite/${token}`, invite.candidateEmail)
-  }, [token, invite, signedInEmail])
+    // Opening the emailed link while signed out goes straight to login; after sign-in the
+    // candidate is brought back here and the interview starts at the scheduled time.
+    if (invite.status !== 'expired') {
+      navigate(`/login?email=${encodeURIComponent(invite.candidateEmail)}`, {
+        replace: true,
+        state: { explicitLogin: true },
+      })
+    }
+  }, [token, invite, signedInEmail, navigate])
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)

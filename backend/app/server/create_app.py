@@ -53,6 +53,14 @@ async def lifespan(_: FastAPI):
     if config.database_url.strip():
         await asyncio.to_thread(runtime.load_db_sync)
     yield
+    # Close the Postgres pool while the interpreter is still running. Left to garbage collection it logged a
+    # "PythonFinalizationError: cannot join thread at interpreter shutdown" traceback on every stop / reload.
+    try:
+        from app.db import close_store
+
+        await asyncio.to_thread(close_store)
+    except Exception:
+        logger.warning("Could not close the database pool cleanly", exc_info=True)
 
 
 def create_app() -> FastAPI:

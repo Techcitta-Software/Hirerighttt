@@ -4,8 +4,9 @@
 import type { NavigateFunction } from 'react-router-dom'
 import { consumeInviteReturn, peekInviteReturn, rememberInviteReturn } from './inviteReturn'
 import { apiMe, getApiToken, setApiToken } from './api'
-import { isOnboardingComplete, onboardingResumeStep } from './onboardingProgress'
-import { getProfile, getUser, logout, type User } from './store'
+import { initialFormData, type ProfileFormData } from '../data/wizard'
+import { isOnboardingComplete, onboardingResumeStep, ONBOARDING_STEP_COUNT } from './onboardingProgress'
+import { getProfile, getUser, logout, saveProfile, type User } from './store'
 
 export const AUTH_INVALID_MSG_KEY = 'hireright.authInvalidMessage'
 export const OPEN_AUTH_INVALID_EVENT = 'hireright-auth-invalid'
@@ -67,6 +68,28 @@ export async function isApiSessionValid(): Promise<boolean> {
     setApiToken(null)
     sessionValidCache = { email: expected, ok: false, at: now }
     return false
+  }
+}
+
+/**
+ * A candidate who already finished their interview must never see onboarding again — even on a new
+ * browser/device where local storage is empty. Restore completion from the server record.
+ */
+export async function restoreOnboardingFromServer(): Promise<void> {
+  try {
+    const user = getUser()
+    if (!user || user.role === 'employer' || !getApiToken()) return
+    if (isOnboardingComplete(getProfile())) return
+    const me = (await apiMe()) as {
+      profile?: { completedSteps?: number } | null
+      interview?: unknown
+    }
+    const serverDone = (me.profile?.completedSteps ?? 0) >= ONBOARDING_STEP_COUNT
+    if (!serverDone && !me.interview) return
+    const merged = { ...initialFormData, ...(me.profile || {}), ...(getProfile() || {}), resumeFile: null }
+    saveProfile(merged as ProfileFormData, ONBOARDING_STEP_COUNT)
+  } catch {
+    // offline / unauthorized — fall back to local state
   }
 }
 
@@ -139,6 +162,7 @@ export async function tryRedirectIfAlreadyAuthenticated(
   if (!(await isApiSessionValid())) return null
   const user = getUser()
   if (!user) return null
+  await restoreOnboardingFromServer()
   return resolveAuthenticatedDestination(user, fromPath)
 }
 
@@ -153,16 +177,26 @@ export async function handleLoginNavigation(navigate: NavigateFunction): Promise
   navigate('/login', { state: { explicitLogin: true } })
 }
 
+/** Nav / marketing “Get started” — always open signup (never resume prior onboarding). */
+export async function handleSignupNavigation(
+  navigate: NavigateFunction,
+  path: string = '/signup',
+): Promise<void> {
+  navigate(path, { state: { explicitSignup: true } })
+}
+
 /** Login/signup mount: redirect if valid; clear and flag message if stale local auth. */
 export async function reconcileAuthOnAuthPage(options?: {
   /** User chose “Log in” explicitly — show the form even if a session exists. */
   explicitLogin?: boolean
+  /** User chose “Get started” / signup — show the form even if a session exists. */
+  explicitSignup?: boolean
 }): Promise<
   | { action: 'redirect'; path: string }
   | { action: 'invalid'; message: string }
   | { action: 'none' }
 > {
-  if (options?.explicitLogin) {
+  if (options?.explicitLogin || options?.explicitSignup) {
     return { action: 'none' }
   }
   const user = getUser()
@@ -186,5 +220,6 @@ export async function reconcileAuthOnAuthPage(options?: {
 
   const current = getUser()
   if (!current) return { action: 'none' }
+  await restoreOnboardingFromServer()
   return { action: 'redirect', path: resolveAuthenticatedDestination(current) }
 }

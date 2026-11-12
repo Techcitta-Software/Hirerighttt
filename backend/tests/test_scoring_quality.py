@@ -143,3 +143,16 @@ def test_role_name_variants_find_the_role_skill_list() -> None:
 
     assert _load_required_role_skills("Senior Full Stack Engineer", {}) == _load_required_role_skills("Full Stack Developer", {})
     assert _load_required_role_skills("Full Stack Engineer", {})  # not empty
+
+
+def test_lockdown_and_copy_paste_events_do_not_become_face_penalties() -> None:
+    from app.services.proctoring.persist_flags import review_logs_to_flag_sections
+
+    logs = [
+        {"eventType": "SIDE_GAZE_LOOKING_AWAY", "startOffsetSec": 1, "durationSec": 4},
+        {"eventType": "COPY_PASTE_ATTEMPT", "startOffsetSec": 2, "durationSec": 0},
+        {"eventType": "DEVTOOLS_SUSPECTED", "startOffsetSec": 3, "durationSec": 0},
+        {"eventType": "FULLSCREEN_EXITED", "startOffsetSec": 4, "durationSec": 0},
+    ]
+    sections = review_logs_to_flag_sections(logs)
+    assert [s["type"] for s in sections] == ["SIDE_GAZE_LOOKING_AWAY"]

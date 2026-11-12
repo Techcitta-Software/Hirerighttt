@@ -47,6 +47,10 @@ export function resumeExtractToProfilePatch(
   extract: ResumeExtract,
 ): Partial<ProfileFormData> {
   const patch: Partial<ProfileFormData> = {}
+  if (extract.fullName) {
+    // Keep the saved profile in step with the resume that was just read, so an older resume's name cannot stick.
+    Object.assign(patch, { name: extract.fullName, fullName: extract.fullName })
+  }
   if (extract.whoAreYou) patch.whoAreYou = extract.whoAreYou
   if (extract.keyStrengths) patch.keyStrengths = extract.keyStrengths
   if (extract.currentRole) patch.currentRole = extract.currentRole
@@ -80,6 +84,140 @@ export function resumeExtractToProfilePatch(
   return patch
 }
 
+/** A text fragment as returned by pdf.js `getTextContent()`. */
+export type PdfTextItem = {
+  str?: string
+  /** [scaleX, skewY, skewX, scaleY, x, y] */
+  transform?: number[]
+  width?: number
+  hasEOL?: boolean
+}
+
+type PdfPart = { x: number; w: number; str: string }
+
+/** Join the fragments of one visual line, adding a space only where there is a real gap. */
+function joinPdfParts(parts: PdfPart[]): string {
+  const ordered = [...parts].sort((p, q) => p.x - q.x)
+  let line = ''
+  let prevEnd = Number.NEGATIVE_INFINITY
+  for (const part of ordered) {
+    const gap = part.x - prevEnd
+    const needsSpace = line !== '' && gap > 1.2 && !/\s$/.test(line) && !/^[\s,.;:)\]!?%]/.test(part.str)
+    line += (needsSpace ? ' ' : '') + part.str
+    prevEnd = part.x + part.w
+  }
+  return line.replace(/\s+/g, ' ').trim()
+}
+
+const COLUMN_GAP_PT = 24 // a gap this wide inside one line is a gutter between columns, not a word space
+
+/**
+ * Where two columns are separated by a gutter, return the x position where the right column starts; otherwise null.
+ *
+ * The right column starts at about the same x on every line, while the left column ends wherever its text ends, so
+ * the votes are cast on the START of the right-hand fragment. A one-off wide gap (a right-aligned date) lands on a
+ * different x each time and never wins. Real content is required on both sides.
+ */
+function findColumnBoundary(rows: { y: number; parts: PdfPart[] }[]): number | null {
+  const BUCKET = 12
+  const votes = new Map<number, { x: number; str: string }[]>()
+  let multiPartRows = 0
+  for (const row of rows) {
+    const parts = [...row.parts].sort((p, q) => p.x - q.x)
+    if (parts.length < 2) continue
+    multiPartRows += 1
+    const seen = new Set<number>()
+    for (let i = 1; i < parts.length; i += 1) {
+      const gap = parts[i].x - (parts[i - 1].x + parts[i - 1].w)
+      if (gap >= COLUMN_GAP_PT) {
+        const bucket = Math.round(parts[i].x / BUCKET)
+        if (!seen.has(bucket)) {
+          seen.add(bucket)
+          votes.set(bucket, [...(votes.get(bucket) ?? []), { x: parts[i].x, str: parts[i].str }])
+        }
+      }
+    }
+  }
+  let bestStarts: { x: number; str: string }[] = []
+  for (const [bucket, starts] of votes) {
+    // neighbouring buckets describe the same column edge
+    const group = [...starts, ...(votes.get(bucket - 1) ?? []), ...(votes.get(bucket + 1) ?? [])]
+    if (group.length > bestStarts.length) bestStarts = group
+  }
+  if (bestStarts.length < 4 || bestStarts.length < multiPartRows * 0.5) return null
+  // A column of right-aligned dates ("Jan 2021 - Present") is not a second column: the right side must be real text.
+  const DATE_ONLY = /^[\s\d\-–—/.,()[\]]*(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*|present|current|till\s+date|to\s+date|\d{4}|\d{1,2}\/\d{4})(?:[\s\d\-–—/.,()[\]]|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*|present|current|till\s+date|to\s+date)*$/i
+  const dateLike = bestStarts.filter((s) => DATE_ONLY.test(s.str.trim())).length
+  if (dateLike >= bestStarts.length * 0.6) return null
+  const boundary = Math.min(...bestStarts.map((s) => s.x)) - 6
+  const leftRows = rows.filter((r) => r.parts.some((p) => p.x + p.w <= boundary)).length
+  const rightRows = rows.filter((r) => r.parts.some((p) => p.x >= boundary)).length
+  return leftRows >= 4 && rightRows >= 4 ? boundary : null
+}
+
+/**
+ * Rebuild the visual lines of a PDF page from its text fragments.
+ *
+ * pdf.js returns loose fragments ("Python", ",", " with hands-on"...). Joining them all with a space (as this code
+ * used to) turns a whole page into ONE line, which breaks name, role, dates, skills and certification parsing.
+ * Instead, fragments are grouped by their vertical position (same baseline = same line), ordered left to right, and
+ * a space is added only where there is a real gap between two fragments.
+ *
+ * Two-column layouts (a sidebar next to the experience) are read one column at a time, so the left and right
+ * columns are never glued into the same line.
+ */
+export function pdfItemsToLines(items: PdfTextItem[]): string[] {
+  const rows: { y: number; parts: PdfPart[] }[] = []
+  const TOLERANCE = 2.5 // points; superscripts and mixed fonts sit within this of the baseline
+
+  for (const item of items) {
+    const str = item.str ?? ''
+    if (!str) continue
+    const x = item.transform?.[4] ?? 0
+    const y = item.transform?.[5] ?? 0
+    const w = item.width ?? 0
+    const row = rows.find((r) => Math.abs(r.y - y) <= TOLERANCE)
+    if (row) row.parts.push({ x, w, str })
+    else rows.push({ y, parts: [{ x, w, str }] })
+  }
+
+  rows.sort((a, b) => b.y - a.y) // PDF y grows upwards: top of the page first
+  const boundary = findColumnBoundary(rows)
+  const lines: string[] = []
+
+  if (boundary === null) {
+    for (const row of rows) {
+      const clean = joinPdfParts(row.parts)
+      if (clean) lines.push(clean)
+    }
+    return lines
+  }
+
+  // Two columns: full-width lines (title, summary) split the page into bands; inside a band, left column first.
+  let left: string[] = []
+  let right: string[] = []
+  const flush = () => {
+    lines.push(...left, ...right)
+    left = []
+    right = []
+  }
+  for (const row of rows) {
+    const crossesGutter = row.parts.some((p) => p.x < boundary - 4 && p.x + p.w > boundary + 8)
+    if (crossesGutter) {
+      flush()
+      const clean = joinPdfParts(row.parts)
+      if (clean) lines.push(clean)
+      continue
+    }
+    const leftText = joinPdfParts(row.parts.filter((p) => p.x < boundary))
+    const rightText = joinPdfParts(row.parts.filter((p) => p.x >= boundary))
+    if (leftText) left.push(leftText)
+    if (rightText) right.push(rightText)
+  }
+  flush()
+  return lines
+}
+
 async function extractPdfText(file: File): Promise<string> {
   const data = new Uint8Array(await file.arrayBuffer())
   try {
@@ -87,11 +225,8 @@ async function extractPdfText(file: File): Promise<string> {
     const chunks: string[] = []
     for (let page = 1; page <= pdf.numPages; page += 1) {
       const content = await (await pdf.getPage(page)).getTextContent()
-      const line = content.items
-        .map((item) => ('str' in item ? item.str : ''))
-        .filter(Boolean)
-        .join(' ')
-      if (line.trim()) chunks.push(line.trim())
+      const lines = pdfItemsToLines(content.items as PdfTextItem[])
+      if (lines.length) chunks.push(lines.join('\n'))
     }
     const combined = chunks.join('\n')
     if (combined.trim().length > 20) return combined
@@ -294,7 +429,10 @@ function pickRole(text: string): string {
     /\b((?:senior|junior|lead|principal|staff)?\s?(?:software|frontend|backend|full[\s-]?stack|product|data|devops|ui\/?ux)?\s?(?:engineer|developer|manager|designer|scientist|analyst))\b/i,
   )
   if (titleMatch) {
-    const candidate = titleMatch[1].replace(/\s+/g, ' ').trim()
+    const candidate = titleMatch[1]
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b([a-z])/g, (c) => c.toUpperCase())
     const close = ROLE_OPTIONS.find(
       (role) => role.toLowerCase() === candidate.toLowerCase(),
     )
@@ -313,18 +451,60 @@ function pickLocation(text: string): string {
   return ''
 }
 
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+}
+
+/** "May 2026" -> months since year 0; "2022" -> January of that year. Returns null if unreadable. */
+function monthIndex(value: string | undefined, fallbackMonth = 0): number | null {
+  const v = (value || '').trim()
+  if (!v) return null
+  if (/present|current|ongoing|till/i.test(v)) {
+    const now = new Date()
+    return now.getFullYear() * 12 + now.getMonth()
+  }
+  const year = v.match(/(?:19|20)\d{2}/)
+  if (!year) return null
+  const month = v.match(/[A-Za-z]{3}/)
+  const m = month ? MONTHS[month[0].toLowerCase()] : undefined
+  return Number(year[0]) * 12 + (m ?? fallbackMonth)
+}
+
+/** Total experience from the job dates when the resume never says "N years". */
+function experienceFromWork(works: WorkExperience[]): string {
+  let earliest: number | null = null
+  let latest: number | null = null
+  for (const w of works) {
+    const start = monthIndex(w.startDate)
+    const end = w.currentlyWorking ? monthIndex('Present') : monthIndex(w.endDate, 11)
+    if (start === null) continue
+    earliest = earliest === null ? start : Math.min(earliest, start)
+    const endValue = end ?? start
+    latest = latest === null ? endValue : Math.max(latest, endValue)
+  }
+  if (earliest === null || latest === null || latest < earliest) return ''
+  return yearsToExperienceLabel((latest - earliest) / 12)
+}
+
 function pickExperience(text: string): string {
   const range = text.match(
     /(\d+(?:\.\d+)?)\s*(?:\+|to|–|-)\s*(\d+(?:\.\d+)?)\s*\+?\s*years?/i,
   )
   const single = text.match(/(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of\s+experience)?/i)
+  const months = text.match(/\b(\d{1,2})\s*\+?\s*months?\b/i)
   const years = range
     ? (Number(range[1]) + Number(range[2])) / 2
     : single
       ? Number(single[1])
-      : NaN
+      : months
+        ? Number(months[1]) / 12
+        : NaN
 
   if (Number.isNaN(years)) return ''
+  return yearsToExperienceLabel(years)
+}
+
+function yearsToExperienceLabel(years: number): string {
   if (years < 1) return 'Fresher / 0 years'
   if (years < 2) return '0 – 1 Years'
   if (years < 3) return '1 – 2 Years'
@@ -358,6 +538,75 @@ function pickSkills(text: string): string[] {
   return [...new Set(found)].slice(0, 12)
 }
 
+const SKILL_SECTION_LABELS = ['technical skills', 'key skills', 'core skills', 'skills & tools', 'tools & technologies', 'technologies', 'skills']
+const SKILL_SECTION_STOPS = [
+  'professional experience', 'work experience', 'experience', 'employment', 'education', 'academic', 'projects?',
+  'certifications?', 'achievements?', 'awards?', 'professional summary', 'summary', 'profile', 'objective',
+  'declaration', 'languages', 'interests',
+]
+
+/** Split on commas / semicolons / pipes that are not inside brackets. */
+function splitTopLevel(value: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let current = ''
+  for (const ch of value) {
+    if (ch === '(' || ch === '[') depth += 1
+    if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
+    if (depth === 0 && /[,;|•·]/.test(ch)) {
+      out.push(current)
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  out.push(current)
+  return out
+}
+
+/** The candidate's own skills, in their own words, from the "Technical Skills" section. */
+function pickSkillsFromSection(text: string): string[] {
+  const body = sectionBody(text, SKILL_SECTION_LABELS, SKILL_SECTION_STOPS)
+  if (!body) return []
+  // Join wrapped lines; a new "Category:" line starts a new entry.
+  const entries: string[] = []
+  for (const line of body.split('\n').map((l) => l.trim()).filter(Boolean)) {
+    if (/^[A-Z][^:,|]{1,45}:\s/.test(line) || !entries.length) entries.push(line)
+    else entries[entries.length - 1] += ' ' + line
+  }
+  const seen = new Set<string>()
+  const skills: string[] = []
+  for (const entry of entries) {
+    const list = entry.replace(/^[^:]{1,45}:\s*/, '')
+    for (const raw of splitTopLevel(list)) {
+      const skill = raw.replace(/^[\s•·\-–]+/, '').replace(/\s+/g, ' ').trim()
+      const words = skill.split(' ').length
+      if (skill.length < 2 || skill.length > 40 || words > 6) continue
+      if (/^(and|etc\.?|basics?)$/i.test(skill)) continue
+      const key = skill.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      skills.push(skill)
+    }
+  }
+  return skills
+}
+
+function mergeSkills(fromSection: string[], fromCatalog: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const skill of [...fromSection, ...fromCatalog]) {
+    const key = skill.toLowerCase().replace(/[^a-z0-9+#]/g, '')
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(skill)
+  }
+  return out.slice(0, 40)
+}
+
+const NOT_NAME_WORDS =
+  /^(?:engineers?|developers?|managers?|analysts?|designers?|architects?|consultants?|scientists?|interns?|specialists?|administrators?|executives?|programmers?|testers?|recruiters?|associates?|senior|junior|lead|principal|software|frontend|backend|full|stack|fullstack|devops|cloud|web|mobile|data|python|java|javascript|typescript|react|node|aws|sql|ai|ml|llms?|rag|resume|curriculum|vitae|profile|summary|objective|skills|education|experience)$/i
+
 export function extractNameFromText(text: string): string | null {
   if (!text || typeof text !== 'string') return null
   const lines = text
@@ -388,6 +637,8 @@ export function extractNameFromText(text: string): string | null {
     if (/summary|objective|profile|experience|education|skills|projects|contact|declaration|email|phone/i.test(cleanSegment)) continue
 
     const words = cleanSegment.split(/\s+/).filter(Boolean)
+    // A job title or a list of technologies is not a name ("AI Engineer", "Python Developer").
+    if (words.some((w) => NOT_NAME_WORDS.test(w))) continue
     // Accept 2 to 4 words where all words look like name tokens
     if (
       words.length >= 2 &&
@@ -415,6 +666,47 @@ function pickName(lines: string[]): string {
   return extractNameFromText(lines.join('\n')) || ''
 }
 
+const COUNTRY_NAMES =
+  'India|USA|U\\.S\\.A?|United States|UK|United Kingdom|Canada|Australia|Germany|Singapore|UAE|Remote'
+const COUNTRY_TAIL = new RegExp(
+  `\\s+([A-Z][A-Za-z.]+)(?:\\s([A-Z][A-Za-z.]+))?,\\s*(?:${COUNTRY_NAMES})\\b.*$`,
+)
+const TITLE_WORD = /^(?:engineer|developer|manager|designer|scientist|analyst|architect|consultant|specialist|lead|executive|administrator|associate|intern|officer|programmer|tester)$/i
+
+/** "AI Associate Engineer Hyderabad, India |" -> "AI Associate Engineer" (removes only the city and country). */
+function cleanJobTitle(title: string): string {
+  const withoutLocation = title.replace(COUNTRY_TAIL, (_whole, first: string, second?: string) => {
+    // "Engineer Hyderabad, India": the first word is part of the title, only the city goes.
+    if (second && TITLE_WORD.test(first)) return ` ${first}`
+    return ''
+  })
+  return withoutLocation
+    .replace(/\s*[|,;]+\s*$/g, '')
+    .replace(/^\s*[|,;]+\s*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+const LEVEL_WORDS = /\b(?:associate|junior|jr\.?|senior|sr\.?|lead|principal|staff|trainee|intern|i{1,3})\b/gi
+
+/** Prefer a standard role name ("AI Engineer") over a level-decorated title ("AI Associate Engineer"). */
+function canonicalRole(title: string): string {
+  const cleaned = cleanJobTitle(title)
+  if (!cleaned) return ''
+  const bare = cleaned.replace(LEVEL_WORDS, ' ').replace(/\s{2,}/g, ' ').trim()
+  const match = ROLE_OPTIONS.find((r) => r.toLowerCase() === bare.toLowerCase())
+  return match ?? cleaned
+}
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "[08/2024]" or "08/2024" -> "Aug 2024". */
+function numericDatesToMonthNames(line: string): string {
+  return line.replace(/\[?\b(0?[1-9]|1[0-2])\/((?:19|20)\d{2})\b\]?/g, (_m, month: string, year: string) => `${MONTH_SHORT[Number(month) - 1]} ${year}`)
+}
+
+const TITLE_LINE = /\b(?:engineer|developer|manager|designer|scientist|analyst|architect|consultant|specialist|executive|administrator|programmer|tester|intern|associate|lead|officer|recruiter|trainee)\b/i
+
 function pickWorkExperiences(text: string): WorkExperience[] {
   // Only parse when a work/employment section exists (never the whole résumé).
   const body = pickExperienceSectionBody(text)
@@ -426,7 +718,10 @@ function pickWorkExperiences(text: string): WorkExperience[] {
     ? body
     : body.replace(/\s{2,}/g, '\n').replace(/\s+(?=(?:19|20)\d{2}\s*[-–—])/g, '\n')
 
-  const lines = bodyNormalized.split('\n').map((l) => l.trim()).filter(Boolean)
+  const lines = bodyNormalized
+    .split('\n')
+    .map((l) => numericDatesToMonthNames(l.trim()))
+    .filter(Boolean)
   if (!lines.length) return []
 
   const datePattern =
@@ -437,7 +732,11 @@ function pickWorkExperiences(text: string): WorkExperience[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-    const isBullet = /^[•\-*]/.test(line)
+    const isBullet =
+      /^[•\-*]/.test(line) ||
+      /^projects?\s*[:\-–]/i.test(line) ||
+      // "Project name | Tech | Tech | Tech" with no dates is a project heading, not an employer.
+      (!datePattern.test(line) && (line.match(/\|/g) || []).length >= 2)
     const hasRole = Boolean(pickRole(line))
     const hasDate = datePattern.test(line)
     const hasSeparator = /\s+(?:at|@|\||–|—|-)\s+/i.test(line)
@@ -543,6 +842,30 @@ function pickWorkExperiences(text: string): WorkExperience[] {
       }
     }
 
+    // Two-line header: line 1 = company (+ country or "3 Months"), line 2 = job title (+ dates or city).
+    const next = block.lines[0] || ''
+    const headerHasTitle = Boolean(pickRole(header)) && TITLE_LINE.test(header)
+    const headerDuration = /\b\d{1,2}\s*(?:months?|yrs?|years?)\b/i.test(header)
+    if (
+      next &&
+      !headerHasTitle &&
+      !/^[•\-*–]/.test(next) &&
+      TITLE_LINE.test(next) &&
+      next.length < 110 &&
+      (datePattern.test(next) || headerDuration)
+    ) {
+      const titleOnly = next.replace(datePattern, '').replace(/\bpresent\b/i, '').replace(/[–—-]\s*$/g, '')
+      role = titleOnly
+      company = header.replace(datePattern, '')
+      if (!dateStr) dateStr = (next.match(datePattern) || [''])[0].trim()
+      block.lines = block.lines.slice(1)
+    }
+
+    role = cleanJobTitle(role)
+    // "Techcitta Software Private Limited India" / "... 3 Months" -> just the company name
+    company = company
+      .replace(/\b\d{1,2}\s*(?:months?|yrs?|years?)\b/gi, '')
+      .replace(new RegExp(`\\s+(?:${COUNTRY_NAMES})\\s*$`, 'i'), '')
     company = company
       .replace(/\(\s*\)/g, '')
       .replace(/[\s,;|\-–—]+$/g, '')
@@ -771,7 +1094,7 @@ function cleanOrg(org: string): string {
 
 function cleanCertName(name: string): string {
   return name
-    .replace(/^[•*·\-\d.)\s]+|[\s:–—|\-,.]+$/g, '')
+    .replace(/^[•*·\-–—\d.)\s]+|[\s:–—|\-,.]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -788,7 +1111,7 @@ const KNOWN_CERT_ISSUERS = [
 export function pickCertifications(text: string): Certification[] {
   if (!text || typeof text !== 'string') return []
 
-  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests)\b|$)/i
+  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests|extracurricular|co-?curricular|activities|volunteer(?:ing)?|hobbies|personal\s+details|references|publications)\b|$)/i
 
   const match = text.match(sectionHeaderRegex)
   const body = match ? match[1].trim() : ''
@@ -803,7 +1126,7 @@ export function pickCertifications(text: string): Certification[] {
       if (bPart.includes('|')) {
         const pipeParts = bPart.split('|').map((p) => p.trim()).filter(Boolean)
         const hasMultipleNamedCerts = pipeParts.filter((p) =>
-          /[:]|(?:\s+by\s+)/i.test(p) && !/(?:credential|license|verification)\s*id/i.test(p)
+          /[:]|(?:\s+by\s+)|\s[-–—]\s/i.test(p) && !/(?:credential|license|verification)\s*id/i.test(p)
         ).length >= 2
 
         if (hasMultipleNamedCerts) {
@@ -925,9 +1248,11 @@ export function parseResumeText(raw: string): ResumeExtract {
   const joined = lines.join('\n')
 
   const fullName = pickName(lines)
-  const currentRole = pickRole(joined)
+  const workExperiences = pickWorkExperiences(joined)
+  const latestTitle = workExperiences.find((w) => /engineer|developer|manager|designer|scientist|analyst|architect|consultant|lead|intern|associate|executive|specialist/i.test(w.jobTitle || ''))?.jobTitle
+  const currentRole = (latestTitle ? canonicalRole(latestTitle) : '') || pickRole(joined)
   const currentLocation = pickLocation(joined)
-  const skills = pickSkills(joined)
+  const skills = mergeSkills(pickSkillsFromSection(joined), pickSkills(joined))
 
   const summary =
     sectionBody(joined, ['professional summary', 'summary', 'profile', 'about me']) ||
@@ -944,11 +1269,11 @@ export function parseResumeText(raw: string): ResumeExtract {
   const whoAreYou = clip(
     [
       fullName && currentRole
-        ? `I'm ${fullName}, a ${currentRole}`
+        ? `I'm ${fullName}, ${/^[aeiou]/i.test(currentRole) ? 'an' : 'a'} ${currentRole}`
         : fullName
           ? `I'm ${fullName}`
           : currentRole
-            ? `I'm a ${currentRole}`
+            ? `I'm ${/^[aeiou]/i.test(currentRole) ? 'an' : 'a'} ${currentRole}`
             : '',
       summary && !summary.toLowerCase().startsWith("i'm")
         ? summary
@@ -970,7 +1295,6 @@ export function parseResumeText(raw: string): ResumeExtract {
 
   const keyStrengths = clip(strengthsBody || skills.join(', '), 250)
   const experienceSummary = clip(summary || whoAreYou, 500)
-  const workExperiences = pickWorkExperiences(joined)
   const achievements = pickAchievements(joined)
   const certifications = pickCertifications(joined)
 
@@ -986,7 +1310,12 @@ export function parseResumeText(raw: string): ResumeExtract {
           currentRole.toLowerCase().includes(r.toLowerCase()),
         ) || currentRole
   }
-  const experience = pickExperience(joined)
+  const hasExperienceSection = /^\s*(?:work\s+|professional\s+|industry\s+)?experience\b|^\s*employment\b|^\s*internships?\b/im.test(joined)
+  const studentSignal = /\b(fresher|final[-\s]?year|student|undergraduate|pursuing|b\.?\s?tech|b\.?e\.?\b|bachelor|m\.?\s?tech|b\.?sc|bca|mca)\b/i.test(joined)
+  const experience =
+    pickExperience(joined) ||
+    experienceFromWork(workExperiences) ||
+    (!hasExperienceSection && !workExperiences.length && studentSignal ? 'Fresher / 0 years' : '')
   if (experience) extract.totalExperience = experience
   if (currentLocation) extract.currentLocation = currentLocation
   if (skills.length) extract.skills = skills
@@ -1179,7 +1508,8 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
   if (parsed.totalExperience) {
     extract.totalExperience = normalizeExperience(String(parsed.totalExperience))
   } else {
-    extract.totalExperience = pickExperience(rawText) || '2 – 3 Years'
+    // Never invent a value: an invented "2 – 3 Years" changes the interview difficulty for every fresher.
+    extract.totalExperience = pickExperience(rawText) || experienceFromWork(experiences) || undefined
   }
 
   if (parsed.currentLocation) {
@@ -1378,22 +1708,38 @@ ${text.slice(0, 12000)}`
 
 const RESUME_AI_PARSE_MS = 12_000
 
+/**
+ * Combine the deterministic parse with the AI parse.
+ *
+ * The deterministic parse is the base: it only reports what is literally on the page, so it is never overwritten
+ * by an AI value (or an AI default). The AI fills fields the deterministic parse could not find, adds skills the
+ * candidate listed, and supplies the polished narrative text.
+ */
 function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback: ResumeExtract): ResumeExtract {
-  return {
-    ...regexFallback,
-    ...aiExtract,
-    certifications:
-      aiExtract.certifications && aiExtract.certifications.length > 0
-        ? aiExtract.certifications
-        : regexFallback.certifications,
-    workExperiences:
-      aiExtract.workExperiences && aiExtract.workExperiences.length > 0
-        ? aiExtract.workExperiences
-        : regexFallback.workExperiences,
-    metrics:
-      aiExtract.metrics && aiExtract.metrics.length > 0 ? aiExtract.metrics : regexFallback.metrics,
-    resumeText: clip(text, 12000),
+  const has = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) ? v.length > 0 : Boolean(v))
+  const firstJobOk = (regexFallback.workExperiences || []).some((w) => w.jobTitle && w.company)
+
+  const merged: ResumeExtract = { ...aiExtract, ...regexFallback }
+  for (const key of ['fullName', 'currentRole', 'totalExperience', 'currentLocation'] as const) {
+    const value = has(regexFallback[key]) ? regexFallback[key] : aiExtract[key]
+    if (has(value)) merged[key] = value
+    else delete merged[key]
   }
+  merged.skills = mergeSkills(regexFallback.skills || [], aiExtract.skills || [])
+  merged.workExperiences = firstJobOk
+    ? regexFallback.workExperiences
+    : has(aiExtract.workExperiences)
+      ? aiExtract.workExperiences
+      : regexFallback.workExperiences
+  merged.certifications = has(regexFallback.certifications) ? regexFallback.certifications : aiExtract.certifications
+  merged.achievements = has(regexFallback.achievements) ? regexFallback.achievements : aiExtract.achievements
+  merged.metrics = has(regexFallback.metrics) ? regexFallback.metrics : aiExtract.metrics
+  for (const key of ['whoAreYou', 'whatDrivesYou', 'keyStrengths', 'experienceSummary'] as const) {
+    const value = has(aiExtract[key]) ? aiExtract[key] : regexFallback[key]
+    if (has(value)) merged[key] = value
+  }
+  merged.resumeText = clip(text, 12000)
+  return merged
 }
 
 export async function parseResumeFile(file: File): Promise<ResumeExtract> {

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
+import { PageLoader } from '../components/RisingArrowLoader'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {
@@ -24,6 +25,7 @@ import {
   apiLogin,
   apiLogout,
   apiSignup,
+  getApiToken,
   setApiToken,
 } from '../lib/api'
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
@@ -38,6 +40,7 @@ import { consumeSignupLoginHandoff, stashSignupLoginHandoff } from '../lib/authH
 import {
   clearSessionValidationCache,
   reconcileAuthOnAuthPage,
+  restoreOnboardingFromServer,
   resolveAuthenticatedDestination,
   setAuthInvalidMessage,
 } from '../lib/authSession'
@@ -257,6 +260,17 @@ export function LoginPage({
   const explicitLogin = Boolean(
     (location.state as { explicitLogin?: boolean } | null)?.explicitLogin,
   )
+  const onSignupPath =
+    location.pathname === '/signup' || location.pathname === '/organizations/signup'
+  const explicitSignup =
+    onSignupPath ||
+    Boolean((location.state as { explicitSignup?: boolean } | null)?.explicitSignup)
+
+  // Already signed in: login can resume into workspace, but Get started /signup must always show
+  // the signup form (never jump back to the last unfinished onboarding step).
+  const [resumingSession, setResumingSession] = useState(
+    () => !explicitLogin && !explicitSignup && Boolean(getUser() && getApiToken()),
+  )
 
   // Prefill login after signup or navigation state
   useEffect(() => {
@@ -330,7 +344,8 @@ export function LoginPage({
     }
   }
 
-  function navigateAfterLogin(authenticatedUser: StoredUser, forcedPath?: string) {
+  async function navigateAfterLogin(authenticatedUser: StoredUser, forcedPath?: string) {
+    await restoreOnboardingFromServer()
     const from = (location.state as { from?: string })?.from
     navigate(resolveAuthenticatedDestination(authenticatedUser, from, forcedPath), {
       replace: true,
@@ -355,12 +370,13 @@ export function LoginPage({
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const result = await reconcileAuthOnAuthPage({ explicitLogin })
+      const result = await reconcileAuthOnAuthPage({ explicitLogin, explicitSignup })
       if (cancelled) return
       if (result.action === 'redirect') {
         navigate(result.path, { replace: true })
         return
       }
+      setResumingSession(false)
       if (result.action === 'invalid') {
         setAuthInvalidMessage(result.message)
         setError(result.message)
@@ -369,7 +385,7 @@ export function LoginPage({
     return () => {
       cancelled = true
     }
-  }, [location.pathname, navigate, explicitLogin])
+  }, [location.pathname, navigate, explicitLogin, explicitSignup])
 
   async function handleLoginSubmit(event: FormEvent) {
     event.preventDefault()
@@ -540,6 +556,10 @@ export function LoginPage({
     } finally {
       setLoading(false)
     }
+  }
+
+  if (resumingSession) {
+    return <PageLoader label="Opening your workspace…" />
   }
 
   return (

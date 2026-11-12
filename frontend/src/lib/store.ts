@@ -277,6 +277,13 @@ function uid() {
 
 /** One-time cleanup so browsers stop showing seeded demo rows after a DB reset. */
 export function applyClientStorageMigration(): void {
+  // The old "remember the first name we saw" cache made the interview keep using a previous resume's name.
+  try {
+    localStorage.removeItem('hireright.candidateName')
+    sessionStorage.removeItem('hireright.candidateName')
+  } catch {
+    /* storage unavailable */
+  }
   try {
     if (localStorage.getItem(STORAGE_VERSION_KEY) === CLIENT_STORAGE_VERSION) return
 
@@ -480,9 +487,6 @@ export function persistLoggedInUser(
 export function updateUserName(name: string): User | null {
   const next = name.trim()
   if (!next) return getUser()
-  sessionStorage.setItem('hireright.candidateName', next)
-  localStorage.setItem('hireright.candidateName', next)
-
   const user = getUser()
   if (!user) return null
   const users = readUsers().map((entry) =>
@@ -1020,35 +1024,52 @@ export function applicationStats() {
 
 const DEMO_DISPLAY_NAME = 'Arjun Sharma'
 
-export function candidateFullName(): string {
-  const profile = getProfile()
+/** Lower-cased name words, ignoring punctuation. "Bharath Krishna  Pachimatla" -> ["bharath","krishna","pachimatla"]. */
+function nameWords(value: string | null | undefined): string[] {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2)
+}
 
-  // 1. Explicit session or local storage candidate name override
-  const sessionName =
-    sessionStorage.getItem('hireright.candidateName') ||
-    localStorage.getItem('hireright.candidateName')
-  if (sessionName && sessionName.trim() && sessionName.trim() !== DEMO_DISPLAY_NAME) {
-    return sessionName.trim()
-  }
+/** Same person if every word of the shorter name appears in the longer one ("Bharath" vs "Bharath Krishna Pachimatla"). */
+export function sameNamePerson(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = nameWords(a)
+  const y = nameWords(b)
+  if (!x.length || !y.length) return false
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x]
+  return short.every((w) => long.includes(w))
+}
 
-  // 2. Profile saved name
-  if (profile?.fullName && profile.fullName.trim() && profile.fullName.trim() !== DEMO_DISPLAY_NAME) {
-    return profile.fullName.trim()
-  }
-  if (profile?.name && profile.name.trim() && profile.name.trim() !== DEMO_DISPLAY_NAME) {
-    return profile.name.trim()
-  }
+/**
+ * The name Ava should use. One rule everywhere (interview greeting, dashboard, reports):
+ *
+ *  1. the name saved on the profile, but ONLY if it still matches the current resume or the account name;
+ *  2. otherwise the name written on the current resume;
+ *  3. otherwise the name the person gave when they signed up;
+ *  4. otherwise a name guessed from the resume file name.
+ *
+ * A saved name that matches neither the resume nor the account is stale (left from an older resume) and is ignored,
+ * so uploading a new resume can never leave the interview calling someone by a previous person's name.
+ */
+export function resolveCandidateName(
+  profile: { fullName?: string; name?: string; resumeText?: string; resumeName?: string | null } | null | undefined,
+  user: { name?: string; email?: string } | null | undefined,
+): string {
+  const saved = (profile?.fullName || profile?.name || '').trim()
+  const savedUsable = saved && saved !== DEMO_DISPLAY_NAME ? saved : ''
+  const resumeName = profile?.resumeText ? (extractNameFromText(profile.resumeText) || '').trim() : ''
+  const accountName = user?.name?.trim() && user.name.trim() !== DEMO_DISPLAY_NAME ? user.name.trim() : ''
 
-  // 3. Name extracted from uploaded resume text (works for demo account + resume upload)
-  if (profile?.resumeText) {
-    const extracted = extractNameFromText(profile.resumeText)
-    if (extracted && extracted.trim()) {
-      sessionStorage.setItem('hireright.candidateName', extracted.trim())
-      return extracted.trim()
-    }
+  if (savedUsable) {
+    const evidence = [resumeName, accountName].filter(Boolean)
+    // With nothing to compare against, keep what the person saved.
+    if (!evidence.length || evidence.some((e) => sameNamePerson(savedUsable, e))) return savedUsable
   }
+  if (resumeName) return resumeName
+  if (accountName) return accountName
 
-  // 4. Name inferred from uploaded resume file name (e.g. "Deepak_Kumbhar_Resume.pdf")
   if (profile?.resumeName) {
     const cleanFileName = profile.resumeName
       .replace(/\.[^/.]+$/, '')
@@ -1057,28 +1078,16 @@ export function candidateFullName(): string {
       .trim()
     const words = cleanFileName.split(/\s+/).filter((w) => w.length >= 2 && /^[A-Za-z]+$/.test(w))
     if (words.length >= 2 && words.length <= 4) {
-      const extracted = words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-      sessionStorage.setItem('hireright.candidateName', extracted)
-      return extracted
+      return words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')
     }
   }
+  if (savedUsable) return savedUsable
+  if (user?.email === 'demo@hireright.com') return 'Candidate'
+  return 'Candidate'
+}
 
-  // 5. User record (if not generic demo label)
-  const user = getUser()
-  if (user?.name?.trim() && user.name.trim() !== DEMO_DISPLAY_NAME) {
-    return user.name.trim()
-  }
-
-  if (sessionName?.trim()) {
-    return sessionName.trim()
-  }
-
-  // Demo login without resume yet — neutral greeting, not seeded demo persona
-  if (user?.email === 'demo@hireright.com') {
-    return 'Candidate'
-  }
-
-  return user?.name?.trim() || 'Candidate'
+export function candidateFullName(): string {
+  return resolveCandidateName(getProfile(), getUser())
 }
 
 export function firstName(): string {

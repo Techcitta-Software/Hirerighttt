@@ -54,8 +54,19 @@ async def save_db(db: dict[str, Any] | None = None) -> None:
         await asyncio.to_thread(persist_db, _db_cache, config.database_url)
 
 
+_RATE_SWEEP_AT = 5000  # distinct keys before stale ones are swept
+
+
+def _sweep_rate_buckets(now_ms: float) -> None:
+    # Keys (ip / email) were never removed, so memory grew with every distinct caller for the life of the process.
+    for k in [k for k, b in _rate_buckets.items() if not b or now_ms - b[-1] > 3_600_000]:
+        _rate_buckets.pop(k, None)
+
+
 def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
     now = time.time() * 1000
+    if len(_rate_buckets) > _RATE_SWEEP_AT:
+        _sweep_rate_buckets(now)
     bucket = [t for t in _rate_buckets.get(key, []) if now - t < window_ms]
     if len(bucket) >= limit:
         return False
@@ -191,7 +202,9 @@ def merge_interview_profile(db: dict[str, Any], email: str, body_profile: dict |
         or ""
     ).strip()
     if client_name and not _is_demo_display_name(client_name):
-        return {**merged, "fullName": client_name, "name": client_name}
+        merged = {**merged, "fullName": client_name, "name": client_name}
+    # One rule for the name everywhere: a saved name that matches neither the current resume nor the account name is
+    # stale (left over from an older resume) and is replaced, so the interview never greets someone by another name.
     resolved = resolve_candidate_name(merged, account.get("name") if account else "")
     return {**merged, "fullName": resolved, "name": resolved}
 

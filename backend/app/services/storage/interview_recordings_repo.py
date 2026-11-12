@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from app.db.row_utils import row_to_named
+
 
 def _row_to_dict(row: tuple) -> dict[str, Any]:
     cols = [
@@ -21,7 +23,7 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
         "created_at",
         "updated_at",
     ]
-    return dict(zip(cols, row, strict=True))
+    return row_to_named(row, cols)
 
 
 def insert_interview_recording(pool, row: dict[str, Any]) -> str:

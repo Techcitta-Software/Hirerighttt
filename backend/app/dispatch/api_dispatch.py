@@ -1365,40 +1365,6 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             # Interview videos are not exposed to candidates; admins/recruiters use the vendor endpoints.
             return _json(403, {"error": "Interview recordings are not available to candidates."})
-            session_id = str(request.query_params.get("sessionId") or "").strip()
-            if not session_id:
-                return _json(400, {"error": "sessionId is required."})
-            if not s3_storage_configured():
-                return _json(503, {"error": "Recording storage is not configured (S3).", "skipped": True})
-            if not config.database_url:
-                return _json(503, {"error": "Database required for interview recordings."})
-            try:
-                db = ctx.load_db()
-                pool = db_store.db_pool(config.database_url)
-                signed = await rec_store.resolve_candidate_interview_recording_playback(
-                    pool=pool,
-                    db=db,
-                    requesterEmail=email,
-                    sessionId=session_id,
-                )
-                return _json(
-                    200,
-                    {
-                        "playbackUrl": signed["url"],
-                        "viewUrl": signed["url"],
-                        "expiresInSeconds": signed["expiresInSeconds"],
-                        "contentType": signed["contentType"],
-                        "durationSeconds": signed.get("durationSeconds"),
-                        "sessionId": session_id,
-                    },
-                )
-            except rec_store.StorageError as err:
-                body: dict[str, Any] = {"error": str(err)}
-                if getattr(err, "skipped", False):
-                    body["skipped"] = True
-                return _json(err.status, body)
-            except NotImplementedError as err:
-                return _json(501, {"error": str(err)})
 
         if method == "POST" and path == "/api/interview/recordings/upload":
             email = await runtime.require_auth_email(request)

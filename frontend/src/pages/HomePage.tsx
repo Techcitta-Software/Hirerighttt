@@ -1,6 +1,5 @@
-import { useState, useRef, type FormEvent, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import {
   clearStoredAuth,
   isApiSessionValid,
@@ -11,212 +10,233 @@ import { requireApiForAuth } from '../lib/authConfig'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
 import { MarketingNavBar } from '../components/MarketingNavBar'
-import { HomeHeroPreview } from '../components/HomeHeroPreview'
 import styles from './HomePage.module.css'
 
-interface StageInfo {
-  id: string
-  label: string
-  title: string
-  description: string
-  focusTags: string[]
-  image: string
-}
+type AudienceId = 'student' | 'graduate' | 'professional' | 'switcher'
+type ReportTabId = 'strengths' | 'direction' | 'growth'
+type DemoChoice = 'direction' | 'interviews' | 'growth' | 'change'
+type Panel = 'demo' | 'report' | 'growth' | null
 
-const CAREER_STAGES: StageInfo[] = [
+const RAIL: { id: string; label: string }[] = [
+  { id: 'why', label: 'why' },
+  { id: 'who', label: 'who' },
+  { id: 'how', label: 'how' },
+  { id: 'report', label: 'what' },
+  { id: 'when', label: 'when' },
+  { id: 'where', label: 'where' },
+]
+
+const AUDIENCES: { id: AudienceId; label: string; detail: string }[] = [
   {
-    id: 'students',
-    label: 'Students',
-    title: 'Students',
-    description: 'Explore careers, understand your interests and learn what future roles may require.',
-    focusTags: ['Career exploration', 'Foundational strengths', 'Internship readiness'],
-    image: '/assets/students-group.jpg',
+    id: 'student',
+    label: "i'm still figuring things out",
+    detail: 'everyone keeps asking what you want to be. let’s start with what you enjoy doing.',
   },
   {
-    id: 'graduates',
-    label: 'Fresh graduates',
-    title: 'Fresh graduates',
-    description: 'Bridge the gap between coursework and industry expectations, discover initial job roles, and practice your first professional interviews.',
-    focusTags: ['Entry roles', 'Communication skills', 'First-job readiness'],
-    image: '/hero-candidate-new.jpg',
+    id: 'graduate',
+    label: "i'm trying to land my first job",
+    detail: 'you’ve got a degree and a lot of applications. let’s work out what might be missing.',
   },
   {
-    id: 'job-seekers',
-    label: 'Job seekers',
-    title: 'Job seekers',
-    description: 'Discover how to stand out from typical applicant pools, uncover unrecognized strengths, and present a verified 360° view to recruiters.',
-    focusTags: ['Interview practice', 'Standing out', 'Verified capabilities'],
-    image: '/sidebar_talent_workspace.jpg',
+    id: 'professional',
+    label: 'i think i’m ready for more',
+    detail: 'you’ve learned a lot where you are. what would make the next role worth moving for?',
   },
   {
-    id: 'professionals',
-    label: 'Working professionals',
-    title: 'Working professionals',
-    description: 'Evaluate promotion readiness, benchmark leadership competencies, and plan structured lateral or upward career moves with confidence.',
-    focusTags: ['Promotion roadmap', 'Leadership competencies', 'Market alignment'],
-    image: '/hero-professional.jpg',
-  },
-  {
-    id: 'switchers',
-    label: 'Career switchers',
-    title: 'Career switchers',
-    description: 'Map your transferable skills into new industries, pinpoint exact knowledge gaps, and tell your transition story credibly.',
-    focusTags: ['Transferable skills', 'Targeted bridge skills', 'Role transition'],
-    image: '/african_exec_hero.jpg',
+    id: 'switcher',
+    label: 'i want to do something different',
+    detail: 'you don’t have to throw away everything you’ve done. let’s find what can come with you.',
   },
 ]
 
-interface ConversationStage {
-  id: string
-  time: string
-  title: string
-  description: string
-  purpleTags: string[]
-  neutralTags: string[]
+const REPORT_TABS: Record<ReportTabId, { tab: string; title: string; text: string }> = {
+  strengths: {
+    tab: 'strengths',
+    title: 'what comes naturally to you?',
+    text: 'spot the things you seem to enjoy and do well.',
+  },
+  direction: {
+    tab: 'direction',
+    title: 'what else might suit you?',
+    text: 'see possible roles worth finding out more about.',
+  },
+  growth: {
+    tab: 'next steps',
+    title: 'where could you begin?',
+    text: 'a few practical things to try, learn or practise next.',
+  },
 }
 
-const CONVERSATION_STAGES: ConversationStage[] = [
-  {
-    id: 'stage-1',
-    time: '9:05 PM',
-    title: 'Talk for 15 minutes',
-    description:
-      'have a natural ai-guided conversation about your interests, experiences, skills, aspirations and challenges.',
-    purpleTags: ['AI-guided conversation'],
-    neutralTags: ['No resume needed'],
+const DEMO_ANSWERS: Record<DemoChoice, { label: string; lead: string; follow: string }> = {
+  direction: {
+    label: "i'm not sure which career is right for me",
+    lead: 'let’s start with something small.',
+    follow:
+      'what’s one thing you’ve done — at college, at work or just for yourself — that you genuinely enjoyed?',
   },
-  {
-    id: 'stage-2',
-    time: '9:20 PM',
-    title: 'Discover your 360° view',
-    description:
-      'receive initial insights into strengths, potential gaps, communication, career direction and job readiness.',
-    purpleTags: ['Initial insights', 'Strengths'],
-    neutralTags: ['Gaps'],
+  interviews: {
+    label: "i'm applying but not getting interviews",
+    lead: 'that gets tiring, doesn’t it?',
+    follow:
+      'what sort of jobs have you been applying for? and is there one part of your experience you wish employers noticed?',
   },
-  {
-    id: 'stage-3',
-    time: '9:25 PM',
-    title: 'Know your next steps',
-    description:
-      'get prioritized recommendations for career exploration, skill improvement and interview preparation.',
-    purpleTags: ['Prioritized recommendations'],
-    neutralTags: [],
+  growth: {
+    label: "i'm ready for a bigger opportunity",
+    lead: 'so what would feel different?',
+    follow:
+      'more responsibility, a new kind of work, a better team — what’s the change you’re hoping for?',
   },
-  {
-    id: 'stage-4',
-    time: 'Next week',
-    title: 'Keep moving forward',
-    description:
-      'practice interviews, follow a development plan and update your insights as you improve.',
-    purpleTags: ['Interview practice', 'Development plan', 'Updated insights'],
-    neutralTags: ['Apply to jobs', 'Interviews'],
+  change: {
+    label: 'i want to switch careers',
+    lead: 'you don’t have to start from zero.',
+    follow:
+      'which parts of your work would you happily keep doing, even in a completely different job?',
   },
+}
+
+const REPORT_AREAS = [
+  'strengths — what seems to come naturally',
+  'career paths — roles worth looking into',
+  'skill gaps — things you could learn',
+  'communication — how you tell your story',
+  'interview readiness — what you may want to practise',
+  'your next steps — a few things to try',
 ]
 
-function TimelineStepCard({
-  stage,
-  index,
-  scrollYProgress,
-}: {
-  stage: ConversationStage
-  index: number
-  scrollYProgress: MotionValue<number>
-}) {
-  const start = index === 0 ? 0 : index * 0.22 - 0.04
-  const end = index === 0 ? 0.08 : index * 0.22 + 0.12
+const GROWTH_ITEMS = [
+  'something to learn — a skill relevant to the work you want',
+  'something to try — a practice interview or a fresh approach',
+  'something to revisit — see what has improved and what still needs attention',
+]
 
-  const opacity = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? 1 : 0.28, 1],
-  )
-  const scale = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? 1 : 0.98, 1],
-  )
-  const y = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? 0 : 12, 0],
-  )
-  const nodeBorder = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? '#6C47FF' : '#E2E8F0', '#6C47FF'],
-  )
-  const dotScale = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? 1 : 0.75, 1],
-  )
-  const dotColor = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? '#6C47FF' : '#CBD5E1', '#6C47FF'],
-  )
-  const haloOpacity = useTransform(
-    scrollYProgress,
-    [start, end],
-    [index === 0 ? 1 : 0, 1],
-  )
-
-  return (
-    <motion.div style={{ opacity, scale, y }} className={styles.timelineStepMotion}>
-      <motion.div style={{ borderColor: nodeBorder }} className={styles.stepDot}>
-        <motion.div
-          style={{ opacity: haloOpacity }}
-          className={styles.stepDotHalo}
-          aria-hidden="true"
-        />
-        <motion.div
-          style={{ scale: dotScale, backgroundColor: dotColor }}
-          className={styles.stepDotInner}
-        />
-      </motion.div>
-      <div className={styles.stepContent}>
-        <div className={styles.stepHeader}>
-          <span className={styles.stepTimeTitle}>
-            {stage.time} · {stage.title}
-          </span>
-        </div>
-        <p className={styles.stepDescription}>{stage.description}</p>
-        <div className={styles.stepTagsRow}>
-          {stage.purpleTags.map((tag) => (
-            <span key={tag} className={styles.stageBadgePurple}>
-              {tag}
-            </span>
-          ))}
-          {stage.neutralTags.map((tag) => (
-            <span key={tag} className={styles.stageBadgeNeutral}>
-              {tag}
-            </span>
-          ))}
-        </div>
-      </div>
-    </motion.div>
-  )
-}
+const DEEPER_LINKS: {
+  index: string
+  title: string
+  desc: string
+  to?: string
+  panel?: Panel
+}[] = [
+  {
+    index: '01.',
+    title: "what's in my 360° report?",
+    desc: 'the six things we look at, with a sample you can explore',
+    panel: 'report',
+  },
+  {
+    index: '02.',
+    title: 'why start with a conversation?',
+    desc: 'a little more about the thinking behind HireRighttt',
+    to: '/why',
+  },
+  {
+    index: '03.',
+    title: 'what happens to my information?',
+    desc: 'what you choose to share, and what stays private',
+    to: '/privacy',
+  },
+  {
+    index: '04.',
+    title: 'what does it cost?',
+    desc: 'what’s included, and what you should know before you begin',
+    to: '/pricing',
+  },
+]
 
 export function HomePage() {
   const navigate = useNavigate()
-  const [showSampleModal, setShowSampleModal] = useState(false)
-  const [activeStageId, setActiveStageId] = useState('students')
-
-  // Timeline scroll-driven interactive track
-  const timelineRef = useRef<HTMLDivElement>(null)
-  const { scrollYProgress: timelineScrollProgress } = useScroll({
-    target: timelineRef,
-    offset: ['start 75%', 'end 70%'],
-  })
-  const timelineLineHeight = useTransform(timelineScrollProgress, [0, 0.95], ['0%', '100%'])
-
-  // Fast start form state in closing midnight section
-  const [roleSelection, setRoleSelection] = useState<'candidate' | 'vendor'>('candidate')
-  const [firstName, setFirstName] = useState('')
-
+  const pageRef = useRef<HTMLDivElement>(null)
   const resumeFileInputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const lastFocusRef = useRef<HTMLElement | null>(null)
+
+  const [audience, setAudience] = useState<AudienceId>('student')
+  const [reportTab, setReportTab] = useState<ReportTabId>('strengths')
+  const [panel, setPanel] = useState<Panel>(null)
+  const [demoChoice, setDemoChoice] = useState<DemoChoice | null>(null)
+  const [activeChapter, setActiveChapter] = useState('why')
+  const [railShown, setRailShown] = useState(false)
+
+  // Fade sections in as they scroll into view.
+  useEffect(() => {
+    const root = pageRef.current
+    if (!root) return
+    const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'))
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduce || !('IntersectionObserver' in window)) {
+      items.forEach((el) => el.classList.add(styles.visible))
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add(styles.visible)
+            io.unobserve(entry.target)
+          }
+        })
+      },
+      { threshold: 0.1 },
+    )
+    items.forEach((el) => io.observe(el))
+    return () => io.disconnect()
+  }, [])
+
+  // Side progress rail for the six story chapters.
+  useEffect(() => {
+    function track() {
+      const journey = document.getElementById('journey')
+      if (!journey) return
+      const rect = journey.getBoundingClientRect()
+      setRailShown(rect.top < window.innerHeight * 0.6 && rect.bottom > window.innerHeight * 0.35)
+      let best = Number.POSITIVE_INFINITY
+      let active = RAIL[0].id
+      RAIL.forEach(({ id }) => {
+        const el = document.getElementById(id)
+        if (!el) return
+        const distance = Math.abs(el.getBoundingClientRect().top - window.innerHeight * 0.32)
+        if (distance < best) {
+          best = distance
+          active = id
+        }
+      })
+      setActiveChapter(active)
+    }
+    track()
+    window.addEventListener('scroll', track, { passive: true })
+    return () => window.removeEventListener('scroll', track)
+  }, [])
+
+  // Dialog: close on Escape, lock page scroll while open, restore focus afterwards.
+  useEffect(() => {
+    if (!panel) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialogRef.current?.querySelector<HTMLElement>('button')?.focus()
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') closePanel()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKey)
+      lastFocusRef.current?.focus?.()
+    }
+  }, [panel])
+
+  function openPanel(next: Exclude<Panel, null>) {
+    lastFocusRef.current = document.activeElement as HTMLElement | null
+    setDemoChoice(null)
+    setPanel(next)
+  }
+
+  function closePanel() {
+    setPanel(null)
+    setDemoChoice(null)
+  }
+
+  function scrollToId(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   function handleResumeUploadClick() {
     resumeFileInputRef.current?.click()
@@ -243,7 +263,9 @@ export function HomePage() {
         }
         navigate(user ? '/login' : '/signup', {
           replace: false,
-          state: { from: '/onboarding', reason: 'upload_resume' },
+          state: user
+            ? { from: '/onboarding', reason: 'upload_resume', explicitLogin: true }
+            : { from: '/onboarding', reason: 'upload_resume', explicitSignup: true },
         })
         if (e.target) e.target.value = ''
         return
@@ -258,7 +280,7 @@ export function HomePage() {
         navigate(resolveAuthenticatedDestination(user))
       }
     } else {
-      navigate('/signup', { state: { reason: 'upload_resume' } })
+      navigate('/signup', { state: { reason: 'upload_resume', explicitSignup: true } })
     }
 
     if (e.target) {
@@ -266,35 +288,26 @@ export function HomePage() {
     }
   }
 
+  function startConversation() {
+    closePanel()
+    navigate('/signup', { state: { reason: 'fast_start_discovery', explicitSignup: true } })
+  }
+
   function handleRecruiterClick() {
     const user = getUser()
     if (user && user.role === 'employer') {
       navigate('/employer/dashboard')
     } else {
-      navigate('/organizations/signup')
+      navigate('/organizations/signup', { state: { explicitSignup: true } })
     }
   }
 
-  const activeStage = CAREER_STAGES.find((s) => s.id === activeStageId) || CAREER_STAGES[0]
-
-  function handleFastStartSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (roleSelection === 'vendor') {
-      navigate('/organizations/signup')
-    } else {
-      navigate('/signup', {
-        state: { firstName: firstName.trim() || undefined, reason: 'fast_start_discovery' },
-      })
-    }
-  }
-
-  function handleVendorClick() {
-    navigate('/organizations/signup')
-  }
+  const activeAudience = AUDIENCES.find((a) => a.id === audience) ?? AUDIENCES[0]
+  const activeReport = REPORT_TABS[reportTab]
+  const demo = demoChoice ? DEMO_ANSWERS[demoChoice] : null
 
   return (
-    <div className={styles.page}>
-      {/* Hidden file input triggered by "Upload Resume" capsule */}
+    <div className={styles.page} ref={pageRef}>
       <input
         ref={resumeFileInputRef}
         type="file"
@@ -302,1021 +315,646 @@ export function HomePage() {
         style={{ display: 'none' }}
         onChange={handleResumeFileSelected}
         aria-hidden="true"
+        tabIndex={-1}
       />
 
-      {/* Existing navigation bar untouched */}
       <MarketingNavBar />
 
-      {/* ====================================================================
-          Section 1: Hero Section (9:00 PM)
-          ==================================================================== */}
-      <section className={styles.heroSection}>
-        <div className={styles.heroContainer}>
-          <div className={styles.heroGrid}>
-            <div className={styles.heroLeft}>
-              <h1 className={styles.editorialH1}>
-                Your Future Starts with{' '}
-                <span className={styles.heroBlueHighlight}>Understanding You.</span>
-              </h1>
+      <main id="top">
+        {/* ============================ Hero ============================ */}
+        <section className={styles.hero} aria-labelledby="hero-title">
+          <div className={styles.heroField} aria-hidden="true">
+            <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice" className={styles.heroLines}>
+              <path d="M-20 520 C 220 470, 330 300, 560 330 S 900 470, 1220 210" />
+              <path d="M-20 600 C 260 560, 420 420, 640 440 S 960 560, 1220 380" />
+              <path d="M-20 430 C 200 380, 360 200, 600 230 S 940 330, 1220 90" />
+              <path d="M560 330 C 640 250, 720 160, 860 120" />
+              <path d="M640 440 C 740 420, 840 330, 980 300" />
+            </svg>
+          </div>
 
-              <p className={styles.subheadSerif}>
-                One 15-minute conversation. Your 360° career view.
+          <div className={`${styles.container} ${styles.heroInner}`}>
+            <div className={styles.smallcaps}>for the career questions no one gives you answers to</div>
+            <h1 id="hero-title" className={styles.heroTitle}>
+              not sure what
+              <br />
+              comes <span className={styles.serif}>next?</span>
+            </h1>
+            <div className={styles.heroLine} />
+            <p className={styles.heroDesc}>
+              maybe you&apos;re starting out. maybe you&apos;re starting over.
+              <br />
+              tell us a little about yourself. we&apos;ll help you work out what might come next.
+            </p>
+            <div className={styles.heroActions}>
+              <button type="button" className={styles.button} onClick={startConversation}>
+                let&apos;s talk <span aria-hidden="true">↗</span>
+              </button>
+              <button type="button" className={`${styles.button} ${styles.ghost}`} onClick={() => scrollToId('journey')}>
+                see how it works <span aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </div>
+
+          <button type="button" className={styles.heroBottom} onClick={() => scrollToId('intro')}>
+            start with the story <span aria-hidden="true" className={styles.down}>↓</span>
+          </button>
+        </section>
+
+        {/* ========================= Entry ways ========================= */}
+        <section className={styles.entryways} aria-labelledby="entry-heading" id="start-here">
+          <div className={`${styles.container} ${styles.entryGrid} ${styles.reveal}`} data-reveal>
+            <div className={styles.entryCopy}>
+              <div className={styles.lineIntro}>a little more than a résumé</div>
+              <h2 id="entry-heading">
+                one 15-minute conversation.
+                <br />
+                <em>your 360° career view.</em>
+              </h2>
+              <p>
+                maybe you&apos;re still deciding what to do after college. maybe the applications aren&apos;t going
+                anywhere. or maybe the job you have just doesn&apos;t feel like the one you want.
               </p>
-
-              <p className={styles.leadText}>
-                Whether you&apos;re a student exploring your future, searching for your first job,
-                preparing for your next opportunity, or planning a career change, HireRighttt helps
-                you discover your strengths, understand where you can improve, and take the right
-                next step.
+              <p>
+                you can start wherever you are. we&apos;ll ask about your experiences, your interests, and the things
+                you&apos;re hoping for. then we&apos;ll help you see what you&apos;re good at, what might need work, and
+                what you could try next.
               </p>
+              <button type="button" className={styles.textLink} onClick={startConversation}>
+                start with a conversation <span aria-hidden="true" className={styles.arrow}>↗</span>
+              </button>
+              <div className={styles.entryFootnote}>
+                no résumé needed to begin · your first report is a starting point, not a judgment
+              </div>
+            </div>
 
-              {/* Dual Action Pills (Upload Resume & For Recruiters) */}
-              <div className={styles.heroCapsuleStack}>
-                {/* Pill 1: Upload Resume */}
-                <div
-                  className={styles.capsuleCard}
-                  onClick={handleResumeUploadClick}
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Upload your resume"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleResumeUploadClick()
-                    }
-                  }}
-                >
-                  <div className={styles.capsuleLeft}>
-                    <span className={styles.capsuleTextPrimary}>Upload your resume</span>
-                    <span className={styles.capsuleTextSecondary}>(PDF, DOC, DOCX)</span>
+            <div className={styles.resumeCard}>
+              <div aria-hidden="true" className={styles.resumeStar}>✳</div>
+              <div className={`${styles.smallcaps} ${styles.blue}`}>one more thing, if you have it</div>
+              <h3>
+                got a résumé?
+                <br />
+                <em>bring it along.</em>
+              </h3>
+              <p>
+                it can help fill in a few details. but if you don&apos;t have one, that&apos;s absolutely fine. we can
+                start with a chat.
+              </p>
+              <div className={styles.resumeDivider} />
+              <button type="button" className={styles.resumeTrigger} onClick={handleResumeUploadClick}>
+                <span aria-hidden="true">↗</span> choose a résumé
+              </button>
+              <p className={styles.resumeMeta}>PDF, DOC or DOCX · optional</p>
+            </div>
+          </div>
+        </section>
+
+        {/* ========================== Prelude =========================== */}
+        <section className={styles.prelude} id="intro">
+          <div className={`${styles.container} ${styles.preludeGrid} ${styles.reveal}`} data-reveal>
+            <div>
+              <div className={styles.lineIntro}>sound familiar?</div>
+              <h2 className={styles.lead}>
+                ten tabs open.
+                <br />
+                still not sure <span className={`${styles.serif} ${styles.blue}`}>what to do.</span>
+              </h2>
+            </div>
+            <p>
+              one tab has job listings. one has a course you might take. somewhere there&apos;s a résumé you&apos;ve
+              edited more times than you can count.
+              <br />
+              <br />
+              what you really want is someone to help you make sense of it all.
+            </p>
+          </div>
+        </section>
+
+        {/* ======================== Story chapters ====================== */}
+        <nav
+          aria-label="Story chapters"
+          className={`${styles.progressRail} ${railShown ? styles.railShown : ''}`}
+        >
+          {RAIL.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className={`${styles.railButton} ${activeChapter === id ? styles.railActive : ''}`}
+              onClick={() => scrollToId(id)}
+            >
+              <span className={styles.railDot} />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className={styles.journey} id="journey">
+          <div className={styles.journeyLine} />
+
+          {/* 01 why */}
+          <section className={`${styles.container} ${styles.chapter}`} id="why">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>01 /</div>
+              <div className={styles.chapterTop}>why · the question behind the question</div>
+              <h2>
+                that little voice that asks, <em>&quot;what if?&quot;</em>
+              </h2>
+              <p>
+                what if i picked the wrong degree? what if i&apos;m better at something else? what if the next job is
+                just like the last one?
+                <br />
+                <br />
+                these aren&apos;t silly questions. they&apos;re usually where a change begins.
+              </p>
+              <span className={styles.eyebrow}>
+                <span className={styles.blue}>✦</span> you don&apos;t have to figure it out alone
+              </span>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.questionArt} role="img" aria-label="Questions about choosing a career">
+                  <div className={styles.questionOrbit}>
+                    <div className={styles.bigQuestion}>?</div>
                   </div>
-                  <button
-                    type="button"
-                    className={styles.capsuleActionBtn}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleResumeUploadClick()
-                    }}
-                  >
-                    <span>Upload Resume</span>
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 12h14" />
-                      <path d="m12 5 7 7-7 7" />
-                    </svg>
-                  </button>
+                  <div className={`${styles.qBubble} ${styles.qOne}`}>
+                    <i>“</i> what am i actually good at?
+                  </div>
+                  <div className={`${styles.qBubble} ${styles.qTwo}`}>
+                    <i>“</i> am i in the wrong job?
+                  </div>
+                  <div className={`${styles.qBubble} ${styles.qThree}`}>
+                    <i>“</i> where do i even start?
+                  </div>
                 </div>
+              </div>
+            </div>
+          </section>
 
-                {/* Pill 2: For Recruiters */}
-                <div
-                  className={styles.capsuleCard}
-                  onClick={handleRecruiterClick}
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Hiring? Meet talent that's ready."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      handleRecruiterClick()
-                    }
-                  }}
-                >
-                  <div className={styles.capsuleLeft}>
-                    <div className={styles.recruiterIconCircle}>
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="#6366F1"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
+          {/* 02 who */}
+          <section className={`${styles.container} ${styles.chapter}`} id="who">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>02 /</div>
+              <div className={styles.chapterTop}>who · maybe this sounds like you</div>
+              <h2>
+                there&apos;s more than one way to feel <em>stuck.</em>
+              </h2>
+              <p>
+                the student who can&apos;t pick a direction. the graduate who isn&apos;t getting replies. the person
+                who&apos;s done the same job for years and wonders what&apos;s next.
+              </p>
+              <p>which one sounds a little like you?</p>
+              <div className={styles.chapterHint}>pick a thought on the right. this bit is yours.</div>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.whoScene}>
+                  <div className={styles.whoSceneTop}>
+                    <span className={`${styles.smallcaps} ${styles.blue}`}>choose your starting point</span>
+                    <span aria-hidden="true" className={styles.sceneAsterisk}>✳</span>
+                  </div>
+                  <div role="group" aria-label="Career stage" className={styles.whoOptions}>
+                    {AUDIENCES.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        aria-pressed={audience === a.id}
+                        className={`${styles.whoChoice} ${audience === a.id ? styles.whoActive : ''}`}
+                        onClick={() => setAudience(a.id)}
                       >
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                        <circle cx="9" cy="7" r="4" />
-                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                      </svg>
+                        {a.label} <span className={styles.endmark}>↗</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div aria-live="polite" className={styles.whoDetail}>
+                    {activeAudience.detail}
+                  </div>
+                  <div className={styles.whoSceneFoot}>different stories. somewhere to begin.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 03 how */}
+          <section className={`${styles.container} ${styles.chapter}`} id="how">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>03 /</div>
+              <div className={styles.chapterTop}>how · we start by talking</div>
+              <h2>
+                tell us the bits a résumé <em>leaves out.</em>
+              </h2>
+              <p>
+                the project you loved. the job that didn&apos;t quite fit. the thing you&apos;re curious about but
+                haven&apos;t tried yet.
+                <br />
+                <br />
+                we&apos;ll ask a few good questions. you answer in your own words. that&apos;s the beginning of your
+                AI-guided conversation. no résumé required.
+              </p>
+              <button type="button" className={styles.textLink} onClick={() => openPanel('demo')}>
+                try a question <span aria-hidden="true" className={styles.arrow}>↗</span>
+              </button>
+              <div className={styles.chapterHint}>about 15 minutes to start. you can take it from there.</div>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.chatFrame}>
+                  <div className={styles.chatHead}>
+                    <span className={styles.botIcon}>h.</span>
+                    <span>
+                      <strong>a little about you</strong>
+                      <br />
+                      <span className={styles.chatStatus}>an example of how a conversation starts</span>
+                    </span>
+                    <span className={styles.chatDots}>● ● ●</span>
+                  </div>
+                  <div className={styles.chatMain}>
+                    <div className={`${styles.chatBubble} ${styles.chatBot}`}>
+                      what&apos;s something you&apos;ve done that you really enjoyed?
                     </div>
-                    <span className={styles.capsuleTextPrimary}>
-                      Hiring? Meet talent that&apos;s ready.
+                    <div className={`${styles.chatBubble} ${styles.chatUser}`}>
+                      i helped run our college festival. it was chaotic, but i loved organizing it.
+                    </div>
+                    <div className={`${styles.chatBubble} ${styles.chatBot}`}>what was the best part for you?</div>
+                    <div className={styles.chatExample}>
+                      <button type="button" className={styles.chatChoice} onClick={() => openPanel('demo')}>
+                        try this conversation ↗
+                      </button>
+                    </div>
+                  </div>
+                  <div className={styles.chatFoot}>not a test. just a place to start.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 04 what */}
+          <section className={`${styles.container} ${styles.chapter}`} id="report">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>04 /</div>
+              <div className={styles.chapterTop}>what · something to take away</div>
+              <h2>
+                you leave with more than <em>&quot;good luck.&quot;</em>
+              </h2>
+              <p>
+                you get a first look at your strengths, possible career paths, things to work on, and how ready you
+                might feel for a job interview.
+              </p>
+              <p>
+                we call it your <strong>360° career report.</strong> it isn&apos;t a score that decides your future.
+                it&apos;s something you can actually use to think about it.
+              </p>
+              <button type="button" className={styles.textLink} onClick={() => openPanel('report')}>
+                look inside a sample report <span aria-hidden="true" className={styles.arrow}>↗</span>
+              </button>
+              <div className={styles.chapterHint}>six areas of insight. all a starting point, not a verdict.</div>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.reportPaper}>
+                  <div className={styles.reportTop}>
+                    <div>
+                      <div className={styles.reportSmall}>hirerighttt / your 360°</div>
+                      <div className={styles.reportSub2}>a first look, just for you</div>
+                    </div>
+                    <div className={styles.reportSeal}>360°</div>
+                  </div>
+                  <h3>
+                    there&apos;s more to you
+                    <br />
+                    than a job title.
+                  </h3>
+                  <p className={styles.reportSub}>
+                    take a look at the different things a conversation can bring to light.
+                  </p>
+                  <div role="tablist" aria-label="Sample report topics" className={styles.reportTabs}>
+                    {(Object.keys(REPORT_TABS) as ReportTabId[]).map((id) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        aria-selected={reportTab === id}
+                        className={`${styles.reportTab} ${reportTab === id ? styles.reportTabActive : ''}`}
+                        onClick={() => setReportTab(id)}
+                      >
+                        {REPORT_TABS[id].tab}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.reportBody}>
+                    <div aria-hidden="true" className={styles.ring}>
+                      <span>you.</span>
+                    </div>
+                    <div className={styles.reportCopy}>
+                      <strong>{activeReport.title}</strong>
+                      <p>{activeReport.text}</p>
+                    </div>
+                  </div>
+                  <div className={styles.reportBottom}>sample content · not a real assessment</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 05 when */}
+          <section className={`${styles.container} ${styles.chapter}`} id="when">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>05 /</div>
+              <div className={styles.chapterTop}>when · whenever you need a hand</div>
+              <h2>
+                your next step doesn&apos;t have to be <em>a big one.</em>
+              </h2>
+              <p>
+                sometimes it&apos;s learning something new. sometimes it&apos;s practising how you talk about your work.
+                sometimes it&apos;s realizing you&apos;re ready to apply after all.
+              </p>
+              <p>
+                we&apos;ll help you turn what you&apos;ve learned about yourself into a plan that makes sense for you.
+              </p>
+              <button type="button" className={styles.textLink} onClick={() => openPanel('growth')}>
+                see how the plan can help <span aria-hidden="true" className={styles.arrow}>↗</span>
+              </button>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.planning} role="img" aria-label="Example of a personal growth plan">
+                  <div className={styles.milestone}>
+                    <div aria-hidden="true" className={styles.milestoneIcon}>✳</div>
+                    <div>
+                      <strong>something to learn.</strong>
+                      <p>a skill that could help with the role you want.</p>
+                    </div>
+                  </div>
+                  <div className={styles.milestone}>
+                    <div aria-hidden="true" className={styles.milestoneIcon}>↗</div>
+                    <div>
+                      <strong>something to try.</strong>
+                      <p>a practice interview, or a new way to tell your story.</p>
+                    </div>
+                  </div>
+                  <div className={styles.milestone}>
+                    <div aria-hidden="true" className={styles.milestoneIcon}>✓</div>
+                    <div>
+                      <strong>something to notice.</strong>
+                      <p>what feels easier now? what still needs a little work?</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* 06 where */}
+          <section className={`${styles.container} ${styles.chapter}`} id="where">
+            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+              <div className={styles.chapterNumber}>06 /</div>
+              <div className={styles.chapterTop}>where · the next door you might open</div>
+              <h2>
+                when a role feels right, <em>go for it.</em>
+              </h2>
+              <p>
+                see what employers are looking for. explore open roles. apply to the ones you&apos;d like to try for.
+              </p>
+              <p>
+                if you want to share your career report with a hiring team, that&apos;s your call.{' '}
+                <strong>it&apos;s yours first.</strong>
+              </p>
+              <Link to="/solutions" className={styles.textLink}>
+                what do employers see? <span aria-hidden="true" className={styles.arrow}>↗</span>
+              </Link>
+              <div className={styles.chapterHint}>
+                we can&apos;t promise a job. we can help you feel better prepared to look for one.
+              </div>
+            </div>
+            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+              <div className={styles.visualStage}>
+                <div className={styles.opportunity}>
+                  <div className={styles.jobLabel}>a possible next chapter</div>
+                  <h3>one good fit is worth finding.</h3>
+                  <p>these are sample roles, just to show how exploring could work.</p>
+                  <div className={styles.opportunityList}>
+                    {[
+                      ['associate product analyst', 'early career · example role'],
+                      ['junior business analyst', 'graduate · example role'],
+                      ['customer experience specialist', 'career change · example role'],
+                    ].map(([title, sub]) => (
+                      <div key={title} className={styles.opportunityItem}>
+                        <div>
+                          <strong>{title}</strong>
+                          <small>{sub}</small>
+                        </div>
+                        <span className={styles.opportunityStatus}>explore ↗</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={styles.permission}>
+                    <span className={styles.permissionIcon}>✓</span>
+                    <span>
+                      <strong>your report belongs to you.</strong>
+                      <br />
+                      share it with an employer only if you choose to.
                     </span>
                   </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* ========================== Deeper ============================ */}
+        <section className={styles.deeper} id="deeper">
+          <div className={styles.container}>
+            <div className={`${styles.deeperHeader} ${styles.reveal}`} data-reveal>
+              <div>
+                <div className={`${styles.smallcaps} ${styles.blue}`}>there&apos;s more, if you&apos;re curious</div>
+                <h2>
+                  take a <em>closer look.</em>
+                </h2>
+              </div>
+              <p>you don&apos;t have to learn everything now. but when you want the details, they&apos;re here.</p>
+            </div>
+            <div className={`${styles.deeperLinks} ${styles.reveal}`} data-reveal>
+              {DEEPER_LINKS.map((item) => {
+                const inner = (
+                  <>
+                    <span className={styles.deepIndex}>{item.index}</span>
+                    <span className={styles.deepTitle}>{item.title}</span>
+                    <span className={styles.deepDesc}>{item.desc}</span>
+                    <span aria-hidden="true" className={styles.deepArrow}>↗</span>
+                  </>
+                )
+                return item.to ? (
+                  <Link key={item.index} to={item.to} className={styles.deepLink}>
+                    {inner}
+                  </Link>
+                ) : (
                   <button
+                    key={item.index}
                     type="button"
-                    className={styles.capsuleActionBtn}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRecruiterClick()
-                    }}
+                    className={styles.deepLink}
+                    onClick={() => item.panel && openPanel(item.panel)}
                   >
-                    <span>For Recruiters</span>
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M5 12h14" />
-                      <path d="m12 5 7 7-7 7" />
-                    </svg>
+                    {inner}
                   </button>
-                </div>
-              </div>
-            </div>
-            <div className={styles.heroVisual}>
-              <HomeHeroPreview />
+                )
+              })}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ====================================================================
-          Section 2: The Questions That Keep You Up (9:02 PM)
-          ==================================================================== */}
-      <section className={styles.questionsSection}>
-        <div className={styles.container}>
-          <div className={styles.splitGrid}>
-            <div>
-              <div className={styles.kicker}>
-                <span className={styles.kickerDot} />
-                9:02 PM · The questions that keep you up
-              </div>
-
-              <h2 className={styles.editorialH2}>
-                Great potential
-                <br />
-                deserves
-                <br />
-                clear direction.
-              </h2>
-
-              <div className={styles.questionsList}>
-                <div className={styles.questionItem}>Not sure which career is right for you?</div>
-                <div className={styles.questionItem}>Applying for jobs but struggling to stand out?</div>
-                <div className={styles.questionItem}>
-                  Preparing for interviews without knowing what to focus on?
-                </div>
-              </div>
-
-              <p className={styles.bodyText}>
-                Every career journey brings different questions. HireRighttt starts by listening, then
-                helps you turn uncertainty into a practical plan.
-              </p>
-
-              <p
-                style={{
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: '1.25rem',
-                  fontStyle: 'italic',
-                  color: 'var(--color-primary)',
-                  margin: 0,
-                }}
-              >
-                We don&apos;t start with a form. We start with you.
-              </p>
-            </div>
-
-            <figure className={styles.questionsPhoto}>
-              <img
-                src="/assets/night-desk-focus.jpg"
-                alt="A young man working on a laptop at a desk late in the evening"
-                width={1024}
-                height={571}
-                loading="lazy"
-                decoding="async"
-              />
-            </figure>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 3: The Conversation Begins (9:05 PM)
-          ==================================================================== */}
-      <section className={styles.timelineSection}>
-        <div className={styles.container}>
-          <div className={styles.narrowContainer} style={{ padding: 0 }}>
-            <div className={styles.kicker}>
-              <span className={styles.kickerDot} />
-              9:05 PM · The conversation begins
-            </div>
-
-            <h2 className={styles.editorialH2}>Career clarity starts with a conversation.</h2>
-
-            <div ref={timelineRef} className={styles.timelineScrollTrack}>
-              {/* Continuous background track line */}
-              <div className={styles.timelineBgLine} aria-hidden="true" />
-
-              {/* Scroll-driven active purple fill line */}
-              <motion.div
-                style={{ height: timelineLineHeight }}
-                className={styles.timelineActiveLine}
-                aria-hidden="true"
-              />
-
-              {/* 4 sequential stage cards */}
-              <div>
-                {CONVERSATION_STAGES.map((stage, idx) => (
-                  <TimelineStepCard
-                    key={stage.id}
-                    stage={stage}
-                    index={idx}
-                    scrollYProgress={timelineScrollProgress}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-              <Link to="/signup" className={styles.primaryBtn}>
-                Start my 15-minute discovery
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 4: What the Conversation Shows (9:20 PM - 360° Grid)
-          ==================================================================== */}
-      <section className={styles.reportGridSection}>
-        <div className={styles.container}>
-          <div className={styles.narrowContainer} style={{ textAlign: 'center', padding: 0 }}>
-            <div className={styles.kicker}>
-              <span className={styles.kickerDot} />
-              9:20 PM · What the conversation shows
-            </div>
-
-            <h2 className={styles.editorialH2}>
-              More than a score. A<br />
-              clearer view of your career.
+        {/* ========================== Closing =========================== */}
+        <section className={styles.closing}>
+          <div className={styles.container}>
+            <div className={styles.smallcaps}>you can start without having all the answers</div>
+            <h2>
+              the next bit of your story <em>starts with a question.</em>
             </h2>
-
-            <p className={styles.bodyText}>
-              Your personalized career intelligence report brings together what your first
-              conversation reveals, and turns it into practical guidance you can act on.
-            </p>
-          </div>
-
-          <div className={styles.reportCardsGrid}>
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Strengths &amp; potential</h3>
-              <p className={styles.reportCardDesc}>
-                Recognize the strengths you demonstrate and the abilities you can build on.
-              </p>
-            </div>
-
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Career direction</h3>
-              <p className={styles.reportCardDesc}>
-                Explore job roles and career paths aligned with your interests and aspirations.
-              </p>
-            </div>
-
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Skill gap discovery</h3>
-              <p className={styles.reportCardDesc}>
-                Identify potential skills and knowledge gaps relevant to the direction you want to
-                take.
-              </p>
-            </div>
-
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Communication insights</h3>
-              <p className={styles.reportCardDesc}>
-                Understand how you express your ideas, experiences and goals.
-              </p>
-            </div>
-
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Job &amp; interview readiness</h3>
-              <p className={styles.reportCardDesc}>
-                See where to focus your preparation before pursuing opportunities.
-              </p>
-            </div>
-
-            <div className={styles.reportCard}>
-              <h3 className={styles.reportCardTitle}>Personalized action roadmap</h3>
-              <p className={styles.reportCardDesc}>
-                Get a practical plan with recommended priorities for the next 30, 60 and 90 days.
-              </p>
-            </div>
-          </div>
-
-          <div className={styles.narrowContainer} style={{ padding: 0 }}>
-            <div className={styles.disclaimerNotice}>
-              Initial insights are based on a short conversation and are not a certification of
-              ability. Deeper assessments and practice help validate findings.
-            </div>
-
-            <div className={styles.reportCtaRow}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => setShowSampleModal(true)}
-              >
-                View sample 360° report
+            <p>tell us what&apos;s on your mind. we&apos;ll start there.</p>
+            <button type="button" className={styles.button} onClick={startConversation}>
+              start a conversation <span aria-hidden="true" className={styles.arrow}>↗</span>
+            </button>
+            <div className={styles.closingRecruiter}>
+              hiring instead?{' '}
+              <button type="button" onClick={handleRecruiterClick}>
+                see HireRighttt for recruiters
               </button>
-              <span className={styles.metaReassurance}>
-                The sample is an example, not a real assessment
-              </span>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      {/* ====================================================================
-          Section 5: The Weeks After (Milestones)
-          ==================================================================== */}
-      <section className={styles.milestonesSection}>
+      {/* =========================== Footer ============================ */}
+      <footer className={styles.footer}>
         <div className={styles.container}>
-          <div className={styles.kicker}>
-            <span className={styles.kickerDot} />
-            The weeks after · You&apos;re not on your own
-          </div>
-
-          <h2 className={styles.editorialH2}>
-            We don&apos;t just show you what to
-            <br />
-            improve. We help you get there.
-          </h2>
-
-          <div className={styles.milestonesGrid}>
-            <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>Day 3</span>
-              <h3 className={styles.milestoneTitle}>AI interview practice</h3>
-              <p className={styles.milestoneDesc}>
-                Prepare for technical, behavioral and HR interviews with guided, role-specific
-                practice.
-              </p>
-              <div>
-                <span className={styles.tagPill}>Technical</span>
-                <span className={styles.tagPill}>Behavioral</span>
-                <span className={styles.tagPill}>HR</span>
-              </div>
-            </div>
-
-            <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>Day 12</span>
-              <h3 className={styles.milestoneTitle}>Personalized skill development</h3>
-              <p className={styles.milestoneDesc}>
-                Know what to learn next and why it matters for your target role.
-              </p>
-              <div>
-                <span className={styles.tagPill}>Target role</span>
-              </div>
-            </div>
-
-            <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>Day 30</span>
-              <h3 className={styles.milestoneTitle}>Career &amp; job readiness</h3>
-              <p className={styles.milestoneDesc}>
-                Understand the capabilities employers may expect and prepare for relevant
-                opportunities.
-              </p>
-              <div>
-                <span className={styles.tagPill}>Readiness</span>
-              </div>
-            </div>
-
-            <div className={styles.milestoneCard}>
-              <span className={styles.milestoneDay}>Day 60</span>
-              <h3 className={styles.milestoneTitle}>Progress &amp; growth</h3>
-              <p className={styles.milestoneDesc}>
-                Track completed actions and improve your career readiness over time.
-              </p>
-              <div>
-                <span className={styles.tagPill}>Progress tracking</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 6: When You're Ready (Day 45)
-          ==================================================================== */}
-      <section className={styles.readySection}>
-        <div className={styles.container}>
-          <div className={styles.readyContentWrap}>
-            <div className={styles.kicker}>
-              <span className={styles.kickerDot} />
-              Day 45 · When you feel ready
-            </div>
-
-            <h2 className={styles.editorialH2}>
-              When you&apos;re
-              <br />
-              ready, the next
-              <br />
-              step is a real one.
-            </h2>
-
-            <p className={styles.bodyText} style={{ maxWidth: '680px' }}>
-              Vendors post the roles they are hiring for. You browse them, apply, and take the
-              interview, with your preparation already behind you.
-            </p>
-
-            <div className={styles.threeColumnSteps}>
-              <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>Browse</span>
-                <h3 className={styles.threeStepTitle}>See open roles</h3>
-                <p className={styles.threeStepDesc}>Read the requirements posted by vendors.</p>
-              </div>
-
-              <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>Apply</span>
-                <h3 className={styles.threeStepTitle}>Apply with confidence</h3>
-                <p className={styles.threeStepDesc}>
-                  Apply to roles that fit, and choose what you share.
-                </p>
-              </div>
-
-              <div className={styles.threeStepCard}>
-                <span className={styles.threeStepCategory}>Interview</span>
-                <h3 className={styles.threeStepTitle}>Give the interview</h3>
-                <p className={styles.threeStepDesc}>
-                  Take the interview for a role you applied to.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '1rem' }}>
-              <span className={styles.tagPill}>Job postings</span>
-              <span className={styles.tagPill}>Apply</span>
-              <span className={styles.tagPill}>Interview</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 7: For Vendors (Monday, 10:00 AM) - Redesigned matching Image 2
-          ==================================================================== */}
-      <section className={styles.vendorSection}>
-        {/* Soft background aura */}
-        <div className={styles.vendorBackgroundAura} aria-hidden="true" />
-
-        <div className={styles.container}>
-          <div className={styles.vendorLayoutGrid}>
-            {/* Left Column */}
-            <div className={styles.vendorLeftCol}>
-              <div className={styles.vendorKickerPill}>
-                <span className={styles.kickerDot} />
-                Monday, 10:00 AM · For vendors, the other side of the table
-              </div>
-
-              <h2 className={styles.vendorHeading}>
-                See the <span className={styles.italicPurple}>person</span>
-                <br />
-                behind the
-                <br />
-                application.
-              </h2>
-
-              <p className={styles.leadText} style={{ maxWidth: '520px' }}>
-                Vendors post the jobs they have open and what each role needs, read the career
-                reports of candidates who apply, and interview the people who fit.
-              </p>
-
-              <div className={styles.vendorChecklist}>
-                <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> Post job requirements
-                </span>
-                <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> Review candidate reports
-                </span>
-                <span className={styles.vendorCheckPill}>
-                  <span className={styles.vendorCheckPillCheck}>✓</span> Interview applicants
-                </span>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  className={styles.vendorPrimaryBtn}
-                  onClick={handleVendorClick}
-                >
-                  <span>I&apos;m a vendor</span>
-                  <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M5 12h14" />
-                    <path d="m12 5 7 7-7 7" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className={styles.vendorDisclaimerBox}>
-                <svg
-                  className={styles.infoIcon}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-                <span>
-                  Reports are initial insights from a short conversation. They support your judgment
-                  and do not replace it. Candidates decide what they share.
-                </span>
-              </div>
-            </div>
-
-            {/* Right Column: Layered Mockup Card */}
-            <div className={styles.vendorCardStackWrap}>
-              <div className={styles.vendorBackdropLayer} aria-hidden="true" />
-
-              <div className={styles.vendorPreviewMockup}>
-                <div className={styles.vendorMockupHeader}>
-                  <span className={styles.vendorMockupTitleSmall}>EXAMPLE VENDOR VIEW</span>
-                  <span className={styles.mockupDisclaimerPill}>Made-up candidates, not real data</span>
-                </div>
-
-                <div className={styles.roleTitleRow}>
-                  <h4 className={styles.vendorMockupRole}>Junior business analyst</h4>
-                  <span className={styles.openRolePill}>
-                    <span className={styles.openRoleDot} />
-                    Open role
-                  </span>
-                </div>
-
-                <div className={styles.roleSkillsRow}>
-                  <span className={styles.skillRequirementPill}>Clear communication</span>
-                  <span className={styles.skillRequirementPill}>Spreadsheets</span>
-                  <span className={styles.skillRequirementPill}>Basic SQL</span>
-                </div>
-
-                {/* Candidate A Card */}
-                <div className={styles.candidateMockupCard}>
-                  <div className={styles.candidateAvatarA}>A</div>
-                  <div className={styles.candidateContent}>
-                    <div className={styles.candidateMockupName}>Candidate A</div>
-                    <p className={styles.candidateMockupBio}>
-                      Shared career view: explains ideas clearly, curious about data. Focus area:
-                      SQL practice.
-                    </p>
-                    <div>
-                      <span className={styles.pillStrengths}>Strengths</span>
-                      <span className={styles.pillSkillGaps}>Skill gaps</span>
-                      <span className={styles.pillReadiness}>Interview readiness</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Candidate B Card */}
-                <div className={styles.candidateMockupCard}>
-                  <div className={styles.candidateAvatarB}>B</div>
-                  <div className={styles.candidateContent}>
-                    <div className={styles.candidateMockupName}>Candidate B</div>
-                    <p className={styles.candidateMockupBio}>
-                      Shared career view: strong in operations, moving from support. Focus area:
-                      structured interview answers.
-                    </p>
-                    <div>
-                      <span className={styles.pillSwitcher}>Career switcher</span>
-                      <span className={styles.pillReadiness}>Readiness focus</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 8: Whatever Your Career Stage (Interactive Switcher)
-          ==================================================================== */}
-      <section className={styles.stagesSection}>
-        <div className={styles.container}>
-          <div className={styles.kicker}>
-            <span className={styles.kickerDot} />
-            Any morning · Whoever you are
-          </div>
-
-          <h2 className={styles.editorialH2}>
-            Whatever your career
-            <br />
-            stage, there&apos;s a next step.
-          </h2>
-
-          <div className={styles.stageTabRow}>
-            {CAREER_STAGES.map((stage) => (
-              <button
-                key={stage.id}
-                type="button"
-                className={`${styles.stageTabBtn} ${
-                  activeStageId === stage.id ? styles.stageTabBtnActive : ''
-                }`}
-                onClick={() => setActiveStageId(stage.id)}
-              >
-                {stage.label}
-              </button>
-            ))}
-          </div>
-
-          <div className={styles.stagePreviewCard}>
-            <div className={styles.stageContentCol}>
-              <h3 className={styles.editorialH2} style={{ fontSize: '2rem' }}>
-                {activeStage.title}
-              </h3>
-              <p className={styles.leadText}>{activeStage.description}</p>
-              <div>
-                {activeStage.focusTags.map((t) => (
-                  <span key={t} className={styles.tagPill}>
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className={styles.stageImageWrap}>
-              <img
-                src={activeStage.image}
-                alt={activeStage.title}
-                className={styles.stageImage}
-                loading="lazy"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 9: What Makes This Different (Comparison)
-          ==================================================================== */}
-      <section className={styles.differentiatorSection}>
-        <div className={styles.container}>
-          <div className={styles.kicker}>
-            <span className={styles.kickerDot} />
-            Before you decide · What makes this different
-          </div>
-
-          <h2 className={styles.editorialH2}>
-            Not just another job portal. A career
-            <br />
-            companion that starts with you.
-          </h2>
-
-          <div className={styles.comparisonThreeCol}>
-            <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>Job portals</h3>
-              <p className={styles.comparisonColBody}>Show openings.</p>
-            </div>
-
-            <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>Courses</h3>
-              <p className={styles.comparisonColBody}>Teach individual skills.</p>
-            </div>
-
-            <div className={styles.comparisonColCard}>
-              <h3 className={styles.comparisonColTitle}>Interview tools</h3>
-              <p className={styles.comparisonColBody}>Focus on practice.</p>
-            </div>
-          </div>
-
-          <div className={styles.narrowContainer} style={{ padding: 0 }}>
-            <p className={styles.leadText}>
-              HireRighttt starts by understanding your career situation and connects discovery,
-              guidance and improvement in one experience.
-            </p>
-            <div className={styles.punchlineQuote}>
-              From &ldquo;What should I do?&rdquo; to &ldquo;Here&apos;s my next step.&rdquo;
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 10: You Decide How Much to Share (Privacy & Expectations)
-          ==================================================================== */}
-      <section className={styles.privacySection}>
-        <div className={styles.container}>
-          <div className={styles.narrowContainer} style={{ padding: 0 }}>
-            <div className={styles.kicker}>
-              <span className={styles.kickerDot} />
-              Before you begin · What to expect
-            </div>
-
-            <h2 className={styles.editorialH2}>You decide how much to share.</h2>
-
-            <div className={styles.principlesStack}>
-              <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>Nothing mandatory first.</span>
-                <p className={styles.principleDesc}>
-                  No long profile or resume upload before you start. You can add more later if you
-                  choose.
-                </p>
-              </div>
-
-              <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>Your voice only with your permission.</span>
-                <p className={styles.principleDesc}>
-                  If voice is available, we ask first. A text option is offered where supported.
-                </p>
-              </div>
-
-              <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>A clear notice before personal details.</span>
-                <p className={styles.principleDesc}>
-                  You&apos;ll see the privacy notice before any personal information is collected.
-                </p>
-              </div>
-
-              <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>You choose what vendors see.</span>
-                <p className={styles.principleDesc}>
-                  Vendors read your report only when you apply or choose to share it.
-                </p>
-              </div>
-
-              <div className={styles.principleRow}>
-                <span className={styles.principleTitle}>A first look, not a verdict.</span>
-                <p className={styles.principleDesc}>
-                  Insights are initial, not a certification of ability, and we never promise a job.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 13: Closing Midnight Action Section (10:30 PM)
-          ==================================================================== */}
-      <section className={styles.closingSection}>
-        <div className={styles.container}>
-          <div className={styles.closingGrid}>
-            <div>
-              <div
-                className={styles.kicker}
-                style={{ color: 'var(--color-dark-muted)' }}
-              >
-                <span
-                  className={styles.kickerDot}
-                  style={{ backgroundColor: '#A78BFA' }}
-                />
-                10:30 PM · You breathe out
-              </div>
-
-              <h2 className={styles.closingH2}>
-                Your next
-                <br />
-                opportunity
-                <br />
-                starts with one
-                <br />
-                conversation.
-              </h2>
-
-              <p className={styles.closingLead}>
-                Give yourself 15 minutes to understand your strengths, discover what to work on,
-                and build a clearer path toward the career you want.
-              </p>
-
-              <div className={styles.roleToggleWrap}>
-                <span className={styles.roleToggleLabel}>I&apos;m joining as</span>
-                <button
-                  type="button"
-                  className={`${styles.roleToggleBtn} ${
-                    roleSelection === 'candidate' ? styles.roleToggleBtnActive : ''
-                  }`}
-                  onClick={() => setRoleSelection('candidate')}
-                >
-                  A candidate
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.roleToggleBtn} ${
-                    roleSelection === 'vendor' ? styles.roleToggleBtnActive : ''
-                  }`}
-                  onClick={() => setRoleSelection('vendor')}
-                >
-                  A vendor
-                </button>
-              </div>
-
-              {/* Fast start form */}
-              <form className={styles.fastStartCard} onSubmit={handleFastStartSubmit}>
-                <span className={styles.stepIndicator}>Step 1 of 1 · What should we call you?</span>
-                <input
-                  type="text"
-                  className={styles.fastStartInput}
-                  placeholder="Your first name"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                />
-                <button type="submit" className={styles.primaryBtn} style={{ width: '100%' }}>
-                  Start my career discovery
-                </button>
-                <span
-                  style={{
-                    fontSize: '0.785rem',
-                    color: 'var(--color-dark-muted)',
-                    textAlign: 'center',
-                  }}
-                >
-                  No resume required to get started • personalized AI-powered guidance
-                </span>
-              </form>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ====================================================================
-          Section 14: Marketing Footer (Matching PDF)
-          ==================================================================== */}
-      <footer className={styles.marketingFooter}>
-        <div className={styles.container}>
-          <div className={styles.footerInner}>
+          <div className={styles.footerRow}>
             <div className={styles.footerBrand}>
-              HireRighttt
-              <span style={{ fontSize: '0.85rem', color: '#8880A8', marginLeft: '0.75rem' }}>
-                Your personal AI career companion
-              </span>
+              HireRighttt <span>Talent to Talent</span>
             </div>
-
             <div className={styles.footerLinks}>
-              <Link to="/why" className={styles.footerLink}>
-                Why us?
-              </Link>
-              <Link to="/pricing" className={styles.footerLink}>
-                Pricing
-              </Link>
-              <Link to="/career-view" className={styles.footerLink}>
-                360° Report
-              </Link>
-              <Link to="/solutions" className={styles.footerLink}>
-                For organizations
-              </Link>
-              <Link to="/contact" className={styles.footerLink}>
-                Contact us
-              </Link>
-              <Link to="/privacy" className={styles.footerLink}>
-                Privacy
-              </Link>
-              <Link to="/terms" className={styles.footerLink}>
-                Terms
-              </Link>
+              <Link to="/why">Why us?</Link>
+              <Link to="/pricing">Pricing</Link>
+              <Link to="/career-view">360° Report</Link>
+              <Link to="/solutions">Organisations</Link>
+              <Link to="/contact">Contact us</Link>
+              <Link to="/privacy">Privacy</Link>
+              <Link to="/terms">Terms</Link>
             </div>
           </div>
-
-          <p className={styles.footerCopyright}>
-            © {new Date().getFullYear()} HireRighttt. All rights reserved.
-          </p>
+          <p className={styles.footerLegal}>© {new Date().getFullYear()} HireRighttt. All rights reserved.</p>
         </div>
       </footer>
 
-      {/* ====================================================================
-          Sample 360° Career Intelligence Report Modal Preview
-          ==================================================================== */}
-      <AnimatePresence>
-        {showSampleModal && (
-          <motion.div
-            className={styles.modalBackdrop}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowSampleModal(false)}
-          >
-            <motion.div
-              className={styles.modalContent}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                type="button"
-                className={styles.modalCloseBtn}
-                onClick={() => setShowSampleModal(false)}
-                aria-label="Close Sample Report"
-              >
-                ✕
-              </button>
+      {/* ============================ Dialog =========================== */}
+      {panel && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closePanel()
+          }}
+        >
+          <section className={styles.dialog} role="dialog" aria-modal="true" aria-label="Explore HireRighttt" ref={dialogRef}>
+            <button type="button" className={styles.dialogClose} aria-label="Close dialog" onClick={closePanel}>
+              ×
+            </button>
 
-              <span className={styles.sampleBadge}>Sample 360° Career Intelligence Report</span>
-
-              <h2
-                style={{
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: '1.85rem',
-                  fontWeight: 500,
-                  color: '#181424',
-                  margin: '0 0 0.4rem 0',
-                }}
-              >
-                Junior Business &amp; Product Analyst
-              </h2>
-              <p style={{ color: '#6A637C', fontSize: '0.95rem', margin: '0 0 1.5rem 0' }}>
-                Generated after a 15-minute voice discovery conversation with your AI career
-                companion.
-              </p>
-
-              <div className={styles.sampleReportGrid}>
-                <div className={styles.sampleMetricCard}>
-                  <div className={styles.metricScore}>94%</div>
-                  <div className={styles.metricTitle}>Strengths &amp; Potential</div>
-                  <div className={styles.metricDetail}>
-                    Demonstrates rapid synthesis, curious problem solving, and clear structured
-                    articulation.
-                  </div>
+            {panel === 'demo' && !demo && (
+              <>
+                <div className={styles.smallcaps}>just a taste of the conversation</div>
+                <h3>what&apos;s on your mind?</h3>
+                <p>
+                  pick one of these thoughts. we&apos;ll show you the kind of question we&apos;d ask next. nothing is
+                  saved here.
+                </p>
+                <div className={styles.demoOutput}>
+                  <strong>hirerighttt asks</strong>which of these have you been thinking about lately?
                 </div>
-
-                <div className={styles.sampleMetricCard}>
-                  <div className={styles.metricScore}>88%</div>
-                  <div className={styles.metricTitle}>Communication Insights</div>
-                  <div className={styles.metricDetail}>
-                    Explains complex thoughts clearly; shows high active listening and stakeholder
-                    awareness.
-                  </div>
+                <div className={styles.demoOptions}>
+                  {(Object.keys(DEMO_ANSWERS) as DemoChoice[]).map((id) => (
+                    <button key={id} type="button" className={styles.demoOption} onClick={() => setDemoChoice(id)}>
+                      {DEMO_ANSWERS[id].label}
+                    </button>
+                  ))}
                 </div>
-
-                <div className={styles.sampleMetricCard}>
-                  <div className={styles.metricScore}>76%</div>
-                  <div className={styles.metricTitle}>Skill Gap Discovery</div>
-                  <div className={styles.metricDetail}>
-                    Identified targeted area for growth: practical SQL data queries and financial
-                    spreadsheets.
-                  </div>
+                <div className={styles.dialogNote}>
+                  this is a sample. a real conversation gathers more context before offering any insights.
                 </div>
+              </>
+            )}
 
-                <div className={styles.sampleMetricCard}>
-                  <div className={styles.metricScore}>91%</div>
-                  <div className={styles.metricTitle}>Job &amp; Interview Readiness</div>
-                  <div className={styles.metricDetail}>
-                    Strong candidate for entry-level analyst and associate consulting pathways.
-                  </div>
+            {panel === 'demo' && demo && (
+              <>
+                <div className={styles.smallcaps}>a tiny preview · your next question</div>
+                <h3>{demo.lead}</h3>
+                <div className={styles.demoOutput}>
+                  <strong>hirerighttt follows up</strong>
+                  {demo.follow}
                 </div>
-              </div>
+                <p>
+                  in the real conversation, we keep going to gather context before preparing your initial career
+                  insights and possible next steps.
+                </p>
+                <div className={styles.demoBottom}>
+                  <button type="button" className={styles.button} onClick={startConversation}>
+                    start the real conversation ↗
+                  </button>
+                  <button type="button" className={`${styles.button} ${styles.ghost}`} onClick={() => setDemoChoice(null)}>
+                    explore another path ↺
+                  </button>
+                </div>
+              </>
+            )}
 
-              <div
-                style={{
-                  backgroundColor: '#FAF8F5',
-                  border: '1px solid #EAE5DE',
-                  borderRadius: '12px',
-                  padding: '1rem 1.25rem',
-                  marginBottom: '1.5rem',
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-                  Personalized 30-60-90 Day Roadmap Preview
+            {panel === 'report' && (
+              <>
+                <div className={styles.smallcaps}>take a look inside</div>
+                <h3>a little more about you, in one place.</h3>
+                <p>
+                  your conversation can give you an initial look at six things. the useful part is knowing what you
+                  might do with each one.
+                </p>
+                <ul>
+                  {REPORT_AREAS.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <div className={styles.dialogNote}>
+                  this is an example, not a real assessment or proof of ability. deeper checks and practice can help
+                  you test what you learn.
                 </div>
-                <div style={{ fontSize: '0.85rem', color: '#565063', lineHeight: 1.5 }}>
-                  • <strong>Next 30 Days:</strong> Complete SQL basics and take guided technical interview practice.
-                  <br />
-                  • <strong>Next 60 Days:</strong> Build two business case studies and refine behavioral story structures.
-                  <br />
-                  • <strong>Next 90 Days:</strong> Apply to verified partner roles with unlocked candidate report.
+                <div className={styles.demoBottom}>
+                  <button type="button" className={styles.button} onClick={startConversation}>
+                    start a conversation ↗
+                  </button>
                 </div>
-              </div>
+              </>
+            )}
 
-              <div style={{ textAlign: 'center' }}>
-                <Link
-                  to="/signup"
-                  className={styles.primaryBtn}
-                  onClick={() => setShowSampleModal(false)}
-                >
-                  Start my career discovery
-                </Link>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            {panel === 'growth' && (
+              <>
+                <div className={styles.smallcaps}>after the conversation</div>
+                <h3>one small step is still a step.</h3>
+                <p>
+                  a report is useful only if it helps you do something. your plan can help you pick a skill to learn,
+                  prepare for an interview, and notice what changes.
+                </p>
+                <ul>
+                  {GROWTH_ITEMS.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                <div className={styles.dialogNote}>
+                  these are examples. your real recommendations depend on your own situation.
+                </div>
+                <div className={styles.demoBottom}>
+                  <button type="button" className={styles.button} onClick={startConversation}>
+                    start a conversation ↗
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   )
 }

@@ -391,3 +391,16 @@
 .primaryBtn:not(:disabled):hover {
   background: #4338ca;
 }
+
+/* Inline HireRighttt report (rendered from the interview data), with the interview video directly below it. */
+.reportSection {
+  background: #f7f6ff;
+  border: 1px solid #e5e5ef;
+  border-radius: 16px;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  overflow-x: auto;
+}
+
+.videoSection {
+  scroll-margin-top: 1rem;
+}

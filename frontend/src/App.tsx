@@ -8,7 +8,8 @@ import { WhyPage } from './pages/WhyPage'
 import { PricingPage } from './pages/PricingPage'
 import { InterviewRetakePricingPage } from './pages/InterviewRetakePricingPage'
 import { CareerViewPage } from './pages/CareerViewPage'
-import { LoginPage, LogoutPage, OrganizationSignupPage, SettingsPage, SignupPage } from './pages/AuthPages'
+import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
+import { OrganizationSignupPage } from './pages/OrganizationSignupPage'
 import {
   DashboardPage,
   InterviewReportPage,

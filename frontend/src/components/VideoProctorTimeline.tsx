@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { IntegrityLogEvent, InterviewFlagSection, InterviewProctoringSummary } from '../lib/store'
 import { apiFetch } from '../lib/api'
-import { isAdminUser } from '../lib/adminAccess'
+import { canViewInterviewVideo } from '../lib/adminAccess'
 import styles from './VideoProctorTimeline.module.css'
 
 type Props = {
@@ -145,13 +145,13 @@ function VideoProctorTimelineInner({
 
       {source && end > 0 ? (
         <div className={styles.timelineBar} aria-hidden={flaggedSections.length === 0}>
-          {flaggedSections.map((flag) => {
+          {flaggedSections.map((flag, flagIndex) => {
             const leftPct = Math.min(99, (flag.startSec / end) * 100)
             const widthPct = Math.max(1.2, ((flag.endSec - flag.startSec) / end) * 100)
             const bgColor = flag.type === 'MULTI_FACE' ? '#ef4444' : '#f59e0b'
             return (
               <button
-                key={flag.id}
+                key={flag.id ?? `flag-${flagIndex}`}
                 type="button"
                 title={`Turn ${flag.turnIndex}: ${flag.reason}`}
                 className={styles.sectionMarker}
@@ -171,8 +171,8 @@ function VideoProctorTimelineInner({
         <div className={styles.flagSectionList}>
           <h4>Flagged sections ({flaggedSections.length})</h4>
           <ul>
-            {flaggedSections.map((flag) => (
-              <li key={flag.id}>
+            {flaggedSections.map((flag, flagIndex) => (
+              <li key={flag.id ?? `flag-${flagIndex}`}>
                 <button
                   type="button"
                   className={`${styles.flagSectionRow} ${
@@ -229,8 +229,8 @@ function VideoProctorTimelineInner({
   )
 }
 
-/** Interview video is admin-only; everyone else renders nothing. */
+/** Interview video is for recruiters and admins; candidates render nothing. */
 export function VideoProctorTimeline(props: Props) {
-  if (!isAdminUser()) return null
+  if (!canViewInterviewVideo()) return null
   return <VideoProctorTimelineInner {...props} />
 }

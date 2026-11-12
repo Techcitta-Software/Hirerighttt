@@ -309,8 +309,8 @@ export function CareerIntelligenceDashboard({
           <div className={styles.skillsLeftGroup}>
             <span className={styles.skillsRibbonLabel}>Primary Skills:</span>
             {skillPills.length > 0 ? (
-              skillPills.map((sk) => (
-                <span key={sk} className={styles.skillPill}>
+              skillPills.map((sk, i) => (
+                <span key={`${sk}-${i}`} className={styles.skillPill}>
                   {sk}
                 </span>
               ))
@@ -414,8 +414,8 @@ export function CareerIntelligenceDashboard({
         <div className={styles.card}>
           <div className={styles.cardTitle}>CAREER HEALTH DISTRIBUTION</div>
           <div className={styles.donutRow}>
-            {donuts.map((d) => (
-              <div key={d.label} className={styles.donutCol}>
+            {donuts.map((d, i) => (
+              <div key={`${d.label}-${i}`} className={styles.donutCol}>
                 <svg className={styles.donutSvg} viewBox="0 0 36 36">
                   <path
                     d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
@@ -457,8 +457,8 @@ export function CareerIntelligenceDashboard({
         <div className={styles.card}>
           <div className={styles.cardTitle}>DETAILED CAREER HEALTH METRICS</div>
           <div className={styles.healthList}>
-            {healthMetrics.map((hm) => (
-              <div key={hm.label} className={styles.healthRow}>
+            {healthMetrics.map((hm, i) => (
+              <div key={`${hm.label}-${i}`} className={styles.healthRow}>
                 <div className={styles.healthCategory}>
                   <span className={styles.healthIconRose}>
                     <HrIcon name={hm.iconName} size={16} />
@@ -522,8 +522,8 @@ export function CareerIntelligenceDashboard({
             INTERVIEW PERFORMANCE SUMMARY
           </div>
           <div className={styles.starSummaryGrid}>
-            {starPatterns.map((p) => (
-              <div key={p.name} className={styles.starSummaryItem}>
+            {starPatterns.map((p, i) => (
+              <div key={`${p.name}-${i}`} className={styles.starSummaryItem}>
                 <span className={styles.starCategoryName}>{p.name}</span>
                 <span className={styles.starString}>{p.stars}</span>
                 <span className={styles.starLevelTag}>{p.level}</span>
@@ -620,7 +620,7 @@ export function CareerIntelligenceDashboard({
               const lx = 110 + 94 * Math.cos(angle)
               const ly = 110 + 94 * Math.sin(angle)
               return (
-                <g key={axis.label}>
+                <g key={`${axis.label}-${i}`}>
                   <line x1="110" y1="110" x2={x2} y2={y2} stroke="#cbd5e1" strokeWidth="1" />
                   <text
                     x={lx}
@@ -659,8 +659,8 @@ export function CareerIntelligenceDashboard({
         <div className={styles.card}>
           <div className={styles.cardTitle}>CAREER GROWTH POTENTIAL</div>
           <div className={styles.growthList}>
-            {careerPaths.map((g) => (
-              <div key={g.role} className={styles.growthItem}>
+            {careerPaths.map((g, i) => (
+              <div key={`${g.role}-${i}`} className={styles.growthItem}>
                 <div className={styles.growthItemHeader}>
                   <span>{g.role}</span>
                   <span>{g.match}%</span>
@@ -765,8 +765,8 @@ export function CareerIntelligenceDashboard({
           </div>
           <ul className={styles.strengthsList}>
             {(result.strengths.length > 0 ? result.strengths : ['Complete an interview to generate AI strengths.']).map(
-              (text) => (
-                <li key={text}>
+              (text, i) => (
+                <li key={`${i}-${text}`}>
                   <HrIcon name="check" size={12} /> {text}
                 </li>
               ),
@@ -780,8 +780,8 @@ export function CareerIntelligenceDashboard({
             {(result.improvements.length > 0
               ? result.improvements
               : ['AI growth areas appear after your first scored interview.']
-            ).map((text) => (
-              <li key={text}>⨁ {text}</li>
+            ).map((text, i) => (
+              <li key={`${i}-${text}`}>⨁ {text}</li>
             ))}
           </ul>
         </div>
@@ -818,8 +818,8 @@ export function CareerIntelligenceDashboard({
 
           <div className={styles.recommendedRoles}>
             <span>RECOMMENDED FOR:</span>
-            {recommendedRoles.map((role) => (
-              <span key={role} className={styles.rolePill}>
+            {recommendedRoles.map((role, i) => (
+              <span key={`${role}-${i}`} className={styles.rolePill}>
                 {role}
               </span>
             ))}

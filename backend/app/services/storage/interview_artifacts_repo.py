@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from app.db.row_utils import row_to_named
+
 
 def _row(row: tuple) -> dict[str, Any]:
     cols = [
@@ -17,7 +19,7 @@ def _row(row: tuple) -> dict[str, Any]:
         "byte_size",
         "status",
     ]
-    return dict(zip(cols, row[:10], strict=True))
+    return row_to_named(row, cols)
 
 
 def upsert_interview_artifact(pool, row: dict[str, Any]) -> str:

@@ -88,24 +88,53 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
+def _name_words(value: Any) -> list[str]:
+    return [w for w in re.sub(r"[^a-z\s]", " ", str(value or "").lower()).split() if len(w) >= 2]
+
+
+def same_name_person(a: Any, b: Any) -> bool:
+    """Same person if every word of the shorter name appears in the longer one ("Bharath" vs "Bharath Krishna P")."""
+    x, y = _name_words(a), _name_words(b)
+    if not x or not y:
+        return False
+    short, long_ = (x, y) if len(x) <= len(y) else (y, x)
+    return all(w in long_ for w in short)
+
+
+def _name_from_resume_text(resume: str) -> str:
+    for line in resume.splitlines()[:10]:
+        line = line.strip()
+        if 4 <= len(line) <= 64 and re.match(r"^[A-Z][A-Za-z.'-]+(\s+[A-Z][A-Za-z.'-]+){0,4}$", line):
+            return line
+    return ""
+
+
 def resolve_candidate_name(profile: dict[str, Any] | None, account_name: str = "") -> str:
+    """The name Ava should use.
+
+    A saved profile name wins only while it still matches the current resume or the account name. A saved name that
+    matches neither is stale (left over from an older resume) and is ignored, so a new resume or the name the person
+    signed up with takes over.
+    """
     p = profile or {}
-    from_profile = _clean(p.get("fullName")) or _clean(p.get("name"))
-    if from_profile and from_profile != DEMO_ACCOUNT_NAME:
-        return from_profile
+    saved = _clean(p.get("fullName")) or _clean(p.get("name"))
+    saved = saved if saved and saved != DEMO_ACCOUNT_NAME else ""
+    resume_name = _name_from_resume_text(_clean(p.get("resumeText")))
+    acct = _clean(account_name)
+    acct = acct if acct and acct != DEMO_ACCOUNT_NAME else ""
 
-    resume = _clean(p.get("resumeText"))
-    if resume:
-        for line in resume.splitlines()[:10]:
-            line = line.strip()
-            if 4 <= len(line) <= 64 and re.match(
-                r"^[A-Z][A-Za-z.'-]+(\s+[A-Z][A-Za-z.'-]+){0,4}$", line
-            ):
-                return line
-
-    resume_name = _clean(p.get("resumeName"))
+    if saved:
+        evidence = [e for e in (resume_name, acct) if e]
+        if not evidence or any(same_name_person(saved, e) for e in evidence):
+            return saved
     if resume_name:
-        stem = re.sub(r"\.[^/.]+$", "", resume_name).replace("_", " ").replace("-", " ")
+        return resume_name
+    if acct:
+        return acct
+
+    resume_file = _clean(p.get("resumeName"))
+    if resume_file:
+        stem = re.sub(r"\.[^/.]+$", "", resume_file).replace("_", " ").replace("-", " ")
         stem = re.sub(
             r"\b(resume|cv|biodata|profile|fullstack|frontend|backend|engineer|developer)\b",
             "",
@@ -116,12 +145,7 @@ def resolve_candidate_name(profile: dict[str, Any] | None, account_name: str = "
         if 2 <= len(words) <= 4:
             return " ".join(w.capitalize() for w in words)
 
-    if from_profile:
-        return from_profile
-    acct = _clean(account_name)
-    if acct and acct != DEMO_ACCOUNT_NAME:
-        return acct
-    return from_profile or acct or "Candidate"
+    return saved or "Candidate"
 
 
 def first_name_from_full(full: str) -> str:

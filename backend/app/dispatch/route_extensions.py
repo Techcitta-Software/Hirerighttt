@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.db import store as db_store
+from app.db.row_utils import row_value
 from app.dispatch.context import DispatchContext
 from app.node_config import config
 from app.server import runtime
@@ -416,8 +417,6 @@ async def try_extended_routes(
         access = await runtime.require_employer_tenant(request, db)
         if not access:
             return None
-        if not runtime.is_platform_admin(access["user"].get("email")):
-            return json_fn(403, {"error": "Interview recordings are visible to platform admins only."})
         candidate_email = str(request.query_params.get("email") or "").strip()
         session_id = str(request.query_params.get("sessionId") or request.query_params.get("interviewId") or "").strip()
         try:
@@ -448,6 +447,8 @@ async def try_extended_routes(
             )
         except rec_store.StorageError as err:
             return json_fn(err.status, {"error": str(err)})
+        except ValueError as err:  # access rule refused (e.g. no link between this organization and the candidate)
+            return json_fn(getattr(err, "status", 404), {"error": str(err)})
 
     if method == "GET" and path == "/api/vendor/candidate-documents/report":
         db = ctx.load_db()
@@ -472,6 +473,8 @@ async def try_extended_routes(
             )
         except art_store.ArtifactStorageError as err:
             return json_fn(err.status, {"error": str(err)})
+        except ValueError as err:
+            return json_fn(getattr(err, "status", 404), {"error": str(err)})
 
     if method == "GET" and path == "/api/vendor/interview-review":
         db = ctx.load_db()
@@ -499,18 +502,14 @@ async def try_extended_routes(
             with pool.connection() as conn:
                 row = conn.execute("SELECT email, data FROM interview_sessions WHERE session_id = %s", (session_id,)).fetchone()
             if row:
-                session = row[1] or {}
-                session.setdefault("email", row[0])
+                session = row_value(row, "data", 1) or {}
+                session.setdefault("email", row_value(row, "email", 0))
                 db.setdefault("interviewSessions", {})[session_id] = session
         if not session or not vendor_may_view_interview_session(session, org_id, candidate_email):
             return json_fn(404, {"error": "Interview not found for this candidate."})
         video_url = None
         recording_status = "No recording available"
-        if (
-            config.database_url
-            and s3_storage_configured()
-            and runtime.is_platform_admin(access["user"].get("email"))
-        ):
+        if config.database_url and s3_storage_configured():
             try:
                 pool = db_store.db_pool(config.database_url)
                 signed = await rec_store.resolve_employer_candidate_recording_playback(

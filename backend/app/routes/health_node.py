@@ -11,7 +11,21 @@ router = APIRouter()
 
 
 def _llm_configured() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    from app.services.gemini_client import gemini_configured
+
+    return gemini_configured()
+
+
+def _failover_summary() -> dict:
+    from app.services.gemini_client import status_snapshot
+
+    snap = status_snapshot()
+    return {
+        "keys": snap["keyCount"],
+        "keysAvailable": sum(1 for k in snap["keys"] if k["available"]),
+        "fallbackModels": snap["models"][1:],
+        "lastError": snap["lastError"],
+    }
 
 
 @router.get("/health")
@@ -40,6 +54,7 @@ async def health() -> dict:
         "models": {
             "model": os.environ.get("PRIMARY_MODEL") or os.environ.get("FAST_MODEL") or "local",
         },
+        "llmFailover": _failover_summary(),
         "database": {
             "configured": bool(config.database_url),
             "storage": "postgresql",

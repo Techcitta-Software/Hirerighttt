@@ -15,7 +15,7 @@ import {
   getPlaybackFaceLandmarker,
 } from '../lib/proctorPlaybackLandmarks'
 import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
-import { isAdminUser } from '../lib/adminAccess'
+import { canViewInterviewVideo } from '../lib/adminAccess'
 import styles from './InterviewRecordingPlayer.module.css'
 
 type Props = {
@@ -211,13 +211,13 @@ function InterviewRecordingPlayerInner({
         {employerReview && flagCount > 0 ? (
           <div className={styles.inVideoTimeline} aria-hidden="true">
             <div className={styles.inVideoProgress} style={{ width: `${progressPct}%` }} />
-            {flaggedSections.map((flag) => {
+            {flaggedSections.map((flag, flagIndex) => {
               const left = (flag.startSec / effectiveDuration) * 100
               const width = Math.max(1.2, ((flag.endSec - flag.startSec) / effectiveDuration) * 100)
               const isHigh = flag.severity === 'high' || flag.type === 'MULTI_FACE'
               return (
                 <span
-                  key={flag.id}
+                  key={flag.id ?? `flag-${flagIndex}`}
                   className={isHigh ? styles.inVideoFlagHigh : styles.inVideoFlagMedium}
                   style={{ left: `${left}%`, width: `${width}%` }}
                 />
@@ -275,13 +275,13 @@ function InterviewRecordingPlayerInner({
             }}
           >
             <div className={styles.timelinePlayed} style={{ width: `${progressPct}%` }} />
-            {flaggedSections.map((flag) => {
+            {flaggedSections.map((flag, flagIndex) => {
               const left = (flag.startSec / effectiveDuration) * 100
               const width = Math.max(0.8, ((flag.endSec - flag.startSec) / effectiveDuration) * 100)
               const isHigh = flag.severity === 'high' || flag.type === 'MULTI_FACE'
               return (
                 <button
-                  key={flag.id}
+                  key={flag.id ?? `flag-${flagIndex}`}
                   type="button"
                   className={isHigh ? styles.timelineFlagHigh : styles.timelineFlagMedium}
                   style={{ left: `${left}%`, width: `${width}%` }}
@@ -298,8 +298,8 @@ function InterviewRecordingPlayerInner({
 
           {flagCount > 0 ? (
             <ul className={styles.flagList}>
-              {flaggedSections.map((flag) => (
-                <li key={flag.id}>
+              {flaggedSections.map((flag, flagIndex) => (
+                <li key={flag.id ?? `flag-${flagIndex}`}>
                   <button
                     type="button"
                     className={styles.flagRow}
@@ -351,8 +351,8 @@ function InterviewRecordingPlayerInner({
   )
 }
 
-/** Interview video is admin-only; everyone else renders nothing. */
+/** Interview video is for recruiters and admins; candidates render nothing. */
 export function InterviewRecordingPlayer(props: Props) {
-  if (!isAdminUser()) return null
+  if (!canViewInterviewVideo()) return null
   return <InterviewRecordingPlayerInner {...props} />
 }

@@ -32,7 +32,7 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
         <div>
           <h4>Resources</h4>
           <Link to="/career-view">360° Report</Link>
-          <Link to="/solutions">For organizations</Link>
+          <Link to="/solutions">Organisations</Link>
           <Link to="/contact">Contact</Link>
         </div>
         <div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { handleLoginNavigation } from '../lib/authSession'
+import { handleLoginNavigation, handleSignupNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
 import { getUser, isLoggedIn } from '../lib/store'
 import { CandidateNotificationBell } from './CandidateNotificationBell'
@@ -14,13 +14,13 @@ const MARKETING_NAV = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/career-view', label: '360° Report' },
-  { to: '/solutions', label: 'For organizations' },
+  { to: '/solutions', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
 ]
 
 const LANDING_NAV = [
   { to: '/jobs', label: 'Find jobs' },
-  { to: '/solutions', label: 'For employers' },
+  { to: '/solutions', label: 'Organisations' },
   { to: '/why', label: 'Why us?' },
 ]
 
@@ -67,6 +67,12 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
     event.preventDefault()
     setOpen(false)
     void handleLoginNavigation(navigate)
+  }
+
+  function onSignupClick(event: MouseEvent) {
+    event.preventDefault()
+    setOpen(false)
+    void handleSignupNavigation(navigate)
   }
 
   useEffect(() => {
@@ -333,7 +339,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                 <Link to="/login" className={styles.homeSignIn} onClick={onLoginClick}>
                   Sign in
                 </Link>
-                <Link to="/signup" className={styles.homeLoginPill}>
+                <Link to="/signup" className={styles.homeLoginPill} onClick={onSignupClick}>
                   Student / Job Seeker Login
                 </Link>
               </>
@@ -343,7 +349,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
               <Link to="/login" className={styles.landingSignIn}>
                 Sign in
               </Link>
-              <Link to="/signup" className={styles.landingLime}>
+              <Link to="/signup" className={styles.landingLime} onClick={onSignupClick}>
                 Get started
               </Link>
             </>
@@ -352,7 +358,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
               <Link to="/login" className={styles.textBtn}>
                 Sign in
               </Link>
-              <Link to="/signup" className={styles.loginPill}>
+              <Link to="/signup" className={styles.loginPill} onClick={onSignupClick}>
                 Get started
               </Link>
             </>
@@ -481,7 +487,15 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                     <Link to="/login" className={styles.loginBtn} onClick={() => setOpen(false)}>
                       Sign in
                     </Link>
-                    <Link to="/signup" className={styles.ctaBtn} onClick={() => setOpen(false)}>
+                    <Link
+                      to="/signup"
+                      className={styles.ctaBtn}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        setOpen(false)
+                        void handleSignupNavigation(navigate)
+                      }}
+                    >
                       Create account
                     </Link>
                   </>

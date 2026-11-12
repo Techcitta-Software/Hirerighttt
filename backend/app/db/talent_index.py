@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
 from app.db.store import db_pool
 
 TALENT_SCHEMA = Path(__file__).resolve().parents[2] / "db" / "sql" / "schema-talent-search.sql"
+
+_schema_lock = threading.Lock()
+_schema_ready_for: set[str] = set()
 
 
 def build_talent_record(user: dict, profile: dict, interview: dict | None = None) -> dict[str, Any]:
@@ -46,12 +51,26 @@ def build_talent_record(user: dict, profile: dict, interview: dict | None = None
     }
 
 
+def _ensure_talent_schema_sync(database_url: str) -> None:
+    # This used to run the whole CREATE TABLE / INDEX script on EVERY upsert, grant and search, inside the
+    # event loop. Apply it once per process instead, and never on the event loop thread.
+    if database_url in _schema_ready_for:
+        return
+    with _schema_lock:
+        if database_url in _schema_ready_for:
+            return
+        sql = TALENT_SCHEMA.read_text(encoding="utf-8")
+        pool = db_pool(database_url)
+        with pool.connection() as conn:
+            conn.execute(sql)
+            conn.commit()
+        _schema_ready_for.add(database_url)
+
+
 async def ensure_talent_schema(database_url: str) -> None:
-    sql = TALENT_SCHEMA.read_text(encoding="utf-8")
-    pool = db_pool(database_url)
-    with pool.connection() as conn:
-        conn.execute(sql)
-        conn.commit()
+    if database_url in _schema_ready_for:
+        return
+    await asyncio.to_thread(_ensure_talent_schema_sync, database_url)
 
 
 async def upsert_candidate_talent(
@@ -64,6 +83,10 @@ async def upsert_candidate_talent(
         return
     await ensure_talent_schema(database_url)
     row = build_talent_record(user, profile or {}, interview)
+    await asyncio.to_thread(_upsert_candidate_talent_sync, database_url, row)
+
+
+def _upsert_candidate_talent_sync(database_url: str, row: dict[str, Any]) -> None:
     pool = db_pool(database_url)
     with pool.connection() as conn:
         conn.execute(
@@ -106,6 +129,10 @@ async def grant_organization_talent_access(
     if not database_url or not organization_id or not user_id:
         return
     await ensure_talent_schema(database_url)
+    await asyncio.to_thread(_grant_talent_access_sync, database_url, organization_id, user_id, access_type)
+
+
+def _grant_talent_access_sync(database_url: str, organization_id: str, user_id: str, access_type: str) -> None:
     pool = db_pool(database_url)
     with pool.connection() as conn:
         conn.execute(
@@ -154,36 +181,46 @@ async def search_candidate_talent(database_url: str, organization_id: str, filte
         sql_params.append(f"%{experience}%")
     rank_sel = "0::float AS rank"
     order = "t.interview_score DESC NULLS LAST, t.updated_at DESC"
+    select_params: list = []
     if q:
+        # '%' is a placeholder marker for psycopg: literal percent signs must be written '%%'. The old
+        # unescaped version made every keyword search fail with a 500 error.
         where_parts.append(
             """AND (
               t.search_vector @@ plainto_tsquery('english', %s)
-              OR t.full_name ILIKE '%' || %s || '%'
-              OR t.role_title ILIKE '%' || %s || '%'
-              OR t.resume_snippet ILIKE '%' || %s || '%'
+              OR t.full_name ILIKE '%%' || %s || '%%'
+              OR t.role_title ILIKE '%%' || %s || '%%'
+              OR t.resume_snippet ILIKE '%%' || %s || '%%'
             )"""
         )
         sql_params.extend([q, q, q, q])
         rank_sel = "ts_rank(t.search_vector, plainto_tsquery('english', %s)) AS rank"
         order = "rank DESC NULLS LAST, t.interview_score DESC NULLS LAST, t.updated_at DESC"
-        sql_params.append(q)
+        # The rank placeholder sits in the SELECT list, i.e. BEFORE the WHERE placeholders in the SQL text,
+        # so its value has to come first. (It used to be appended last, which also broke the COUNT query.)
+        select_params.append(q)
     where_sql = " ".join(where_parts)
-    pool = db_pool(database_url)
-    with pool.connection() as conn:
-        rows = conn.execute(
-            f"""SELECT t.user_id, t.email, t.full_name, t.role_title, t.location, t.experience_years,
-                       t.skills, t.summary, LEFT(t.resume_snippet, 500) AS resume_preview,
-                       t.interview_score, t.profile_visibility, t.updated_at, {rank_sel}
-                FROM candidate_talent_profiles t
-                WHERE {where_sql}
-                ORDER BY {order}
-                LIMIT %s OFFSET %s""",
-            (*sql_params, limit, offset),
-        ).fetchall()
-        count_row = conn.execute(
-            f"SELECT COUNT(*)::int AS total FROM candidate_talent_profiles t WHERE {where_sql}",
-            tuple(sql_params),
-        ).fetchone()
+
+    def run_search() -> tuple[list, Any]:
+        pool = db_pool(database_url)
+        with pool.connection() as conn:
+            found = conn.execute(
+                f"""SELECT t.user_id, t.email, t.full_name, t.role_title, t.location, t.experience_years,
+                           t.skills, t.summary, LEFT(t.resume_snippet, 500) AS resume_preview,
+                           t.interview_score, t.profile_visibility, t.updated_at, {rank_sel}
+                    FROM candidate_talent_profiles t
+                    WHERE {where_sql}
+                    ORDER BY {order}
+                    LIMIT %s OFFSET %s""",
+                (*select_params, *sql_params, limit, offset),
+            ).fetchall()
+            counted = conn.execute(
+                f"SELECT COUNT(*)::int AS total FROM candidate_talent_profiles t WHERE {where_sql}",
+                tuple(sql_params),
+            ).fetchone()
+        return found, counted
+
+    rows, count_row = await asyncio.to_thread(run_search)
     return {
         "total": count_row["total"] if count_row else 0,
         "candidates": [

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from app.db.row_utils import row_value
 from app.services.storage import interview_recordings_repo as rec_repo
 from app.services.storage.s3_key_layout import (
     build_interview_recording_object_key,
@@ -50,9 +51,9 @@ async def ensure_interview_session_for_candidate(db: dict, pool, session_id: str
         row = cur.fetchone()
     if not row:
         return None
-    session = row[1] or {}
+    session = row_value(row, "data", 1) or {}
     if not session.get("email"):
-        session["email"] = row[0]
+        session["email"] = row_value(row, "email", 0)
     if str(session.get("email") or "").lower() != email:
         return None
     db.setdefault("interviewSessions", {})[sid] = session
@@ -267,6 +268,7 @@ async def resolve_employer_candidate_recording_playback(**opts: Any) -> dict[str
         opts["organizationId"],
         opts["candidateEmail"],
         opts.get("recruiterScope"),
+        require_link=True,  # video needs a real application / invite / interview link to this organization
     )
     bucket = active_s3_bucket_name()
     session_id = str(opts.get("interviewId") or "").strip()

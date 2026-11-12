@@ -1,7 +1,10 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../components/BrandLogo'
-import { goToCandidateDashboardAfterInterview } from '../lib/completeOnboardingAfterInterview'
+import {
+  goToCandidateDashboardAfterInterview,
+  markCandidateOnboardingCompleteAfterInterview,
+} from '../lib/completeOnboardingAfterInterview'
 import { getInterviewResult, getProfile, getUser } from '../lib/store'
 import styles from './InterviewCompletePage.module.css'
 
@@ -17,6 +20,20 @@ export function InterviewCompletePage() {
   const user = getUser()
   const profile = getProfile()
   const result = useMemo(() => getInterviewResult(), [])
+  const [opening, setOpening] = useState(false)
+
+  // Finishing the interview is the last onboarding step. Make sure it is recorded before opening the dashboard,
+  // otherwise a refreshed page (or a failed save) bounces the candidate back to the profile wizard.
+  async function openDashboard() {
+    if (opening) return
+    setOpening(true)
+    try {
+      await markCandidateOnboardingCompleteAfterInterview()
+    } catch {
+      // the local profile is still marked complete
+    }
+    goToCandidateDashboardAfterInterview(navigate)
+  }
 
   useEffect(() => {
     document.title = 'Interview complete — HireRighttt'
@@ -59,10 +76,11 @@ export function InterviewCompletePage() {
           </div>
           <p className={styles.kicker}>Interview complete</p>
           <h1 id="complete-title" className={styles.title}>
-            Thank you, {fullName.split(/\s+/)[0]}
+            Congratulations, {fullName.split(/\s+/)[0]}!
           </h1>
           <p className={styles.lede}>
-            Your interview has been submitted. Your full 360° report is ready on your dashboard.
+            You completed your interview — well done, and thank you for the time and thought you put into your
+            answers. Your 360° career report is ready on your dashboard.
           </p>
 
           <dl className={styles.details}>
@@ -84,9 +102,10 @@ export function InterviewCompletePage() {
           <button
             type="button"
             className={styles.cta}
-            onClick={() => goToCandidateDashboardAfterInterview(navigate)}
+            onClick={() => void openDashboard()}
+            disabled={opening}
           >
-            Dashboard
+            {opening ? 'Opening your dashboard…' : 'View dashboard'}
           </button>
           <p className={styles.dispute}>
             Think this score is wrong? <Link to="/contact">Tell us</Link> and we will review it.

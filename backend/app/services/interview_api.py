@@ -26,7 +26,9 @@ _SQL_SKILL_RE = r"^(sql|postgresql|postgres|mysql|sqlite|tsql|pl/?sql)$"
 
 
 def llm_configured() -> bool:
-    return bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"))
+    from app.services.gemini_client import gemini_configured
+
+    return gemini_configured()
 
 
 def resolve_interview_question_mode(options: dict | None = None) -> str:
@@ -303,15 +305,78 @@ async def score_interview_session(input: dict) -> dict:
     return score_session(**kwargs)
 
 
-async def parse_resume_with_ai(text: str) -> dict | None:
-    if len(str(text or "").strip()) < 40:
-        return None
+RESUME_PARSE_SYSTEM = """You are a precise resume parser. Extract structured data from the resume text and return ONLY valid JSON.
+
+RULES
+- Only extract what the resume explicitly states. Never invent companies, titles, dates, skills or numbers.
+- fullName is the candidate's name from the top of the resume, never a job title or a technology.
+- currentRole is the title of the most recent job (without the city or country); if there is no job, the target role in the headline.
+- Dates: keep what the resume says ("May 2026", "2022", "Present"). Never guess a date.
+- workExperiences: employment only. Academic/personal projects, coursework and "Project:" lines are NOT jobs.
+- skills: the candidate's own skills, in their own words, from the skills section and the experience. No duplicates, no sentences.
+- certifications: each certification separately (name + issuing organization). Never merge two into one.
+- If a field is not in the resume use "" or [].
+
+JSON SCHEMA
+{"fullName":"","currentRole":"","totalExperience":"","currentLocation":"",
+ "skills":[""],
+ "whoAreYou":"2-3 sentence summary written in first person from the resume",
+ "whatDrivesYou":"","keyStrengths":"","experienceSummary":"",
+ "workExperiences":[{"jobTitle":"","company":"","employmentType":"Full-time","startDate":"","endDate":"","currentlyWorking":false,"location":"","responsibilities":""}],
+ "achievements":[""],
+ "metrics":[{"metric":"","contribution":"","impact":"","timePeriod":""}],
+ "certifications":[{"name":"","organization":"","dateEarned":"","credentialId":""}]}"""
+
+
+def _resume_fallback_extract(text: str) -> dict:
+    """No AI available: a minimal, honest extract (the browser's own parser already fills everything else)."""
     ctx = summarize_profile({"resumeText": text}, "Candidate")
     return {
         "fullName": resolve_candidate_name({"resumeText": text}, ""),
         "skills": ctx.get("skills") or [],
         "resumeText": text[:50000],
     }
+
+
+async def parse_resume_with_ai(text: str) -> dict | None:
+    """Structured resume extraction with Gemini (key rotation + model fallback). Falls back to a minimal extract."""
+    import json
+    import re
+
+    from app.services.gemini_client import gemini_configured, generate_content
+
+    clean = str(text or "").strip()
+    if len(clean) < 40:
+        return None
+    if not gemini_configured():
+        return _resume_fallback_extract(clean)
+
+    try:
+        result = await generate_content(
+            system=RESUME_PARSE_SYSTEM,
+            user="RESUME TEXT:\n" + clean[:12000],
+            temperature=0.1,
+            max_tokens=4096,
+            json_mode=True,
+            timeout=9.0,
+            total_budget=10.0,  # the browser stops waiting at 12s
+        )
+        match = re.search(r"\{[\s\S]*\}", result.text) if result else None
+        data = json.loads(match.group(0)) if match else None
+    except Exception:
+        data = None
+    if not isinstance(data, dict) or not (data.get("fullName") or data.get("skills")):
+        return _resume_fallback_extract(clean)
+
+    # Keep only the fields we asked for, and guard the two that a model sometimes gets wrong.
+    allowed = {
+        "fullName", "currentRole", "totalExperience", "currentLocation", "skills", "whoAreYou", "whatDrivesYou",
+        "keyStrengths", "experienceSummary", "workExperiences", "achievements", "metrics", "certifications",
+    }
+    extract = {k: v for k, v in data.items() if k in allowed}
+    extract["resumeText"] = clean[:50000]
+    extract["source"] = "gemini"
+    return extract
 
 
 def vendor_skill_focus(skill_analysis: dict | None, required_skills: list | None, limit: int = 3) -> list[str]:

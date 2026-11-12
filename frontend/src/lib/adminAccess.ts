@@ -20,3 +20,12 @@ export function isAdminUser(): boolean {
   if (!user?.email) return false
   return user.role === 'employer' && adminEmails().includes(user.email.trim().toLowerCase())
 }
+
+/**
+ * Interview video is shown to recruiters (employer accounts) and platform admins, never to candidates.
+ * The server enforces the real boundary: a recruiter can only fetch the video of a candidate who applied to,
+ * was invited by, or interviewed for their own organization (see assert_vendor_may_view_candidate_documents).
+ */
+export function canViewInterviewVideo(): boolean {
+  return getUser()?.role === 'employer'
+}
