@@ -5,6 +5,8 @@ export interface WorkExperience {
   jobTitle: string
   company: string
   employmentType: string
+  /** Months worked when the resume gives a duration ("2.5 Years") instead of dates. */
+  durationMonths?: number
   startDate: string
   endDate: string
   currentlyWorking: boolean

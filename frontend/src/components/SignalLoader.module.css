@@ -1,0 +1,53 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.svg {
+  display: block;
+  overflow: visible;
+  max-width: 40vw;
+  height: auto;
+}
+
+/*
+ * Each bar swells from its resting height to full and back, 1.2s, offset per bar so the wave travels
+ * left to right. Scaling around the bar's own centre keeps the shape symmetrical.
+ */
+.bar {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hr-voice 1.2s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+  animation-delay: var(--hr-bar-delay, 0s);
+}
+
+@keyframes hr-voice {
+  0%,
+  100% {
+    transform: scaleY(0.42);
+    opacity: 0.55;
+  }
+  45% {
+    transform: scaleY(1.18);
+    opacity: 1;
+  }
+  70% {
+    transform: scaleY(0.7);
+    opacity: 0.85;
+  }
+}
+
+/* Keeps the page's height while it waits; the visible loader is the global veil. */
+.page {
+  min-height: 50vh;
+}
+
+/* Reduced motion: a still waveform, no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

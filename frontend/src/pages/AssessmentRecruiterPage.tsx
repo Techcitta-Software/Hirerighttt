@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { PageLoader } from '../components/RisingArrowLoader'
+import { PageLoader } from '../components/SignalLoader'
 import { SiteNav } from '../components/SiteNav'
 import { SiteFooter } from '../components/SiteFooter'
 import { HrIcon } from '../components/HrIcon'

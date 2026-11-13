@@ -15,6 +15,7 @@ from app.node_config import assert_production_config, config, is_prod_like
 from app.routes.auth_node import router as auth_node_router
 from app.routes.health_node import router as health_node_router
 from app.routes.meta_node import router as meta_node_router
+from app.routes.tts_node import router as tts_node_router
 from app.server import runtime
 from app.assessment.contracts import AssessmentError
 from app.assessment.personalized import handle_personalized, wants_personalized
@@ -39,6 +40,8 @@ NATIVE_API_EXACT = frozenset(
         "/api/mail/status",
         "/api/organization",
         "/api/plans",
+        "/api/interview/tts",
+        "/api/interview/tts/status",
     }
 )
 
@@ -72,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(health_node_router, prefix="/api")
     app.include_router(auth_node_router, prefix="/api")
     app.include_router(meta_node_router, prefix="/api")
+    app.include_router(tts_node_router, prefix="/api")
 
     @app.get("/api/health/live", include_in_schema=False)
     async def live() -> dict[str, bool]:

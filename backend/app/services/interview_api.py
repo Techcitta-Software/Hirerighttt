@@ -62,13 +62,25 @@ def analyze_interview_skill_match(
     }
 
 
+_INTERNSHIP_RE = re.compile(r"\bintern(?:ship)?s?\b|\bapprentice(?:ship)?\b|\bsummer\s+trainee\b|\bindustrial\s+training\b", re.I)
+
+
+def _is_internship_entry(item: dict) -> bool:
+    return bool(_INTERNSHIP_RE.search(f"{item.get('jobTitle') or ''} {item.get('employmentType') or ''}"))
+
+
 def _is_fresher(profile: dict | None, level: str, ctx: dict | None = None) -> bool:
     experience = str((profile or {}).get("totalExperience") or level or "")
     if re.search(r"fresher|student|no (?:work )?experience|^0(?:\s*(?:years?|months?))?$|less than 1", experience, re.I):
         return True
     jobs = (ctx or {}).get("jobs") or []
     work = (profile or {}).get("workExperiences") or []
-    if jobs or any((item or {}).get("company") or (item or {}).get("jobTitle") for item in work):
+    # A real job (any non-internship employment) means the candidate is not a fresher. Internships and
+    # apprenticeships are training, so a resume with only those still counts as a fresher.
+    if jobs or any(
+        ((item or {}).get("company") or (item or {}).get("jobTitle")) and not _is_internship_entry(item or {})
+        for item in work
+    ):
         return False
     # The candidate's OWN stated experience (not the job's required level): "4 years", "2+ yrs", "3-5 years".
     stated = str((profile or {}).get("totalExperience") or "")

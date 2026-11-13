@@ -13,7 +13,7 @@ const QUIET_PATHS: RegExp[] = [
   /application-alerts/,
   /job-alerts/,
   /^\/api\/interview-invites\/[^/]+$/, // invite page refreshes every 15s
-  /^\/api\/interview\/(review-events|integrity|transcribe|turn|interact|recordings|artifacts)/,
+  /^\/api\/interview\/(review-events|integrity|transcribe|turn|interact|recordings|artifacts|tts)/,
   /^\/api\/resolve-cache\//,
 ]
 

@@ -14,6 +14,7 @@ import {
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
+import { computeExperience, isInternshipRole, monthIndex, monthsToLabel } from './resumeExperience'
 
 GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -64,11 +65,9 @@ export function resumeExtractToProfilePatch(
       fromResume: true,
     }))
     patch.noPriorWorkExperience = false
-  } else if (
-    extract.totalExperience &&
-    !/fresher|0\s*[-–]\s*1|0\s*years|\b0\s*year/i.test(extract.totalExperience)
-  ) {
-    patch.noPriorWorkExperience = false
+  } else if (extract.totalExperience) {
+    // Fresher (no real job on the resume) -> "no prior work experience"; anyone with experience -> not.
+    patch.noPriorWorkExperience = /fresher/i.test(extract.totalExperience)
   }
   if (extract.achievements?.length) patch.achievements = extract.achievements
   if (extract.metrics !== undefined) {
@@ -292,12 +291,31 @@ export async function extractResumeText(file: File): Promise<string> {
     } catch {}
     throw new Error('Legacy .doc files can’t be reliably parsed in-browser. Please save as PDF, DOCX, or TXT.')
   }
+  if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic'].includes(ext || '')) {
+    throw new Error('This looks like a picture of a resume. Upload the PDF or DOCX version so the text can be read exactly.')
+  }
   // Try plain text extraction for any other format
   try {
     const fallbackText = await file.text()
     if (fallbackText && fallbackText.trim().length > 30) return fallbackText
   } catch {}
   throw new Error(`Unsupported file type (.${ext || 'unknown'}). Please upload a PDF, DOCX, or TXT file.`)
+}
+
+/**
+ * Lines a PDF repeats on every page — "Page 2 of 2", "Priya Rao - Resume", a bare page number — are not resume
+ * content and must not become a job title or company.
+ */
+function stripPageNoise(lines: string[], fullName: string): string[] {
+  const name = fullName.trim().toLowerCase()
+  return lines.filter((line, index) => {
+    const l = line.trim()
+    if (/^(?:page\s*)?\d{1,3}\s*(?:of|\/)\s*\d{1,3}$/i.test(l)) return false
+    if (/^[-–—\s]*\d{1,3}[-–—\s]*$/.test(l) && l.length <= 6) return false
+    if (/^(?:resume|curriculum vitae|cv|confidential)$/i.test(l) && index > 0) return false
+    if (name && index > 0 && l.toLowerCase().startsWith(name) && /^(?:[-–—|:,\s]+)(?:resume|cv|curriculum vitae|page\b.*)$/i.test(l.slice(name.length))) return false
+    return true
+  })
 }
 
 function cleanLines(text: string): string[] {
@@ -354,6 +372,7 @@ const EXPERIENCE_SECTION_STOPS = [
   'certifications?',
   'certificates?',
   'achievements?',
+  'key achievements?',
   'awards?',
   'summary',
   'profile',
@@ -361,6 +380,18 @@ const EXPERIENCE_SECTION_STOPS = [
   'contact',
   'references',
   'declaration',
+  'major projects?',
+  'key projects?',
+  'selected projects?',
+  'academic projects?',
+  'personal projects?',
+  'project details',
+  'academic qualifications?',
+  'personal details',
+  'technology matrix',
+  'leadership',
+  'extra[-\\s]?curricular',
+  'volunteer',
 ]
 
 /**
@@ -371,10 +402,36 @@ const EXPERIENCE_SECTION_STOPS = [
 const GLUED_SECTION_RE =
   /([a-z0-9.,)])(Experience|Education|Skills|Projects?|Summary|Certifications?|Achievements?|Objective|Languages|Awards|References)\b/g
 
+/** PDF fonts emit private-use glyphs for bullets (Wingdings/Symbol) and ligatures as single characters. */
+const chars = (...codes: number[]) => String.fromCharCode(...codes)
+const INVISIBLE_RE = new RegExp(`[${chars(0xad, 0x200b, 0x200c, 0x200d, 0x2060, 0xfeff)}]`, 'g')
+const PRIVATE_BULLET_RE = new RegExp(`[${chars(0xf0b7, 0xf0a7, 0xf0d8, 0xf076, 0xf0fc, 0xf02d, 0xf0a8, 0xf09f)}]`, 'g')
+const LEADING_BULLET_RE = new RegExp(
+  `^[ \t]*[${chars(0x25cf, 0x25cb, 0x25e6, 0x25aa, 0x25ab, 0x25a0, 0x25a1, 0x25c6, 0x25c7, 0x27a2, 0x27a4, 0x25ba, 0x25b6, 0x25b8, 0x2023, 0x2043, 0x2219, 0xb7, 0x2713, 0x2714, 0x2794, 0x2192)}][ \t]*`,
+  'gm',
+)
+const LIGATURES: [number, string][] = [[0xfb00, 'ff'], [0xfb01, 'fi'], [0xfb02, 'fl'], [0xfb03, 'ffi'], [0xfb04, 'ffl']]
+
+function normalizeGlyphs(text: string): string {
+  let out = text.replace(INVISIBLE_RE, '').replace(PRIVATE_BULLET_RE, chars(0x2022)).replace(LEADING_BULLET_RE, chars(0x2022) + ' ')
+  for (const [code, plain] of LIGATURES) out = out.split(chars(code)).join(plain)
+  return out
+    .replace(new RegExp(`[${chars(0x2010, 0x2011, 0x2012)}]`, 'g'), '-')
+    .replace(new RegExp(`[${chars(0x2018, 0x2019)}]`, 'g'), "'")
+    .replace(new RegExp(`[${chars(0x201c, 0x201d)}]`, 'g'), '"')
+}
+
+/** "devel-<newline>opment" -> "development": a word hyphenated across a line wrap. */
+function joinHyphenatedWraps(text: string): string {
+  return text.replace(/([a-z]{2,})-\n([a-z]{2,})/g, '$1$2')
+}
+
 function normalizeResumeText(text: string): string {
-  return text
+  return joinHyphenatedWraps(normalizeGlyphs(text))
     .replace(/\r/g, '\n')
-    .replace(/[\u00a0\t]+/g, ' ')
+    // a table row "Core Banking<tab>Finacle, Flexcube" reads as "Core Banking: Finacle, Flexcube"
+    .replace(/^([^\t\n]{2,40})\t+(?=\S)/gm, '$1: ')
+    .replace(/[ \t]+/g, ' ')
     .replace(GLUED_SECTION_RE, '$1\n$2')
     .replace(/\n{3,}/g, '\n\n')
 }
@@ -419,6 +476,17 @@ function clip(value: string, max: number) {
   return `${trimmed.slice(0, max - 1).trimEnd()}…`
 }
 
+/** The job that ended last (a present job wins), for the "current role". */
+function latestJob(works: WorkExperience[], realOnly = false): WorkExperience | undefined {
+  const nowIdx = new Date().getFullYear() * 12 + new Date().getMonth()
+  const endOf = (w: WorkExperience) =>
+    w.currentlyWorking ? nowIdx + 1 : (monthIndex(w.endDate, 11) ?? monthIndex(w.startDate) ?? -1)
+  const real = works.filter((w) => w.jobTitle?.trim() && !isInternshipRole(w))
+  const pool = real.length || realOnly ? real : works.filter((w) => w.jobTitle?.trim())
+  // Listed newest-first or oldest-first: the job that ended last wins; ties keep the order on the page.
+  return pool.reduce<WorkExperience | undefined>((best, w) => (!best || endOf(w) > endOf(best) ? w : best), undefined)
+}
+
 function pickRole(text: string): string {
   const lower = text.toLowerCase()
   const ranked = [...ROLE_OPTIONS].sort((a, b) => b.length - a.length)
@@ -441,6 +509,25 @@ function pickRole(text: string): string {
   return ''
 }
 
+/**
+ * The candidate's own location from the header block: "Hyderabad, Telangana", "Noida, Uttar Pradesh", "London, UK".
+ * A city in the wizard's list is reported by that name; any other city is reported as written.
+ */
+function pickLocationFromHeader(lines: string[], fullName: string): string {
+  const NOT_PLACE = /@|https?:|www\.|linkedin|github|\d|resume|curriculum|student|fresher|b\.?tech|m\.?tech|mba|degree|summary|objective|experience|education|skills/i
+  for (const rawLine of lines.slice(0, 8)) {
+    if (fullName && rawLine.toLowerCase().includes(fullName.toLowerCase()) && rawLine.length <= fullName.length + 2) continue
+    for (const segment of rawLine.split(/\s*[|•·]\s*|\s{2,}|\s+[-–—]\s+/)) {
+      const seg = segment.trim().replace(/^(?:location|address|city)\s*[:\-]\s*/i, '')
+      if (!seg || seg.length > 45 || NOT_PLACE.test(seg) || TITLE_LINE.test(seg)) continue
+      const option = LOCATION_OPTIONS.find((l) => l !== 'Other' && new RegExp(`\\b${l.replace(/\s+/g, '\\s+')}\\b`, 'i').test(seg))
+      if (option) return option
+      if (/^[A-Z][A-Za-z.'\- ]+(?:,\s*[A-Z][A-Za-z.'\- ]+){1,2}$/.test(seg)) return seg
+    }
+  }
+  return ''
+}
+
 function pickLocation(text: string): string {
   for (const location of LOCATION_OPTIONS) {
     if (new RegExp(`\\b${location.replace(/\s+/g, '\\s+')}\\b`, 'i').test(text)) {
@@ -449,70 +536,6 @@ function pickLocation(text: string): string {
   }
   if (/\bremote\b/i.test(text)) return 'Remote'
   return ''
-}
-
-const MONTHS: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-}
-
-/** "May 2026" -> months since year 0; "2022" -> January of that year. Returns null if unreadable. */
-function monthIndex(value: string | undefined, fallbackMonth = 0): number | null {
-  const v = (value || '').trim()
-  if (!v) return null
-  if (/present|current|ongoing|till/i.test(v)) {
-    const now = new Date()
-    return now.getFullYear() * 12 + now.getMonth()
-  }
-  const year = v.match(/(?:19|20)\d{2}/)
-  if (!year) return null
-  const month = v.match(/[A-Za-z]{3}/)
-  const m = month ? MONTHS[month[0].toLowerCase()] : undefined
-  return Number(year[0]) * 12 + (m ?? fallbackMonth)
-}
-
-/** Total experience from the job dates when the resume never says "N years". */
-function experienceFromWork(works: WorkExperience[]): string {
-  let earliest: number | null = null
-  let latest: number | null = null
-  for (const w of works) {
-    const start = monthIndex(w.startDate)
-    const end = w.currentlyWorking ? monthIndex('Present') : monthIndex(w.endDate, 11)
-    if (start === null) continue
-    earliest = earliest === null ? start : Math.min(earliest, start)
-    const endValue = end ?? start
-    latest = latest === null ? endValue : Math.max(latest, endValue)
-  }
-  if (earliest === null || latest === null || latest < earliest) return ''
-  return yearsToExperienceLabel((latest - earliest) / 12)
-}
-
-function pickExperience(text: string): string {
-  const range = text.match(
-    /(\d+(?:\.\d+)?)\s*(?:\+|to|–|-)\s*(\d+(?:\.\d+)?)\s*\+?\s*years?/i,
-  )
-  const single = text.match(/(\d+(?:\.\d+)?)\s*\+?\s*years?(?:\s+of\s+experience)?/i)
-  const months = text.match(/\b(\d{1,2})\s*\+?\s*months?\b/i)
-  const years = range
-    ? (Number(range[1]) + Number(range[2])) / 2
-    : single
-      ? Number(single[1])
-      : months
-        ? Number(months[1]) / 12
-        : NaN
-
-  if (Number.isNaN(years)) return ''
-  return yearsToExperienceLabel(years)
-}
-
-function yearsToExperienceLabel(years: number): string {
-  if (years < 1) return 'Fresher / 0 years'
-  if (years < 2) return '0 – 1 Years'
-  if (years < 3) return '1 – 2 Years'
-  if (years < 4) return '2 – 3 Years'
-  if (years < 6) return '3 – 5 Years'
-  if (years < 9) return '5 – 8 Years'
-  if (years < 13) return '8 – 12 Years'
-  return '12+ Years'
 }
 
 /** Short forms people actually write on resumes -> the canonical skill label. */
@@ -526,23 +549,62 @@ const SKILL_ALIASES: Record<string, string[]> = {
   'CI/CD': ['ci cd', 'cicd'],
 }
 
+/**
+ * Tools and technologies recognised anywhere in a resume. This is only a dictionary used to spot words that are on
+ * the page; nothing in it is ever added to a resume that does not contain it. Single letters ("C", "R") and common
+ * English words ("Go") are left out because they cannot be told apart from ordinary text.
+ */
+const SKILL_VOCABULARY = [
+  'Selenium', 'Cypress', 'Playwright', 'JMeter', 'Postman', 'Jira', 'TestNG', 'JUnit', 'Appium', 'Power BI',
+  'Tableau', 'Looker', 'Excel', 'Figma', 'WordPress', 'PHP', 'Laravel', 'Kotlin', 'Swift', 'Ruby', 'Ruby on Rails',
+  'Flutter', 'React Native', 'Terraform', 'Ansible', 'Jenkins', 'Spark', 'Hadoop', 'Airflow', 'Snowflake',
+  'Databricks', 'MATLAB', 'AutoCAD', 'SolidWorks', 'STAAD Pro', 'Primavera P6', 'Revit', 'SAP', 'Salesforce',
+  'Photoshop', 'Illustrator', 'gRPC', 'GraphQL', 'Redis', 'Elasticsearch', 'RabbitMQ', 'Linux', 'Bash', 'C++', 'C#',
+  '.NET', 'Spring Boot', 'Hibernate', 'Django', 'Flask', 'FastAPI', 'Angular', 'Svelte', 'Tailwind CSS', 'Bootstrap',
+  'Pandas', 'NumPy', 'TensorFlow', 'PyTorch', 'Scikit-learn', 'OpenCV', 'Kafka', 'Microservices', 'REST APIs',
+  'Oracle', 'MongoDB', 'MySQL', 'PostgreSQL', 'SQLite', 'DynamoDB', 'Firebase', 'Azure', 'GCP', 'Kubernetes',
+  'Docker', 'GitHub Actions', 'GitLab CI', 'Amplitude', 'Mixpanel', 'Google Analytics', 'Tally', 'QuickBooks',
+  'Patient Care', 'BLS', 'ACLS',
+]
+
+/** Spellings of the same skill that must count as one entry. */
+const SKILL_SAME_AS: Record<string, string> = {
+  reactjs: 'react', nodejs: 'node', expressjs: 'express', vuejs: 'vue', nextjs: 'next', postgres: 'postgresql',
+  cicd: 'cicd', golang: 'go', restapis: 'restapi', restfulapis: 'restapi', restapi: 'restapi', restful: 'restapi',
+  amazonwebservices: 'aws', ml: 'machinelearning', largelanguagemodels: 'llms', largelanguagemodel: 'llms',
+  llm: 'llms', retrievalaugmentedgeneration: 'rag', naturallanguageprocessing: 'nlp', restfulapi: 'restapi',
+  k8s: 'kubernetes', js: 'javascript', ts: 'typescript',
+}
+
+function skillKey(skill: string): string {
+  const base = skill.replace(/\s*\([^)]*\)\s*$/, '') || skill
+  const key = base.toLowerCase().replace(/^(?:ms|microsoft)\s+/, '').replace(/[^a-z0-9+#]/g, '')
+  return SKILL_SAME_AS[key] ?? key
+}
+
 function pickSkills(text: string): string[] {
   const lower = text.toLowerCase()
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const found = SKILL_OPTIONS.filter((skill) => {
+  const SOFT = new Set(['communication', 'leadership'])
+  const catalog = [...SKILL_OPTIONS.filter((skill) => !SOFT.has(skill.toLowerCase())), ...SKILL_VOCABULARY]
+  const found = catalog.filter((skill) => {
     const names = [skill, ...(SKILL_ALIASES[skill] ?? [])]
     return names.some((name) =>
       new RegExp(`(?<![\\w.])${escape(name).replace(/\s+/g, '\\s+')}(?![\\w])`, 'i').test(lower),
     )
   })
-  return [...new Set(found)].slice(0, 12)
+  return [...new Set(found)].slice(0, 40)
 }
 
-const SKILL_SECTION_LABELS = ['technical skills', 'key skills', 'core skills', 'skills & tools', 'tools & technologies', 'technologies', 'skills']
+const SKILL_SECTION_LABELS = [
+  'technical skills', 'key skills', 'core skills', 'computer skill set', 'computer skills', 'it skills', 'skill set',
+  'skills & tools', 'tools & technologies', 'technology matrix', 'technologies', 'skills',
+]
 const SKILL_SECTION_STOPS = [
   'professional experience', 'work experience', 'experience', 'employment', 'education', 'academic', 'projects?',
   'certifications?', 'achievements?', 'awards?', 'professional summary', 'summary', 'profile', 'objective',
-  'declaration', 'languages', 'interests',
+  'declaration', 'languages? known', 'interests', 'hobbies', 'personal details', 'key achievements?', 'major projects?',
+  'leadership', 'academic qualifications?', 'techno-functional expertise',
 ]
 
 /** Split on commas / semicolons / pipes that are not inside brackets. */
@@ -579,9 +641,18 @@ function pickSkillsFromSection(text: string): string[] {
   for (const entry of entries) {
     const list = entry.replace(/^[^:]{1,45}:\s*/, '')
     for (const raw of splitTopLevel(list)) {
-      const skill = raw.replace(/^[\s•·\-–]+/, '').replace(/\s+/g, ' ').trim()
+      const skill = raw.replace(/^[\s•·=:\-–]+/, '').replace(/[\s.:]+$/, '').replace(/\s+/g, ' ').trim()
       const words = skill.split(' ').length
-      if (skill.length < 2 || skill.length > 40 || words > 6) continue
+      if (skill.length < 1 || skill.length > 40 || words > 5) continue
+      // "Ubuntu.Redhat" is two skills run together; "Node.js" and "ASP.NET" are single ones
+      const glued = skill.match(/^([A-Za-z]{3,})\.([A-Z][a-z]{2,})$/)
+      if (glued) {
+        for (const part of [glued[1], glued[2]]) {
+          const k = part.toLowerCase()
+          if (!seen.has(k)) { seen.add(k); skills.push(part) }
+        }
+        continue
+      }
       if (/^(and|etc\.?|basics?)$/i.test(skill)) continue
       const key = skill.toLowerCase()
       if (seen.has(key)) continue
@@ -596,12 +667,12 @@ function mergeSkills(fromSection: string[], fromCatalog: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const skill of [...fromSection, ...fromCatalog]) {
-    const key = skill.toLowerCase().replace(/[^a-z0-9+#]/g, '')
+    const key = skillKey(skill)
     if (!key || seen.has(key)) continue
     seen.add(key)
     out.push(skill)
   }
-  return out.slice(0, 40)
+  return out.slice(0, 80)
 }
 
 const NOT_NAME_WORDS =
@@ -642,10 +713,11 @@ export function extractNameFromText(text: string): string | null {
     // Accept 2 to 4 words where all words look like name tokens
     if (
       words.length >= 2 &&
-      words.length <= 4 &&
-      words.every((w) => /^[A-Za-z.'-]+$/.test(w) && w.length >= 2)
+      words.length <= 5 &&
+      words.every((w) => /^[A-Za-z.'-]+$/.test(w) && (w.length >= 2 || /^[A-Z]$/.test(w))) &&
+      words.filter((w) => w.length >= 2).length >= 1
     ) {
-      return words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+      return words.map(fixNameCase).join(' ')
     }
 
     // Also accept 1 capitalized name if next line is a role/title
@@ -656,10 +728,24 @@ export function extractNameFromText(text: string): string | null {
       lines.length > 1 &&
       pickRole(lines[1])
     ) {
-      return words[0][0].toUpperCase() + words[0].slice(1).toLowerCase()
+      return fixNameCase(words[0])
     }
   }
   return null
+}
+
+/**
+ * "PRIYA" / "priya" -> "Priya", "D'SOUZA" -> "D'Souza". A name that already mixes cases ("McDonald",
+ * "DeSouza", "K.") is exactly what the person wrote, so it is left alone.
+ */
+function fixNameCase(word: string): string {
+  const letters = word.replace(/[^A-Za-z]/g, '')
+  if (letters.length <= 1) return word
+  const mixed = letters !== letters.toUpperCase() && letters !== letters.toLowerCase()
+  if (mixed) return word
+  return word
+    .toLowerCase()
+    .replace(/(^|['\-.])([a-z])/g, (_m, sep: string, ch: string) => sep + ch.toUpperCase())
 }
 
 function pickName(lines: string[]): string {
@@ -687,17 +773,6 @@ function cleanJobTitle(title: string): string {
     .trim()
 }
 
-const LEVEL_WORDS = /\b(?:associate|junior|jr\.?|senior|sr\.?|lead|principal|staff|trainee|intern|i{1,3})\b/gi
-
-/** Prefer a standard role name ("AI Engineer") over a level-decorated title ("AI Associate Engineer"). */
-function canonicalRole(title: string): string {
-  const cleaned = cleanJobTitle(title)
-  if (!cleaned) return ''
-  const bare = cleaned.replace(LEVEL_WORDS, ' ').replace(/\s{2,}/g, ' ').trim()
-  const match = ROLE_OPTIONS.find((r) => r.toLowerCase() === bare.toLowerCase())
-  return match ?? cleaned
-}
-
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** "[08/2024]" or "08/2024" -> "Aug 2024". */
@@ -705,7 +780,216 @@ function numericDatesToMonthNames(line: string): string {
   return line.replace(/\[?\b(0?[1-9]|1[0-2])\/((?:19|20)\d{2})\b\]?/g, (_m, month: string, year: string) => `${MONTH_SHORT[Number(month) - 1]} ${year}`)
 }
 
-const TITLE_LINE = /\b(?:engineer|developer|manager|designer|scientist|analyst|architect|consultant|specialist|executive|administrator|programmer|tester|intern|associate|lead|officer|recruiter|trainee)\b/i
+/** Words that make a phrase a job title, across professions (not only software). */
+const TITLE_LINE = new RegExp(
+  '\\b(?:' +
+    [
+      'engineer', 'developer', 'manager', 'designer', 'scientist', 'analyst', 'architect', 'consultant', 'specialist',
+      'executive', 'administrator', 'programmer', 'tester', 'intern', 'associate', 'lead', 'officer', 'recruiter',
+      'trainee', 'nurse', 'doctor', 'physician', 'surgeon', 'pharmacist', 'technician', 'technologist', 'accountant',
+      'auditor', 'teacher', 'lecturer', 'professor', 'trainer', 'instructor', 'supervisor', 'coordinator', 'assistant',
+      'director', 'head', 'chief', 'president', 'vp', 'founder', 'owner', 'representative', 'agent', 'clerk', 'cashier',
+      'advisor', 'adviser', 'strategist', 'planner', 'scheduler', 'operator', 'mechanic', 'electrician', 'foreman',
+      'surveyor', 'estimator', 'inspector', 'editor', 'writer', 'copywriter', 'marketer', 'salesperson', 'buyer',
+      'controller', 'secretary', 'receptionist', 'counsellor', 'counselor', 'therapist', 'paralegal', 'attorney',
+      'lawyer', 'researcher', 'scholar', 'fellow', 'apprentice', 'freelancer', 'tutor', 'driver', 'chef', 'cook',
+      'sde', 'sdet', 'devops', 'sre',
+    ].join('|') +
+    ')s?\\b',
+  'i',
+)
+
+/** Words that make a phrase an organisation name rather than a job title. */
+const COMPANY_LINE = new RegExp(
+  '\\b(?:' +
+    [
+      'pvt', 'private', 'ltd', 'limited', 'inc', 'llc', 'llp', 'corp', 'corporation', 'company', 'technologies',
+      'solutions', 'services', 'systems', 'labs', 'consultancy', 'consultants', 'consulting', 'hospital', 'university',
+      'college', 'bank', 'group', 'industries', 'enterprises', 'construction', 'constructions', 'institute', 'school',
+      'foundation', 'infotech', 'networks', 'analytics', 'pharma', 'healthcare', 'clinic', 'agency', 'studio',
+      'associates', 'partners', 'holdings', 'global',
+    ].join('|') +
+    ')\\b\\.?',
+  'i',
+)
+
+function isCompanyLike(value: string): boolean {
+  return COMPANY_LINE.test(value)
+}
+
+/** Decide which of two fragments is the job title and which the employer. */
+function splitRoleAndCompany(first: string, second: string): { role: string; company: string } {
+  const firstRole = looksLikeRole(first) && !isCompanyLike(first)
+  const secondRole = looksLikeRole(second) && !isCompanyLike(second)
+  if (firstRole && !secondRole) return { role: first, company: second }
+  if (secondRole && !firstRole) return { role: second, company: first }
+  if (firstRole && secondRole) {
+    return isCompanyLike(second) ? { role: first, company: second } : { role: second, company: first }
+  }
+  if (isCompanyLike(first) && !isCompanyLike(second)) return { role: second, company: first }
+  if (isCompanyLike(second) && !isCompanyLike(first)) return { role: first, company: second }
+  return { role: second, company: first }
+}
+
+/** A job-title fragment: a known role, or any line carrying a title word such as "Intern" or "Developer". */
+function looksLikeRole(value: string): boolean {
+  return Boolean(pickRole(value)) || TITLE_LINE.test(value)
+}
+
+
+const CURRENT_WORDS = /\b(?:present|current(?:ly)?|ongoing|till\s*(?:date|now|present|today)|to\s*date|until\s*now|now)\b/i
+
+/** "Hyderabad", "Pune, India": a trailing place name that belongs to a company or title, not to its name. */
+function stripPlaceTail(value: string): string {
+  let v = value.trim()
+  const parts = v.split(/\s*,\s*/)
+  if (parts.length >= 2) {
+    const tail = parts.slice(1).join(', ')
+    const tailWords = tail.split(/\s+/).length
+    if (tailWords <= 3 && !looksLikeRole(tail) && !isCompanyLike(tail) && /^[A-Z][A-Za-z.\s,]+$/.test(tail)) v = parts[0]
+  }
+  // "X Throw Facility Management LLP Mumbai" -> a known city glued to the end of a longer company name
+  const city = LOCATION_OPTIONS.find((l) => l !== 'Other' && l !== 'Remote' && new RegExp(`\\s${l}$`, 'i').test(v))
+  if (city && v.split(/\s+/).length >= 4) v = v.slice(0, v.length - city.length).trim()
+  return v
+}
+
+function tidyFragment(value: string): string {
+  return value
+    .replace(/\(\s*\)/g, '')
+    .replace(/\bduration\s*[:\-]?/gi, '')
+    .replace(/[\s,;|\-–—:]+$/g, '')
+    .replace(/^[\s,;|\-–—:]+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+type JobBlock = { header: string; lines: string[] }
+
+/** Turn one block (a header line and what follows it) into a job, or null when it is not a job. */
+function parseJobBlock(block: JobBlock, datePattern: RegExp): WorkExperience | null {
+  const lines = [...block.lines]
+  const durationRe = /\b(\d{1,2}(?:\.\d+)?)\s*\+?\s*(years?|yrs?|months?)\b/i
+
+  // ---- dates / duration
+  let dateStr = (block.header.match(datePattern) || [''])[0].trim()
+  let dateFromLine = -1
+  if (!dateStr) {
+    const idx = lines.slice(0, 2).findIndex((l) => !/^[•\-*]/.test(l) && datePattern.test(l))
+    if (idx >= 0) {
+      dateStr = (lines[idx].match(datePattern) || [''])[0].trim()
+      dateFromLine = idx
+    }
+  }
+  const strip = (text: string) =>
+    tidyFragment(text.replace(datePattern, ' ').replace(CURRENT_WORDS, ' ').replace(durationRe, ' '))
+  let durationMonths: number | undefined
+  if (!dateStr) {
+    const m = block.header.match(durationRe)
+    if (m) durationMonths = Math.round(Number(m[1]) * (/^m/i.test(m[2]) ? 1 : 12))
+  }
+  const header = strip(block.header.replace(/\s*\(\s*(?:[A-Za-z]{3,9}\.?\s*)?\d{4}[^)]*\)/g, (m) => ` ${m} `)).replace(/\(\s*\)/g, '')
+
+  // ---- split the header into a role and a company
+  let role = ''
+  let company = ''
+  const pipeCount = (header.match(/\|/g) || []).length
+  const dash = header.match(/^(.+?)\s+[-–—]\s+(.+)$/)
+  const at = header.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i)
+
+  if (pipeCount >= 2) {
+    const segs = header.split('|').map(tidyFragment).filter(Boolean)
+    role = segs.find((x) => looksLikeRole(x) && !isCompanyLike(x)) || ''
+    company = segs.find((x) => isCompanyLike(x) && x !== role) || segs.find((x) => x !== role) || ''
+  } else if (pipeCount === 1) {
+    const [p1, p2] = header.split('|').map(tidyFragment)
+    ;({ role, company } = splitRoleAndCompany(p1, p2 || ''))
+    if (!p2) { role = looksLikeRole(p1) && !isCompanyLike(p1) ? p1 : ''; company = role ? '' : p1 }
+  } else if (at) {
+    role = at[1]
+    company = at[2]
+  } else if (dash && !CURRENT_WORDS.test(dash[1])) {
+    ;({ role, company } = splitRoleAndCompany(stripPlaceTail(dash[1]), stripPlaceTail(dash[2])))
+  } else if (header.includes(',')) {
+    const first = header.indexOf(',')
+    ;({ role, company } = splitRoleAndCompany(header.slice(0, first), header.slice(first + 1)))
+  } else if (header) {
+    if (looksLikeRole(header) && !isCompanyLike(header)) role = header
+    else company = header
+  }
+  role = tidyFragment(stripPlaceTail(role))
+  company = tidyFragment(company)
+
+  // ---- whatever is still missing comes from the lines under the header
+  const usable = (l: string) => !/^[•\-*]/.test(l) && l.split(/\s+/).length <= 10 && !/[.;]$/.test(l)
+  if (!role) {
+    for (let i = 0; i < Math.min(2, lines.length); i += 1) {
+      const cand = strip(lines[i])
+      if (usable(lines[i]) && cand && looksLikeRole(cand) && !isCompanyLike(cand)) {
+        role = tidyFragment(stripPlaceTail(cand))
+        lines.splice(i, 1)
+        break
+      }
+    }
+  }
+  if (!company) {
+    for (let i = 0; i < Math.min(2, lines.length); i += 1) {
+      const cand = strip(lines[i])
+      if (usable(lines[i]) && cand && cand.length >= 2 && cand.length <= 70 && !(looksLikeRole(cand) && !isCompanyLike(cand))) {
+        company = tidyFragment(stripPlaceTail(cand))
+        lines.splice(i, 1)
+        break
+      }
+    }
+  }
+  if (dateFromLine >= 0 && lines[dateFromLine] && !strip(lines[dateFromLine])) lines.splice(dateFromLine, 1)
+
+  company = company
+    .replace(new RegExp(`\\s+(?:${COUNTRY_NAMES})\\s*$`, 'i'), '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  if (
+    !company ||
+    company.length < 2 ||
+    company.length > 80 ||
+    /^(company|experience|summary|skills|projects|education|university|college|school|responsibilities)$/i.test(company)
+  ) {
+    return null
+  }
+  // A line that is only a degree or a school is education, not a job.
+  if (/\b(?:bachelor|master|b\.?\s?tech|m\.?\s?tech|b\.?\s?e\b|b\.?\s?sc|m\.?\s?sc|mba|diploma|degree|cgpa|gpa)\b/i.test(`${role} ${company}`) && !role) return null
+
+  const responsibilities = lines
+    .filter((l) => /^[•\-*]/.test(l) || l.length > 30)
+    .map((l) => l.replace(/^[•\-*]\s*/, '• '))
+    .slice(0, 6)
+    .join('\n')
+
+  const currentSource = dateStr || (durationMonths ? '' : block.header)
+  const isCurrent = CURRENT_WORDS.test(currentSource) && !/^\s*(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}\s*$/.test(dateStr)
+  const [startDate, endDate] = splitDateRange(dateStr)
+  const titleForType = role || block.header
+  const job: WorkExperience = {
+    id: crypto.randomUUID(),
+    jobTitle: clip(role, 80),
+    company: clip(company, 80),
+    employmentType: /\bintern(?:ship)?s?\b|\bapprentice/i.test(titleForType) ? 'Internship' : 'Full-time',
+    startDate,
+    endDate: isCurrent ? 'Present' : endDate,
+    currentlyWorking: isCurrent,
+    location: pickLocationFromHeader([block.header], ''),
+    responsibilities: clip(responsibilities, 800),
+  }
+  if (durationMonths) job.durationMonths = durationMonths
+  return job
+}
+
+/** "Sept. 2021 - Present" -> ["Sept. 2021", "Present"]. Splits on a dash, a slash or the word "to" only. */
+function splitDateRange(range: string): [string, string] {
+  const spaced = range.replace(/([A-Za-z]{3,})((?:19|20)\d{2})/g, '$1 $2')
+  const parts = spaced.split(/\s*(?:[-–—/]|\bto\b|\buntil\b|\btill\b)\s*/i).map((p) => p.trim())
+  return [parts[0] || '', parts[1] || '']
+}
 
 function pickWorkExperiences(text: string): WorkExperience[] {
   // Only parse when a work/employment section exists (never the whole résumé).
@@ -721,11 +1005,18 @@ function pickWorkExperiences(text: string): WorkExperience[] {
   const lines = bodyNormalized
     .split('\n')
     .map((l) => numericDatesToMonthNames(l.trim()))
-    .filter(Boolean)
+    // "Company: Spruce IT (Feb 2024 to Till Now)" / "Role: Technical Recruiter" -> the value after the label
+    .map((l) => l.replace(/^(?:company|organi[sz]ation|employer|firm)\s*[:\-]\s*/i, '').replace(/^(?:role|designation|position|job\s*title|title)\s*[:\-]\s*/i, ''))
+    // descriptive labels that are never a job header
+    .filter(
+      (l) =>
+        l &&
+        !/^(?:roles?\s*(?:and|&)\s*responsibilit(?:y|ies)|key\s+responsibilit(?:y|ies)|responsibilit(?:y|ies)|clients?|client\s+assignment|environment|tools(?:\s+used)?|technolog(?:y|ies)(?:\s+used)?|projects?(?:\s+name)?)\s*[:\-]/i.test(l),
+    )
   if (!lines.length) return []
 
   const datePattern =
-    /(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2}\s*(?:[-–—to/]+\s*(?:Present|Current|Ongoing|Till\s*Date|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2})?)?|\b(?:19|20)\d{2}\s*[-–—/]\s*(?:(?:19|20)\d{2}|Present|Current|Ongoing)\b/i
+    /(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2}\s*(?:[-–—to/]+\s*(?:Present|Current|Ongoing|Till\s*(?:Date|Now|Present)|To\s*Date|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*[\s,.'-]*)?(?:19|20)\d{2})?)?|\b(?:19|20)\d{2}\s*[-–—/]\s*(?:(?:19|20)\d{2}|Present|Current|Ongoing)\b/i
 
   const blocks: { header: string; lines: string[] }[] = []
   let currentBlock: { header: string; lines: string[] } | null = null
@@ -737,18 +1028,45 @@ function pickWorkExperiences(text: string): WorkExperience[] {
       /^projects?\s*[:\-–]/i.test(line) ||
       // "Project name | Tech | Tech | Tech" with no dates is a project heading, not an employer.
       (!datePattern.test(line) && (line.match(/\|/g) || []).length >= 2)
-    const hasRole = Boolean(pickRole(line))
+    const hasRole = looksLikeRole(line)
     const hasDate = datePattern.test(line)
     const hasSeparator = /\s+(?:at|@|\||–|—|-)\s+/i.test(line)
+    // A sentence ("Worked closely with the hiring manager to ...") is a duty, not a job header.
+    const wordCount = line.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length
+    const looksLikeSentence =
+      (!hasDate && wordCount > 14) ||
+      (hasDate && wordCount > 20) ||
+      (!hasDate && wordCount > 8 && !/\|/.test(line)) ||
+      (!hasDate && wordCount > 3 && !hasRole && /^[A-Z][a-z]+(?:ed|ing)/.test(line)) ||
+      /^[a-z]/.test(line)
 
     const isHeaderCandidate =
       !isBullet &&
+      !looksLikeSentence &&
       (hasRole ||
         hasSeparator ||
         (hasDate && line.length < 120) ||
         (hasDate && Boolean(lines[i + 1])))
 
-    if (isHeaderCandidate && (!currentBlock || currentBlock.lines.length > 0)) {
+    // "Wipro Technologies" on its own line, with the title and dates on the next line: a new job starts here.
+    const nextLine = lines[i + 1] || ''
+    const startsCompanyFirstJob =
+      !isBullet &&
+      !looksLikeSentence &&
+      !hasDate &&
+      !hasRole &&
+      line.length <= 70 &&
+      !/[.:]$/.test(line) &&
+      line.split(/\s+/).length <= 8 &&
+      Boolean(nextLine) &&
+      !/^[•\-*]/.test(nextLine) &&
+      (datePattern.test(nextLine) || TITLE_LINE.test(nextLine)) &&
+      nextLine.length < 110 &&
+      Boolean(currentBlock && currentBlock.lines.length > 0)
+
+    const currentComplete = Boolean(currentBlock && currentBlock.lines.length === 0 && datePattern.test(currentBlock.header) && !/^[a-z]/.test(line))
+    const startsNextListedJob = isHeaderCandidate && hasDate && currentComplete
+    if ((isHeaderCandidate || startsCompanyFirstJob) && (!currentBlock || currentBlock.lines.length > 0 || startsNextListedJob)) {
       if (currentBlock) blocks.push(currentBlock)
       currentBlock = { header: line, lines: [] }
     } else if (currentBlock) {
@@ -760,146 +1078,14 @@ function pickWorkExperiences(text: string): WorkExperience[] {
   if (currentBlock) blocks.push(currentBlock)
 
   const experiences: WorkExperience[] = []
-
-  for (const block of blocks.slice(0, 5)) {
-    const header = block.header
-    let role = ''
-    let company = ''
-    let dateStr = ''
-
-    const dateMatch = header.match(datePattern) || block.lines.find((l) => datePattern.test(l))?.match(datePattern)
-    if (dateMatch) {
-      dateStr = dateMatch[0].trim()
-    }
-
-    const atMatch = header.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i)
-    const pipeMatch = header.match(/^(.+?)\s+[|]\s+(.+)$/)
-    const commaMatch = header.match(/^([^,]+),\s*(.+)$/)
-    const dashMatch = header.match(/^(.+?)\s+[-–—]\s+(.+)$/)
-
-    if (atMatch) {
-      role = atMatch[1].replace(datePattern, '').replace(/[|(),]/g, '').trim()
-      company = atMatch[2].replace(datePattern, '').replace(/[|(),]/g, '').trim()
-    } else if (pipeMatch) {
-      const p1 = pipeMatch[1].replace(datePattern, '').trim()
-      const p2 = pipeMatch[2].replace(datePattern, '').trim()
-      if (pickRole(p1)) {
-        role = p1
-        company = p2
-      } else {
-        company = p1
-        role = p2
-      }
-    } else if (commaMatch && !datePattern.test(commaMatch[1])) {
-      const c1 = commaMatch[1].replace(datePattern, '').trim()
-      const c2 = commaMatch[2].replace(datePattern, '').trim()
-      if (pickRole(c1)) {
-        role = c1
-        company = c2
-      } else {
-        company = c1
-        role = c2
-      }
-    } else if (dashMatch && !dashMatch[1].toLowerCase().includes('present')) {
-      const d1 = dashMatch[1].replace(datePattern, '').trim()
-      const d2 = dashMatch[2].replace(datePattern, '').trim()
-      if (pickRole(d1)) {
-        role = d1
-        company = d2
-      } else {
-        company = d1
-        role = d2
-      }
-    } else {
-      const r1 = pickRole(header)
-      if (r1) {
-        role = r1
-        const nextLine = block.lines[0] || ''
-        if (nextLine && !/^[•\-*]/.test(nextLine) && !datePattern.test(nextLine)) {
-          company = nextLine.replace(/[|(),]/g, '').trim()
-        }
-      } else {
-        company = header.replace(datePattern, '').replace(/[|(),]/g, '').trim()
-        const nextLine = block.lines[0] || ''
-        role = pickRole(nextLine) || nextLine.replace(datePattern, '').trim()
-      }
-    }
-
-    role = role.replace(/^(senior|junior|lead|principal|staff|associate|intern)\s+/i, (m) => m).trim()
-    company = company.replace(/\s+(?:Inc\.?|LLC|Pvt\.?\s*Ltd\.?|Ltd\.?)\b/i, (m) => m).trim()
-
-    if (
-      !company ||
-      company.length < 2 ||
-      company.length > 70 ||
-      /^(company|experience|summary|skills|projects|education|university|college|school|responsibilities)$/i.test(company)
-    ) {
-      const foundComp = block.lines
-        .slice(0, 2)
-        .find((l) => !/^[•\-*]/.test(l) && !pickRole(l) && l.length > 2 && l.length < 60)
-      if (foundComp) {
-        company = foundComp.replace(datePattern, '').trim()
-      }
-    }
-
-    // Two-line header: line 1 = company (+ country or "3 Months"), line 2 = job title (+ dates or city).
-    const next = block.lines[0] || ''
-    const headerHasTitle = Boolean(pickRole(header)) && TITLE_LINE.test(header)
-    const headerDuration = /\b\d{1,2}\s*(?:months?|yrs?|years?)\b/i.test(header)
-    if (
-      next &&
-      !headerHasTitle &&
-      !/^[•\-*–]/.test(next) &&
-      TITLE_LINE.test(next) &&
-      next.length < 110 &&
-      (datePattern.test(next) || headerDuration)
-    ) {
-      const titleOnly = next.replace(datePattern, '').replace(/\bpresent\b/i, '').replace(/[–—-]\s*$/g, '')
-      role = titleOnly
-      company = header.replace(datePattern, '')
-      if (!dateStr) dateStr = (next.match(datePattern) || [''])[0].trim()
-      block.lines = block.lines.slice(1)
-    }
-
-    role = cleanJobTitle(role)
-    // "Techcitta Software Private Limited India" / "... 3 Months" -> just the company name
-    company = company
-      .replace(/\b\d{1,2}\s*(?:months?|yrs?|years?)\b/gi, '')
-      .replace(new RegExp(`\\s+(?:${COUNTRY_NAMES})\\s*$`, 'i'), '')
-    company = company
-      .replace(/\(\s*\)/g, '')
-      .replace(/[\s,;|\-–—]+$/g, '')
-      .replace(/^[\s,;|\-–—]+/g, '')
-      .replace(/\s{2,}/g, ' ')
-      .trim()
-
-    // Never hallucinate "Company", "TechCitta", or generic sections
-    if (
-      !company ||
-      /^(company|experience|summary|skills|projects|education|university|college|school|responsibilities)$/i.test(company)
-    ) {
-      continue
-    }
-
-    const responsibilities = block.lines
-      .filter((l) => /^[•\-*]/.test(l) || l.length > 30)
-      .map((l) => l.replace(/^[•\-*]\s*/, '• '))
-      .slice(0, 6)
-      .join('\n')
-
-    const isCurrent = /present|current|ongoing|till date/i.test(dateStr || header || block.lines.join(' '))
-
-    experiences.push({
-      id: crypto.randomUUID(),
-      jobTitle: clip(role || pickRole(header) || 'Engineer', 80),
-      company: clip(company, 80),
-      employmentType: 'Full-time',
-      startDate: dateStr.split(/[-–—to/]+/i)[0]?.trim() || '',
-      endDate: isCurrent ? 'Present' : (dateStr.split(/[-–—to/]+/i)[1]?.trim() || ''),
-      currentlyWorking: isCurrent,
-      location: pickLocation(header + ' ' + block.lines.join(' ')),
-      responsibilities: clip(responsibilities, 800),
-    })
+  const seen = new Set<string>()
+  for (const block of blocks.slice(0, 14)) {
+    const job = parseJobBlock(block, datePattern)
+    if (!job) continue
+    const key = `${job.company}|${job.jobTitle}|${job.startDate}`.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    experiences.push(job)
   }
 
   return experiences
@@ -1104,14 +1290,14 @@ const KNOWN_CERT_ISSUERS = [
   'Microsoft Azure', 'Microsoft', 'Azure', 'Meta', 'IBM', 'Oracle', 'Cisco',
   'Coursera', 'Udemy', 'edX', 'NPTEL', 'Stanford Online', 'Stanford', 'Harvard',
   'freeCodeCamp', 'HackerRank', 'LinkedIn Learning', 'LinkedIn', 'Pluralsight',
-  'I And T hubs', 'Prodigy Tech Info', 'Udacity', 'Salesforce', 'Red Hat',
+  'Udacity', 'Salesforce', 'Red Hat',
   'Linux Foundation', 'The Linux Foundation', 'DeepLearning.AI', 'DataCamp',
 ]
 
 export function pickCertifications(text: string): Certification[] {
   if (!text || typeof text !== 'string') return []
 
-  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests|extracurricular|co-?curricular|activities|volunteer(?:ing)?|hobbies|personal\s+details|references|publications)\b|$)/i
+  const sectionHeaderRegex = /(?:^|\n)\s*(?:(?:licenses?\s*(?:&|and)\s*)?certifications?|(?:courses?\s*(?:&|and)\s*)?certifications?|certificates?|credentials?|accreditations?)\s*[:-]?\s*\n?([\s\S]*?)(?=\n\s*(?:work\s+experience|professional\s+experience|experience|employment|education|skills|projects|achievements?|awards?|summary|profile|objective|contact|declaration|languages|interests|extracurricular|co-?curricular|activities|volunteer(?:ing)?|hobbies|personal\s+details|references|publications|leadership|positions?\s+of\s+responsibility|key\s+achievements?|major\s+projects?|technology\s+matrix)\b|$)/i
 
   const match = text.match(sectionHeaderRegex)
   const body = match ? match[1].trim() : ''
@@ -1173,6 +1359,16 @@ export function pickCertifications(text: string): Certification[] {
         name = cleanCertName(parts[0])
       }
     }
+    // "Microsoft Certified: Security, Compliance, and Identity Fundamentals (SC-900)": the whole line is the name
+    else if (item.includes(':') && /^(?:microsoft|google|aws|amazon|oracle|cisco|ibm|salesforce|red hat|comptia|isaca|pmi)[^:]{0,40}certified/i.test(item)) {
+      name = cleanCertName(item.replace(/\s*:\s*/, ': '))
+      organization = item.match(/^[A-Za-z ]+/)?.[0].trim().split(' ')[0] ?? ''
+    }
+    // "HackerRank: Software Engineer, ..." — an issuer before the colon, the certificate after it
+    else if (item.includes(':') && KNOWN_CERT_ISSUERS.some((iss) => iss.toLowerCase() === item.split(':')[0].trim().toLowerCase())) {
+      organization = cleanOrg(item.split(':')[0])
+      name = cleanCertName(item.split(':').slice(1).join(':'))
+    }
     // Pattern: "Name: Organization" (e.g. "Full stack development: I And T hubs .")
     else if (item.includes(':')) {
       const parts = item.split(':')
@@ -1207,8 +1403,13 @@ export function pickCertifications(text: string): Certification[] {
     else if (/^(.+?)\s*\(([^)]+)\)$/.test(item)) {
       const parenMatch = item.match(/^(.+?)\s*\(([^)]+)\)$/)
       if (parenMatch) {
-        name = cleanCertName(parenMatch[1])
-        organization = cleanOrg(parenMatch[2])
+        // "Oracle Certified Professional (OCP)": a short acronym is part of the name, not an issuer
+        if (/^[A-Z0-9-]{2,8}$/.test(parenMatch[2].trim())) {
+          name = cleanCertName(item)
+        } else {
+          name = cleanCertName(parenMatch[1])
+          organization = cleanOrg(parenMatch[2])
+        }
       }
     }
 
@@ -1223,7 +1424,7 @@ export function pickCertifications(text: string): Certification[] {
       }
     }
 
-    name = name.replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').replace(/[.,:;]+$/, '').trim()
+    name = name.replace(/\s+/g, ' ').replace(/\s+([,.;:])/g, '$1').replace(/[.,:;]+$/, '').trim()
     organization = organization.replace(/[()[\]]/g, ' ').replace(/\s+/g, ' ').replace(/[.,:;]+$/, '').trim()
 
     if (name && name.length >= 2) {
@@ -1236,7 +1437,7 @@ export function pickCertifications(text: string): Certification[] {
       })
     }
 
-    if (certs.length >= 5) break
+    if (certs.length >= 12) break
   }
 
   return certs
@@ -1244,19 +1445,25 @@ export function pickCertifications(text: string): Certification[] {
 
 export function parseResumeText(raw: string): ResumeExtract {
   const text = normalizeResumeText(raw.split('\0').join(' '))
-  const lines = cleanLines(text)
+  const allLines = cleanLines(text)
+  const fullName = pickName(allLines)
+  const lines = stripPageNoise(allLines, fullName)
   const joined = lines.join('\n')
 
-  const fullName = pickName(lines)
   const workExperiences = pickWorkExperiences(joined)
-  const latestTitle = workExperiences.find((w) => /engineer|developer|manager|designer|scientist|analyst|architect|consultant|lead|intern|associate|executive|specialist/i.test(w.jobTitle || ''))?.jobTitle
-  const currentRole = (latestTitle ? canonicalRole(latestTitle) : '') || pickRole(joined)
-  const currentLocation = pickLocation(joined)
+  const latestReal = latestJob(workExperiences, true)
+  // The role is the latest job title exactly as written; with no job, the headline under the name if it is a title.
+  const headline = lines.slice(1, 3).find((l) => l.length <= 90 && !/[@\d]/.test(l) && TITLE_LINE.test(l) && !isCompanyLike(l) && !/^(?:summary|objective|profile)/i.test(l))
+  const latestAny = latestJob(workExperiences)
+  const currentRole =
+    (latestReal?.jobTitle ? cleanJobTitle(latestReal.jobTitle) : '') ||
+    (headline ? cleanJobTitle(headline.split(/\s*[|•·]\s*/)[0]) : '') ||
+    (latestAny?.jobTitle ? cleanJobTitle(latestAny.jobTitle) : '')
+  const currentLocation = pickLocationFromHeader(lines, fullName) || pickLocation(lines.slice(0, 8).join('\n'))
   const skills = mergeSkills(pickSkillsFromSection(joined), pickSkills(joined))
 
-  const summary =
-    sectionBody(joined, ['professional summary', 'summary', 'profile', 'about me']) ||
-    lines.slice(1, 6).join(' ')
+  // Only text the candidate wrote under a Summary / Profile heading. Header lines (contact details) are never a summary.
+  const summary = sectionBody(joined, ['professional summary', 'summary', 'profile', 'about me'])
 
   const objective =
     sectionBody(joined, ['objective', 'career objective', 'career goal']) ||
@@ -1275,9 +1482,7 @@ export function parseResumeText(raw: string): ResumeExtract {
           : currentRole
             ? `I'm ${/^[aeiou]/i.test(currentRole) ? 'an' : 'a'} ${currentRole}`
             : '',
-      summary && !summary.toLowerCase().startsWith("i'm")
-        ? summary
-        : summary,
+      summary || objective,
     ]
       .filter(Boolean)
       .join('. ')
@@ -1285,16 +1490,10 @@ export function parseResumeText(raw: string): ResumeExtract {
     300,
   )
 
-  const whatDrivesYou = clip(
-    objective ||
-      (skills.length
-        ? `I'm driven by building high-quality products with ${skills.slice(0, 3).join(', ')}, and growing through meaningful impact.`
-        : ''),
-    300,
-  )
+  const whatDrivesYou = clip(objective, 300)
 
   const keyStrengths = clip(strengthsBody || skills.join(', '), 250)
-  const experienceSummary = clip(summary || whoAreYou, 500)
+  const experienceSummary = clip(summary || objective, 500)
   const achievements = pickAchievements(joined)
   const certifications = pickCertifications(joined)
 
@@ -1303,19 +1502,12 @@ export function parseResumeText(raw: string): ResumeExtract {
   if (whoAreYou) extract.whoAreYou = whoAreYou
   if (whatDrivesYou) extract.whatDrivesYou = whatDrivesYou
   if (keyStrengths) extract.keyStrengths = keyStrengths
-  if (currentRole && (ROLE_OPTIONS.includes(currentRole) || currentRole.length > 2)) {
-    extract.currentRole = ROLE_OPTIONS.includes(currentRole)
-      ? currentRole
-      : ROLE_OPTIONS.find((r) =>
-          currentRole.toLowerCase().includes(r.toLowerCase()),
-        ) || currentRole
-  }
-  const hasExperienceSection = /^\s*(?:work\s+|professional\s+|industry\s+)?experience\b|^\s*employment\b|^\s*internships?\b/im.test(joined)
-  const studentSignal = /\b(fresher|final[-\s]?year|student|undergraduate|pursuing|b\.?\s?tech|b\.?e\.?\b|bachelor|m\.?\s?tech|b\.?sc|bca|mca)\b/i.test(joined)
-  const experience =
-    pickExperience(joined) ||
-    experienceFromWork(workExperiences) ||
-    (!hasExperienceSection && !workExperiences.length && studentSignal ? 'Fresher / 0 years' : '')
+  if (currentRole && currentRole.length > 2) extract.currentRole = currentRole
+  const experience = computeExperience(
+    workExperiences,
+    joined,
+    pickExperienceSectionBody(joined),
+  ).label
   if (experience) extract.totalExperience = experience
   if (currentLocation) extract.currentLocation = currentLocation
   if (skills.length) extract.skills = skills
@@ -1392,17 +1584,11 @@ export function normalizeExperience(val: string): string {
       : NaN
 
   if (Number.isNaN(years)) return trimmed
-  if (years < 1) return 'Fresher / 0 years'
-  if (years < 2) return '0 – 1 Years'
-  if (years < 3) return '1 – 2 Years'
-  if (years < 4) return '2 – 3 Years'
-  if (years < 6) return '3 – 5 Years'
-  if (years < 9) return '5 – 8 Years'
-  if (years < 13) return '8 – 12 Years'
-  return '12+ Years'
+  if (years === 0) return 'Fresher / 0 years'
+  return monthsToLabel(years * 12)
 }
 
-function formatAiExtract(parsed: Record<string, unknown>, rawText: string): ResumeExtract {
+export function formatAiExtract(parsed: Record<string, unknown>, rawText: string): ResumeExtract {
   let experiences: WorkExperience[] = []
   if (Array.isArray(parsed.workExperiences)) {
     experiences = parsed.workExperiences
@@ -1432,11 +1618,11 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
         }
         return {
           id: crypto.randomUUID(),
-          jobTitle: clip(jobTitle || 'Software Engineer', 80),
+          jobTitle: clip(jobTitle, 80),
           company: clip(company, 80),
           employmentType: 'Full-time' as const,
           startDate: String(w.startDate || ''),
-          endDate: String(w.endDate || 'Present'),
+          endDate: String(w.endDate || ''),
           currentlyWorking: Boolean(
             w.currentlyWorking ?? /present|current|ongoing/i.test(String(w.endDate || '')),
           ),
@@ -1450,8 +1636,12 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
     experiences = pickWorkExperiences(rawText)
   }
 
+  const squashed = (v: string) => v.toLowerCase().replace(/[^a-z0-9+#]/g, '')
+  const resumeSquashed = squashed(rawText)
+  const onResume = (v: string) => squashed(v).length > 0 && resumeSquashed.includes(squashed(v))
+  // Only skills the resume actually contains: a model may add "related" skills that were never written.
   const aiSkills: string[] = Array.isArray(parsed.skills)
-    ? parsed.skills.map(String).map((s: string) => s.trim()).filter(Boolean)
+    ? parsed.skills.map(String).map((s: string) => s.trim()).filter((s) => s && onResume(s))
     : []
   const skills = aiSkills.length > 0 ? aiSkills : pickSkills(rawText)
 
@@ -1495,32 +1685,21 @@ function formatAiExtract(parsed: Record<string, unknown>, rawText: string): Resu
   if (parsed.whatDrivesYou) extract.whatDrivesYou = clip(String(parsed.whatDrivesYou).trim(), 300)
   if (parsed.keyStrengths) extract.keyStrengths = clip(String(parsed.keyStrengths).trim(), 250)
 
-  if (parsed.currentRole) {
-    const rawRole = String(parsed.currentRole).trim()
-    extract.currentRole =
-      ROLE_OPTIONS.find((r) => r.toLowerCase() === rawRole.toLowerCase()) ||
-      ROLE_OPTIONS.find((r) => rawRole.toLowerCase().includes(r.toLowerCase())) ||
-      rawRole
-  } else {
-    extract.currentRole = pickRole(rawText) || undefined
-  }
+  const rawRole = String(parsed.currentRole || '').trim()
+  // The role is a title that is written on the resume; a model's re-worded title is ignored.
+  extract.currentRole = rawRole && onResume(rawRole) ? rawRole : undefined
 
-  if (parsed.totalExperience) {
-    extract.totalExperience = normalizeExperience(String(parsed.totalExperience))
-  } else {
-    // Never invent a value: an invented "2 – 3 Years" changes the interview difficulty for every fresher.
-    extract.totalExperience = pickExperience(rawText) || experienceFromWork(experiences) || undefined
-  }
+  // Never trust a model's guess at total experience: it is worked out from the jobs actually on the page.
+  extract.totalExperience = computeExperience(experiences, rawText, pickExperienceSectionBody(rawText)).label
 
-  if (parsed.currentLocation) {
-    const rawLoc = String(parsed.currentLocation).trim()
-    extract.currentLocation =
-      LOCATION_OPTIONS.find((l) => l.toLowerCase() === rawLoc.toLowerCase()) ||
-      LOCATION_OPTIONS.find((l) => rawLoc.toLowerCase().includes(l.toLowerCase())) ||
+  const rawLoc = String(parsed.currentLocation || '').trim()
+  // A location counts only when its city is written on the resume (a model may guess a typical city).
+  const locOnResume = rawLoc && onResume(rawLoc.split(',')[0])
+  extract.currentLocation = locOnResume
+    ? LOCATION_OPTIONS.find((l) => l.toLowerCase() === rawLoc.toLowerCase()) ||
+      LOCATION_OPTIONS.find((l) => l !== 'Other' && rawLoc.toLowerCase().includes(l.toLowerCase())) ||
       rawLoc
-  } else {
-    extract.currentLocation = pickLocation(rawText) || undefined
-  }
+    : undefined
 
   if (skills.length) extract.skills = skills
   if (parsed.experienceSummary) {
@@ -1715,7 +1894,7 @@ const RESUME_AI_PARSE_MS = 12_000
  * by an AI value (or an AI default). The AI fills fields the deterministic parse could not find, adds skills the
  * candidate listed, and supplies the polished narrative text.
  */
-function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback: ResumeExtract): ResumeExtract {
+export function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback: ResumeExtract): ResumeExtract {
   const has = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) ? v.length > 0 : Boolean(v))
   const firstJobOk = (regexFallback.workExperiences || []).some((w) => w.jobTitle && w.company)
 
@@ -1731,6 +1910,11 @@ function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback:
     : has(aiExtract.workExperiences)
       ? aiExtract.workExperiences
       : regexFallback.workExperiences
+  merged.totalExperience = computeExperience(
+    merged.workExperiences || [],
+    text,
+    pickExperienceSectionBody(text),
+  ).label
   merged.certifications = has(regexFallback.certifications) ? regexFallback.certifications : aiExtract.certifications
   merged.achievements = has(regexFallback.achievements) ? regexFallback.achievements : aiExtract.achievements
   merged.metrics = has(regexFallback.metrics) ? regexFallback.metrics : aiExtract.metrics

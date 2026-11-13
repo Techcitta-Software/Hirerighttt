@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { PageLoader } from '../components/RisingArrowLoader'
+import { PageLoader } from '../components/SignalLoader'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'

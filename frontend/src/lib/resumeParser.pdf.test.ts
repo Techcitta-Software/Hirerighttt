@@ -130,8 +130,14 @@ describe('Bharath resume', () => {
     })
   })
 
-  it('works out experience from the job dates when the resume never says "N years"', () => {
-    expect(parsed.totalExperience).toBe('Fresher / 0 years')
+  it('is not a fresher: a real IT job since May 2026 counts as experience', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-12T00:00:00Z'))
+    try {
+      expect(parseResumeText(BHARATH).totalExperience).toBe('0 – 1 Years')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('reads the skills the candidate listed, not just a fixed catalog', () => {

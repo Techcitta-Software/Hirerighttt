@@ -64,3 +64,9 @@ backend/node/data/*
 !backend/node/data/roleSkills.json
 
 .vercel
+
+# real resumes used for parser tests (personal data)
+resume_test/
+
+# browser-test artifacts
+.playwright-mcp/

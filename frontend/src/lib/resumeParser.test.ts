@@ -34,7 +34,7 @@ describe('parseResumeText', () => {
 
   it('keeps headline skills', () => {
     const skills = (parsed.skills ?? []) as string[]
-    expect(skills).toEqual(expect.arrayContaining(['React.js', 'TypeScript', 'PostgreSQL', 'Node.js']))
+    expect(skills).toEqual(expect.arrayContaining(['React', 'TypeScript', 'PostgreSQL', 'Node.js']))
   })
 
   it('cleans company names', () => {

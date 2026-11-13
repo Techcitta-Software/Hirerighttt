@@ -1,6 +1,7 @@
 /** Browser speech helpers for the video AI interview. */
 
 import { INTERVIEW_VOICE, prepareTextForInterviewSpeech } from './interviewVoiceConfig'
+import { cancelNeuralSpeech, speakNeural } from './neuralVoice'
 
 export function isSpeechRecognitionSupported(): boolean {
   if (typeof window === 'undefined') return false
@@ -11,31 +12,34 @@ export function isSpeechSynthesisSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
-function voiceScore(v: SpeechSynthesisVoice): number {
-  const lang = (v.lang || '').toLowerCase()
+/**
+ * Ranks the device's voices for the case where the neural voice is unavailable. The goal is the voice most
+ * listeners worldwide find easiest to understand: a natural/neural English voice with a neutral accent
+ * (US, then UK, then Indian English) beats any compact or robotic one.
+ */
+export function voiceScore(v: Pick<SpeechSynthesisVoice, 'lang' | 'name' | 'localService'>): number {
+  const lang = (v.lang || '').toLowerCase().replace('_', '-')
   const name = (v.name || '').toLowerCase()
+  if (!lang.startsWith('en')) return -1000
+
   let score = 0
+  if (lang === 'en-us') score += 60
+  else if (lang === 'en-gb') score += 55
+  else if (lang === 'en-in') score += 50
+  else if (lang === 'en-au' || lang === 'en-ca') score += 40
+  else score += 20
 
-  if (lang === INTERVIEW_VOICE.language.toLowerCase() || lang.replace('_', '-') === 'en-in') {
-    score += 120
-  } else if (lang.startsWith('en-in')) {
-    score += 90
-  } else if (lang.startsWith('en-gb')) {
-    score += 40
-  } else if (lang.startsWith('en-us')) {
-    score += 35
-  } else if (lang.startsWith('en')) {
-    score += 20
-  }
-
+  // Natural-sounding voices are far clearer than the legacy desktop ones.
+  if (/natural|neural|online|enhanced|premium/.test(name)) score += 80
   for (const hint of INTERVIEW_VOICE.preferredNameHints) {
-    if (name.includes(hint)) score += 35
+    if (name.includes(hint)) score += 20
   }
   for (const bad of INTERVIEW_VOICE.avoidNameHints) {
     if (name.includes(bad)) score -= 80
   }
-  if (v.localService) score += 8
-
+  // Voices known for robotic or novelty output.
+  if (/espeak|zira|david|mark|hazel desktop|novelty|bad news|bubbles|cellos|trinoids|whisper|zarvox/.test(name)) score -= 60
+  if (v.localService) score += 4
   return score
 }
 
@@ -57,28 +61,49 @@ function pickVoice(): SpeechSynthesisVoice | null {
   )
 }
 
+let speakGeneration = 0
+
 export function cancelSpeech(): void {
+  speakGeneration += 1
+  cancelNeuralSpeech()
   if (!isSpeechSynthesisSupported()) return
   window.speechSynthesis.cancel()
 }
 
-export function speakText(
-  text: string,
-  options?: {
-    onStart?: () => void
-    onEnd?: () => void
-    onError?: () => void
-    rate?: number
-    pitch?: number
-  },
-): void {
+export type SpeakOptions = {
+  onStart?: () => void
+  onEnd?: () => void
+  onError?: () => void
+  rate?: number
+  pitch?: number
+}
+
+/**
+ * Speak `text` in the interviewer's voice: the streamed neural voice when the server provides it, otherwise the
+ * best voice on the device. Callbacks fire once per call, whichever voice ends up speaking.
+ */
+export function speakText(text: string, options?: SpeakOptions): void {
   const prepared = prepareTextForInterviewSpeech(text)
-  if (!isSpeechSynthesisSupported() || !prepared) {
+  if (!prepared) {
     options?.onEnd?.()
     return
   }
-
   cancelSpeech()
+  const generation = speakGeneration
+
+  void speakNeural(prepared, { onStart: options?.onStart, onEnd: options?.onEnd }).then((spoke) => {
+    // Cancelled or replaced while waiting: someone else is speaking now, so say nothing.
+    if (spoke || generation !== speakGeneration) return
+    speakWithDeviceVoice(prepared, options)
+  })
+}
+
+function speakWithDeviceVoice(prepared: string, options?: SpeakOptions): void {
+  if (!isSpeechSynthesisSupported()) {
+    options?.onEnd?.()
+    return
+  }
+  window.speechSynthesis.cancel()
 
   const run = () => {
     const utterance = new SpeechSynthesisUtterance(prepared)

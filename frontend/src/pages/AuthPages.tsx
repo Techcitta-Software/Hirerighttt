@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
-import { PageLoader } from '../components/RisingArrowLoader'
+import { PageLoader } from '../components/SignalLoader'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
 import {

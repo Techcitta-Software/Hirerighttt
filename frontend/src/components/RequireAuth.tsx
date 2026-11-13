@@ -10,7 +10,7 @@ import {
 import { ensureApiSession } from '../lib/apiSession'
 import { getUser, type UserRole } from '../lib/store'
 import { moonshineStt } from '../lib/moonshineStt'
-import { PageLoader } from './RisingArrowLoader'
+import { PageLoader } from './SignalLoader'
 
 type Props = {
   children: ReactNode
