@@ -158,6 +158,18 @@ export type InterviewResult = {
   level: string
   date: string
   overall: number
+  /** Where every point of `overall` came from: per-question shares plus the role-fit remainder. */
+  scoreModel?: {
+    technicalQuestionWeight: number
+    otherQuestionWeight: number
+    roleFitWeight: number
+    plannedQuestions: number
+    answeredQuestions: number
+    questionPoints: number
+    roleFitPoints: number
+    roleFitScore: number
+    rows: { label: string; type: 'technical' | 'other'; weight: number; score: number; points: number; answered: boolean }[]
+  }
   categories: { label: string; score: number }[]
   strengths: string[]
   improvements: string[]

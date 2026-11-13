@@ -56,8 +56,10 @@ def test_keyword_stuffing_cannot_score_high() -> None:
 
 def test_empty_answers_score_zero() -> None:
     result = _score(["", ""])
-    assert result["overall"] == 0
     assert all(a["score"] == 0 for a in result["answers"])
+    # nothing is earned from the questions; only the role-fit share (resume skills) can remain
+    assert result["scoreModel"]["questionPoints"] == 0
+    assert result["overall"] <= round(result["scoreModel"]["roleFitPoints"]) + 1
 
 
 def test_resume_recital_is_penalised() -> None:
@@ -86,7 +88,9 @@ def test_real_answer_beats_filler() -> None:
         "added Redis caching for pricing lookups with a short TTL. P95 dropped to 240 milliseconds."
     )
     filler = "I am a team player and I like to learn new things every day at work."
-    assert _score([good, good2])["overall"] > _score([filler, filler])["overall"] + 25
+    good_run, filler_run = _score([good, good2]), _score([filler, filler])
+    assert good_run["scoreModel"]["questionPoints"] > filler_run["scoreModel"]["questionPoints"] + 5
+    assert good_run["overall"] > filler_run["overall"]
 
 
 def test_heuristic_scores_are_labelled_provisional_and_capped() -> None:
@@ -116,7 +120,8 @@ def test_prompt_injection_is_flagged_and_capped() -> None:
     )
     result = _score([answer, answer])
     assert all("prompt_injection" in a["qualityFlags"] for a in result["answers"])
-    assert result["overall"] <= 5
+    assert all(a["score"] <= 5 for a in result["answers"])
+    assert result["scoreModel"]["questionPoints"] <= 1
 
 
 def test_normal_use_of_the_word_ignore_is_not_flagged() -> None:

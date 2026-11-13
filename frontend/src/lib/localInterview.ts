@@ -8,6 +8,7 @@ import { classifyQuestionScoringProfile, scoreAnswerRubrics } from './interviewR
 import { computeSessionRoleSkillsFit } from './roleSkillsFitScoring'
 import { getSkillsForRole } from './roleSkillStore'
 import { resolveExactInterviewRole } from './interviewQuestionPlan'
+import { computeWeightedScore, isFresherProfile } from './interviewWeighting'
 import type { InterviewResult, SavedProfile } from './store'
 import { candidateFullName } from './store'
 import type { IntegritySnapshot } from './interviewAgentClient'
@@ -331,11 +332,6 @@ export function buildResumeInterviewQuestions(
   return questions.slice(0, 6)
 }
 
-function avg(values: number[]): number {
-  if (!values.length) return 0
-  return Math.round(values.reduce((a, b) => a + b, 0) / values.length)
-}
-
 function resumeFitScore(
   answers: string[],
   profile: SavedProfile | null,
@@ -399,25 +395,16 @@ export function runLocalInterviewScore(options: {
     }
   })
 
-  const rubricAgg = {
-    correctness: [] as number[],
-    depth: [] as number[],
-    communication: [] as number[],
-    roleSkillsFit: [] as number[],
-  }
-  for (const a of rubricAnswers) {
-    for (const r of a.rubrics ?? []) {
-      if (r.score == null || Number.isNaN(Number(r.score))) continue
-      if (r.id in rubricAgg) rubricAgg[r.id as keyof typeof rubricAgg].push(r.score)
-    }
-  }
-  const categories = [
-    { label: 'Answer Correctness', score: avg(rubricAgg.correctness) },
-    { label: 'Depth', score: avg(rubricAgg.depth) },
-    { label: 'Communication', score: avg(rubricAgg.communication) },
-    { label: 'Role Skills Fit', score: avg(rubricAgg.roleSkillsFit) || roleSkillsAnalysis.fitScore },
-  ]
-  let overall = Math.round(rubricAnswers.reduce((s, a) => s + a.score, 0) / Math.max(rubricAnswers.length, 1))
+  const fit0 = requiredRoleSkills.length ? roleSkillsAnalysis.fitScore : resumeFitScore(options.answers, options.profile)
+  // Each question carries a fixed share of the score (technical 15%, others 10%); the rest is role fit.
+  const weighted = computeWeightedScore({
+    questions: options.questions,
+    analyses: rubricAnswers,
+    fresher: isFresherProfile(options.profile),
+    roleFitScore: fit0,
+  })
+  const categories = weighted.dimensions.map((d) => ({ label: d.label, score: d.score }))
+  const overall = weighted.overall
 
   const scored = scoreInterview(
     options.role,
@@ -431,8 +418,6 @@ export function runLocalInterviewScore(options: {
     },
   )
 
-  overall = overall || scored.overall
-
   const fit = requiredRoleSkills.length ? roleSkillsAnalysis.fitScore : resumeFitScore(options.answers, options.profile)
   const strengths = [...scored.strengths]
   const improvements = [...scored.improvements]
@@ -445,6 +430,7 @@ export function runLocalInterviewScore(options: {
   return {
     ...scored,
     overall,
+    scoreModel: weighted.model,
     categories,
     answers: rubricAnswers,
     resumeFitScore: fit,

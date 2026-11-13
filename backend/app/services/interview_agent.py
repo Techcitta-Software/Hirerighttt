@@ -383,6 +383,16 @@ def _analyze_answer_detailed(
     }
 
 
+def _candidate_is_fresher(profile: dict[str, Any] | None, level: str, ctx: dict[str, Any]) -> bool:
+    """Fresher interviews have one fewer scored question than experienced ones."""
+    from app.services.interview_api import _is_fresher  # imported here: interview_api imports this module
+
+    try:
+        return bool(_is_fresher(profile, level, ctx))
+    except Exception:
+        return False
+
+
 def _trusted_answers(questions: list[dict[str, Any]], answers: list[str], ctx: dict[str, Any]) -> list[str]:
     """Blank out answers that fail the quality gate so they cannot earn resume-fit or skill credit."""
     from app.services.answer_quality import assess_answer_quality
@@ -425,23 +435,11 @@ def _build_interview_scorecard(
     question_count: int,
     reliable: bool = True,
     duration_seconds: int | None = None,
+    dimension_scores: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
 
-    rubric_totals: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
-    for a in analyses:
-        for r in a.get("rubrics") or []:
-            if r.get("score") is None:
-                continue
-            rubric_totals.setdefault(r["id"], []).append(int(r.get("score") or 0))
-
-    rubric_session = []
-    for defn in INTERVIEW_RUBRICS:
-        scores = rubric_totals.get(defn["id"]) or []
-        if not scores:
-            continue
-        score = round(sum(scores) / len(scores))
-        rubric_session.append({"label": defn["label"], "score": score})
+    rubric_session = [{"label": d["label"], "score": d["score"]} for d in (dimension_scores or [])]
 
     donuts = [
         {"label": r["label"], "score": r["score"], "tag": _tag_for_score(r["score"]), "color": _color_for_score(r["score"])}
@@ -543,8 +541,10 @@ def _finalize_score_payload(
     agent: str,
     role_skills_analysis: dict[str, Any] | None = None,
     duration_seconds: int | None = None,
+    fresher: bool = False,
 ) -> dict[str, Any]:
     from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS
+    from app.services.interview_weighting import compute_weighted_score
 
     llm_scored = bool(analyses) and all(a.get("rubricSource") == "llm" for a in analyses)
     scoring = {
@@ -555,40 +555,42 @@ def _finalize_score_payload(
         else "Provisional score: AI evaluation was unavailable, so this result uses basic checks only and should be reviewed by a person.",
     }
 
-    rubric_agg: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
-    for a in analyses:
-        for r in a.get("rubrics") or []:
-            if r.get("score") is None:
-                continue
-            rubric_agg.setdefault(r["id"], []).append(int(r.get("score") or 0))
-
-    categories = []
-    for defn in INTERVIEW_RUBRICS:
-        scores = rubric_agg.get(defn["id"]) or []
-        if not scores:
-            continue  # never report a made-up 0 for a dimension that was not evaluated
-        score = round(sum(scores) / len(scores))
-        categories.append({"label": defn["label"], "score": score})
-
-    overall = round(sum(a["score"] for a in analyses) / max(len(analyses), 1)) if analyses else 0
-    joined = " ".join(
-        a["answer"] for a in analyses if not a.get("qualityFlags") and a.get("answer")
-    ).lower()
-    skills_referenced = [s for s in ctx["skills"] if s.lower() in joined]
+    joined_for_fit = " ".join(a["answer"] for a in analyses if not a.get("qualityFlags") and a.get("answer")).lower()
+    skills_referenced_early = [s for s in ctx["skills"] if s.lower() in joined_for_fit]
     role_skills_analysis = role_skills_analysis or {}
     if role_skills_analysis.get("requiredSkills"):
-        resume_fit_score = int(role_skills_analysis.get("fitScore") or 0)
+        role_fit_score = int(role_skills_analysis.get("fitScore") or 0)
     else:
-        resume_fit_score = min(
+        role_fit_score = min(
             100,
-            round((len(skills_referenced) / max(min(len(ctx["skills"]), 5), 1)) * 70)
+            round((len(skills_referenced_early) / max(min(len(ctx["skills"]), 5), 1)) * 70)
             + (20 if any(a.get("resumeSkillsHit") for a in analyses) else 0),
         )
 
-    if len(ctx["skills"]) >= 3 and len(skills_referenced) >= 2:
-        overall = min(100, overall + 4)
-    if len(ctx["skills"]) >= 3 and not skills_referenced:
-        overall = max(0, overall - 5)
+    # Each question carries a fixed share of the score (technical 15%, others 10%); the rest is role fit.
+    weighted = compute_weighted_score(
+        questions=questions, analyses=analyses, fresher=fresher, role_fit_score=role_fit_score
+    )
+    categories = [{"label": d["label"], "score": d["score"]} for d in weighted["dimensions"]]
+    rubric_agg: dict[str, list[int]] = {r["id"]: [] for r in INTERVIEW_RUBRICS}
+    for a in analyses:
+        for r in a.get("rubrics") or []:
+            if r.get("score") is not None:
+                rubric_agg.setdefault(r["id"], []).append(int(r.get("score") or 0))
+    overall = int(weighted["overall"])
+    score_model = weighted["model"]
+    if score_model["answeredQuestions"] < score_model["plannedQuestions"]:
+        incomplete = (
+            f"Only {score_model['answeredQuestions']} of {score_model['plannedQuestions']} planned questions were answered. "
+            "Each question carries a fixed share of the score, so unanswered questions count as 0."
+        )
+        scoring["notice"] = f"{scoring['notice']} {incomplete}".strip() if scoring.get("notice") else incomplete
+    joined = " ".join(
+        a["answer"] for a in analyses if not a.get("qualityFlags") and a.get("answer")
+    ).lower()
+    skills_referenced = skills_referenced_early
+    resume_fit_score = role_fit_score
+
     if integrity.get("banned"):
         overall = 0
 
@@ -651,6 +653,7 @@ def _finalize_score_payload(
         question_count=len(questions),
         reliable=scoring["reliable"],
         duration_seconds=duration_seconds,
+        dimension_scores=categories,
     )
 
     return {
@@ -659,6 +662,7 @@ def _finalize_score_payload(
         "date": datetime.now(UTC).isoformat(),
         "overall": overall,
         "resumeFitScore": resume_fit_score,
+        "scoreModel": score_model,
         "categories": categories,
         "strengths": strengths_out,
         "improvements": improvements_out,
@@ -697,6 +701,7 @@ async def score_session_async(
     integrity = integrity or {}
     role_skills = _load_required_role_skills(role, profile or {})
     role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
+    fresher = _candidate_is_fresher(profile, level, ctx)
     llm_by_index = None
     agent = "python-resume-agent"
     if llm_eval_configured():
@@ -731,6 +736,7 @@ async def score_session_async(
         agent=agent,
         role_skills_analysis=role_skills_analysis,
         duration_seconds=duration_seconds,
+        fresher=fresher,
     )
 
 
@@ -751,6 +757,7 @@ def score_session(
     integrity = integrity or {}
     role_skills = _load_required_role_skills(role, profile or {})
     role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
+    fresher = _candidate_is_fresher(profile, level, ctx)
     analyses = [
         _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None, role_skills)
         for i, q in enumerate(questions)
@@ -766,4 +773,5 @@ def score_session(
         agent="python-resume-agent",
         role_skills_analysis=role_skills_analysis,
         duration_seconds=duration_seconds,
+        fresher=fresher,
     )
