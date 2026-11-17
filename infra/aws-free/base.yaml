@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HireRight TEST environment on the AWS Free Tier: one EC2 micro instance (API + nginx in Docker), RDS PostgreSQL
+  micro (single-AZ, 20 GB), S3, and a $1 budget alarm. No NAT gateway, load balancer, Aurora, ElastiCache, WAF or
+  Secrets Manager (none of those are free). Uses the account's default VPC. No SSH: shell access via SSM.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Description: A free-tier-eligible type in this account/region (bootstrap.sh picks it)
+  AmiParameter:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: Amazon Linux 2023 AMI (x86_64 or arm64 to match the instance type)
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues: [db.t4g.micro, db.t3.micro]
+  DbEngineVersion:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A public subnet of the default VPC (for the EC2 instance)
+  CloudFrontPrefixListId:
+    Type: String
+  AlertEmail:
+    Type: String
+
+Resources:
+  # ---------------------------------------------------------------- spend guard: email at the first cent
+  ZeroSpendBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: hireright-test-zero-spend
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: 1, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 1, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+  # ---------------------------------------------------------------- network rules
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HireRight test web server - HTTP from CloudFront only (no SSH; use SSM Session Manager)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, SourcePrefixListId: !Ref CloudFrontPrefixListId }
+      Tags: [{ Key: Name, Value: hireright-test-web }]
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HireRight test database - only from the web server
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref WebSecurityGroup }
+      Tags: [{ Key: Name, Value: hireright-test-db }]
+
+  # ---------------------------------------------------------------- S3: files (resumes/recordings) + releases
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hireright-test-files-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules: # the free tier has 5 GB of S3: test recordings are removed after 30 days
+          - { Id: expire-test-files, Status: Enabled, ExpirationInDays: 30 }
+          - { Id: abort-stalled-uploads, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }
+  ReleasesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hireright-test-releases-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules: [{ Id: expire-releases, Status: Enabled, ExpirationInDays: 1 }]
+
+  # ---------------------------------------------------------------- PostgreSQL (free tier: micro, single-AZ, 20 GB gp2)
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: hireright-test
+      DBInstanceClass: !Ref DbInstanceClass
+      Engine: postgres
+      EngineVersion: !Ref DbEngineVersion
+      DBName: hireright
+      MasterUsername: hireright
+      MasterUserPassword: "{{resolve:ssm-secure:/hireright/test/db-password:1}}"
+      AllocatedStorage: "20"
+      MaxAllocatedStorage: 20 # no storage autoscaling past the free 20 GB
+      StorageType: gp2
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+      EnablePerformanceInsights: false
+      MonitoringInterval: 0
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+
+  # ---------------------------------------------------------------- the server
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hireright-test-ec2
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: ec2.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore] # deploys + shell via SSM, no SSH
+      Policies:
+        - PolicyName: hireright-test
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload]
+                Resource: !Sub "${FilesBucket.Arn}/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt FilesBucket.Arn
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ReleasesBucket.Arn}/*"
+              - Effect: Allow
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath]
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/hireright/test/*"
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: hireright-test-ec2
+      Roles: [!Ref InstanceRole]
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiParameter
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WebSecurityGroup]
+      CreditSpecification: { CPUCredits: standard } # never "unlimited": no surprise CPU-credit charges
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 2 # lets the API container use the instance role (S3) through IMDSv2
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true } # free tier: 30 GB
+      Tags: [{ Key: Name, Value: hireright-test }]
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker
+          systemctl enable --now docker
+          arch="$(uname -m)"
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+            "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-${arch}"
+          case "$arch" in x86_64) bx=amd64 ;; aarch64) bx=arm64 ;; esac
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
+            "https://github.com/docker/buildx/releases/download/v0.17.1/buildx-v0.17.1.linux-${bx}"
+          chmod +x /usr/local/lib/docker/cli-plugins/*
+          # 1 GB of RAM: swap so image builds do not run out of memory
+          if [ ! -f /swapfile ]; then
+            fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+            echo "/swapfile none swap sw 0 0" >> /etc/fstab
+          fi
+          mkdir -p /opt/hireright/releases
+          echo ready > /opt/hireright/bootstrapped
+
+  # A fixed address, so the CloudFront origin survives a stop/start of the instance.
+  # (Free tier: 750 hours/month of public IPv4 on a running instance.)
+  ServerAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Server
+      Tags: [{ Key: Name, Value: hireright-test }]
+
+Outputs:
+  InstanceId:
+    Value: !Ref Server
+  PublicIp:
+    Value: !Ref ServerAddress
+  DatabaseHost:
+    Value: !GetAtt Database.Endpoint.Address
+  FilesBucket:
+    Value: !Ref FilesBucket
+  ReleasesBucket:
+    Value: !Ref ReleasesBucket

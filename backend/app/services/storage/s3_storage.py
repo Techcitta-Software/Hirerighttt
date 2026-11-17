@@ -9,12 +9,9 @@ from botocore.exceptions import ClientError
 
 
 def s3_storage_configured() -> bool:
-    return bool(
-        os.environ.get("S3_BUCKET")
-        and os.environ.get("AWS_REGION")
-        and os.environ.get("AWS_ACCESS_KEY_ID")
-        and os.environ.get("AWS_SECRET_ACCESS_KEY")
-    )
+    """A bucket and a region. Credentials come from the standard AWS chain: the ECS task role on AWS (no stored
+    keys), or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY locally."""
+    return bool(os.environ.get("S3_BUCKET") and (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")))
 
 
 def object_storage_configured() -> bool:

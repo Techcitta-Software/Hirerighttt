@@ -124,6 +124,12 @@ def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
 
 def client_ip(request: Request) -> str:
     if config.trust_proxy:
+        # Behind CloudFront: the viewer's real address ("ip:port", set by CloudFront; a client cannot forge it, and the
+        # load balancer only accepts requests that came through CloudFront). The first X-Forwarded-For entry, by
+        # contrast, is whatever the client sent, so per-IP rate limits could be dodged with a fake header.
+        viewer = (request.headers.get("cloudfront-viewer-address") or "").strip()
+        if viewer:
+            return viewer.rsplit(":", 1)[0].strip("[]") or viewer
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             first = forwarded.split(",")[0].strip()

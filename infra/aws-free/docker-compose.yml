@@ -1,0 +1,28 @@
+# Runs on the test EC2 instance (remote-deploy.sh starts it). Single small server: one API worker + nginx.
+name: hireright
+
+services:
+  api:
+    build: ./backend
+    image: hireright-api:${RELEASE:-latest}
+    env_file: /opt/hireright/api.env # rendered from SSM Parameter Store at deploy time (root-only, mode 600)
+    restart: unless-stopped
+    mem_limit: 600m
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+
+  web:
+    image: nginx:1.27-alpine
+    depends_on: [api]
+    restart: unless-stopped
+    ports: ["80:80"]
+    environment:
+      ORIGIN_VERIFY: ${ORIGIN_VERIFY:?ORIGIN_VERIFY is required}
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    mem_limit: 64m
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }

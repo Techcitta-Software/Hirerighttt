@@ -1,0 +1,47 @@
+name: Deploy to AWS test (free tier)
+
+# Every push to dev1 -> the free-tier test environment (infra/aws-free). Tests must pass first.
+# Off unless the repository variables AWS_DEPLOY_ROLE_ARN and AWS_TEST_DEPLOY=true are set
+# (infra/aws-free/bootstrap.sh prints them).
+on:
+  push:
+    branches: [dev1]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-aws-test
+  cancel-in-progress: false # never interrupt a release half-way
+
+jobs:
+  test:
+    if: vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_TEST_DEPLOY == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    if: vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_TEST_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: test
+    permissions:
+      id-token: write # GitHub OIDC -> short-lived AWS credentials (no stored keys)
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --no-audit --no-fund
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Release
+        run: bash infra/aws-free/deploy.sh "${{ github.sha }}"

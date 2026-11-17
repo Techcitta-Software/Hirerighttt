@@ -1,0 +1,561 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HireRight application: the API on ECS Fargate behind a load balancer that only CloudFront can reach, the React site
+  in a private S3 bucket, one CloudFront distribution serving both (https://DOMAIN and https://DOMAIN/api/*),
+  autoscaling and alarms. Deployed by the CI/CD pipeline on every release (ImageTag = git commit).
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+  DomainName:
+    Type: String
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+  EdgeCertificateArn:
+    Type: String
+    Description: Certificate from the edge stack (us-east-1)
+  WebAclArn:
+    Type: String
+    Description: WAF web ACL from the edge stack (us-east-1)
+  CloudFrontPrefixListId:
+    Type: String
+    Description: Managed prefix list com.amazonaws.global.cloudfront.origin-facing in this region
+  ImageTag:
+    Type: String
+  TaskCpu:
+    Type: Number
+    Default: 512
+    AllowedValues: [256, 512, 1024, 2048, 4096]
+  TaskMemory:
+    Type: Number
+    Default: 1024
+  MinTasks:
+    Type: Number
+    Default: 1
+  MaxTasks:
+    Type: Number
+    Default: 4
+  WebConcurrency:
+    Type: Number
+    Default: 2
+    Description: uvicorn worker processes per container (about 2 per vCPU)
+  DbPoolMax:
+    Type: Number
+    Default: 8
+    Description: DB connections per worker. Max total = MaxTasks x WebConcurrency x DbPoolMax.
+  EmailProvider:
+    Type: String
+    Default: smtp
+    AllowedValues: [smtp, ses]
+    Description: ses = Amazon SES via the task role (verify the domain and leave the SES sandbox first)
+  EmailFrom:
+    Type: String
+    Default: ""
+  AlertEmail:
+    Type: String
+    Description: Receives alarm notifications (confirm the subscription email AWS sends)
+
+Conditions:
+  IsProduction: !Equals [!Ref EnvironmentName, production]
+
+Resources:
+  # ================================================================ load balancer (reachable only via CloudFront)
+  OriginCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Sub "origin.${DomainName}"
+      # The viewer's Host header is forwarded, so the certificate must also be valid for the site name.
+      SubjectAlternativeNames: [!Ref DomainName]
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - { DomainName: !Sub "origin.${DomainName}", HostedZoneId: !Ref HostedZoneId }
+        - { DomainName: !Ref DomainName, HostedZoneId: !Ref HostedZoneId }
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HireRight load balancer - HTTPS from CloudFront only
+      VpcId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-VpcId" }
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, SourcePrefixListId: !Ref CloudFrontPrefixListId }
+      Tags: [{ Key: Name, Value: !Sub "hireright-${EnvironmentName}-alb" }]
+  AppIngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecurityGroupId" }
+      IpProtocol: tcp
+      FromPort: 8787
+      ToPort: 8787
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "hireright-${EnvironmentName}"
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Split [",", !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-PublicSubnets" }]
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      LoadBalancerAttributes:
+        - { Key: idle_timeout.timeout_seconds, Value: "120" }
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: "true" }
+        - { Key: deletion_protection.enabled, Value: !If [IsProduction, "true", "false"] }
+  ApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-VpcId" }
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8787
+      HealthCheckPath: /api/health/live
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: "200" }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{ CertificateArn: !Ref OriginCertificate }]
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig: { StatusCode: "403", ContentType: text/plain, MessageBody: Forbidden }
+  ApiFromCloudFrontRule: # requests must carry the secret header CloudFront adds
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 1
+      Conditions:
+        - Field: http-header
+          HttpHeaderConfig:
+            HttpHeaderName: X-Origin-Verify
+            Values: [!Sub "{{resolve:secretsmanager:hireright/${EnvironmentName}/origin-verify}}"]
+      Actions: [{ Type: forward, TargetGroupArn: !Ref ApiTargetGroup }]
+  OriginDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "origin.${DomainName}"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+
+  # ================================================================ API on ECS Fargate
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "hireright-${EnvironmentName}"
+      ClusterSettings: [{ Name: containerInsights, Value: enabled }]
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/hireright/${EnvironmentName}/api"
+      RetentionInDays: !If [IsProduction, 90, 30]
+
+  ExecutionRole: # used by ECS itself: pull the image, read the secrets, write logs
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "hireright-${EnvironmentName}-ecs-execution"
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: read-secrets
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                # this environment's secrets only (also the one-off data-migration source, see migrate-data.sh)
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:hireright/${EnvironmentName}/*"
+  TaskRole: # used by the API code: S3 files and SES email, without any stored access keys
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "hireright-${EnvironmentName}-api-task"
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }]
+      Policies:
+        - PolicyName: files-bucket
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload]
+                Resource: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-FilesBucketArn" }, "/*"]]
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-FilesBucketArn" }
+        - PolicyName: send-email
+          PolicyDocument:
+            Statement:
+              - { Effect: Allow, Action: [ses:SendEmail, ses:SendRawEmail], Resource: "*" }
+        - PolicyName: ecs-exec # `aws ecs execute-command` for debugging a running container
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [ssmmessages:CreateControlChannel, ssmmessages:CreateDataChannel, ssmmessages:OpenControlChannel, ssmmessages:OpenDataChannel]
+                Resource: "*"
+
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "hireright-${EnvironmentName}-api"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      RuntimePlatform: { OperatingSystemFamily: LINUX, CpuArchitecture: X86_64 }
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: api
+          Image: !Join [":", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-ApiRepositoryUri" }, !Ref ImageTag]]
+          Essential: true
+          PortMappings: [{ ContainerPort: 8787, Protocol: tcp }]
+          StopTimeout: 30
+          Ulimits: [{ Name: nofile, SoftLimit: 65536, HardLimit: 65536 }]
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+          HealthCheck:
+            Command: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8787/api/health/live', timeout=4).status == 200 else 1)\""]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          Environment:
+            - { Name: ENVIRONMENT, Value: !Ref EnvironmentName }
+            - { Name: NODE_ENV, Value: production }
+            - { Name: STRICT_PRODUCTION_CONFIG, Value: "true" }
+            - { Name: ALLOW_DEMO_ACCOUNTS, Value: "false" }
+            - { Name: SIGNUP_ENABLED, Value: "true" }
+            - { Name: TRUST_PROXY, Value: "true" }
+            - { Name: PORT, Value: "8787" }
+            - { Name: WEB_CONCURRENCY, Value: !Ref WebConcurrency }
+            - { Name: DB_POOL_MIN, Value: "1" }
+            - { Name: DB_POOL_MAX, Value: !Ref DbPoolMax }
+            - { Name: MAX_REQUEST_BYTES, Value: "3000000" }
+            - { Name: LOG_LEVEL, Value: INFO }
+            - { Name: API_BUILD_ID, Value: !Ref ImageTag }
+            - { Name: GIT_COMMIT, Value: !Ref ImageTag }
+            - { Name: CORS_ORIGINS, Value: !Sub "https://${DomainName}" }
+            - { Name: PUBLIC_APP_URL, Value: !Sub "https://${DomainName}" }
+            - { Name: DATABASE_PROVIDER, Value: neon } # = Postgres (Aurora); the name is historical
+            - { Name: PG_DIRECT_DNS, Value: "true" }
+            - { Name: DB_HOST, Value: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-DatabaseHost" } }
+            - { Name: DB_NAME, Value: hireright }
+            - { Name: DB_USER, Value: hireright }
+            - Name: REDIS_URL
+              Value: !Join
+                - ""
+                - - "rediss://"
+                  - !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-CacheEndpoint" }
+                  - ":"
+                  - !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-CachePort" }
+                  - "/0"
+            - { Name: S3_BUCKET, Value: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-FilesBucket" } }
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: EMAIL_PROVIDER, Value: !Ref EmailProvider }
+            - { Name: EMAIL_FROM, Value: !Ref EmailFrom }
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-DatabaseSecretArn" }, ":password::"]]
+            - Name: CRON_SECRET
+              ValueFrom: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-CronSecretArn" }
+            - Name: SESSION_SECRET
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":SESSION_SECRET::"]]
+            - Name: GEMINI_API_KEY
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":GEMINI_API_KEY::"]]
+            - Name: GEMINI_API_KEYS
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":GEMINI_API_KEYS::"]]
+            - Name: SMTP_EMAIL
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":SMTP_EMAIL::"]]
+            - Name: SMTP_APP_PASSWORD
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":SMTP_APP_PASSWORD::"]]
+            - Name: RESEND_API_KEY
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":RESEND_API_KEY::"]]
+            - Name: SENTRY_DSN
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":SENTRY_DSN::"]]
+            - Name: ADMIN_EMAILS
+              ValueFrom: !Join ["", [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecretArn" }, ":ADMIN_EMAILS::"]]
+
+  ApiService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiFromCloudFrontRule
+    Properties:
+      ServiceName: api
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref ApiTaskDefinition
+      LaunchType: FARGATE
+      # DesiredCount is left to autoscaling (a deploy must not shrink a scaled-out service).
+      EnableExecuteCommand: true
+      PropagateTags: SERVICE
+      HealthCheckGracePeriodSeconds: 120 # the first container applies database migrations at start-up
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true } # a release that fails health checks rolls back
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [",", !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-PrivateSubnets" }]
+          SecurityGroups: [!ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-AppSecurityGroupId" }]
+      LoadBalancers:
+        - { ContainerName: api, ContainerPort: 8787, TargetGroupArn: !Ref ApiTargetGroup }
+
+  ApiScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub "service/${Cluster}/${ApiService.Name}"
+      MinCapacity: !Ref MinTasks
+      MaxCapacity: !Ref MaxTasks
+  ApiCpuScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: cpu-55
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApiScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 55
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification: { PredefinedMetricType: ECSServiceAverageCPUUtilization }
+  ApiRequestScaling:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: requests-per-task
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ApiScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 1500 # requests per task per minute
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ALBRequestCountPerTarget
+          ResourceLabel: !Join ["/", [!GetAtt LoadBalancer.LoadBalancerFullName, !GetAtt ApiTargetGroup.TargetGroupFullName]]
+
+  # ================================================================ React site + CloudFront
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hireright-${EnvironmentName}-site-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "hireright-${EnvironmentName}-site"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: CloudFrontReadsTheSite
+            Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  SpaRouter: # client-side routes (/dashboard, /interview/...) serve the app shell; files and /api are untouched
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "hireright-${EnvironmentName}-spa-router"
+      AutoPublish: true
+      FunctionConfig: { Comment: SPA fallback to index.html, Runtime: cloudfront-js-2.0 }
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          if (uri.indexOf('/api/') !== 0 && uri.lastIndexOf('.') <= uri.lastIndexOf('/')) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  # API responses are never cached, but the Authorization header must be part of the cache key: CloudFront does not
+  # forward it on GET requests otherwise (which would sign every user out).
+  ApiCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "hireright-${EnvironmentName}-api"
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 1
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig: { HeaderBehavior: whitelist, Headers: [Authorization] }
+          QueryStringsConfig: { QueryStringBehavior: all }
+          CookiesConfig: { CookieBehavior: none }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "HireRight ${EnvironmentName}"
+        Aliases: [!Ref DomainName]
+        ViewerCertificate:
+          AcmCertificateArn: !Ref EdgeCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        WebACLId: !Ref WebAclArn
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200 # includes India
+        DefaultRootObject: index.html
+        Origins:
+          - Id: site
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref SiteOriginAccessControl
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: api
+            DomainName: !Sub "origin.${DomainName}"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 60 # raise to 120 with a CloudFront quota request if long AI scoring calls time out
+              OriginKeepaliveTimeout: 60
+            OriginCustomHeaders:
+              - HeaderName: X-Origin-Verify
+                HeaderValue: !Sub "{{resolve:secretsmanager:hireright/${EnvironmentName}/origin-verify}}"
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy
+          FunctionAssociations:
+            - { EventType: viewer-request, FunctionARN: !GetAtt SpaRouter.FunctionMetadata.FunctionARN }
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !Ref ApiCachePolicy
+            OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc # Managed-AllViewerAndCloudFrontHeaders-2022-06
+  SiteDnsRecord:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      RecordSets:
+        - Name: !Ref DomainName
+          Type: A
+          AliasTarget: { DNSName: !GetAtt Distribution.DomainName, HostedZoneId: Z2FDTNDATAQYW2 }
+        - Name: !Ref DomainName
+          Type: AAAA
+          AliasTarget: { DNSName: !GetAtt Distribution.DomainName, HostedZoneId: Z2FDTNDATAQYW2 }
+
+  # ================================================================ alarms -> email
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "hireright-${EnvironmentName}-alerts"
+      Subscription: [{ Protocol: email, Endpoint: !Ref AlertEmail }]
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "hireright-${EnvironmentName}-api-5xx"
+      AlarmDescription: The API returned many server errors
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+      OKActions: [!Ref AlertTopic]
+  UnhealthyTasksAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "hireright-${EnvironmentName}-unhealthy-tasks"
+      AlarmDescription: API containers are failing health checks
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }
+        - { Name: TargetGroup, Value: !GetAtt ApiTargetGroup.TargetGroupFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+      OKActions: [!Ref AlertTopic]
+  SlowApiAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "hireright-${EnvironmentName}-api-slow"
+      AlarmDescription: p95 API response time above 3 seconds
+      Namespace: AWS/ApplicationELB
+      MetricName: TargetResponseTime
+      Dimensions: [{ Name: LoadBalancer, Value: !GetAtt LoadBalancer.LoadBalancerFullName }]
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+  DatabaseCapacityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "hireright-${EnvironmentName}-db-capacity"
+      AlarmDescription: Aurora is near its maximum capacity (raise AuroraMaxCapacity)
+      Namespace: AWS/RDS
+      MetricName: ACUUtilization
+      Dimensions: [{ Name: DBClusterIdentifier, Value: !Sub "hireright-${EnvironmentName}" }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "https://${DomainName}"
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt ApiService.Name
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+  DistributionId:
+    Value: !Ref Distribution
+  ApiLogGroup:
+    Value: !Ref ApiLogGroup

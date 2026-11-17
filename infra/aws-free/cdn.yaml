@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HireRight TEST: CloudFront in front of the EC2 server. HTTPS on a free *.cloudfront.net address (camera and
+  microphone need HTTPS), caching for the built JS/CSS. CloudFront's always-free tier covers 1 TB/month.
+
+Parameters:
+  OriginDomain:
+    Type: String
+    Description: Public DNS name of the server's Elastic IP (ec2-a-b-c-d.REGION.compute.amazonaws.com)
+
+Resources:
+  # API responses are never cached, but Authorization must be in the cache key or CloudFront drops it on GET.
+  ApiCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: hireright-test-api
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 1
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          HeadersConfig: { HeaderBehavior: whitelist, Headers: [Authorization] }
+          QueryStringsConfig: { QueryStringBehavior: all }
+          CookiesConfig: { CookieBehavior: none }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: HireRight test (free tier)
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_200 # includes India
+        ViewerCertificate: { CloudFrontDefaultCertificate: true }
+        Origins:
+          - Id: server
+            DomainName: !Ref OriginDomain
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 80
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+            OriginCustomHeaders: # nginx refuses requests without it (only this distribution can reach the app)
+              - HeaderName: X-Origin-Verify
+                HeaderValue: "{{resolve:ssm:/hireright/test/origin-verify}}"
+        DefaultCacheBehavior: # the app shell and /api: never cached
+          TargetOriginId: server
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: !Ref ApiCachePolicy
+          OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc # Managed-AllViewerAndCloudFrontHeaders-2022-06
+        CacheBehaviors:
+          - PathPattern: /assets/* # hashed build files: cached at the edge
+            TargetOriginId: server
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  SiteDomain:
+    Value: !GetAtt Distribution.DomainName

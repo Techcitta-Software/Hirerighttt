@@ -6,11 +6,38 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 
+def _ses_enabled() -> bool:
+    return (os.environ.get("EMAIL_PROVIDER") or "").strip().lower() == "ses" and bool(os.environ.get("EMAIL_FROM"))
+
+
 def smtp_configured() -> bool:
-    return bool(os.environ.get("RESEND_API_KEY") or (os.environ.get("SMTP_EMAIL") and os.environ.get("SMTP_APP_PASSWORD")))
+    return bool(
+        _ses_enabled()
+        or os.environ.get("RESEND_API_KEY")
+        or (os.environ.get("SMTP_EMAIL") and os.environ.get("SMTP_APP_PASSWORD"))
+    )
+
+
+def _send_ses(to: str, subject: str, html: str, text: str | None) -> None:
+    import boto3
+
+    client = boto3.client("sesv2", region_name=os.environ.get("SES_REGION") or os.environ.get("AWS_REGION"))
+    body = {"Html": {"Data": html, "Charset": "UTF-8"}}
+    if text:
+        body["Text"] = {"Data": text, "Charset": "UTF-8"}
+    client.send_email(
+        FromEmailAddress=os.environ["EMAIL_FROM"],
+        Destination={"ToAddresses": [to]},
+        Content={"Simple": {"Subject": {"Data": subject, "Charset": "UTF-8"}, "Body": body}},
+    )
 
 
 async def send_mail(*, to: str, subject: str, html: str, text: str | None = None) -> None:
+    if _ses_enabled():
+        import asyncio
+
+        await asyncio.to_thread(_send_ses, to, subject, html, text)
+        return
     if os.environ.get("RESEND_API_KEY"):
         import httpx
 

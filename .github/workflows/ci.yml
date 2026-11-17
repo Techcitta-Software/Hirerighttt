@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master, dev, develop]
   pull_request:
+  workflow_call: # the AWS deploy runs these same checks first
 
 jobs:
   build:

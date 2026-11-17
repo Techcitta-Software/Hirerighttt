@@ -91,6 +91,22 @@ def _pool_conninfo(database_url: str) -> str:
     parsed = urlparse(url)
     hostname = parsed.hostname or "localhost"
     query = parse_qs(parsed.query)
+    direct_dns = os.environ.get("PG_DIRECT_DNS", "").lower() in ("1", "true", "yes")
+    if _pg_ssl(url) and direct_dns:
+        # AWS (Aurora / RDS Proxy): the VPC resolver is reliable, and the cluster endpoint's IP changes on fail-over,
+        # so connect by name. Verify the server certificate against the bundle in PG_SSL_ROOT_CERT (Amazon RDS CAs).
+        kwargs_direct: dict[str, Any] = {
+            "host": hostname,
+            "port": parsed.port or 5432,
+            "dbname": unquote(parsed.path.lstrip("/")),
+            "sslmode": "verify-full",
+            "sslrootcert": os.environ.get("PG_SSL_ROOT_CERT") or certifi.where(),
+        }
+        if parsed.username:
+            kwargs_direct["user"] = unquote(parsed.username)
+        if parsed.password:
+            kwargs_direct["password"] = unquote(parsed.password)
+        return make_conninfo(**kwargs_direct)
     if _pg_ssl(url):
         host, servername = resolve_pg_host(hostname)
     else:

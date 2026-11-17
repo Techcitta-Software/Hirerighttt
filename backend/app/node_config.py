@@ -17,6 +17,20 @@ is_staging = _env == "staging"
 is_prod_like = is_production or is_staging
 
 
+def _database_url_from_parts() -> str:
+    """AWS: DB_HOST / DB_PORT / DB_NAME / DB_USER come from the stack, DB_PASSWORD from Secrets Manager."""
+    from urllib.parse import quote
+
+    host = (os.environ.get("DB_HOST") or "").strip()
+    if not host:
+        return ""
+    user = quote(os.environ.get("DB_USER") or "hireright", safe="")
+    password = quote(os.environ.get("DB_PASSWORD") or "", safe="")
+    port = os.environ.get("DB_PORT") or "5432"
+    name = os.environ.get("DB_NAME") or "hireright"
+    return f"postgresql://{user}:{password}@{host}:{port}/{name}?sslmode=require"
+
+
 @dataclass(frozen=True)
 class NodeConfig:
     environment: str
@@ -42,7 +56,7 @@ config = NodeConfig(
     environment=_env,
     port=int(os.environ.get("PORT") or 8787),
     cors_origins=_cors_origins(),
-    database_url=os.environ.get("DATABASE_URL") or "",
+    database_url=os.environ.get("DATABASE_URL") or _database_url_from_parts(),
     session_secret=os.environ.get("SESSION_SECRET") or os.environ.get("SECRET_KEY") or "",
     allow_demo_accounts=os.environ.get("ALLOW_DEMO_ACCOUNTS") == "true",
     signup_enabled=os.environ.get("SIGNUP_ENABLED", "true").lower() != "false",

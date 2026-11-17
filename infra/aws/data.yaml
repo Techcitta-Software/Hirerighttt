@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HireRight data: Aurora PostgreSQL Serverless v2, Valkey (Redis-compatible, shared rate limits), the S3 bucket for
+  resumes and interview recordings, the container registry, and generated secrets. Deployed after the network stack.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [staging, production]
+  DomainName:
+    Type: String
+    Description: Site hostname, e.g. app.example.com (browsers upload recordings straight to S3 from here).
+  AuroraEngineVersion:
+    Type: String
+    Default: "16.6"
+    Description: aurora-postgresql 16.x version (the deploy script picks the newest available one).
+  AuroraMinCapacity:
+    Type: Number
+    Default: 0.5
+  AuroraMaxCapacity:
+    Type: Number
+    Default: 8
+  AuroraReader:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: A second instance in another AZ, for fail-over in seconds instead of minutes.
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+
+Conditions:
+  IsProduction: !Equals [!Ref EnvironmentName, production]
+  WithReader: !Equals [!Ref AuroraReader, "true"]
+
+Resources:
+  # ---------------------------------------------------------------- security groups
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HireRight API containers
+      VpcId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-VpcId" }
+      Tags: [{ Key: Name, Value: !Sub "hireright-${EnvironmentName}-app" }]
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora - reachable only from the API containers
+      VpcId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-VpcId" }
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref AppSecurityGroup }
+      Tags: [{ Key: Name, Value: !Sub "hireright-${EnvironmentName}-db" }]
+  CacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Valkey - reachable only from the API containers
+      VpcId: !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-VpcId" }
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 6379, ToPort: 6380, SourceSecurityGroupId: !Ref AppSecurityGroup }
+      Tags: [{ Key: Name, Value: !Sub "hireright-${EnvironmentName}-cache" }]
+
+  # ---------------------------------------------------------------- secrets (generated; never in git)
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "hireright/${EnvironmentName}/database"
+      Description: Aurora master user (generated)
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"hireright"}'
+        GenerateStringKey: password
+        PasswordLength: 40
+        ExcludePunctuation: true
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "hireright/${EnvironmentName}/app"
+      Description: >-
+        API secrets. SESSION_SECRET is generated. Fill in GEMINI_API_KEY (and email / Sentry if used) with
+        infra/aws/set-secret.sh before the first deploy.
+      GenerateSecretString:
+        SecretStringTemplate: >-
+          {"GEMINI_API_KEY":"REPLACE_ME","GEMINI_API_KEYS":"","SMTP_EMAIL":"","SMTP_APP_PASSWORD":"",
+          "RESEND_API_KEY":"","SENTRY_DSN":"","ADMIN_EMAILS":""}
+        GenerateStringKey: SESSION_SECRET
+        PasswordLength: 64
+        ExcludePunctuation: true
+  CronSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "hireright/${EnvironmentName}/cron"
+      Description: Guards /api/internal/* (scheduled reminders and maintenance)
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+  OriginVerifySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "hireright/${EnvironmentName}/origin-verify"
+      Description: Header CloudFront adds to API requests; the load balancer rejects requests without it
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  # ---------------------------------------------------------------- Aurora PostgreSQL Serverless v2
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: HireRight private subnets
+      SubnetIds: !Split [",", !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-PrivateSubnets" }]
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBClusterIdentifier: !Sub "hireright-${EnvironmentName}"
+      Engine: aurora-postgresql
+      EngineVersion: !Ref AuroraEngineVersion
+      DatabaseName: hireright
+      MasterUsername: !Sub "{{resolve:secretsmanager:${DatabaseSecret}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}"
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VpcSecurityGroupIds: [!Ref DatabaseSecurityGroup]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref AuroraMinCapacity
+        MaxCapacity: !Ref AuroraMaxCapacity
+      StorageEncrypted: true
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: "20:30-21:30" # 02:00-03:00 IST
+      PreferredMaintenanceWindow: "sun:21:30-sun:22:30"
+      DeletionProtection: !If [IsProduction, true, false]
+      CopyTagsToSnapshot: true
+      EnableCloudwatchLogsExports: [postgresql]
+  DatabaseWriter:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+  DatabaseReader:
+    Type: AWS::RDS::DBInstance
+    Condition: WithReader
+    DependsOn: DatabaseWriter
+    Properties:
+      DBClusterIdentifier: !Ref DatabaseCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      EnablePerformanceInsights: true
+      PromotionTier: 1
+
+  # ---------------------------------------------------------------- Valkey (shared rate limits across containers)
+  Cache:
+    Type: AWS::ElastiCache::ServerlessCache
+    Properties:
+      ServerlessCacheName: !Sub "hireright-${EnvironmentName}"
+      Engine: valkey
+      MajorEngineVersion: "8"
+      SecurityGroupIds: [!Ref CacheSecurityGroup]
+      SubnetIds: !Split [",", !ImportValue { "Fn::Sub": "hireright-${EnvironmentName}-PrivateSubnets" }]
+      CacheUsageLimits: # caps the bill: rate-limit counters need very little
+        DataStorage: { Maximum: 2, Unit: GB }
+        ECPUPerSecond: { Maximum: 20000 }
+
+  # ---------------------------------------------------------------- files: resumes, recordings, reports
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "hireright-${EnvironmentName}-files-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      VersioningConfiguration: { Status: Enabled }
+      CorsConfiguration: # browsers upload recordings with presigned URLs and play them back
+        CorsRules:
+          - AllowedOrigins: [!Sub "https://${DomainName}"]
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedHeaders: ["*"]
+            ExposedHeaders: [ETag]
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: cheaper-storage-after-30-days
+            Status: Enabled
+            Transitions: [{ StorageClass: STANDARD_IA, TransitionInDays: 30 }]
+          - Id: expire-old-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+          - Id: abort-stalled-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 2 }
+  FilesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FilesBucket
+      PolicyDocument:
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt FilesBucket.Arn, !Sub "${FilesBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  # ---------------------------------------------------------------- container registry
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "hireright-${EnvironmentName}-api"
+      ImageScanningConfiguration: { ScanOnPush: true }
+      ImageTagMutability: IMMUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"keep the last 30 images","selection":
+          {"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},"action":{"type":"expire"}}]}
+
+Outputs:
+  AppSecurityGroupId:
+    Value: !Ref AppSecurityGroup
+    Export: { Name: !Sub "hireright-${EnvironmentName}-AppSecurityGroupId" }
+  DatabaseHost:
+    Value: !GetAtt DatabaseCluster.Endpoint.Address
+    Export: { Name: !Sub "hireright-${EnvironmentName}-DatabaseHost" }
+  DatabaseSecretArn:
+    Value: !Ref DatabaseSecret
+    Export: { Name: !Sub "hireright-${EnvironmentName}-DatabaseSecretArn" }
+  AppSecretArn:
+    Value: !Ref AppSecret
+    Export: { Name: !Sub "hireright-${EnvironmentName}-AppSecretArn" }
+  CronSecretArn:
+    Value: !Ref CronSecret
+    Export: { Name: !Sub "hireright-${EnvironmentName}-CronSecretArn" }
+  OriginVerifySecretArn:
+    Value: !Ref OriginVerifySecret
+    Export: { Name: !Sub "hireright-${EnvironmentName}-OriginVerifySecretArn" }
+  CacheEndpoint:
+    Value: !GetAtt Cache.Endpoint.Address
+    Export: { Name: !Sub "hireright-${EnvironmentName}-CacheEndpoint" }
+  CachePort:
+    Value: !GetAtt Cache.Endpoint.Port
+    Export: { Name: !Sub "hireright-${EnvironmentName}-CachePort" }
+  FilesBucketName:
+    Value: !Ref FilesBucket
+    Export: { Name: !Sub "hireright-${EnvironmentName}-FilesBucket" }
+  FilesBucketArn:
+    Value: !GetAtt FilesBucket.Arn
+    Export: { Name: !Sub "hireright-${EnvironmentName}-FilesBucketArn" }
+  ApiRepositoryUri:
+    Value: !GetAtt ApiRepository.RepositoryUri
+    Export: { Name: !Sub "hireright-${EnvironmentName}-ApiRepositoryUri" }
+  ApiRepositoryName:
+    Value: !Ref ApiRepository
+    Export: { Name: !Sub "hireright-${EnvironmentName}-ApiRepositoryName" }

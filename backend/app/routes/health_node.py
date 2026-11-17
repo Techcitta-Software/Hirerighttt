@@ -39,7 +39,7 @@ async def health() -> dict:
     api_build_id = os.environ.get("API_BUILD_ID") or "hireright-neon-2026-10-16"
     s3_bucket = os.environ.get("S3_BUCKET")
     s3_region = os.environ.get("AWS_REGION")
-    s3_ok = bool(s3_bucket and s3_region and os.environ.get("AWS_ACCESS_KEY_ID"))
+    s3_ok = bool(s3_bucket and s3_region)  # credentials: ECS task role on AWS, access keys locally
     object_provider = "s3" if s3_ok else None
     if not s3_ok and os.environ.get("DISABLE_SUPABASE") != "true":
         if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):

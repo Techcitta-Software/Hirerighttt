@@ -11,6 +11,11 @@ RUN addgroup --system app && adduser --system --ingroup app app
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Database TLS on AWS: one trust bundle = public CAs (certifi: RDS Proxy, Neon) + the Amazon RDS CAs (Aurora).
+ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /app/certs/rds-global-bundle.pem
+RUN python -c "import certifi; open('/app/certs/db-ca.pem','w').write(open(certifi.where()).read() + open('/app/certs/rds-global-bundle.pem').read())"
+ENV PG_SSL_ROOT_CERT=/app/certs/db-ca.pem
+
 COPY app ./app
 COPY db ./db
 COPY data ./data

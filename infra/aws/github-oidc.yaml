@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Lets GitHub Actions deploy HireRight with short-lived credentials (OpenID Connect). No AWS access keys are stored
+  in GitHub. Deploy once per AWS account.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: owner/name of the ONE repository that deploys (e.g. bharath-techcitta/HireRighttt-backend)
+  CreateOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: false if this account already has the token.actions.githubusercontent.com identity provider
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: hireright-github-deploy
+      MaxSessionDuration: 7200
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # only jobs that run in this repository's "test" / "staging" / "production" GitHub environments
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubRepo}:environment:test"
+                  - !Sub "repo:${GitHubRepo}:environment:staging"
+                  - !Sub "repo:${GitHubRepo}:environment:production"
+      ManagedPolicyArns:
+        # Builds and updates the HireRight stacks (VPC, Aurora, ECS, CloudFront...). PowerUser has no IAM rights;
+        # the inline policy below adds IAM only for roles named hireright-*.
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: hireright-roles-only
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:UpdateRole
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/hireright-*"
+              - Effect: Allow
+                Action: iam:CreateServiceLinkedRole
+                Resource: "*"
+
+Outputs:
+  DeployRoleArn:
+    Description: Put this in the GitHub repository variable AWS_DEPLOY_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn
