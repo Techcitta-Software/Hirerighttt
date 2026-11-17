@@ -109,15 +109,17 @@ def test_user_index_matches_linear_scan():
 
 
 def test_rate_limit_sweeps_stale_keys(monkeypatch):
-    monkeypatch.setattr(runtime, "_rate_buckets", {})
-    monkeypatch.setattr(runtime, "_RATE_SWEEP_AT", 10)
+    from app.server import ratelimit
+
+    ratelimit.reset_for_tests()
+    monkeypatch.setattr(ratelimit, "_SWEEP_AT", 10)
     for i in range(30):
         assert runtime.rate_limit(f"k{i}", 5, 60_000)
     # age every bucket beyond the 1h sweep horizon, then trigger a sweep with the next call
-    for k in list(runtime._rate_buckets):
-        runtime._rate_buckets[k] = [0.0]
+    for k in list(ratelimit._buckets):
+        ratelimit._buckets[k] = [0.0]
     assert runtime.rate_limit("fresh", 5, 60_000)
-    assert len(runtime._rate_buckets) < 30
+    assert len(ratelimit._buckets) < 30
 
 
 def test_llm_gate_is_per_loop_and_bounded(monkeypatch):

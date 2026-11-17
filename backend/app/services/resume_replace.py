@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from app.db import db_pool
+from app.db.dynamo_config import database_provider, use_neon
 from app.db.talent_index import upsert_candidate_talent
 from app.services import interview_api as ia
 from app.services.storage.resume_storage import (
@@ -97,6 +98,21 @@ async def _purge_prior_artifacts(pool, email: str, prev: dict, db: dict) -> dict
             conn.commit()
     db.setdefault("interviews", {})
     db.setdefault("interviewSessions", {})
+    if database_provider() == "dynamodb":
+        # DynamoDB-only: purge there (saving the in-memory data only adds/updates items, it never removes them).
+        from app.db import dynamo_repos as dr
+
+        if s3_storage_configured() and prev.get("resumeStoragePath"):
+            delete_object(str(prev["resumeStoragePath"]))
+        session_ids = [
+            sid
+            for sid, session in db["interviewSessions"].items()
+            if str((session or {}).get("email") or "").lower() == email
+        ]
+        counts = dr.purge_candidate_interview_data_dynamo(
+            email, session_ids=session_ids, delete_object=delete_object if s3_storage_configured() else None
+        )
+        recordings, artifacts = counts["recordings"], counts["artifacts"]
     db["interviews"].pop(email, None)
     for sid, session in list(db.get("interviewSessions", {}).items()):
         if str((session or {}).get("email") or "").lower() == email:
@@ -119,7 +135,8 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     db.setdefault("profiles", {})
     account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
     prev = dict(db["profiles"].get(email) or {})
-    pool = db_pool(config.database_url) if config.database_url else None
+    # Neon is only touched when it is the active store; with DATABASE_PROVIDER=dynamodb nothing is written there.
+    pool = db_pool(config.database_url) if (config.database_url and use_neon()) else None
     purged = await _purge_prior_artifacts(pool, email, prev, db)
     uploaded = await upload_resume_to_object_storage(
         candidateEmail=email,

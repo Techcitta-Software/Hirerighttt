@@ -1,33 +1,33 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { initSupabaseAuthSync } from './lib/supabaseSync'
 import { AnimatePresence, motion } from 'framer-motion'
 import { HomePage } from './pages/HomePage'
 import { SolutionsPage } from './pages/SolutionsPage'
 import { WhyPage } from './pages/WhyPage'
+import { RecruiterPage } from './pages/RecruiterPage'
 import { PricingPage } from './pages/PricingPage'
 import { InterviewRetakePricingPage } from './pages/InterviewRetakePricingPage'
-import { CareerViewPage } from './pages/CareerViewPage'
+const CareerViewPage = lazy(() => import('./pages/CareerViewPage').then((m) => ({ default: m.CareerViewPage })))
 import { LoginPage, LogoutPage, SettingsPage, SignupPage } from './pages/AuthPages'
 import { OrganizationSignupPage } from './pages/OrganizationSignupPage'
-import {
-  DashboardPage,
-  InterviewReportPage,
-  JobsPage,
-  ProfilePage,
-  ApplicationsPage,
-} from './pages/AppPages'
-import { AdminDashboard } from './pages/AdminDashboard'
-import { InterviewPage } from './pages/InterviewPage'
-import { InterviewNowPage } from './pages/InterviewNowPage'
+const DashboardPage = lazy(() => import('./pages/AppPages').then((m) => ({ default: m.DashboardPage })))
+const InterviewReportPage = lazy(() => import('./pages/AppPages').then((m) => ({ default: m.InterviewReportPage })))
+const JobsPage = lazy(() => import('./pages/AppPages').then((m) => ({ default: m.JobsPage })))
+const ProfilePage = lazy(() => import('./pages/AppPages').then((m) => ({ default: m.ProfilePage })))
+const ApplicationsPage = lazy(() => import('./pages/AppPages').then((m) => ({ default: m.ApplicationsPage })))
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard').then((m) => ({ default: m.AdminDashboard })))
+const InterviewPage = lazy(() => import('./pages/InterviewPage').then((m) => ({ default: m.InterviewPage })))
+const InterviewNowPage = lazy(() => import('./pages/InterviewNowPage').then((m) => ({ default: m.InterviewNowPage })))
 import { InterviewCompletePage } from './pages/InterviewCompletePage'
 import { RequireAdmin } from './components/RequireAdmin'
-import { EmployerDashboard } from './pages/EmployerDashboard'
+const EmployerDashboard = lazy(() => import('./pages/EmployerDashboard').then((m) => ({ default: m.EmployerDashboard })))
+const VendorDashboardPage = lazy(() => import('./pages/VendorDashboardPage').then((m) => ({ default: m.VendorDashboardPage })))
 import { CandidateApplyPage } from './pages/CandidateApplyPage'
 import { JobInviteEntryPage } from './pages/JobInviteEntryPage'
 import { InterviewInvitePage } from './pages/InterviewInvitePage'
-import { ResumeDatabasePage } from './pages/ResumeDatabasePage'
-import { ProfileWizard } from './pages/ProfileWizard'
+const ResumeDatabasePage = lazy(() => import('./pages/ResumeDatabasePage').then((m) => ({ default: m.ResumeDatabasePage })))
+const ProfileWizard = lazy(() => import('./pages/ProfileWizard').then((m) => ({ default: m.ProfileWizard })))
 import { NotFoundPage } from './pages/NotFoundPage'
 import { ContactPage } from './pages/ContactPage'
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordResetPages'
@@ -53,11 +53,20 @@ const ROUTE_TITLES: Record<string, string> = {
   '/signup': 'Get started',
   '/organizations/signup': 'Organization sign up',
   '/login': 'Log in',
+  '/employer/dashboard': 'Dashboard',
+  '/employer/jobs': 'Jobs',
   '/forgot-password': 'Reset your password',
   '/reset-password': 'Choose a new password',
   '/privacy': 'Privacy Policy',
   '/terms': 'Terms & Conditions',
   '/cookies': 'Cookie Policy',
+}
+
+/** The Organisations nav link lands on the recruiter page; its buttons open the sign-up form on the same URL. */
+function OrganizationsEntry() {
+  const location = useLocation()
+  const wantsForm = Boolean((location.state as { orgForm?: boolean } | null)?.orgForm)
+  return wantsForm ? <OrganizationSignupPage /> : <RecruiterPage />
 }
 
 function AnimatedRoutes() {
@@ -82,6 +91,7 @@ function AnimatedRoutes() {
         exit="exit"
         style={{ minHeight: '100%' }}
       >
+        <Suspense fallback={null}>
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
           <Route path="/solutions" element={<SolutionsPage />} />
@@ -97,6 +107,9 @@ function AnimatedRoutes() {
           <Route path="/360-career-view" element={<CareerViewPage />} />
           <Route path="/career" element={<CareerViewPage />} />
           <Route path="/why" element={<WhyPage />} />
+          <Route path="/solutions" element={<RecruiterPage />} />
+          <Route path="/organizations" element={<RecruiterPage />} />
+          <Route path="/for-recruiters" element={<RecruiterPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
@@ -107,7 +120,7 @@ function AnimatedRoutes() {
           <Route path="/cookie-policy" element={<CookiePolicyPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
-          <Route path="/organizations/signup" element={<OrganizationSignupPage />} />
+          <Route path="/organizations/signup" element={<OrganizationsEntry />} />
           <Route path="/logout" element={<LogoutPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -184,6 +197,14 @@ function AnimatedRoutes() {
               path="/employer/dashboard"
               element={
                 <RequireAuth role="employer">
+                  <VendorDashboardPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/employer/jobs"
+              element={
+                <RequireAuth role="employer">
                   <EmployerDashboard />
                 </RequireAuth>
               }
@@ -208,7 +229,7 @@ function AnimatedRoutes() {
               path="/employer"
               element={
                 <RequireAuth role="employer">
-                  <EmployerDashboard />
+                  <VendorDashboardPage />
                 </RequireAuth>
               }
             />
@@ -279,6 +300,7 @@ function AnimatedRoutes() {
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </Suspense>
       </motion.div>
     </AnimatePresence>
   )

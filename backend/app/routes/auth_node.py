@@ -17,7 +17,7 @@ from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import runtime
-from app.services import password_reset as pw_reset
+from app.services import audit, password_reset as pw_reset
 from app.services.interview_invites import public_app_origin
 from app.services.mail_service import send_mail, smtp_configured
 
@@ -57,10 +57,12 @@ async def signup(request: Request, body: dict) -> dict:
         )
     if find_user_by_phone(db.get("users") or [], phone_raw):
         raise HTTPException(status_code=409, detail="An account with this mobile number already exists.")
-    if not config.database_url.strip():
+    from app.db.dynamo_config import persistence_ready
+
+    if not persistence_ready(config.database_url):
         raise HTTPException(
             status_code=503,
-            detail="Database not configured. Set DATABASE_URL in repo-root .env, then run: npm run db:init",
+            detail="Database not configured. Set DATABASE_PROVIDER=dynamodb with AWS credentials, or DATABASE_URL for Neon.",
         )
     role = "employer" if body.get("role") == "employer" else "jobseeker"
     company_name = str(body.get("companyName") or "").strip()
@@ -89,20 +91,27 @@ async def signup(request: Request, body: dict) -> dict:
         runtime.set_db_cache(await asyncio.to_thread(runtime.load_db_sync))
     except UniqueAccountError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
-    if role != "employer" and config.database_url:
-        await upsert_candidate_talent(config.database_url, user, {}, None)
-        pool = db_pool(config.database_url)
-        with pool.connection() as conn:
-            conn.execute(
-                """INSERT INTO profiles (email, user_id, data, updated_at)
-                   VALUES (%s, %s, '{"completedSteps":0}'::jsonb, NOW())
-                   ON CONFLICT (email) DO UPDATE SET
-                     user_id = EXCLUDED.user_id,
-                     data = '{"completedSteps":0}'::jsonb,
-                     updated_at = NOW()""",
-                (email, user["id"]),
-            )
-            conn.commit()
+    if role != "employer":
+        await upsert_candidate_talent(config.database_url or "", user, {}, None)
+        from app.db.dynamo_config import database_provider
+
+        if database_provider() == "dynamodb":
+            db = runtime.load_db()
+            db.setdefault("profiles", {})[email] = {"completedSteps": 0}
+            await runtime.save_db(db)
+        elif config.database_url.strip():
+            pool = db_pool(config.database_url)
+            with pool.connection() as conn:
+                conn.execute(
+                    """INSERT INTO profiles (email, user_id, data, updated_at)
+                       VALUES (%s, %s, '{"completedSteps":0}'::jsonb, NOW())
+                       ON CONFLICT (email) DO UPDATE SET
+                         user_id = EXCLUDED.user_id,
+                         data = '{"completedSteps":0}'::jsonb,
+                         updated_at = NOW()""",
+                    (email, user["id"]),
+                )
+                conn.commit()
     token = secrets.token_hex(16)
     await runtime.register_session(token, email)
     return {
@@ -134,6 +143,7 @@ async def login(request: Request, body: dict) -> dict:
         or user.get("status") != "active"
         or not await asyncio.to_thread(verify_password, password, user.get("passwordHash") or "")
     ):
+        audit.fire(audit.LOGIN_FAILED, meta={"ip": ip, "email_fp": audit.email_fingerprint(email)})
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
     expected = body.get("expectedRole")
     expected_role = expected if expected in ("employer", "jobseeker") else None
@@ -146,6 +156,14 @@ async def login(request: Request, body: dict) -> dict:
         await runtime.save_db(db)
     token = secrets.token_hex(16)
     await runtime.register_session(token, email)
+    audit.fire(
+        audit.LOGIN_OK,
+        user_id=user["id"],
+        organization_id=user.get("primaryOrganizationId"),
+        entity_type="user",
+        entity_id=user["id"],
+        meta={"ip": ip, "role": actual_role},
+    )
     return {
         "token": token,
         "user": {
@@ -172,14 +190,16 @@ async def forgot_password(request: Request, body: dict) -> dict:
     response = {"ok": True, "message": pw_reset.GENERIC_REQUEST_MESSAGE}
     if not runtime.rate_limit(f"pwforgot-email:{email}", 3, 60 * 60_000):
         return response
-    if not config.database_url.strip():
+    from app.db.dynamo_config import persistence_ready
+
+    if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
     db = runtime.load_db()
     user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
     if not user or user.get("status") != "active":
         return response
     token = pw_reset.new_reset_token()
-    await asyncio.to_thread(pw_reset.store_reset_token, config.database_url, email, token, ip)
+    await asyncio.to_thread(pw_reset.store_reset_token, config.database_url or "", email, token, ip)
     try:
         link = f"{public_app_origin()}/reset-password?token={token}"
     except RuntimeError:
@@ -216,9 +236,11 @@ async def reset_password(request: Request, body: dict) -> dict:
     password_error = pw_reset.validate_new_password(password)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
-    if not config.database_url.strip():
+    from app.db.dynamo_config import persistence_ready
+
+    if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
-    email = await asyncio.to_thread(pw_reset.consume_reset_token, config.database_url, token)
+    email = await asyncio.to_thread(pw_reset.consume_reset_token, config.database_url or "", token)
     if not email:
         raise HTTPException(
             status_code=400,

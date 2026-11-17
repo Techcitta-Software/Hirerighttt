@@ -18,6 +18,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.db import store as db_store
+from app.db.dynamo_config import persistence_ready
 from app.db.talent_index import (
     get_candidate_talent_by_id,
     grant_organization_talent_access,
@@ -138,7 +139,7 @@ async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) ->
         if str(app.get("candidateEmail") or "").lower() != str(email or "").lower():
             return {"error": {"status": 403, "message": "This application does not belong to your account."}}
         job = get_org_job(db, app["organizationId"], app["jobId"])
-        if not job and config.database_url:
+        if not job and persistence_ready(config.database_url):
             await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             job = get_org_job(db, app["organizationId"], app["jobId"])
         if not job:
@@ -146,7 +147,7 @@ async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) ->
         return {"job": job, "application": app}
     if body.get("jobId"):
         job = next((j for j in db.get("jobs") or [] if j.get("id") == str(body["jobId"])), None)
-        if not job and config.database_url:
+        if not job and persistence_ready(config.database_url):
             await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             job = next((j for j in db.get("jobs") or [] if j.get("id") == str(body["jobId"])), None)
         if not job or not _is_open_vendor_job(job):
@@ -211,7 +212,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/jobs":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             params = request.query_params
             summary = params.get("summary") == "1"
@@ -253,7 +254,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             parsed = parse_public_job_path(path)
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             job = await resolve_public_job(db, config.database_url, parsed["code"], parsed.get("companySlug"))
             if not job:
@@ -317,13 +318,13 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 application,
                 {"match": body.get("match")},
             )
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, application)
                 await asyncio.to_thread(
                     db_store.upsert_job_application_record, config.database_url, session_email, candidate_application
                 )
             await ctx.save_db(db)
-            if (u or {}).get("id") and config.database_url:
+            if (u or {}).get("id") and persistence_ready(config.database_url):
                 asyncio.create_task(
                     grant_organization_talent_access(config.database_url, job["organizationId"], u["id"], "application")
                 )
@@ -358,7 +359,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 job = create_vendor_job(db, access["tenant"]["organization"]["id"], access["user"]["id"], body)
                 match_alert_emails = queue_candidate_job_alerts(db, job)
                 await ctx.save_db(db)
-                if config.database_url:
+                if persistence_ready(config.database_url):
                     await asyncio.to_thread(db_store.upsert_job_record, config.database_url, job)
                     try:
                         await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
@@ -378,7 +379,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
             org_id = access["tenant"]["organization"]["id"]
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_org_jobs_from_database, config.database_url, db, org_id)
             scope = _vendor_recruiter_scope(access)
             jobs = [public_job_payload(j) for j in list_org_jobs(db, org_id, scope)]
@@ -394,7 +395,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not job:
                 return _json(404, {"error": "Job not found."})
             marked = mark_candidate_job_applications_deleted(db, job_id, {"title": job.get("title"), "company": job.get("company")})
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(
                     db_store.mark_job_applications_deleted_in_postgres,
                     config.database_url,
@@ -422,7 +423,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     else {"updated": 0, "records": []}
                 )
                 removed = delete_vendor_job(db, org_id, job_id)
-                if config.database_url:
+                if persistence_ready(config.database_url):
                     if marked["updated"] > 0:
                         await asyncio.to_thread(
                             db_store.mark_job_applications_deleted_in_postgres,
@@ -463,7 +464,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path.startswith("/api/vendor/jobs/") and path.endswith("/applicants"):
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_employer_applications_from_database, config.database_url, db)
             job_id = path.split("/")[4]
             scope = _vendor_recruiter_scope(access)
@@ -479,7 +480,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/vendor/candidates":
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_employer_applications_from_database, config.database_url, db)
             org_id = access["tenant"]["organization"]["id"]
             params = request.query_params
@@ -504,7 +505,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     db, access["tenant"]["organization"]["id"], candidate_email, _vendor_recruiter_scope(access)
                 )
                 profile = candidate_profile_for_documents(db, candidate_email)
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 signed = await resolve_resume_download_from_profile(profile, pool, inline=True)
                 return _json(
                     200,
@@ -522,7 +523,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and re.match(r"^/api/vendor/jobs/[^/]+/candidates$", path):
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_employer_applications_from_database, config.database_url, db)
             job_id = path.split("/")[4]
             scope = _vendor_recruiter_scope(access)
@@ -649,8 +650,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     },
                 )
             invite_token = ""
-            if body.get("inviteToken") and config.database_url:
-                pool = db_store.db_pool(config.database_url)
+            if body.get("inviteToken") and persistence_ready(config.database_url):
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 invite = await get_interview_invite_by_token(pool, str(body["inviteToken"]))
                 access = validate_invite_start(invite, email)
                 if not access.get("ok"):
@@ -973,14 +974,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session["completedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             db["interviewSessions"][session_id] = session
             await ctx.save_db(db)
-            if scored_application and config.database_url:
+            if scored_application and persistence_ready(config.database_url):
                 try:
                     await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, scored_application)
                 except Exception:
                     logger.exception("Could not save job interview result to application %s", session.get("applicationId"))
-            if config.database_url and s3_storage_configured():
+            if persistence_ready(config.database_url) and s3_storage_configured():
                 try:
-                    pool = db_store.db_pool(config.database_url)
+                    pool = db_store.db_pool(config.database_url or "dynamodb")
                     await art_store.persist_interview_transcript_to_s3(
                         pool=pool,
                         db=db,
@@ -993,15 +994,19 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     )
                 except Exception:
                     pass
-            if user and config.database_url:
-                asyncio.create_task(upsert_candidate_talent(config.database_url, user, db.get("profiles", {}).get(email) or {}, result))
+            if user and persistence_ready(config.database_url):
+                asyncio.create_task(
+                    upsert_candidate_talent(
+                        config.database_url or "", user, db.get("profiles", {}).get(email) or {}, result
+                    )
+                )
             return _json(200, {"interview": strip_interview_result_for_candidate(result), "sessionId": session_id})
 
         if method == "GET" and path == "/api/applications":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
             applications = (db.get("applications") or {}).get(email) or []
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 applications = await asyncio.to_thread(db_store.load_job_applications_for_email, config.database_url, email)
                 db.setdefault("applications", {})[email] = applications
             applications = [{**row, "jobStatus": "deleted" if row.get("jobStatus") == "deleted" else "active"} for row in applications]
@@ -1023,7 +1028,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 db["applications"][email][idx] = {**db["applications"][email][idx], **record}
             else:
                 db["applications"][email].insert(0, record)
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.upsert_job_application_record, config.database_url, email, record)
             await ctx.save_db(db)
             return _json(201, {"applications": db["applications"][email], "application": record})
@@ -1082,7 +1087,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 uploaded = await upload_resume_to_object_storage(
                     pool=pool,
                     candidateEmail=email,
@@ -1117,7 +1122,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 profile = (db.get("profiles") or {}).get(email) or {}
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 signed = await resolve_resume_download_for_user(requesterEmail=email, profile=profile, pool=pool)
                 accept = request.headers.get("accept") or ""
                 if "application/json" in accept or request.query_params.get("format") == "json":
@@ -1291,7 +1296,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             lst = [a for a in (db.get("applications") or {}).get(email) or [] if str(a.get("id")) != app_id]
             db.setdefault("applications", {})[email] = lst
-            if config.database_url:
+            if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.delete_job_application_record, config.database_url, email, app_id)
             await ctx.save_db(db)
             return _json(200, {"applications": lst})
@@ -1370,7 +1375,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             if not s3_storage_configured():
                 return _json(503, {"error": "Recording storage is not configured (S3).", "skipped": True})
-            if not config.database_url:
+            if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview recordings."})
             form = await request.form()
             upload = form.get("file")
@@ -1387,7 +1392,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 out = await rec_store.store_interview_recording_bytes(
                     pool=pool,
                     db=db,
@@ -1410,13 +1415,13 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             if not s3_storage_configured():
                 return _json(503, {"error": "Recording storage is not configured (S3).", "skipped": True})
-            if not config.database_url:
+            if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview recordings."})
             body = await runtime.read_json_body(request)
             try:
                 db = ctx.load_db()
                 account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 out = await rec_store.authorize_interview_recording_upload(
                     pool=pool,
                     db=db,
@@ -1438,11 +1443,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
 
         if method == "POST" and path == "/api/interview/recordings/complete":
             email = await runtime.require_auth_email(request)
-            if not config.database_url:
+            if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview recordings."})
             body = await runtime.read_json_body(request)
             try:
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 duration = body.get("durationSeconds")
                 out = await rec_store.complete_interview_recording_upload(
                     pool=pool,
@@ -1461,9 +1466,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             token = path.replace("/api/interview-invites/", "").strip()
             if not token:
                 return _json(400, {"error": "Invite token required."})
-            if not config.database_url:
+            if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview invites."})
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             row = await get_interview_invite_by_token(pool, token)
             if not row:
                 return _json(404, {"error": "Invite not found."})

@@ -43,3 +43,12 @@ def test_cors_headers_on_dispatch_responses(client: TestClient) -> None:
     res = client.get("/api/does-not-exist", headers={"Origin": "http://localhost:5173"})
     assert res.status_code == 404
     assert res.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_every_response_carries_a_request_id(client):
+    res = client.get("/api/health/live")
+    assert res.headers.get("x-request-id")
+    echoed = client.get("/api/health/live", headers={"X-Request-ID": "abc12345-trace"})
+    assert echoed.headers["x-request-id"] == "abc12345-trace"
+    unsafe = client.get("/api/health/live", headers={"X-Request-ID": "bad id with spaces!"})
+    assert unsafe.headers["x-request-id"] != "bad id with spaces!"

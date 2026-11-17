@@ -47,6 +47,13 @@ def validate_new_password(password: str) -> str | None:
 
 def store_reset_token(database_url: str, email: str, token: str, ip: str | None) -> None:
     """Invalidate earlier unused tokens for this email, then store the new token's hash."""
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        dr.store_reset_token_dynamo(email, token, ip)
+        return
     expires = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_TTL_MINUTES)
     pool = db_pool(database_url)
     with pool.connection() as conn:
@@ -66,6 +73,12 @@ def consume_reset_token(database_url: str, token: str) -> str | None:
     """Atomically mark a valid token as used. Returns the account email, or None if invalid/expired/used."""
     if not token:
         return None
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return dr.consume_reset_token_dynamo(token)
     pool = db_pool(database_url)
     with pool.connection() as conn:
         row = conn.execute(
@@ -80,6 +93,13 @@ def consume_reset_token(database_url: str, token: str) -> str | None:
 
 def revoke_all_sessions(database_url: str, email: str) -> None:
     """Sign the account out everywhere after a password change."""
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        dr.delete_sessions_for_email_dynamo(email)
+        return
     pool = db_pool(database_url)
     with pool.connection() as conn:
         conn.execute("DELETE FROM hireright_sessions WHERE email = %s", (email,))

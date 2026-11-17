@@ -27,6 +27,12 @@ def _row_to_dict(row: tuple) -> dict[str, Any]:
 
 
 def insert_interview_recording(pool, row: dict[str, Any]) -> str:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return dr.insert_recording_dynamo(row)
     rec_id = str(uuid.uuid4())
     status = row.get("status") or "pending"
     with pool.connection() as conn:
@@ -56,6 +62,12 @@ def insert_interview_recording(pool, row: dict[str, Any]) -> str:
 
 
 def get_interview_recording_by_id(pool, rec_id: str) -> dict[str, Any] | None:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return dr.get_recording_dynamo(rec_id)
     with pool.connection() as conn:
         cur = conn.execute(
             """SELECT id, tenant_id, interview_id, candidate_id, candidate_email,
@@ -69,6 +81,13 @@ def get_interview_recording_by_id(pool, rec_id: str) -> dict[str, Any] | None:
 
 
 def update_interview_recording(pool, rec_id: str, patch: dict[str, Any]) -> None:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        dr.update_recording_dynamo(rec_id, patch)
+        return
     sets: list[str] = []
     vals: list[Any] = []
     if patch.get("status"):

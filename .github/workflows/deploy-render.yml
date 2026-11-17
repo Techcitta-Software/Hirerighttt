@@ -1,22 +1,18 @@
 name: Deploy Backend to Render
 
+# Deploys only after CI has passed on main. Dev/feature branches never deploy.
 on:
-  push:
-    branches:
-      - main
-      - master
-      - dev
-      - develop
-    paths:
-      - 'backend/**'
-      - 'render.yaml'
-      - '.github/workflows/deploy-render.yml'
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Trigger Render deploy
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Redeploy via Render deploy hook
         env:

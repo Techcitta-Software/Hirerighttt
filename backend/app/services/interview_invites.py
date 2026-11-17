@@ -38,6 +38,14 @@ def parse_invite_context(row: dict) -> dict:
 
 
 async def insert_interview_invite(pool, row: dict) -> None:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        import asyncio
+        from app.db import dynamo_repos as dr
+
+        await asyncio.to_thread(dr.insert_interview_invite_dynamo, row)
+        return
     with pool.connection() as conn:
         conn.execute(
             """INSERT INTO interview_invites
@@ -63,6 +71,13 @@ async def insert_interview_invite(pool, row: dict) -> None:
 
 
 async def get_interview_invite_by_token(pool, token: str) -> dict | None:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        import asyncio
+        from app.db import dynamo_repos as dr
+
+        return await asyncio.to_thread(dr.get_interview_invite_dynamo, token)
     with pool.connection() as conn:
         row = conn.execute("SELECT * FROM interview_invites WHERE token = %s", (token,)).fetchone()
     return dict(row) if row else None

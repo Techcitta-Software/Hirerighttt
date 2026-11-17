@@ -60,7 +60,7 @@ export function ForgotPasswordPage() {
             .
           </p>
           <p style={{ marginTop: '0.75rem' }}>
-            <Link to="/login" className={styles.switchModeLink}>
+            <Link to="/login" state={{ explicitLogin: true }} className={styles.switchModeLink}>
               Back to log in
             </Link>
           </p>
@@ -100,7 +100,7 @@ export function ForgotPasswordPage() {
           </form>
           <p style={{ marginTop: '1rem' }}>
             Remembered it?{' '}
-            <Link to="/login" className={styles.switchModeLink}>
+            <Link to="/login" state={{ explicitLogin: true }} className={styles.switchModeLink}>
               Back to log in
             </Link>
           </p>
@@ -173,7 +173,7 @@ export function ResetPasswordPage() {
             type="button"
             className={styles.submit}
             style={{ marginTop: '1.25rem' }}
-            onClick={() => navigate('/login', { replace: true })}
+            onClick={() => navigate('/login', { replace: true, state: { explicitLogin: true } })}
           >
             Go to log in
           </button>

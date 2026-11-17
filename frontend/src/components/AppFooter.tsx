@@ -15,7 +15,8 @@ const CANDIDATE_LINKS = [
 ] as const
 
 const EMPLOYER_LINKS = [
-  { to: '/employer/dashboard', label: 'Jobs' },
+  { to: '/employer/dashboard', label: 'Dashboard' },
+  { to: '/employer/jobs', label: 'Jobs' },
   { to: '/employer/candidates', label: 'Candidates' },
   { to: '/resumes', label: 'Talent vault' },
   { to: '/privacy', label: 'Privacy' },

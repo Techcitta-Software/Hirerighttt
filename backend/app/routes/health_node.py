@@ -57,9 +57,10 @@ async def health() -> dict:
         "llmFailover": _failover_summary(),
         "database": {
             "configured": bool(config.database_url),
-            "storage": "postgresql",
+            "storage": __import__("os").environ.get("DATABASE_PROVIDER") or "neon",
             "connected": bool(db_ping.get("ok")),
             "detail": db_ping.get("reason"),
+            "dynamodb": __import__("os").environ.get("DATABASE_PROVIDER") in ("dual", "dynamodb"),
         },
         "features": {
             "interviewAgent": True,
@@ -98,15 +99,17 @@ _ping_cache: dict = {"at": 0.0, "value": None}
 
 
 async def _async_ping() -> dict:
-    if not config.database_url:
-        return {"ok": False, "reason": "DATABASE_URL not set"}
+    from app.db.dynamo_config import persistence_ready
+
+    if not persistence_ready(config.database_url):
+        return {"ok": False, "reason": "Database not configured (set DATABASE_PROVIDER=dynamodb or DATABASE_URL)"}
     import asyncio
     import time
 
     cached = _ping_cache["value"]
     if cached is not None and cached.get("ok") and time.monotonic() - _ping_cache["at"] < PING_CACHE_SECONDS:
         return cached
-    value = await asyncio.to_thread(ping_database, config.database_url)
+    value = await asyncio.to_thread(ping_database, config.database_url or "")
     _ping_cache["at"] = time.monotonic()
     _ping_cache["value"] = value
     return value

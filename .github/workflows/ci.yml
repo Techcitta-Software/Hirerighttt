@@ -8,6 +8,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hr_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +34,11 @@ jobs:
       - run: pip install -r requirements.txt
         working-directory: backend
 
+      # Real Postgres so migrations, audit and retention tests run instead of being skipped.
       - run: python -m pytest -q
         working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hr_test?sslmode=disable
 
       - run: npm run lint
 

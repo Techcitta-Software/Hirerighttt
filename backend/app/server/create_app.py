@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from uuid import UUID
@@ -16,7 +17,7 @@ from app.routes.auth_node import router as auth_node_router
 from app.routes.health_node import router as health_node_router
 from app.routes.meta_node import router as meta_node_router
 from app.routes.tts_node import router as tts_node_router
-from app.server import runtime
+from app.server import observability, runtime
 from app.assessment.contracts import AssessmentError
 from app.assessment.personalized import handle_personalized, wants_personalized
 from app.assessment.service import handle as handle_assessment
@@ -53,7 +54,9 @@ def _use_native_handler(path: str) -> bool:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     assert_production_config()
-    if config.database_url.strip():
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb" or config.database_url.strip():
         await asyncio.to_thread(runtime.load_db_sync)
     yield
     # Close the Postgres pool while the interpreter is still running. Left to garbage collection it logged a
@@ -67,6 +70,8 @@ async def lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
+    observability.configure_logging(json_logs=is_prod_like)
+    observability.init_sentry(config.environment)
     app = FastAPI(title="HireRight API", lifespan=lifespan)
 
     allow_origins = config.cors_origins if is_prod_like else list(
@@ -127,10 +132,31 @@ def create_app() -> FastAPI:
                 # Auth / permission errors raised inside route handlers must stay 401/403, not become a 500.
                 detail = err.detail if isinstance(err.detail, str) else "Request failed."
                 return JSONResponse(status_code=err.status_code, content={"error": detail})
-            except Exception:
+            except Exception as exc:
                 logger.exception("API dispatch failed for %s", path)
+                observability.capture_exception(exc)
                 return JSONResponse(status_code=500, content={"error": "Server error"})
         return await call_next(request)
+
+    @app.middleware("http")
+    async def request_context(request: Request, call_next):
+        rid = observability.new_request_id(request.headers.get("x-request-id"))
+        token = observability.request_id_var.set(rid)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = rid
+            if request.url.path.startswith("/api") and request.url.path not in ("/api/health", "/api/health/live"):
+                logger.info(
+                    "%s %s -> %s in %dms",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
+                    (time.perf_counter() - started) * 1000,
+                )
+            return response
+        finally:
+            observability.request_id_var.reset(token)
 
     # Registered LAST so it is the OUTERMOST middleware: every response — including the ones the
     # dispatch middleware above returns directly for /api/vendor/*, /api/interview/* … — gets the
@@ -142,6 +168,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["X-Request-ID"],
     )
 
     @app.get("/", include_in_schema=False)

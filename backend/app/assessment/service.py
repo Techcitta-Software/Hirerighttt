@@ -29,7 +29,15 @@ from app.node_config import config
 
 
 def _pool():
-    if not config.database_url.strip():
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db.dynamo_assessment import DynamoAssessmentPool
+
+        return DynamoAssessmentPool()
+    from app.db.dynamo_config import persistence_ready
+
+    if not persistence_ready(config.database_url):
         raise AssessmentError(503, "Database required for assessments.")
     return db_pool(config.database_url)
 

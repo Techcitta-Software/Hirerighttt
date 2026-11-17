@@ -38,6 +38,14 @@ services:
         value: "15"
       - key: CRON_SECRET
         generateValue: true
+      - key: REDIS_URL          # shared rate limiting when running more than one instance (optional)
+        sync: false
+      - key: SENTRY_DSN         # error tracking (optional)
+        sync: false
+      - key: AUDIT_RETENTION_DAYS
+        value: "730"
+      - key: RECORDING_RETENTION_DAYS   # unset = keep interview recordings forever
+        sync: false
       - key: DISABLE_SUPABASE
         value: "true"
       - key: AWS_REGION

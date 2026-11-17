@@ -31,7 +31,8 @@ const JOBSEEKER_NAV = [
 ]
 
 const EMPLOYER_NAV = [
-  { to: '/employer/dashboard', label: 'Jobs' },
+  { to: '/employer/dashboard', label: 'Dashboard' },
+  { to: '/employer/jobs', label: 'Jobs' },
   { to: '/employer/candidates', label: 'Candidates' },
 ]
 
@@ -258,7 +259,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                             type="button"
                             role="menuitem"
                             className={styles.profileDropdownItem}
-                            onClick={() => goFromProfileMenu('/employer/dashboard')}
+                            onClick={() => goFromProfileMenu('/employer/jobs')}
                           >
                             Jobs &amp; Openings
                           </button>
@@ -419,7 +420,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   {user?.role === 'employer' ? (
                     <>
                       <NavLink
-                        to="/employer/dashboard"
+                        to="/employer/jobs"
                         onClick={() => setOpen(false)}
                         className={({ isActive }) =>
                           isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink

@@ -16,6 +16,12 @@ class UniqueAccountError(Exception):
 
 
 def register_account(database_url: str, input: dict) -> dict:
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return dr.register_account_dynamo(input)
     url = _require_database_url(database_url)
     conninfo = _pool_conninfo(url)
     with psycopg.connect(conninfo) as conn:

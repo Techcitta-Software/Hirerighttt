@@ -16,13 +16,30 @@ from app.db.store import (
     save_session_token,
 )
 from app.node_config import config
+from app.server import ratelimit
 
-_rate_buckets: dict[str, list[float]] = {}
 _db_cache: dict[str, Any] = empty_db()
 
 
 def load_db_sync() -> dict[str, Any]:
     global _db_cache
+    from app.db.dynamo_config import database_provider
+
+    if database_provider() == "dynamodb":
+        from app.demo_accounts import seed_demo_users_if_needed
+
+        _db_cache = load_db_from_store("")
+        _db_cache, changed = seed_demo_users_if_needed(_db_cache)
+        if changed:
+            from app.db.dynamo_config import use_neon
+
+            if use_neon() and config.database_url.strip():
+                persist_db(_db_cache, config.database_url)
+            else:
+                from app.db.dynamo_relational import mirror_db_to_dynamo
+
+                mirror_db_to_dynamo(_db_cache)
+        return _db_cache
     if config.database_url.strip():
         from app.demo_accounts import seed_demo_users_if_needed
 
@@ -50,29 +67,19 @@ async def save_db(db: dict[str, Any] | None = None) -> None:
     global _db_cache
     if db is not None:
         _db_cache = db
-    if config.database_url.strip():
+    from app.db.dynamo_config import database_provider, use_neon
+
+    if use_neon() and config.database_url.strip():
         await asyncio.to_thread(persist_db, _db_cache, config.database_url)
+    elif database_provider() == "dynamodb":
+        from app.db.dynamo_relational import mirror_db_to_dynamo
 
-
-_RATE_SWEEP_AT = 5000  # distinct keys before stale ones are swept
-
-
-def _sweep_rate_buckets(now_ms: float) -> None:
-    # Keys (ip / email) were never removed, so memory grew with every distinct caller for the life of the process.
-    for k in [k for k, b in _rate_buckets.items() if not b or now_ms - b[-1] > 3_600_000]:
-        _rate_buckets.pop(k, None)
+        await asyncio.to_thread(mirror_db_to_dynamo, _db_cache)
 
 
 def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
-    now = time.time() * 1000
-    if len(_rate_buckets) > _RATE_SWEEP_AT:
-        _sweep_rate_buckets(now)
-    bucket = [t for t in _rate_buckets.get(key, []) if now - t < window_ms]
-    if len(bucket) >= limit:
-        return False
-    bucket.append(now)
-    _rate_buckets[key] = bucket
-    return True
+    """Shared (Redis) when REDIS_URL is set, otherwise per-process. See app/server/ratelimit.py."""
+    return ratelimit.allow(key, limit, window_ms)
 
 
 def client_ip(request: Request) -> str:
@@ -133,7 +140,9 @@ async def require_auth_email(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Unauthorized")
     db = load_db()
     active = any(u.get("email") == email and u.get("status") == "active" for u in db.get("users") or [])
-    if not active and config.database_url.strip():
+    from app.db.dynamo_config import database_provider
+
+    if not active and database_provider() != "dynamodb" and config.database_url.strip():
         try:
             fresh = await asyncio.to_thread(load_db_from_store, config.database_url)
             hit = next((u for u in fresh.get("users") or [] if u.get("email") == email and u.get("status") == "active"), None)

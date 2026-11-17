@@ -10,7 +10,9 @@ from typing import Any, Callable
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
+from app.db import dynamo_repos as dr
 from app.db import store as db_store
+from app.db.dynamo_config import database_provider, persistence_ready
 from app.db.row_utils import row_value
 from app.dispatch.context import DispatchContext
 from app.node_config import config
@@ -25,6 +27,7 @@ from app.services.interview_invites import (
     new_invite_token,
     send_interview_invite_email,
 )
+from app.services import audit
 from app.services.interview_review import vendor_may_view_interview_session
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.storage import interview_artifact_storage as art_store
@@ -140,7 +143,7 @@ async def try_extended_routes(
         access = await runtime.require_employer_tenant(request, db)
         if not access:
             return None
-        if not config.database_url:
+        if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database required for interview invites."})
         app_id = path.split("/")[4]
         body = await runtime.read_json_body(request)
@@ -167,7 +170,7 @@ async def try_extended_routes(
             "interviewDurationMinutes": int(duration),
             "joinWindowMinutes": INVITE_JOIN_WINDOW_MINUTES,
         }
-        pool = db_store.db_pool(config.database_url)
+        pool = db_store.db_pool(config.database_url or "dynamodb")
         await insert_interview_invite(
             pool,
             {
@@ -197,9 +200,12 @@ async def try_extended_routes(
                     durationMinutes=int(duration),
                     inviteUrl=invite_url,
                 )
-                with pool.connection() as conn:
-                    conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                    conn.commit()
+                if database_provider() == "dynamodb":
+                    dr.update_invite_email_sent_dynamo(token)
+                else:
+                    with pool.connection() as conn:
+                        conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
+                        conn.commit()
                 email_sent = True
             except Exception as err:
                 email_error = str(err)
@@ -233,7 +239,7 @@ async def try_extended_routes(
         access = await runtime.require_employer_tenant(request, db)
         if not access:
             return None
-        if not config.database_url:
+        if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database required for interview invites."})
         if not ctx.rate_limit(f"invite-send:{access['user'].get('email')}", 20, 3_600_000):
             return json_fn(429, {"error": "Invite limit reached for this hour. Try again later."})
@@ -269,7 +275,7 @@ async def try_extended_routes(
         now = datetime.now(timezone.utc)
         start = now - timedelta(minutes=1)
         end = now + timedelta(days=days)
-        pool = db_store.db_pool(config.database_url)
+        pool = db_store.db_pool(config.database_url or "dynamodb")
         results = []
         for em, nm in people:
             token = new_invite_token()
@@ -315,9 +321,12 @@ async def try_extended_routes(
                         inviteUrl=invite_url,
                         openInvite=True,
                     )
-                    with pool.connection() as conn:
-                        conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                        conn.commit()
+                    if database_provider() == "dynamodb":
+                        dr.update_invite_email_sent_dynamo(token)
+                    else:
+                        with pool.connection() as conn:
+                            conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
+                            conn.commit()
                     sent = True
                 except Exception as err:
                     err_text = str(err)
@@ -344,7 +353,7 @@ async def try_extended_routes(
             return json_fn(400, {"error": "scheduledStart is required."})
         if not smtp_configured():
             return json_fn(503, {"error": "SMTP not configured on server.", "smtpConfigured": False})
-        if not config.database_url:
+        if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database required."})
         duration = float(body.get("durationMinutes") or 60)
         if duration < 15 or duration > 180:
@@ -365,7 +374,7 @@ async def try_extended_routes(
             "interviewDurationMinutes": int(duration),
             "joinWindowMinutes": INVITE_JOIN_WINDOW_MINUTES,
         }
-        pool = db_store.db_pool(config.database_url)
+        pool = db_store.db_pool(config.database_url or "dynamodb")
         await insert_interview_invite(
             pool,
             {
@@ -392,9 +401,12 @@ async def try_extended_routes(
         email_error = None
         try:
             await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))
-            with pool.connection() as conn:
-                conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                conn.commit()
+            if database_provider() == "dynamodb":
+                dr.update_invite_email_sent_dynamo(token)
+            else:
+                with pool.connection() as conn:
+                    conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
+                    conn.commit()
             email_sent = True
         except Exception as err:
             email_error = str(err)
@@ -421,7 +433,7 @@ async def try_extended_routes(
         session_id = str(request.query_params.get("sessionId") or request.query_params.get("interviewId") or "").strip()
         try:
             assert_vendor_may_view_candidate_documents(db, access["tenant"]["organization"]["id"], candidate_email, vendor_scope(access))
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             signed = await rec_store.resolve_employer_candidate_recording_playback(
                 pool=pool,
                 db=db,
@@ -429,6 +441,14 @@ async def try_extended_routes(
                 candidateEmail=candidate_email,
                 interviewId=session_id or None,
                 recruiterScope=vendor_scope(access),
+            )
+            audit.fire(
+                audit.RECORDING_VIEWED,
+                user_id=(access.get("user") or {}).get("id"),
+                organization_id=access["tenant"]["organization"]["id"],
+                entity_type="interview",
+                entity_id=str(signed.get("interviewId") or session_id or ""),
+                meta={"candidate_fp": audit.email_fingerprint(candidate_email)},
             )
             return json_fn(
                 200,
@@ -458,7 +478,7 @@ async def try_extended_routes(
         candidate_email = str(request.query_params.get("email") or "").strip()
         try:
             assert_vendor_may_view_candidate_documents(db, access["tenant"]["organization"]["id"], candidate_email, vendor_scope(access))
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             signed = await art_store.resolve_candidate_interview_report_download(pool=pool, candidateEmail=candidate_email, inline=True)
             return json_fn(
                 200,
@@ -497,8 +517,12 @@ async def try_extended_routes(
         except Exception as err:
             return json_fn(getattr(err, "status", 404), {"error": str(err)})
         session = (db.get("interviewSessions") or {}).get(session_id)
-        if not session and config.database_url:
-            pool = db_store.db_pool(config.database_url)
+        if not session and database_provider() == "dynamodb":
+            session = dr.get_interview_session_data_dynamo(session_id)
+            if session:
+                db.setdefault("interviewSessions", {})[session_id] = session
+        elif not session and persistence_ready(config.database_url):
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             with pool.connection() as conn:
                 row = conn.execute("SELECT email, data FROM interview_sessions WHERE session_id = %s", (session_id,)).fetchone()
             if row:
@@ -509,9 +533,9 @@ async def try_extended_routes(
             return json_fn(404, {"error": "Interview not found for this candidate."})
         video_url = None
         recording_status = "No recording available"
-        if config.database_url and s3_storage_configured():
+        if persistence_ready(config.database_url) and s3_storage_configured():
             try:
-                pool = db_store.db_pool(config.database_url)
+                pool = db_store.db_pool(config.database_url or "dynamodb")
                 signed = await rec_store.resolve_employer_candidate_recording_playback(
                     pool=pool,
                     db=db,
@@ -522,6 +546,14 @@ async def try_extended_routes(
                 )
                 video_url = signed["url"]
                 recording_status = "Recording available"
+                audit.fire(
+                    audit.RECORDING_VIEWED,
+                    user_id=(access.get("user") or {}).get("id"),
+                    organization_id=org_id,
+                    entity_type="interview",
+                    entity_id=str(session_id or ""),
+                    meta={"candidate_fp": audit.email_fingerprint(candidate_email)},
+                )
             except Exception:
                 pass
         stored = (db.get("interviews") or {}).get(candidate_email)
@@ -547,7 +579,7 @@ async def try_extended_routes(
             return json_fn(403, {"error": "Reviewer access required."})
         recording_id = path.replace("/api/interview/recordings/", "").replace("/download", "").strip()
         try:
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             signed = await rec_store.resolve_interview_recording_download(
                 pool=pool,
                 requesterEmail=access["user"]["email"],
@@ -566,7 +598,7 @@ async def try_extended_routes(
         try:
             db = ctx.load_db()
             account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             out = await art_store.persist_interview_report_pdf_to_s3(
                 pool=pool,
                 db=db,
@@ -589,7 +621,7 @@ async def try_extended_routes(
         if not session_id or artifact_type not in ("transcript", "report") or action != "download":
             return json_fn(400, {"error": "Use /api/interview/artifacts/{sessionId}/transcript|report/download"})
         try:
-            pool = db_store.db_pool(config.database_url)
+            pool = db_store.db_pool(config.database_url or "dynamodb")
             signed = await art_store.resolve_interview_artifact_download(
                 pool=pool,
                 requesterEmail=email,

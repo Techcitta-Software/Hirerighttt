@@ -4,7 +4,6 @@
 .env.*.local
 !.env.example
 !.env.production.example
-backend/node/.env
 frontend/.env
 backend/.env
 backend/.env
@@ -59,9 +58,6 @@ website_export/
 banner-hireright
 
 # Legacy local JSON store (removed — use DATABASE_URL / Neon only)
-backend/node/data/db.json
-backend/node/data/*
-!backend/node/data/roleSkills.json
 
 .vercel
 

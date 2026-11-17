@@ -1,0 +1,1 @@
+"""DynamoDB single-table layout alongside Neon Postgres."""

@@ -58,3 +58,13 @@ def test_result_is_cached_for_a_few_minutes(monkeypatch):
     mod.resolve_pg_host("cache.example.test")
     mod.resolve_pg_host("cache.example.test")
     assert len(calls) == 1
+
+
+def test_plain_local_postgres_is_not_forced_onto_verified_tls():
+    from app.db.store import _pool_conninfo
+
+    local = _pool_conninfo("postgresql://u:p@127.0.0.1:5432/db")
+    assert "verify-full" not in local and "hostaddr" not in local
+    assert "host=127.0.0.1" in local
+    compose = _pool_conninfo("postgresql://u:p@postgres:5432/db?sslmode=disable")
+    assert "host=postgres" in compose and "verify-full" not in compose and "sslmode=disable" in compose

@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from app.db.dynamo_config import database_provider
 from app.db.store import db_pool
 
 TALENT_SCHEMA = Path(__file__).resolve().parents[2] / "db" / "sql" / "schema-talent-search.sql"
@@ -79,7 +80,15 @@ async def upsert_candidate_talent(
     profile: dict,
     interview: dict | None = None,
 ) -> None:
-    if not database_url or not user.get("id") or user.get("role") == "employer":
+    if not user.get("id") or user.get("role") == "employer":
+        return
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        row = build_talent_record(user, profile or {}, interview)
+        await asyncio.to_thread(dr.upsert_talent_profile_dynamo, row)
+        return
+    if not database_url:
         return
     await ensure_talent_schema(database_url)
     row = build_talent_record(user, profile or {}, interview)
@@ -126,7 +135,14 @@ def _upsert_candidate_talent_sync(database_url: str, row: dict[str, Any]) -> Non
 async def grant_organization_talent_access(
     database_url: str, organization_id: str, user_id: str, access_type: str = "application"
 ) -> None:
-    if not database_url or not organization_id or not user_id:
+    if not organization_id or not user_id:
+        return
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        await asyncio.to_thread(dr.grant_talent_access_dynamo, organization_id, user_id, access_type)
+        return
+    if not database_url:
         return
     await ensure_talent_schema(database_url)
     await asyncio.to_thread(_grant_talent_access_sync, database_url, organization_id, user_id, access_type)
@@ -145,6 +161,10 @@ def _grant_talent_access_sync(database_url: str, organization_id: str, user_id: 
 
 
 async def search_candidate_talent(database_url: str, organization_id: str, filters: dict | None = None) -> dict:
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return await asyncio.to_thread(dr.search_talent_dynamo, organization_id, filters)
     await ensure_talent_schema(database_url)
     filters = filters or {}
     limit = min(max(int(filters.get("limit") or 25), 1), 100)
@@ -245,6 +265,10 @@ async def search_candidate_talent(database_url: str, organization_id: str, filte
 
 
 async def get_candidate_talent_by_id(database_url: str, organization_id: str, user_id: str) -> dict | None:
+    if database_provider() == "dynamodb":
+        from app.db import dynamo_repos as dr
+
+        return await asyncio.to_thread(dr.get_talent_by_id_dynamo, organization_id, user_id)
     await ensure_talent_schema(database_url)
     pool = db_pool(database_url)
     with pool.connection() as conn:
