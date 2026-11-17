@@ -10,9 +10,14 @@ def slugify_organization(name: str) -> str:
     return base or "workspace"
 
 
-def unique_org_slug(name: str, organizations: list[dict]) -> str:
+def unique_org_slug(name: str, organizations: list[dict] | None = None, *, db: dict | None = None) -> str:
     slug = slugify_organization(name)
-    taken = {o.get("slug") for o in organizations if o.get("slug")}
+    if db is not None:
+        from app.db.finders import organization_slugs_like
+
+        taken = organization_slugs_like(db, slug)
+    else:
+        taken = {o.get("slug") for o in organizations or [] if o.get("slug")}
     if slug not in taken:
         return slug
     for i in range(2, 100):
@@ -25,18 +30,19 @@ def unique_org_slug(name: str, organizations: list[dict]) -> str:
 def provision_employer_tenant(db: dict, user: dict, *, plan_id: str = "plan-starter", trial_days: int = 14) -> dict | None:
     if user.get("role") != "employer":
         return None
+    from app.db.finders import find_organization, find_user, memberships_for_user, subscription_for_org
+
     members = db.setdefault("organizationMembers", [])
-    existing = next((m for m in members if m.get("userId") == user.get("id")), None)
+    existing = next(iter(memberships_for_user(db, user.get("id"))), None)
     if existing:
-        orgs = db.get("organizations") or []
-        return next((o for o in orgs if o.get("id") == existing.get("organizationId")), None)
+        return find_organization(db, existing.get("organizationId"))
 
     from datetime import datetime, timedelta, timezone
 
     # The user already belongs to an organization (recorded on the account): re-attach to it instead of
     # creating a new, empty organization (which orphaned all of that organization's jobs).
     primary_id = user.get("primaryOrganizationId")
-    primary = next((o for o in db.get("organizations") or [] if o.get("id") == primary_id), None) if primary_id else None
+    primary = find_organization(db, primary_id) if primary_id else None
     if primary:
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         members.append(
@@ -49,7 +55,7 @@ def provision_employer_tenant(db: dict, user: dict, *, plan_id: str = "plan-star
             }
         )
         subs = db.setdefault("organizationSubscriptions", [])
-        if not any(s.get("organizationId") == primary["id"] for s in subs):
+        if not subscription_for_org(db, primary["id"]):
             subs.append(
                 {
                     "id": secrets.token_hex(8),
@@ -67,7 +73,7 @@ def provision_employer_tenant(db: dict, user: dict, *, plan_id: str = "plan-star
     db.setdefault("organizationSubscriptions", [])
     org_id = secrets.token_hex(8)
     org_name = (user.get("companyName") or "").strip() or f"{str(user.get('name') or 'Team').split()[0]}'s Team"
-    slug = unique_org_slug(org_name, db["organizations"])
+    slug = unique_org_slug(org_name, db=db)
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     trial_ends = (datetime.now(timezone.utc) + timedelta(days=trial_days)).isoformat().replace("+00:00", "Z")
     organization = {
@@ -99,7 +105,7 @@ def provision_employer_tenant(db: dict, user: dict, *, plan_id: str = "plan-star
     db["organizations"].append(organization)
     members.append(membership)
     db["organizationSubscriptions"].append(subscription)
-    account = next((u for u in db.get("users") or [] if u.get("id") == user.get("id")), None)
+    account = find_user(db, user_id=user.get("id"))
     if account:
         account["primaryOrganizationId"] = org_id
         account["companyName"] = account.get("companyName") or org_name

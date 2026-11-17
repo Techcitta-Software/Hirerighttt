@@ -89,7 +89,8 @@ def test_write_during_refresh_is_not_cached():
     assert len(calls) == 2  # the first result was stale, so it was not kept
 
 
-def test_user_index_matches_linear_scan():
+def test_recruiter_accounts_are_never_listed_as_candidates():
+    """Employer accounts and hiring-team members are excluded, by email or by user id (case-insensitive)."""
     db = {
         "users": [
             {"id": "u1", "email": "A@x.com", "role": "jobseeker"},
@@ -98,14 +99,15 @@ def test_user_index_matches_linear_scan():
         ],
         "organizationMembers": [{"userId": "u3", "role": "recruiter"}],
     }
-    idx = oc._Index(db)
-    for email, uid in [("a@x.com", None), ("B@X.COM", None), (None, "u3"), ("zzz@x.com", None)]:
-        assert oc._find_user(db, email or "", uid, idx) == oc._find_user(db, email or "", uid)
-    for email, uid in [("a@x.com", "u1"), ("b@x.com", "u2"), ("c@x.com", "u3"), ("nobody@x.com", None)]:
-        assert oc._is_employer_or_recruiter_account(db, email, uid, set(), idx) == oc._is_employer_or_recruiter_account(
-            db, email, uid, set()
-        )
-    assert oc._is_employer_or_recruiter_account(db, "c@x.com", "u3", set(), idx) is True  # recruiter member
+    rows = [
+        {"candidateEmail": "a@x.com", "candidateUserId": None},
+        {"candidateEmail": "B@X.COM", "candidateUserId": None},
+        {"candidateEmail": "c@x.com", "candidateUserId": "u3"},
+        {"candidateEmail": "nobody@x.com", "candidateUserId": None},
+        {"candidateEmail": "", "candidateUserId": None},
+    ]
+    flagged = oc._recruiter_account_keys(db, rows)
+    assert [oc._is_flagged(r, flagged) for r in rows] == [False, True, True, False, True]
 
 
 def test_rate_limit_sweeps_stale_keys(monkeypatch):

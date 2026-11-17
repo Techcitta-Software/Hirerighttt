@@ -880,6 +880,10 @@ def close_store() -> None:
 
 @_throttled_sync
 def sync_open_jobs_from_database(database_url: str, db: dict[str, Any]) -> dict[str, Any]:
+    from app.db.uow import UnitOfWork
+
+    if isinstance(db, UnitOfWork):
+        return db  # per-request unit of work: app.db.finders queries exactly the rows needed
     if database_provider() == "dynamodb":
         return db
     if not database_url.strip():
@@ -949,6 +953,10 @@ def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
 
 @_throttled_sync
 def sync_org_jobs_from_database(database_url: str, db: dict[str, Any], organization_id: str) -> dict[str, Any]:
+    from app.db.uow import UnitOfWork
+
+    if isinstance(db, UnitOfWork):
+        return db  # per-request unit of work: app.db.finders queries exactly the rows needed
     org_id = str(organization_id or "").strip()
     if database_provider() == "dynamodb":
         return db
@@ -1028,6 +1036,10 @@ def delete_job_record(database_url: str, job_id: str, organization_id: str) -> b
 
 @_throttled_sync
 def sync_employer_applications_from_database(database_url: str, db: dict[str, Any]) -> dict[str, Any]:
+    from app.db.uow import UnitOfWork
+
+    if isinstance(db, UnitOfWork):
+        return db  # per-request unit of work: app.db.finders queries exactly the rows needed
     if database_provider() == "dynamodb":
         return db
     if not database_url.strip():

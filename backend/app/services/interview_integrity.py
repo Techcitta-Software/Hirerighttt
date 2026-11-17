@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from app.db.finders import sessions_for_invite
 from datetime import datetime, timezone
 from typing import Any
 
@@ -62,6 +63,6 @@ def invite_attempt_used(db: dict, invite_token: str) -> bool:
         return False
     return any(
         s.get("inviteToken") == invite_token and s.get("status") == "completed"
-        for s in (db.get("interviewSessions") or {}).values()
+        for s in sessions_for_invite(db, invite_token)
         if isinstance(s, dict)
     )

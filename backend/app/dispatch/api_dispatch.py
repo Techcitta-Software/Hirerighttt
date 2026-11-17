@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.db.finders import find_employer_app, find_job, find_user, remove_job, vault_for_org
 import asyncio
 import logging
 import os
@@ -133,7 +134,7 @@ def _is_open_vendor_job(job: dict | None) -> bool:
 
 async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) -> dict:
     if body.get("applicationId"):
-        app = next((a for a in db.get("employerApplications") or [] if a.get("id") == str(body["applicationId"])), None)
+        app = find_employer_app(db, str(body["applicationId"]))
         if not app:
             return {"error": {"status": 404, "message": "Application not found."}}
         if str(app.get("candidateEmail") or "").lower() != str(email or "").lower():
@@ -146,10 +147,10 @@ async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) ->
             return {"error": {"status": 404, "message": "Job not found for this application."}}
         return {"job": job, "application": app}
     if body.get("jobId"):
-        job = next((j for j in db.get("jobs") or [] if j.get("id") == str(body["jobId"])), None)
+        job = find_job(db, str(body["jobId"]))
         if not job and persistence_ready(config.database_url):
             await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
-            job = next((j for j in db.get("jobs") or [] if j.get("id") == str(body["jobId"])), None)
+            job = find_job(db, str(body["jobId"]))
         if not job or not _is_open_vendor_job(job):
             return {"error": {"status": 404, "message": "Job not found or not open."}}
         return {"job": job, "application": None}
@@ -191,7 +192,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if path.startswith("/api/confidential/"):
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = next((u for u in db.get("users") or [] if u.get("email") == email and u.get("status") != "disabled"), None)
+            user = (lambda _u: _u if _u and _u.get("status") != "disabled" else None)(find_user(db, email=email))
             tenant = runtime.tenant_context_for_user(db, user)
             if (
                 user.get("role") != "employer"
@@ -204,7 +205,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/candidate/job-alerts":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            user = find_user(db, email=email)
             if user and user.get("role") == "employer":
                 return _json(403, {"error": "Candidates only."})
             return _json(200, {"alerts": list_candidate_job_alerts(db, email)})
@@ -263,7 +264,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             body_email = str(body.get("candidateEmail") or "").strip().lower()
             if body_email and body_email != session_email:
                 return _json(403, {"error": "Application email must match your signed-in candidate account."})
-            u = next((x for x in db.get("users") or [] if x.get("email") == session_email), None)
+            u = find_user(db, email=session_email)
             if u and u.get("role") == "employer":
                 return _json(
                     403,
@@ -368,11 +369,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(201, {"job": public_job_payload(job), "matchAlertsQueued": len(match_alert_emails)})
             except ValueError as err:
                 if job and job.get("id"):
-                    db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != job["id"]]
+                    remove_job(db, job["id"])
                 return _json(getattr(err, "status", 400), {"error": str(err)})
             except Exception:
                 if job and job.get("id"):
-                    db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != job["id"]]
+                    remove_job(db, job["id"])
                 raise
 
         if method == "GET" and path == "/api/vendor/jobs":
@@ -671,7 +672,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     body["applicationId"] = invite["application_id"]
             db = ctx.load_db()
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            account = find_user(db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             vendor_resolved = await _resolve_vendor_job_for_interview(db, body, email)
             if vendor_resolved.get("error"):
@@ -684,7 +685,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             job_description = str(body.get("jobDescription") or "")
             explicit_role_track = body.get("explicitRoleTrack") is True
             question_mode_hint = str(body.get("questionMode") or "").strip()
-            job_record = next((j for j in db.get("jobs") or [] if j.get("id") == str(body.get("jobId") or "")), None) if body.get("jobId") else None
+            job_record = find_job(db, str(body.get("jobId") or "")) if body.get("jobId") else None
             required_skills = (
                 [str(s) for s in body.get("primarySkills") or []]
                 if body.get("primarySkills")
@@ -851,6 +852,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db.setdefault("contactRequests", []).insert(
                 0,
                 {
+                    "id": secrets.token_hex(8),
                     "type": kind,
                     "name": name,
                     "email": from_email,
@@ -858,7 +860,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 },
             )
-            db["contactRequests"] = db["contactRequests"][:500]
+            # (Old requests are pruned by the daily maintenance job, not by loading the whole list here.)
             await ctx.save_db(db)
             inbox = (os.environ.get("CONTACT_INBOX_EMAIL") or os.environ.get("SMTP_EMAIL") or "").strip()
             if inbox:
@@ -921,7 +923,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(400, {"error": "At least one answer is required to score the interview."})
             scored_questions = questions[:pair_count]
             scored_answers = answers[:pair_count]
-            user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            user = find_user(db, email=email)
             client_integrity = body.get("integrity") if isinstance(body.get("integrity"), dict) else {}
             duration_seconds = None
             try:
@@ -1036,7 +1038,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/talent/search":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            user = find_user(db, email=email)
             if not user or user.get("role") != "employer":
                 return _json(403, {"error": "Employer account required for talent search."})
             tenant = runtime.tenant_context_for_user(db, user)
@@ -1086,7 +1088,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(getattr(err, "status", 400), {"error": str(err)})
             try:
                 db = ctx.load_db()
-                account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+                account = find_user(db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 uploaded = await upload_resume_to_object_storage(
                     pool=pool,
@@ -1142,7 +1144,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             q = str(request.query_params.get("q") or "").lower().strip()
             status = str(request.query_params.get("status") or "All")
-            lst = [c for c in db.get("confidentialVault") or [] if c.get("organizationId") == vault_tenant_id]
+            lst = vault_for_org(db, vault_tenant_id)
             if q:
                 lst = [
                     c
@@ -1166,7 +1168,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            account = find_user(db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             history = runtime.merge_turn_into_interview_history(
                 body.get("history") or session.get("history") or [], body.get("lastQuestion"), body.get("lastAnswer")
@@ -1224,7 +1226,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            digest = ia.summarize_profile(profile, next((u.get("name") for u in db.get("users") or [] if u.get("email") == email), None))
+            digest = ia.summarize_profile(profile, (find_user(db, email=email) or {}).get("name"))
             turn = await ia.generate_interview_turn(
                 {
                     "ctx": digest,
@@ -1245,7 +1247,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
             profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            account = find_user(db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             result = ia.process_interview_interactive(
                 {
@@ -1391,7 +1393,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 duration_seconds = None
             try:
                 db = ctx.load_db()
-                account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+                account = find_user(db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 out = await rec_store.store_interview_recording_bytes(
                     pool=pool,
@@ -1420,7 +1422,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             body = await runtime.read_json_body(request)
             try:
                 db = ctx.load_db()
-                account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+                account = find_user(db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 out = await rec_store.authorize_interview_recording_upload(
                     pool=pool,
@@ -1498,7 +1500,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if is_invitee:
                 from app.dispatch.schedule_routes import reschedule_refusal
 
-                viewer = next((u for u in db.get("users") or [] if u.get("email") == viewer_email), None)
+                viewer = find_user(db, email=viewer_email)
                 can_reschedule = reschedule_refusal(row, viewer, db) is None
             return _json(
                 200,
@@ -1537,7 +1539,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path.startswith("/api/talent/candidates/"):
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            user = find_user(db, email=email)
             if not user or user.get("role") != "employer":
                 return _json(403, {"error": "Employer account required."})
             tenant = runtime.tenant_context_for_user(db, user)

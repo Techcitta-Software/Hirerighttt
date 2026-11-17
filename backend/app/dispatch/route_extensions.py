@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.db.finders import find_user, memberships_for_user, remove_vault_item, vault_for_org
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -80,7 +81,7 @@ async def try_extended_routes(
 
         if method == "GET" and path.startswith("/api/confidential/candidates/") and path != "/api/confidential/candidates/":
             cid = path.replace("/api/confidential/candidates/", "").strip("/")
-            item = next((c for c in db.get("confidentialVault") or [] if c.get("id") == cid and c.get("organizationId") == vault_tenant_id), None)
+            item = next((c for c in vault_for_org(db, vault_tenant_id) if c.get("id") == cid), None)
             if not item:
                 return json_fn(404, {"error": "Confidential candidate not found."})
             return json_fn(200, {"candidate": item})
@@ -88,7 +89,7 @@ async def try_extended_routes(
         if method == "PUT" and "/status" in path and path.startswith("/api/confidential/candidates/"):
             cid = path.split("/")[4]
             body = await runtime.read_json_body(request)
-            vault = db.get("confidentialVault") or []
+            vault = vault_for_org(db, vault_tenant_id)
             idx = next((i for i, c in enumerate(vault) if c.get("id") == cid and c.get("organizationId") == vault_tenant_id), -1)
             if idx < 0:
                 return json_fn(404, {"error": "Confidential candidate not found."})
@@ -99,18 +100,17 @@ async def try_extended_routes(
 
         if method == "DELETE" and path.startswith("/api/confidential/candidates/"):
             cid = path.replace("/api/confidential/candidates/", "").strip("/")
-            db["confidentialVault"] = [
-                c for c in db.get("confidentialVault") or [] if not (c.get("id") == cid and c.get("organizationId") == vault_tenant_id)
-            ]
+            for c in [c for c in vault_for_org(db, vault_tenant_id) if c.get("id") == cid]:
+                remove_vault_item(db, c)
             await ctx.save_db(db)
             return json_fn(200, {"success": True, "deletedId": cid})
 
         if method == "GET" and path == "/api/confidential/export":
-            lst = [c for c in db.get("confidentialVault") or [] if c.get("organizationId") == vault_tenant_id]
+            lst = vault_for_org(db, vault_tenant_id)
             return json_fn(200, {"exportedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "total": len(lst), "candidates": lst})
 
         if method == "GET" and path == "/api/confidential/stats":
-            lst = [c for c in db.get("confidentialVault") or [] if c.get("organizationId") == vault_tenant_id]
+            lst = vault_for_org(db, vault_tenant_id)
             scored = [c for c in lst if isinstance(c.get("interviewScore"), (int, float))]
             avg = round(sum(c["interviewScore"] for c in scored) / len(scored)) if scored else 0
             return json_fn(
@@ -361,13 +361,13 @@ async def try_extended_routes(
         if start.timestamp() <= datetime.now(timezone.utc).timestamp():
             return json_fn(400, {"error": "Choose a future interview time."})
         db = ctx.load_db()
-        user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+        user = find_user(db, email=email)
         end = invite_join_window_end(start)
         token = new_invite_token()
         invite_url = invite_public_url(token)
         org_id = user.get("primaryOrganizationId") if user else None
         if not org_id:
-            member = next((m for m in db.get("organizationMembers") or [] if m.get("userId") == user.get("id")), None)
+            member = next(iter(memberships_for_user(db, user.get("id") if user else None)), None)
             org_id = member.get("organizationId") if member else None
         context_json = {
             **runtime.build_job_seeker_invite_context(db, email, body),
@@ -597,7 +597,7 @@ async def try_extended_routes(
         body = await runtime.read_json_body(request)
         try:
             db = ctx.load_db()
-            account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+            account = find_user(db, email=email)
             pool = db_store.db_pool(config.database_url or "dynamodb")
             out = await art_store.persist_interview_report_pdf_to_s3(
                 pool=pool,

@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+from app.db.finders import (
+    employer_apps_for_job,
+    find_employer_app,
+    find_employer_app_for,
+    find_job,
+    find_user,
+    jobs_by_shareable_code,
+    jobs_for_org,
+    open_jobs,
+    remove_job,
+    shareable_codes_exist,
+)
+from app.db.uow import UnitOfWork
 import secrets
 from typing import Any
 from urllib.parse import unquote
@@ -47,10 +60,9 @@ def create_vendor_job(db: dict, organization_id: str, created_by_user_id: str, b
         err.status = 400  # type: ignore[attr-defined]
         raise err
     shareable_code = new_shareable_code()
-    existing = {j.get("shareableCode") for j in db.get("jobs") or []}
-    while shareable_code in existing:
+    while shareable_codes_exist(db, [shareable_code]):
         shareable_code = new_shareable_code()
-    user = next((u for u in db.get("users") or [] if u.get("id") == created_by_user_id), None)
+    user = find_user(db, user_id=created_by_user_id)
     company = str(body.get("company") or (user.get("companyName") if user else "") or "Organization").strip()
     role_track = str(body.get("roleTrack") or body.get("role") or "").strip()
     if not role_track:
@@ -111,11 +123,7 @@ def get_job_by_shareable_code(db: dict, code: str, company_slug: str | None = No
     if not c:
         return None
     slug = slugify_company_name(company_slug) if company_slug else None
-    matches = [
-        j
-        for j in db.get("jobs") or []
-        if _is_job_link_active(j) and str(j.get("shareableCode") or "").lower() == c
-    ]
+    matches = [j for j in jobs_by_shareable_code(db, c) if _is_job_link_active(j)]
     if not matches:
         return None
     if not slug or len(matches) == 1:
@@ -136,6 +144,8 @@ async def resolve_public_job(db: dict, database_url: str, code: str, company_slu
     if not job:
         job = get_job_by_shareable_code(db, code, None)
     if not job and database_url:
+        if isinstance(db, UnitOfWork):
+            return None  # the finder above already queried the database
         from_db = find_job_by_shareable_code(database_url, code)
         if from_db:
             job = from_db
@@ -168,11 +178,7 @@ def parse_public_job_path(pathname: str) -> dict[str, Any]:
 
 
 def list_open_jobs(db: dict) -> list[dict]:
-    jobs = [
-        j
-        for j in db.get("jobs") or []
-        if _is_job_link_active(j) and str(j.get("title") or "").strip()
-    ]
+    jobs = [j for j in open_jobs(db) if _is_job_link_active(j) and str(j.get("title") or "").strip()]
     return sorted(jobs, key=lambda j: str(j.get("createdAt") or ""), reverse=True)
 
 
@@ -203,14 +209,12 @@ def list_org_jobs(db: dict, organization_id: str, options: dict | None = None) -
             return False
         return job_visible_to_recruiter(j, options)
 
-    return sorted([j for j in db.get("jobs") or [] if ok(j)], key=lambda j: str(j.get("createdAt") or ""), reverse=True)
+    return sorted([j for j in jobs_for_org(db, org_id) if ok(j)], key=lambda j: str(j.get("createdAt") or ""), reverse=True)
 
 
 def get_org_job(db: dict, organization_id: str, job_id: str) -> dict | None:
-    return next(
-        (j for j in db.get("jobs") or [] if j.get("id") == job_id and j.get("organizationId") == organization_id),
-        None,
-    )
+    job = find_job(db, job_id)
+    return job if job and job.get("organizationId") == organization_id else None
 
 
 def get_org_job_for_recruiter(db: dict, organization_id: str, job_id: str, options: dict | None = None) -> dict | None:
@@ -221,14 +225,8 @@ def get_org_job_for_recruiter(db: dict, organization_id: str, job_id: str, optio
 
 
 def get_org_application(db: dict, organization_id: str, application_id: str) -> dict | None:
-    return next(
-        (
-            a
-            for a in db.get("employerApplications") or []
-            if a.get("id") == application_id and a.get("organizationId") == organization_id
-        ),
-        None,
-    )
+    app = find_employer_app(db, application_id)
+    return app if app and app.get("organizationId") == organization_id else None
 
 
 def get_org_application_for_recruiter(
@@ -252,8 +250,7 @@ def delete_vendor_job(db: dict, organization_id: str, job_id: str) -> dict:
         err = ValueError("Job not found.")
         err.status = 404  # type: ignore[attr-defined]
         raise err
-    db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != jid]
-    db["employerApplications"] = [a for a in db.get("employerApplications") or [] if a.get("jobId") != jid]
+    remove_job(db, jid)
     return {"id": jid, "title": job.get("title")}
 
 
@@ -320,7 +317,7 @@ def create_job_application(db: dict, job: dict, payload: dict) -> dict:
         err.status = 400  # type: ignore[attr-defined]
         raise err
     db.setdefault("employerApplications", [])
-    dup = next((a for a in db["employerApplications"] if a.get("jobId") == job.get("id") and a.get("candidateEmail") == email), None)
+    dup = find_employer_app_for(db, job.get("id"), email)
     if dup:
         if dup.get("candidateUserId") and dup.get("candidateUserId") != payload.get("candidateUserId"):
             err = ValueError("Application belongs to another account.")
@@ -417,11 +414,7 @@ def attach_candidate_report_to_application(
 
 
 def list_job_applications(db: dict, organization_id: str, job_id: str) -> list[dict]:
-    apps = [
-        a
-        for a in db.get("employerApplications") or []
-        if a.get("organizationId") == organization_id and a.get("jobId") == job_id
-    ]
+    apps = [a for a in employer_apps_for_job(db, job_id) if a.get("organizationId") == organization_id]
     return sorted(apps, key=lambda a: str(a.get("appliedAt") or ""), reverse=True)
 
 
@@ -429,14 +422,7 @@ def update_application_interview(
     db: dict, application_id: str, organization_id: str, result: dict, extra: dict | None = None
 ) -> dict | None:
     extra = extra or {}
-    app = next(
-        (
-            a
-            for a in db.get("employerApplications") or []
-            if a.get("id") == application_id and a.get("organizationId") == organization_id
-        ),
-        None,
-    )
+    app = get_org_application(db, organization_id, application_id)
     if not app:
         return None
     from datetime import datetime, timezone

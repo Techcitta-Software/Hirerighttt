@@ -72,6 +72,10 @@ def apply_schema(conn) -> None:  # psycopg connection
     """Baseline schema (idempotent CREATE ... IF NOT EXISTS), then any versioned migrations not yet applied."""
     sql = read_all_schema_sql()
     with conn.cursor() as cur:
+        # Several API workers / containers start at once: only one applies the schema at a time (the others wait,
+        # then find everything already in place). Concurrent CREATE ... IF NOT EXISTS can otherwise collide.
+        # A transaction-level lock is released by the caller's commit.
+        cur.execute("SELECT pg_advisory_xact_lock(872341)")
         cur.execute(sql)
     apply_migrations(conn)
 

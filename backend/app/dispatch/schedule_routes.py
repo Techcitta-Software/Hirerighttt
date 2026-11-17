@@ -11,6 +11,7 @@ Routes
 
 from __future__ import annotations
 
+from app.db.finders import find_user
 import asyncio
 import hmac
 import logging
@@ -223,7 +224,7 @@ async def try_schedule_routes(
         token = match.group(1)
         invite = await get_interview_invite_by_token(pool, token)
         db = ctx.load_db()
-        user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+        user = find_user(db, email=email)
         refusal = reschedule_refusal(invite, user, db)
         if refusal:
             return json_fn(403, {"error": refusal, "code": "RESCHEDULE_NOT_ALLOWED"})

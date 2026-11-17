@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.db.finders import find_user, find_user_by_phone as find_user_by_phone_in_db
 import asyncio
 import logging
 import re
@@ -11,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.auth_passwords import hash_password, verify_password
 from app.auth_register import UniqueAccountError, register_account
 from app.auth_roles import login_role_mismatch_message, validate_employer_signup
-from app.auth_phone import find_user_by_phone, is_valid_phone_input, normalize_phone
+from app.auth_phone import is_valid_phone_input, normalize_phone
 from app.db import db_pool
 from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config, is_prod_like
@@ -47,7 +48,7 @@ async def signup(request: Request, body: dict) -> dict:
         )
     phone = normalize_phone(phone_raw)
     db = runtime.load_db()
-    if any(u.get("email") == email for u in db.get("users") or []):
+    if find_user(db, email=email) is not None:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -55,7 +56,7 @@ async def signup(request: Request, body: dict) -> dict:
                 "as either a candidate or a vendor (employer)."
             ),
         )
-    if find_user_by_phone(db.get("users") or [], phone_raw):
+    if find_user_by_phone_in_db(db, phone_raw):
         raise HTTPException(status_code=409, detail="An account with this mobile number already exists.")
     from app.db.dynamo_config import persistence_ready
 
@@ -88,7 +89,7 @@ async def signup(request: Request, body: dict) -> dict:
             },
         )
         user = registered["user"]
-        runtime.set_db_cache(await asyncio.to_thread(runtime.load_db_sync))
+        # (This used to reload the ENTIRE database after every sign-up. Each request now reads only its own rows.)
     except UniqueAccountError as err:
         raise HTTPException(status_code=409, detail=str(err)) from err
     if role != "employer":
@@ -100,18 +101,22 @@ async def signup(request: Request, body: dict) -> dict:
             db.setdefault("profiles", {})[email] = {"completedSteps": 0}
             await runtime.save_db(db)
         elif config.database_url.strip():
-            pool = db_pool(config.database_url)
-            with pool.connection() as conn:
-                conn.execute(
-                    """INSERT INTO profiles (email, user_id, data, updated_at)
-                       VALUES (%s, %s, '{"completedSteps":0}'::jsonb, NOW())
-                       ON CONFLICT (email) DO UPDATE SET
-                         user_id = EXCLUDED.user_id,
-                         data = '{"completedSteps":0}'::jsonb,
-                         updated_at = NOW()""",
-                    (email, user["id"]),
-                )
-                conn.commit()
+
+            def _create_profile() -> None:
+                pool = db_pool(config.database_url)
+                with pool.connection() as conn:
+                    conn.execute(
+                        """INSERT INTO profiles (email, user_id, data, updated_at)
+                           VALUES (%s, %s, '{"completedSteps":0}'::jsonb, NOW())
+                           ON CONFLICT (email) DO UPDATE SET
+                             user_id = EXCLUDED.user_id,
+                             data = '{"completedSteps":0}'::jsonb,
+                             updated_at = NOW()""",
+                        (email, user["id"]),
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_create_profile)  # never block the event loop on the database
     token = secrets.token_hex(16)
     await runtime.register_session(token, email)
     return {
@@ -137,7 +142,7 @@ async def login(request: Request, body: dict) -> dict:
     if not runtime.rate_limit(f"login:{ip}", 300) or not runtime.rate_limit(f"login-email:{email}", 10):
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again shortly.")
     db = runtime.load_db()
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if (
         not user
         or user.get("status") != "active"
@@ -195,7 +200,7 @@ async def forgot_password(request: Request, body: dict) -> dict:
     if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
     db = runtime.load_db()
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if not user or user.get("status") != "active":
         return response
     token = pw_reset.new_reset_token()
@@ -247,7 +252,7 @@ async def reset_password(request: Request, body: dict) -> dict:
             detail="This reset link is invalid or has expired. Request a new one.",
         )
     db = runtime.load_db()
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if not user or user.get("status") != "active":
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
     user["passwordHash"] = hash_password(password)
@@ -269,7 +274,7 @@ async def logout(request: Request) -> dict:
 async def me(request: Request) -> dict:
     email = await runtime.require_auth_email(request)
     db = runtime.load_db()
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     tenant = runtime.tenant_context_for_user(db, user)
@@ -310,7 +315,7 @@ async def put_profile(request: Request, body: dict) -> dict:
     prev["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     db.setdefault("profiles", {})[email] = prev
     await runtime.save_db(db)
-    account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    account = find_user(db, email=email)
     if account and config.database_url:
         try:
             await upsert_candidate_talent(

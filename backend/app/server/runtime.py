@@ -15,13 +15,29 @@ from app.db.store import (
     save_db as persist_db,
     save_session_token,
 )
+from app.db.finders import find_organization, find_plan, find_user, memberships_for_user, subscription_for_org
 from app.node_config import config
 from app.server import ratelimit
 
+# Legacy DynamoDB mode only: the whole database in one process. With Postgres every request gets its own unit of
+# work (app/db/uow.py) that loads only the rows it touches, so the API can run as many instances as needed.
 _db_cache: dict[str, Any] = empty_db()
 
 
+# Set by set_db_cache(): an explicit in-memory database for the URL it was set under (tests seed one this way).
+_memory_db_url: str | None = None
+
+
+def _uses_unit_of_work() -> bool:
+    from app.db.dynamo_config import database_provider
+
+    if _memory_db_url is not None and _memory_db_url == config.database_url:
+        return False
+    return database_provider() != "dynamodb" and bool(config.database_url.strip())
+
+
 def load_db_sync() -> dict[str, Any]:
+    """Startup: make sure the schema exists and (dev only) the demo accounts. Nothing is loaded into memory."""
     global _db_cache
     from app.db.dynamo_config import database_provider
 
@@ -41,30 +57,54 @@ def load_db_sync() -> dict[str, Any]:
                 mirror_db_to_dynamo(_db_cache)
         return _db_cache
     if config.database_url.strip():
+        from app.db.store import _ensure_schema
+        from app.db.uow import new_uow
         from app.demo_accounts import seed_demo_users_if_needed
 
-        _db_cache = load_db_from_store(config.database_url)
-        _db_cache, changed = seed_demo_users_if_needed(_db_cache)
+        _ensure_schema(config.database_url)
+        uow = new_uow(config.database_url)
+        _, changed = seed_demo_users_if_needed(uow)
         if changed:
-            persist_db(_db_cache, config.database_url)
+            uow.flush()
         if config.allow_demo_accounts:
             from app.demo_accounts import index_demo_jobseekers_sync
 
-            index_demo_jobseekers_sync(_db_cache)
+            index_demo_jobseekers_sync(uow)
+        return uow
     return _db_cache
 
 
 def set_db_cache(db: dict[str, Any]) -> None:
-    global _db_cache
+    """Use `db` as an in-memory database for the current DATABASE_URL (tests, legacy DynamoDB mode).
+
+    Production code never calls this: with Postgres each request has its own unit of work instead."""
+    global _db_cache, _memory_db_url
     _db_cache = db
+    _memory_db_url = config.database_url
 
 
 def load_db() -> dict[str, Any]:
+    """The request's database handle. Postgres: a per-request unit of work. DynamoDB (legacy): the shared dict."""
+    if _uses_unit_of_work():
+        from app.db.uow import current_uow
+
+        return current_uow(config.database_url)
     return _db_cache
 
 
 async def save_db(db: dict[str, Any] | None = None) -> None:
     global _db_cache
+    from app.db.uow import UnitOfWork
+
+    target = db if db is not None else load_db()
+    if isinstance(target, UnitOfWork):
+        from app.db.store import invalidate_read_caches
+
+        try:
+            await asyncio.to_thread(target.flush)
+        finally:
+            invalidate_read_caches()
+        return
     if db is not None:
         _db_cache = db
     from app.db.dynamo_config import database_provider, use_neon
@@ -139,22 +179,7 @@ async def require_auth_email(request: Request) -> str:
     if not email:
         raise HTTPException(status_code=401, detail="Unauthorized")
     db = load_db()
-    active = any(u.get("email") == email and u.get("status") == "active" for u in db.get("users") or [])
-    from app.db.dynamo_config import database_provider
-
-    if not active and database_provider() != "dynamodb" and config.database_url.strip():
-        try:
-            fresh = await asyncio.to_thread(load_db_from_store, config.database_url)
-            hit = next((u for u in fresh.get("users") or [] if u.get("email") == email and u.get("status") == "active"), None)
-            if hit:
-                users = list(db.get("users") or [])
-                if not any(u.get("email") == email for u in users):
-                    users.append(hit)
-                    db["users"] = users
-                    set_db_cache(db)
-                active = True
-        except Exception:
-            active = False
+    active = find_user(db, email=email, active_only=True) is not None
     if not active:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return email
@@ -163,17 +188,14 @@ async def require_auth_email(request: Request) -> str:
 def tenant_context_for_user(db: dict[str, Any], user: dict | None) -> dict[str, Any]:
     if not user:
         return {"organization": None, "subscription": None, "plan": None, "membership": None}
-    members = db.get("organizationMembers") or []
+    members = memberships_for_user(db, user.get("id"))
     membership = next(
-        (m for m in members if m.get("userId") == user.get("id") and m.get("organizationId") == user.get("primaryOrganizationId")),
+        (m for m in members if m.get("organizationId") == user.get("primaryOrganizationId")),
         None,
-    ) or next((m for m in members if m.get("userId") == user.get("id")), None)
-    organization = next((o for o in db.get("organizations") or [] if o.get("id") == membership.get("organizationId")), None) if membership else None
-    subscription = next(
-        (s for s in db.get("organizationSubscriptions") or [] if s.get("organizationId") == organization.get("id")),
-        None,
-    ) if organization else None
-    plan = next((p for p in db.get("subscriptionPlans") or [] if p.get("id") == subscription.get("planId")), None) if subscription else None
+    ) or next(iter(members), None)
+    organization = find_organization(db, membership.get("organizationId")) if membership else None
+    subscription = subscription_for_org(db, organization.get("id")) if organization else None
+    plan = find_plan(db, subscription.get("planId")) if subscription else None
     return {
         "organization": organization,
         "subscription": subscription,
@@ -200,7 +222,7 @@ def _is_demo_display_name(name: str) -> bool:
 def merge_interview_profile(db: dict[str, Any], email: str, body_profile: dict | None) -> dict:
     from app.services.interview_agent import resolve_candidate_name
 
-    account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    account = find_user(db, email=email)
     stored = dict((db.get("profiles") or {}).get(email) or {})
     merged = {**stored, **(body_profile or {})}
     client_name = str(
@@ -270,7 +292,7 @@ async def require_employer_tenant(request: Request, db: dict[str, Any]) -> dict 
     from fastapi import HTTPException
 
     email = await require_auth_email(request)
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if not user or user.get("role") != "employer":
         raise HTTPException(status_code=403, detail="Employer account required.")
     tenant = tenant_context_for_user(db, user)

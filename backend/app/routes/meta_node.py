@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.db.finders import find_user, find_users_by_ids, jobs_for_org, members_of_org
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -83,7 +84,7 @@ async def plans() -> dict:
 async def organization(request: Request) -> dict:
     email = await runtime.require_auth_email(request)
     db = runtime.load_db()
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
     tenant = runtime.tenant_context_for_user(db, user)
@@ -92,10 +93,10 @@ async def organization(request: Request) -> dict:
         raise HTTPException(status_code=404, detail="No organization for this account.")
     org_id = org["id"]
     members = []
-    for m in db.get("organizationMembers") or []:
-        if m.get("organizationId") != org_id:
-            continue
-        u = next((x for x in db.get("users") or [] if x.get("id") == m.get("userId")), None)
+    org_members = members_of_org(db, org_id)
+    users_by_id = {u.get("id"): u for u in find_users_by_ids(db, [m.get("userId") for m in org_members])}
+    for m in org_members:
+        u = users_by_id.get(m.get("userId"))
         members.append(
             {
                 "userId": m.get("userId"),
@@ -105,7 +106,7 @@ async def organization(request: Request) -> dict:
                 "joinedAt": m.get("joinedAt"),
             }
         )
-    jobs = [j for j in db.get("jobs") or [] if j.get("organizationId") == org_id]
+    jobs = jobs_for_org(db, org_id)
     return {
         "organization": org,
         "subscription": tenant.get("subscription"),

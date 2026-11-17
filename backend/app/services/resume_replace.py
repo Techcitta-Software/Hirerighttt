@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.db.finders import session_items_for_email
+from app.db.finders import find_user
 import json
 from typing import Any
 
@@ -106,17 +108,15 @@ async def _purge_prior_artifacts(pool, email: str, prev: dict, db: dict) -> dict
             delete_object(str(prev["resumeStoragePath"]))
         session_ids = [
             sid
-            for sid, session in db["interviewSessions"].items()
-            if str((session or {}).get("email") or "").lower() == email
+            for sid, session in session_items_for_email(db, email)
         ]
         counts = dr.purge_candidate_interview_data_dynamo(
             email, session_ids=session_ids, delete_object=delete_object if s3_storage_configured() else None
         )
         recordings, artifacts = counts["recordings"], counts["artifacts"]
     db["interviews"].pop(email, None)
-    for sid, session in list(db.get("interviewSessions", {}).items()):
-        if str((session or {}).get("email") or "").lower() == email:
-            del db["interviewSessions"][sid]
+    for sid, _session in session_items_for_email(db, email):
+        db["interviewSessions"].pop(sid, None)
     return {"recordings": recordings, "artifacts": artifacts}
 
 
@@ -133,7 +133,7 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     save_db = opts["save_db"]
     parsed = parse_resume_upload_body(body)
     db.setdefault("profiles", {})
-    account = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    account = find_user(db, email=email)
     prev = dict(db["profiles"].get(email) or {})
     # Neon is only touched when it is the active store; with DATABASE_PROVIDER=dynamodb nothing is written there.
     pool = db_pool(config.database_url) if (config.database_url and use_neon()) else None

@@ -1,20 +1,18 @@
 from __future__ import annotations
 
+from app.db.finders import employer_apps_for_candidate, find_user, memberships_for_user, sessions_for_email
 from app.services.vendor.jobs import list_org_jobs
 
 
-def _recruiter_emails(db: dict) -> set[str]:
-    emails: set[str] = set()
-    for member in db.get("organizationMembers") or []:
-        if str(member.get("role") or "") not in ("owner", "admin", "recruiter"):
-            continue
-        user = next((u for u in db.get("users") or [] if u.get("id") == member.get("userId")), None)
-        if user and user.get("email"):
-            emails.add(str(user["email"]).lower())
-    for user in db.get("users") or []:
-        if user.get("role") == "employer" and user.get("email"):
-            emails.add(str(user["email"]).lower())
-    return emails
+def _is_recruiter_account(db: dict, user: dict | None) -> bool:
+    """An employer account, or a member of an organization's hiring team: never shown as a candidate."""
+    if not user:
+        return False
+    if user.get("role") == "employer":
+        return True
+    return any(
+        str(m.get("role") or "") in ("owner", "admin", "recruiter") for m in memberships_for_user(db, user.get("id"))
+    )
 
 
 def assert_vendor_may_view_candidate_documents(
@@ -35,13 +33,8 @@ def assert_vendor_may_view_candidate_documents(
         err = ValueError("Candidate email is required.")
         err.status = 400  # type: ignore[attr-defined]
         raise err
-    recruiters = _recruiter_emails(db)
-    if email in recruiters:
-        err = ValueError("Candidate not found.")
-        err.status = 404  # type: ignore[attr-defined]
-        raise err
-    user = next((u for u in db.get("users") or [] if str(u.get("email", "")).lower() == email), None)
-    if user and user.get("role") == "employer":
+    user = find_user(db, email=email)
+    if _is_recruiter_account(db, user):
         err = ValueError("Candidate not found.")
         err.status = 404  # type: ignore[attr-defined]
         raise err
@@ -52,13 +45,13 @@ def assert_vendor_may_view_candidate_documents(
         str(a.get("organizationId") or "") == str(organization_id or "")
         and str(a.get("candidateEmail") or "").lower() == email
         and (not recruiter_job_ids or a.get("jobId") in recruiter_job_ids)
-        for a in db.get("employerApplications") or []
+        for a in employer_apps_for_candidate(db, email)
     )
     linked_session = any(
         str(s.get("organizationId") or "") == str(organization_id or "")
         and str(s.get("email") or "").lower() == email
         and (not recruiter_job_ids or s.get("jobId") in recruiter_job_ids)
-        for s in (db.get("interviewSessions") or {}).values()
+        for s in sessions_for_email(db, email)
     )
     job_seeker = bool(user and user.get("role") != "employer") and not require_link
     if not linked_app and not linked_session and not job_seeker:

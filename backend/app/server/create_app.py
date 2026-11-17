@@ -170,6 +170,11 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Request-ID"],
     )
+    # Outermost of all: each HTTP request gets its own unit of work (app/db/uow.py), so the routes below only load
+    # the rows they touch and nothing is shared between requests or API instances.
+    from app.db.uow import UnitOfWorkMiddleware
+
+    app.add_middleware(UnitOfWorkMiddleware, database_url_fn=lambda: config.database_url)
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

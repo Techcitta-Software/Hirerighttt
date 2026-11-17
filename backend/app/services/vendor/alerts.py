@@ -2,10 +2,33 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.db.finders import find_job, find_users_by_emails, profiles_for_emails
 from app.services.vendor.job_role_match import resolve_candidate_role_hints, score_job_role_alignment
 from app.services.vendor.jobs import job_visible_to_recruiter
 
 MIN_MATCH_SCORE = 50
+MAX_ALERT_CANDIDATES = 2000  # per job post; the full-text index picks the most relevant candidates first
+
+
+def _alert_candidates(db: dict, job: dict) -> list[dict]:
+    """Candidates worth scoring for this job. Postgres: a full-text query over the talent index, never every user."""
+    from app.db.uow import UnitOfWork
+
+    if not isinstance(db, UnitOfWork):
+        return [u for u in db.get("users") or []]
+    terms = " ".join(str(job.get(k) or "") for k in ("title", "roleTrack")).strip()
+    if not terms:
+        return []
+    rows = db.query(
+        """SELECT email FROM candidate_talent_profiles
+           WHERE search_vector @@ plainto_tsquery('english', %s)
+           ORDER BY ts_rank(search_vector, plainto_tsquery('english', %s)) DESC
+           LIMIT %s""",
+        (terms, terms, MAX_ALERT_CANDIDATES),
+    )
+    emails = [r["email"] for r in rows]
+    profiles_for_emails(db, emails)  # one query for all of their profiles
+    return list(find_users_by_emails(db, emails).values())
 
 
 def queue_candidate_job_alerts(db: dict, job: dict) -> list[str]:
@@ -13,7 +36,7 @@ def queue_candidate_job_alerts(db: dict, job: dict) -> list[str]:
         return []
     db.setdefault("candidateJobAlerts", {})
     alerted: list[str] = []
-    for user in db.get("users") or []:
+    for user in _alert_candidates(db, job):
         if user.get("role") == "employer" or user.get("status") == "disabled":
             continue
         email = str(user.get("email") or "").lower()
@@ -86,10 +109,7 @@ def list_employer_application_alerts(db: dict, organization_id: str, options: di
         lst = [
             a
             for a in lst
-            if job_visible_to_recruiter(
-                next((j for j in db.get("jobs") or [] if j.get("id") == a.get("jobId")), {}),
-                options,
-            )
+            if job_visible_to_recruiter(find_job(db, a.get("jobId")) or {}, options)
         ]
     return [a for a in lst if not unread_only or not a.get("read")]
 

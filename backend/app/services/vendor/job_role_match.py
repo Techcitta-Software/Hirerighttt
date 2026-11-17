@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.db.finders import find_user
 import re
 from typing import Any
 
@@ -122,7 +123,7 @@ def apply_candidate_job_scope(db: dict, email: str, jobs: list[dict], scope: str
     total_open = len(jobs)
     if normalized == "all":
         return {"jobs": jobs, "meta": {"scope": "all", "totalOpen": total_open, "matchedCount": total_open, "candidateRoleHints": []}}
-    user = next((u for u in db.get("users") or [] if u.get("email") == email), None)
+    user = find_user(db, email=email)
     if user and user.get("role") == "employer":
         return {"jobs": jobs, "meta": {"scope": "all", "totalOpen": total_open, "matchedCount": total_open, "candidateRoleHints": []}}
     profile = (db.get("profiles") or {}).get(email) or {}

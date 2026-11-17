@@ -38,9 +38,20 @@ sessions and reset tokens, and applies the audit/recording retention periods abo
 (`retention.purged`). For a candidate's delete-on-request, delete their rows and S3 objects under their tenant
 prefix, then record the action in `audit_logs`.
 
-## Single-instance caveat
-The API holds its working dataset in process memory and persists it to Postgres, so run **one** API instance.
-Scaling out needs that cache replaced with direct queries first.
+## Scaling out (Postgres / Aurora)
+Each HTTP request gets its own unit of work (`app/db/uow.py`): it loads only the rows it touches through indexed
+queries (`app/db/finders.py`) and `save_db` writes only the rows that changed. Nothing is shared in process memory,
+so run as many workers and containers as needed behind a load balancer.
+
+* `WEB_CONCURRENCY`: worker processes per container (default 2; about 2 x vCPUs).
+* `DB_POOL_MAX`: connections per worker (default 10). Total connections = containers x workers x `DB_POOL_MAX`;
+  keep it under the database limit, or put RDS Proxy / PgBouncer in front.
+* `REDIS_URL`: required with more than one instance, so rate limits are shared.
+* Use `DATABASE_PROVIDER=neon` (Postgres). `dynamodb` still uses the legacy whole-database-in-memory mode and must
+  stay at one instance.
+* A log line `Full table load of <table>` means some code path iterated a whole table; give it a finder.
+* Measured locally (100,000 users, one laptop): API memory 81 MB, flat, regardless of user count (was about 1 GB);
+  startup 1.9 s (was 9.9 s); a profile save 28 ms (it never finished before); `/api/me` 400 req/s with 4 workers.
 
 ## Deploys
 `CI` runs on every push/PR (with a Postgres service). Render and Vercel deploy only from `main`, only after CI succeeds.

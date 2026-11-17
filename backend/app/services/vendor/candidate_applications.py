@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.db.finders import applications_for_job
 from datetime import datetime, timezone
 from typing import Any
 
@@ -73,7 +74,7 @@ def mark_candidate_job_applications_deleted(db: dict, job_id: str, meta: dict | 
     }
     updated = 0
     records: list[dict] = []
-    for email, rows in (db.get("applications") or {}).items():
+    for email, rows in applications_for_job(db, jid).items():
         if not isinstance(rows, list):
             continue
         for i, row in enumerate(rows):

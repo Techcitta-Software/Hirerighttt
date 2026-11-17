@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.auth_passwords import hash_password, verify_password
+from app.db.finders import find_user, memberships_for_user
 from app.db.saas_helpers import provision_employer_tenant
 from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config
@@ -54,7 +55,7 @@ def seed_demo_users_if_needed(db: dict[str, Any]) -> tuple[dict[str, Any], bool]
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     for demo in DEMO_SEED_USERS:
-        account = next((u for u in db["users"] if u.get("email") == demo["email"]), None)
+        account = find_user(db, email=demo["email"])
         if not account:
             account = {
                 "id": demo["id"],
@@ -89,14 +90,14 @@ def seed_demo_users_if_needed(db: dict[str, Any]) -> tuple[dict[str, Any], bool]
     for demo in DEMO_SEED_USERS:
         if demo["role"] != "employer":
             continue
-        account = next((u for u in db["users"] if u.get("email") == demo["email"]), None)
+        account = find_user(db, email=demo["email"])
         if not account:
             continue
-        before = (len(db.get("organizations") or []), len(db.get("organizationMembers") or []))
+        before = len(memberships_for_user(db, account["id"]))
         provision_employer_tenant(db, account, plan_id="plan-pro")
-        if (len(db.get("organizations") or []), len(db.get("organizationMembers") or [])) != before:
+        member = next(iter(memberships_for_user(db, account["id"])), None)
+        if (1 if member else 0) != before:
             changed = True
-        member = next((m for m in db.get("organizationMembers") or [] if m.get("userId") == account["id"]), None)
         if member and not account.get("primaryOrganizationId"):
             account["primaryOrganizationId"] = member["organizationId"]
             changed = True
@@ -111,7 +112,7 @@ def index_demo_jobseekers_sync(db: dict[str, Any]) -> None:
         for demo in DEMO_SEED_USERS:
             if demo["role"] != "jobseeker":
                 continue
-            account = next((u for u in db.get("users") or [] if u.get("email") == demo["email"]), None)
+            account = find_user(db, email=demo["email"])
             if not account:
                 continue
             profile = (db.get("profiles") or {}).get(demo["email"]) or {
