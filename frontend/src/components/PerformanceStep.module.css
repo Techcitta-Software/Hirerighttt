@@ -145,8 +145,8 @@
 .textarea:focus,
 .textInput:focus {
   outline: none;
-  border-color: #7047ff;
-  box-shadow: 0 0 0 1px #7047ff, 0 0 0 3px rgba(112, 71, 255, 0.15);
+  border-color: var(--hr-brand-solid, #5046e5);
+  box-shadow: 0 0 0 1px var(--hr-brand-solid, #5046e5), 0 0 0 3px rgba(80, 70, 229, 0.15);
 }
 
 .counter {
@@ -352,15 +352,15 @@
   gap: 12px;
   padding: 16px 18px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #f5f2ff, #e9e1ff);
-  border: 1px solid rgba(112, 71, 255, 0.25);
+  background: var(--brand-light, #eef2ff);
+  border: 1px solid rgba(80, 70, 229, 0.25);
 }
 
 .noteIcon {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(145deg, #7047ff, #9c7aff);
+  background: var(--hr-brand-solid, #5046e5);
   color: white;
   display: grid;
   place-items: center;

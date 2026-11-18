@@ -4,7 +4,7 @@ import { HrIcon } from '../components/HrIcon'
 import { apiHealth } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { candidateScore, needsIntegrityReview } from '../lib/candidateSearch'
-import { filterJobSeekerCandidates, mapOrgCandidate } from '../lib/employerCandidateUtils'
+import { filterJobSeekerCandidates, isOwnOrgCandidate, mapOrgCandidate } from '../lib/employerCandidateUtils'
 import { getUser, type EmployerApplicant } from '../lib/store'
 import { fetchOrganizationCandidates, fetchVendorJobs, type VendorJob } from '../lib/vendorApi'
 import shell from './EmployerDashboard.module.css'
@@ -49,7 +49,8 @@ export function VendorDashboardPage() {
         const [jobsRes, candidatesRes] = await Promise.all([fetchVendorJobs(), fetchOrganizationCandidates()])
         if (cancelled) return
         setJobs(jobsRes.jobs)
-        setCandidates(filterJobSeekerCandidates(candidatesRes.candidates).map(mapOrgCandidate))
+        // The pipeline is this organisation's own candidates, not the platform-wide talent pool.
+        setCandidates(filterJobSeekerCandidates(candidatesRes.candidates).filter(isOwnOrgCandidate).map(mapOrgCandidate))
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load your dashboard.')
       } finally {
@@ -125,38 +126,82 @@ export function VendorDashboardPage() {
     { count: stats.jobsWithoutApplicants, text: 'openings have no applicants yet', to: '/employer/jobs', icon: 'briefcase' as const },
   ].filter((a) => a.count > 0)
 
+
   return (
     <div className={shell.pageBleed}>
       <div className={shell.page}>
         <div className={shell.shell}>
-          <header className={styles.header}>
+          <header className={shell.pageHeader}>
             <div>
-              <p className={styles.eyebrow}>{user?.companyName || 'Your organization'}</p>
-              <h1 className={styles.title}>Dashboard</h1>
+              <h1 className={shell.pageTitle}>Dashboard</h1>
+              <p className={shell.pageSub}>{user?.companyName || 'Your organization'} · What needs you today and how hiring is going.</p>
             </div>
-            <div className={styles.headerActions}>
-              <Link to="/employer/candidates" className={styles.secondaryBtn}>
-                <HrIcon name="search" size={14} /> Search candidates
+            <div className={shell.pageActions}>
+              <Link to="/employer/candidates" className={shell.btnSecondary}>
+                <HrIcon name="search" size={16} /> Search candidates
               </Link>
-              <Link to="/employer/jobs" className={styles.primaryBtn}>
-                <HrIcon name="plus" size={14} /> Create job
+              <Link to="/employer/jobs" className={shell.btnPrimary}>
+                <HrIcon name="plus" size={16} /> Create job
               </Link>
             </div>
           </header>
 
           {error && (
-            <p className={styles.error} role="alert">
+            <p className={`ds-alert ds-alert--error ${styles.error}`} role="alert">
               {error}
             </p>
           )}
 
+          <section className={`${shell.panel} ${styles.attentionPanel}`} aria-labelledby="vd-attention">
+            <div className={shell.panelHeader}>
+              <div>
+                <h2 id="vd-attention" className={shell.panelTitle}>
+                  Needs your attention
+                </h2>
+                <p className={shell.panelSub}>Things that are waiting on you.</p>
+              </div>
+            </div>
+            {attention.length === 0 ? (
+              <p className={styles.allClear}>
+                {loading ? (
+                  'Loading…'
+                ) : (
+                  <>
+                    <span className={styles.allClearIcon} aria-hidden="true">
+                      <HrIcon name="check" size={14} />
+                    </span>
+                    Nothing is waiting on you.
+                  </>
+                )}
+              </p>
+            ) : (
+              <ul className={styles.attention}>
+                {attention.map((a) => (
+                  <li key={a.text}>
+                    <Link to={a.to} className={styles.attentionRow}>
+                      <span className={styles.attentionIcon} aria-hidden="true">
+                        <HrIcon name={a.icon} size={16} />
+                      </span>
+                      <span className={styles.attentionText}>
+                        <strong>{a.count}</strong> {a.text}
+                      </span>
+                      <span className={styles.attentionGo}>
+                        Review <HrIcon name="arrow-right" size={14} />
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <section className={styles.tiles} aria-label="Key numbers">
             {tiles.map((t) => (
               <Link key={t.label} to={t.to} className={styles.tile}>
-                <span className={styles.tileIcon} aria-hidden="true">
-                  <HrIcon name={t.icon} size={18} />
+                <span className={styles.tileLabel}>
+                  <HrIcon name={t.icon} size={14} />
+                  {t.label}
                 </span>
-                <span className={styles.tileLabel}>{t.label}</span>
                 <span className={styles.tileValue}>
                   {loading ? <span className="ds-skeleton ds-skeleton-line" style={{ width: 48 }} /> : t.value}
                 </span>
@@ -166,68 +211,103 @@ export function VendorDashboardPage() {
           </section>
 
           <div className={styles.grid}>
-            <section className={styles.card} aria-labelledby="vd-pipeline">
-              <h2 id="vd-pipeline" className={styles.cardTitle}>
-                Hiring pipeline
-              </h2>
-              <p className={styles.cardSub}>Where your candidates stand right now.</p>
-              <ul className={styles.bars}>
-                {PIPELINE.map((p) => {
-                  const count = stats.byStatus[p.status] || 0
-                  return (
-                    <li key={p.status} className={styles.barRow}>
-                      <span className={styles.barLabel}>{p.label}</span>
-                      <span className={styles.barTrack}>
-                        <span className={`${styles.barFill} ${p.tone}`} style={{ width: `${(count / pipelineMax) * 100}%` }} />
-                      </span>
-                      <span className={styles.barCount}>{count}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-              <div className={styles.inlineStats}>
+            <section className={shell.panel} aria-labelledby="vd-perjob">
+              <div className={shell.panelHeader}>
                 <div>
-                  <strong>{stats.averageScore ?? '–'}</strong>
-                  <span>Average interview score</span>
+                  <h2 id="vd-perjob" className={shell.panelTitle}>
+                    Applicants by opening
+                  </h2>
+                  <p className={shell.panelSub}>Which openings are drawing candidates.</p>
                 </div>
-                <div>
-                  <strong>{stats.strong}</strong>
-                  <span>Scored 70 or above</span>
-                </div>
+                <Link to="/employer/jobs" className={`${shell.btnGhost} ${shell.btnSm}`}>
+                  All jobs <HrIcon name="arrow-right" size={14} />
+                </Link>
               </div>
-            </section>
-
-            <section className={styles.card} aria-labelledby="vd-attention">
-              <h2 id="vd-attention" className={styles.cardTitle}>
-                Needs your attention
-              </h2>
-              <p className={styles.cardSub}>Things that are waiting on you.</p>
-              {attention.length === 0 ? (
-                <p className={styles.empty}>{loading ? 'Loading…' : 'Nothing is waiting on you.'}</p>
+              {stats.perJob.length === 0 ? (
+                <p className={styles.empty}>{loading ? 'Loading…' : 'No openings yet.'}</p>
               ) : (
-                <ul className={styles.attention}>
-                  {attention.map((a) => (
-                    <li key={a.text}>
-                      <Link to={a.to} className={styles.attentionRow}>
-                        <span className={styles.attentionIcon} aria-hidden="true">
-                          <HrIcon name={a.icon} size={16} />
-                        </span>
-                        <span>
-                          <strong>{a.count}</strong> {a.text}
-                        </span>
-                        <HrIcon name="arrow-right" size={14} />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <table className={styles.miniTable}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Opening</th>
+                      <th scope="col" className={styles.numCell}>
+                        Applicants
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.perJob.slice(0, 6).map((j) => (
+                      <tr key={j.id}>
+                        <td>
+                          <span className={styles.jobName} title={j.title}>
+                            {j.title}
+                          </span>
+                          <span className={styles.barTrack} aria-hidden="true">
+                            <span
+                              className={`${styles.barFill} ${styles.toneNew}`}
+                              style={{ width: `${(j.count / perJobMax) * 100}%` }}
+                            />
+                          </span>
+                        </td>
+                        <td className={styles.numCell}>
+                          {j.count === 0 ? <span className={styles.zero}>0</span> : j.count}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </section>
 
-            <section className={styles.card} aria-labelledby="vd-recent">
-              <h2 id="vd-recent" className={styles.cardTitle}>
-                Recent activity
-              </h2>
-              <p className={styles.cardSub}>Latest applications and interviews.</p>
+            <section className={shell.panel} aria-labelledby="vd-pipeline">
+              <div className={shell.panelHeader}>
+                <div>
+                  <h2 id="vd-pipeline" className={shell.panelTitle}>
+                    Hiring pipeline
+                  </h2>
+                  <p className={shell.panelSub}>Where your candidates stand right now.</p>
+                </div>
+              </div>
+              <div className={shell.panelBody}>
+                <ul className={styles.bars}>
+                  {PIPELINE.map((p) => {
+                    const count = stats.byStatus[p.status] || 0
+                    return (
+                      <li key={p.status} className={styles.barRow}>
+                        <span className={styles.barLabel}>
+                          <span className={`${styles.legendDot} ${p.tone}`} aria-hidden="true" />
+                          {p.label}
+                        </span>
+                        <span className={styles.barTrack}>
+                          <span className={`${styles.barFill} ${p.tone}`} style={{ width: `${(count / pipelineMax) * 100}%` }} />
+                        </span>
+                        <span className={styles.barCount}>{count}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <dl className={styles.inlineStats}>
+                  <div>
+                    <dt>Average interview score</dt>
+                    <dd>{stats.averageScore ?? '–'}</dd>
+                  </div>
+                  <div>
+                    <dt>Scored 70 or above</dt>
+                    <dd>{stats.strong}</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
+
+            <section className={shell.panel} aria-labelledby="vd-recent">
+              <div className={shell.panelHeader}>
+                <div>
+                  <h2 id="vd-recent" className={shell.panelTitle}>
+                    Recent activity
+                  </h2>
+                  <p className={shell.panelSub}>Latest applications and interviews.</p>
+                </div>
+              </div>
               {recent.length === 0 ? (
                 <p className={styles.empty}>{loading ? 'Loading…' : 'No activity yet. Share a job link to get started.'}</p>
               ) : (
@@ -243,7 +323,7 @@ export function VendorDashboardPage() {
                             {c.jobTitle ? ` · ${c.jobTitle}` : ''}
                           </span>
                         </span>
-                        {score !== null && <span className={styles.score}>{score}</span>}
+                        {score !== null && <ScoreValue value={score} />}
                         <span className={styles.listDate}>{formatDate(c.appliedAt)}</span>
                       </li>
                     )
@@ -252,11 +332,18 @@ export function VendorDashboardPage() {
               )}
             </section>
 
-            <section className={styles.card} aria-labelledby="vd-top">
-              <h2 id="vd-top" className={styles.cardTitle}>
-                Top performers
-              </h2>
-              <p className={styles.cardSub}>Highest AI interview scores.</p>
+            <section className={shell.panel} aria-labelledby="vd-top">
+              <div className={shell.panelHeader}>
+                <div>
+                  <h2 id="vd-top" className={shell.panelTitle}>
+                    Top performers
+                  </h2>
+                  <p className={shell.panelSub}>Highest AI interview scores.</p>
+                </div>
+                <Link to="/employer/candidates" className={`${shell.btnGhost} ${shell.btnSm}`}>
+                  All candidates <HrIcon name="arrow-right" size={14} />
+                </Link>
+              </div>
               {top.length === 0 ? (
                 <p className={styles.empty}>{loading ? 'Loading…' : 'No interview scores yet.'}</p>
               ) : (
@@ -268,60 +355,47 @@ export function VendorDashboardPage() {
                         <strong>{c.candidateName}</strong>
                         <span>{c.role || c.jobTitle || c.candidateEmail}</span>
                       </span>
-                      <span className={styles.score}>{candidateScore(c)}</span>
+                      <ScoreValue value={candidateScore(c) ?? 0} />
                     </li>
                   ))}
                 </ol>
               )}
             </section>
-
-            <section className={styles.card} aria-labelledby="vd-perjob">
-              <h2 id="vd-perjob" className={styles.cardTitle}>
-                Applicants by opening
-              </h2>
-              <p className={styles.cardSub}>Which openings are drawing candidates.</p>
-              {stats.perJob.length === 0 ? (
-                <p className={styles.empty}>{loading ? 'Loading…' : 'No openings yet.'}</p>
-              ) : (
-                <ul className={styles.bars}>
-                  {stats.perJob.slice(0, 6).map((j) => (
-                    <li key={j.id} className={styles.barRow}>
-                      <span className={styles.barLabel} title={j.title}>
-                        {j.title}
-                      </span>
-                      <span className={styles.barTrack}>
-                        <span className={`${styles.barFill} ${styles.toneNew}`} style={{ width: `${(j.count / perJobMax) * 100}%` }} />
-                      </span>
-                      <span className={styles.barCount}>{j.count}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            <section className={styles.card} aria-labelledby="vd-actions">
-              <h2 id="vd-actions" className={styles.cardTitle}>
-                Quick actions
-              </h2>
-              <p className={styles.cardSub}>Jump straight to the common tasks.</p>
-              <div className={styles.actions}>
-                <Link to="/employer/jobs" className={styles.action}>
-                  <HrIcon name="briefcase" size={16} /> Create or share a job opening
-                </Link>
-                <Link to="/employer/jobs" className={styles.action}>
-                  <HrIcon name="link" size={16} /> Send AI interview links
-                </Link>
-                <Link to="/employer/candidates" className={styles.action}>
-                  <HrIcon name="users" size={16} /> Review candidates and reports
-                </Link>
-                <Link to="/resumes" className={styles.action}>
-                  <HrIcon name="folder" size={16} /> Open the talent vault
-                </Link>
-              </div>
-            </section>
           </div>
+
+          <section className={`${shell.panel} ${styles.shortcuts}`} aria-labelledby="vd-actions">
+            <h2 id="vd-actions" className={styles.shortcutsTitle}>
+              Quick actions
+            </h2>
+            <div className={styles.actions}>
+              <Link to="/employer/jobs" className={styles.action}>
+                <HrIcon name="briefcase" size={16} /> Create or share a job opening
+              </Link>
+              <Link to="/employer/jobs" className={styles.action}>
+                <HrIcon name="link" size={16} /> Send AI interview links
+              </Link>
+              <Link to="/employer/candidates" className={styles.action}>
+                <HrIcon name="users" size={16} /> Review candidates and reports
+              </Link>
+              <Link to="/resumes" className={styles.action}>
+                <HrIcon name="folder" size={16} /> Open the talent vault
+              </Link>
+            </div>
+          </section>
         </div>
       </div>
     </div>
+  )
+}
+
+/** Score as a number with a coloured dot: green 75+, amber 50+, red below. */
+function ScoreValue({ value }: { value: number }) {
+  const rounded = Math.round(value)
+  const tone = rounded >= 75 ? shell.toneGood : rounded >= 50 ? shell.toneMid : shell.toneLow
+  return (
+    <span className={shell.score} title="AI interview score">
+      <span className={`${shell.scoreDot} ${tone}`} aria-hidden="true" />
+      {rounded}
+    </span>
   )
 }

@@ -28,6 +28,13 @@ EVAL_SYSTEM = """You are Ava, HireRight's interview evaluator. Score EACH candid
 
 3. communication — Clarity and structure for a spoken interview (STAR-style is fine). Do NOT penalize accent or minor grammar. Reward clear, organized answers. Do not conflate low communication with low correctness — if the answer is technically right but brief, correctness can still be high.
 
+CALIBRATION - use the whole scale, and keep these anchors for every dimension:
+- 85-100: correct AND specific: concrete tools, steps, numbers, trade-offs or a real example from the candidate's own work.
+- 60-80: correct but generic or incomplete: textbook-level, no specifics, no trade-offs, no example. A short correct
+  definition belongs here, not above 80. Depth for such an answer is at most 60.
+- 30-55: partly correct, vague, hesitant, or missing the main point of the question.
+- 0-25: wrong, off-topic, or no real answer ("I don't know", "not sure"). Honesty is good conduct but earns no skill points.
+
 Use scoringProfile on each item to calibrate expectations:
 - behavioral / opening: communication matters most; correctness is about relevance to the question, not technical precision.
 - technical: correctness and depth matter most.

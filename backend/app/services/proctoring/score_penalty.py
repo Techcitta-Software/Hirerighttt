@@ -29,10 +29,38 @@ def count_face_proctor_deviations(integrity: dict | None, proctoring: dict | Non
     return 0
 
 
+def _restate_score_in_scorecard(scorecard: dict[str, Any], before: int, after: int) -> None:
+    """Everything derived from the overall score must show the penalised score, not the one before it.
+
+    The report used to say "Kavya scored 70/100" and "700/1000 Industry Ready" next to an overall of 65.
+    """
+    if before == after:
+        return
+    from app.services.interview_agent import career_score_for, career_status_for
+
+    old_text, new_text = f"{before}/100", f"{after}/100"
+    for key in ("bandInterpretation", "coachNotes"):
+        if isinstance(scorecard.get(key), str):
+            scorecard[key] = scorecard[key].replace(old_text, new_text)
+    old_status = scorecard.get("finalCareerStatus")
+    if isinstance(scorecard.get("careerScore"), (int, float)):
+        scorecard["careerScore"] = career_score_for(after)
+        # A provisional (heuristic) status is kept; otherwise the band follows the new career score.
+        if isinstance(old_status, str) and not old_status.startswith("Provisional"):
+            new_status = career_status_for(scorecard["careerScore"])
+            scorecard["finalCareerStatus"] = new_status
+            if isinstance(scorecard.get("bandInterpretation"), str):
+                scorecard["bandInterpretation"] = scorecard["bandInterpretation"].replace(old_status, new_status)
+    for axis in scorecard.get("radarAxes") or []:
+        if isinstance(axis, dict) and axis.get("label") == "Overall":
+            axis["val"] = after
+
+
 def apply_face_deviation_penalty_to_result(result: dict[str, Any], deviations: int) -> dict[str, Any]:
     if not deviations or not isinstance(result, dict):
         return result
     penalty = deviations * FACE_DEVIATION_SCORE_PENALTY
+    before = result.get("overall")
     for key in ("overall", "interviewScore", "compositeScore"):
         if isinstance(result.get(key), (int, float)):
             result[key] = max(0, int(result[key]) - penalty)
@@ -43,6 +71,8 @@ def apply_face_deviation_penalty_to_result(result: dict[str, Any], deviations: i
         stats = scorecard.get("sessionStats")
         if isinstance(stats, dict) and isinstance(stats.get("overallInterviewScore"), (int, float)):
             stats["overallInterviewScore"] = max(0, int(stats["overallInterviewScore"]) - penalty)
+        if isinstance(before, (int, float)) and isinstance(result.get("overall"), (int, float)):
+            _restate_score_in_scorecard(scorecard, int(before), int(result["overall"]))
     result["proctorDeviationCount"] = deviations
     result["proctorScorePenalty"] = penalty
     improvements = result.get("improvements")

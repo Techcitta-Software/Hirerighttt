@@ -93,3 +93,19 @@ def test_unknown_source_values_are_not_stored() -> None:
     assert application_source("JOB_BOARD") == "job_board"
     assert application_source("<script>") is None
     assert application_source(None) is None
+
+
+def test_interview_result_keeps_the_vendor_decision() -> None:
+    """Finishing the interview used to reset a shortlisted / rejected applicant to "In Review"."""
+    from app.services.vendor.jobs import update_application_interview
+
+    db = _db()
+    job = _job(db)
+    resume = "Python developer. Built REST APIs with Flask and PostgreSQL." * 2
+    app = create_job_application(db, job, {"candidateEmail": "cand@example.com", "resumeText": resume})["application"]
+    assert update_application_interview(db, app["id"], "org-1", {"overall": 80})["status"] == "interviewed"
+    for decision in ("shortlisted", "rejected"):
+        app["status"] = decision
+        updated = update_application_interview(db, app["id"], "org-1", {"overall": 72})
+        assert updated["status"] == decision
+        assert updated["data"]["interviewScore"] == 72

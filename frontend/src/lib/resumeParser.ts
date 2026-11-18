@@ -14,7 +14,7 @@ import {
 import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
-import { computeExperience, isInternshipRole, monthIndex, monthsToLabel } from './resumeExperience'
+import { computeExperience, latestJob, monthsToLabel } from './resumeExperience'
 
 GlobalWorkerOptions.workerSrc = pdfWorker
 
@@ -474,17 +474,6 @@ function clip(value: string, max: number) {
   const trimmed = value.replace(/\s+/g, ' ').trim()
   if (trimmed.length <= max) return trimmed
   return `${trimmed.slice(0, max - 1).trimEnd()}…`
-}
-
-/** The job that ended last (a present job wins), for the "current role". */
-function latestJob(works: WorkExperience[], realOnly = false): WorkExperience | undefined {
-  const nowIdx = new Date().getFullYear() * 12 + new Date().getMonth()
-  const endOf = (w: WorkExperience) =>
-    w.currentlyWorking ? nowIdx + 1 : (monthIndex(w.endDate, 11) ?? monthIndex(w.startDate) ?? -1)
-  const real = works.filter((w) => w.jobTitle?.trim() && !isInternshipRole(w))
-  const pool = real.length || realOnly ? real : works.filter((w) => w.jobTitle?.trim())
-  // Listed newest-first or oldest-first: the job that ended last wins; ties keep the order on the page.
-  return pool.reduce<WorkExperience | undefined>((best, w) => (!best || endOf(w) > endOf(best) ? w : best), undefined)
 }
 
 function pickRole(text: string): string {
@@ -1737,7 +1726,7 @@ STRICT ANTI-HALLUCINATION RULES:
 JSON Schema:
 {
   "fullName": "Full name of candidate",
-  "currentRole": "Standardized job title matching industry roles (e.g. Full Stack Developer, Frontend Developer, Backend Developer, Software Engineer)",
+  "currentRole": "The job title of the MOST RECENT job, copied exactly as written on the resume (no city/country, never re-worded or standardized). No job: the title in the headline under the name. None: empty string",
   "totalExperience": "Standardized range (e.g. '0-1 Years', '1-2 Years', '2-3 Years', '3-5 Years', '5-8 Years', '8-12 Years', '12+ Years')",
   "currentLocation": "City, Country or Remote (e.g. Bengaluru, Hyderabad, Pune, Mumbai, Remote)",
   "skills": ["Array", "of", "technical", "skills", "tools", "languages"],

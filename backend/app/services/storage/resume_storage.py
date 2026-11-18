@@ -41,6 +41,22 @@ def infer_resume_content_type(filename: str, content_type: str | None = None) ->
     return "application/octet-stream"
 
 
+def stored_resume_filename(storage_key: str, resume_name: Any = None) -> str:
+    """The download name always carries the stored file's real extension.
+
+    The name used to default to "resume.pdf" (and a stale name could say .pdf for a .docx), so Word resumes were
+    served as PDFs: the browser downloaded them instead of showing a preview.
+    """
+    match = re.search(r"\.(pdf|docx)$", storage_key or "", re.I)
+    ext = f".{match.group(1).lower()}" if match else ""
+    name = re.sub(r'[\r\n"\\/]+', " ", str(resume_name or "")).strip()
+    if not name:
+        return f"resume{ext or '.pdf'}"
+    if ext and not name.lower().endswith(ext):
+        return re.sub(r"\.(pdf|docx?)$", "", name, flags=re.I) + ext
+    return name
+
+
 async def upload_resume_to_object_storage(**opts) -> dict[str, Any]:
     if not object_storage_configured():
         err = RuntimeError("Object storage is not configured (S3).")
@@ -70,7 +86,7 @@ async def resolve_resume_download_from_profile(profile: dict, _pool, *, inline: 
         err = ValueError("No stored resume file for this account.")
         err.status = 404  # type: ignore[attr-defined]
         raise err
-    name = str(profile.get("resumeName") or "resume.pdf")
+    name = stored_resume_filename(str(key), profile.get("resumeName"))
     mode = "inline" if inline else "attachment"
     signed = presign_download(str(key), disposition=f'{mode}; filename="{name}"')
     return {**signed, "contentType": infer_resume_content_type(name), "filename": name}

@@ -51,11 +51,28 @@ export function monthIndex(value: string | undefined, fallbackMonth = 0, now = n
     if (short) return (2000 + Number(short[2])) * 12 + (Number(short[1]) - 1)
     return null
   }
+  // "2020-07": what <input type="month"> stores (it used to fall through and count as January).
+  const iso = v.match(/\b((?:19|20)\d{2})-(0[1-9]|1[0-2])\b/)
+  if (iso) return Number(iso[1]) * 12 + (Number(iso[2]) - 1)
   const numeric = v.match(/\b(0?[1-9]|1[0-2])\s*[/.-]\s*(?:19|20)\d{2}\b/)
   if (numeric) return Number(year[0]) * 12 + (Number(numeric[1]) - 1)
   const month = v.match(/[A-Za-z]{3}/)
   const m = month ? MONTHS[month[0].toLowerCase()] : undefined
   return Number(year[0]) * 12 + (m ?? fallbackMonth)
+}
+
+/**
+ * A resume date ("Jul 2020", "07/2020", "2020", "2020-07") as the "yyyy-MM" value <input type="month"> needs.
+ * The parser keeps dates as written, which the month input silently shows as blank. "Present" or unreadable -> "".
+ */
+export function toMonthInputValue(value: string | undefined): string {
+  const v = (value || '').trim()
+  if (!v || /present|current|ongoing|till|now|today/i.test(v)) return ''
+  const idx = monthIndex(v)
+  if (idx === null) return ''
+  const year = Math.floor(idx / 12)
+  const month = (idx % 12) + 1
+  return `${year}-${String(month).padStart(2, '0')}`
 }
 
 /** Internships and apprenticeships are training, not employment. */
@@ -66,6 +83,17 @@ export function isInternshipRole(job: ExperienceJob): boolean {
     /\bintern(?:ship)?s?\b|\bapprentice(?:ship)?\b|\bsummer\s+trainee\b|\bindustrial\s+training\b/i.test(title) ||
     /\bintern(?:ship)?\b|\bapprentice/i.test(type)
   )
+}
+
+/** The job that ended last (a present job wins), for the "current role". */
+export function latestJob<T extends ExperienceJob>(works: T[], realOnly = false): T | undefined {
+  const nowIdx = new Date().getFullYear() * 12 + new Date().getMonth()
+  const endOf = (w: T) =>
+    w.currentlyWorking ? nowIdx + 1 : (monthIndex(w.endDate, 11) ?? monthIndex(w.startDate) ?? -1)
+  const real = works.filter((w) => w.jobTitle?.trim() && !isInternshipRole(w))
+  const pool = real.length || realOnly ? real : works.filter((w) => w.jobTitle?.trim())
+  // Listed newest-first or oldest-first: the job that ended last wins; ties keep the order on the page.
+  return pool.reduce<T | undefined>((best, w) => (!best || endOf(w) > endOf(best) ? w : best), undefined)
 }
 
 type Interval = [number, number]

@@ -10,7 +10,6 @@ import styles from './CareerIntelligenceDashboard.module.css'
 
 const HEALTH_METRIC_ICONS: HrIconName[] = ['cpu', 'wrench', 'cloud', 'settings', 'message']
 
-const POSITIONING_ICON_CYCLE: HrIconName[] = ['book', 'building', 'trending', 'rocket', 'users', 'target']
 
 interface Props {
   result: InterviewResult
@@ -53,8 +52,9 @@ export function CareerIntelligenceDashboard({
 
   const tagFor = (score: number) =>
     score >= 75 ? 'Strong' : score >= 50 ? 'Moderate' : score >= 25 ? 'Developing' : 'Needs work'
+  /* Neutral bands: green for strong, amber for moderate, slate below. No red on candidate reports. */
   const colorFor = (score: number) =>
-    score >= 75 ? '#16a34a' : score >= 50 ? '#ea580c' : '#dc2626'
+    score >= 75 ? '#047857' : score >= 50 ? '#b45309' : '#64748b'
 
   const roleKey = candidateRole || result.role || 'Candidate'
   const candidateId = useMemo(() => {
@@ -210,6 +210,11 @@ export function CareerIntelligenceDashboard({
       .join(' ')
   }, [radarAxes])
 
+
+  const careerScorePct = Math.max(0, Math.min(100, careerScore / 10))
+  const separateCategoryScores = Boolean(sc?.healthMetrics) && donuts.length > 0
+  const interviewScore = sessionStats?.overallInterviewScore ?? overall
+
   return (
     <div className={styles.dashboardContainer} id="career-intelligence-dashboard">
       {result.scoring && !result.scoring.reliable ? (
@@ -220,14 +225,12 @@ export function CareerIntelligenceDashboard({
         </div>
       ) : null}
 
-      {/* Header Profile Section */}
+      {/* ── Header: who, what, when ── */}
       <header className={styles.headerCard}>
         <div className={styles.brandRow}>
           <div className={styles.logoTitle}>
             <BrandLogo size="md" />
-            <div className={styles.brandText}>
-              <span>AI-Powered Career Intelligence Dashboard</span>
-            </div>
+            <span className={styles.brandText}>Interview report</span>
           </div>
 
           <div className={styles.headerActions} data-download-exclude>
@@ -250,358 +253,324 @@ export function CareerIntelligenceDashboard({
               }}
             >
               <HrIcon name="download" size={16} />
-              {downloading ? 'Preparing download…' : 'Download Report'}
+              {downloading ? 'Preparing download…' : 'Download report'}
             </button>
-            {downloadError ? <p className={styles.downloadError}>{downloadError}</p> : null}
+            {downloadError ? (
+              <p className={styles.downloadError} role="alert">
+                {downloadError}
+              </p>
+            ) : null}
           </div>
         </div>
 
         <div className={styles.candidateProfileRow}>
           <div className={styles.candidateLeftBlock}>
-            <div className={styles.avatarBox}>
+            <div className={styles.avatarBox} aria-hidden="true">
               {candidateName.charAt(0).toUpperCase()}
             </div>
             <div className={styles.candidateInfo}>
               <h1>{candidateName}</h1>
               <p className={styles.candidateSubtitle}>
-                {displayRole} | {displayExperience}
+                {displayRole} · {displayExperience}
               </p>
               <p className={styles.candidateTrack}>{result.role || displayRole}</p>
             </div>
           </div>
 
-          <div className={styles.metaGridRight}>
+          <dl className={styles.metaGridRight}>
             <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>
-                <HrIcon name="user" size={14} /> Candidate ID:
-              </span>
-              <span className={styles.metaValue}>{candidateId}</span>
+              <dt className={styles.metaLabel}>Interview date</dt>
+              <dd className={styles.metaValue}>{interviewDate}</dd>
             </div>
             <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>
-                <HrIcon name="lock" size={14} /> Resume Visibility:
-              </span>
-              <span className={styles.metaPrivate}>PRIVATE — Not Shared</span>
+              <dt className={styles.metaLabel}>Status</dt>
+              <dd className={`${styles.metaValue} ${styles.metaDone}`}>
+                <HrIcon name="check" size={14} /> Completed
+              </dd>
             </div>
             <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>
-                <HrIcon name="check" size={14} /> Interview Status:
-              </span>
-              <span className={styles.metaValue} style={{ color: '#16a34a' }}>Completed</span>
+              <dt className={styles.metaLabel}>Career track</dt>
+              <dd className={styles.metaValue}>{result.role || displayRole}</dd>
             </div>
             <div className={styles.metaItem}>
-              <span className={styles.metaLabel}>
-                <HrIcon name="briefcase" size={14} /> Career Track:
-              </span>
-              <span className={styles.metaValue}>{result.role || displayRole}</span>
+              <dt className={styles.metaLabel}>Candidate ID</dt>
+              <dd className={styles.metaValue}>{candidateId}</dd>
             </div>
-            <div className={styles.metaItem} style={{ gridColumn: 'span 2' }}>
-              <span className={styles.metaLabel}>
-                <HrIcon name="calendar" size={14} /> Interview Date:
-              </span>
-              <span className={styles.metaValue}>{interviewDate}</span>
+            <div className={styles.metaItem}>
+              <dt className={styles.metaLabel}>Resume visibility</dt>
+              <dd className={`${styles.metaValue} ${styles.metaPrivate}`}>
+                <HrIcon name="lock" size={13} /> Private, not shared
+              </dd>
             </div>
-          </div>
-        </div>
-
-        {/* Primary Skills Ribbon with Blue Industry Status Badge */}
-        <div className={styles.skillsRibbon}>
-          <div className={styles.skillsLeftGroup}>
-            <span className={styles.skillsRibbonLabel}>Primary Skills:</span>
-            {skillPills.length > 0 ? (
-              skillPills.map((sk, i) => (
-                <span key={`${sk}-${i}`} className={styles.skillPill}>
-                  {sk}
-                </span>
-              ))
-            ) : (
-              <span className={styles.skillPill} style={{ opacity: 0.7 }}>
-                Skills from your profile appear here after onboarding
-              </span>
-            )}
-          </div>
-          <div className={styles.industryStatusBadge}>
-            Industry Status: {statusLabel}
-          </div>
+          </dl>
         </div>
       </header>
 
-      {/* Row 1: Career Score Gauge, Score Band Explanation, Donut Distribution */}
-      <section className={styles.rowGridThree}>
-        {/* Speedometer Card */}
-        <div className={`${styles.card} ${styles.speedometerCard}`}>
-          <div className={styles.cardTitle}>HIRERIGHT CAREER SCORE™</div>
+      {/* ── Summary: one hero score, band, plain-language summary ── */}
+      <section className={`${styles.card} ${styles.summaryCard}`} aria-labelledby="report-summary-heading">
+        <div className={styles.summaryScore}>
+          <h2 id="report-summary-heading" className={styles.cardTitle}>Career score</h2>
+          <div className={styles.scoreLine}>
+            <span className={styles.scoreValue}>{careerScore}</span>
+            <span className={styles.scoreOutOf}>/ 1000</span>
+          </div>
+          <span className={styles.scoreBadgeText}>{statusLabel}</span>
+          <p className={styles.scoreSubHint}>{scoreSubHint}</p>
 
-          <svg className={styles.speedometerSvg} viewBox="0 0 200 110">
-            <path
-              d="M 20 100 A 80 80 0 0 1 180 100"
-              fill="none"
-              stroke="#e2e8f0"
-              strokeWidth="16"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 20 100 A 80 80 0 0 1 180 100"
-              fill="none"
-              stroke="url(#speedoGradient)"
-              strokeWidth="16"
-              strokeDasharray="251.2"
-              strokeDashoffset={251.2 - (251.2 * (careerScore / 1000))}
-              strokeLinecap="round"
-            />
-            <defs>
-              <linearGradient id="speedoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#ef4444" />
-                <stop offset="40%" stopColor="#f59e0b" />
-                <stop offset="70%" stopColor="#10b981" />
-                <stop offset="100%" stopColor="#059669" />
-              </linearGradient>
-            </defs>
-            {/* Needle */}
-            {(() => {
-              const angleDeg = -180 + (careerScore / 1000) * 180
-              const rad = (angleDeg * Math.PI) / 180
-              const nx = 100 + 64 * Math.cos(rad)
-              const ny = 100 + 64 * Math.sin(rad)
-              return (
-                <g>
-                  <line x1="100" y1="100" x2={nx} y2={ny} stroke="#1e3a8a" strokeWidth="3" strokeLinecap="round" />
-                  <circle cx="100" cy="100" r="5" fill="#1e3a8a" />
-                </g>
-              )
-            })()}
-            <text x="22" y="108" fill="#94a3b8" fontSize="10" fontWeight="bold">0</text>
-            <text x="175" y="108" fill="#94a3b8" fontSize="10" fontWeight="bold">1000</text>
-          </svg>
-
-          <div className={styles.scoreValue}>{careerScore}</div>
-          <div className={styles.scoreOutOf}>/ 1000</div>
-          <div className={styles.scoreBadgeText}>{statusLabel}</div>
-          <div className={styles.scoreSubHint}>{scoreSubHint}</div>
+          <div className={styles.scoreScale} aria-hidden="true">
+            <div className={styles.scoreScaleTrack}>
+              <span className={styles.scoreScaleFill} style={{ width: `${careerScorePct}%` }} />
+              <span className={styles.scoreScaleTick} style={{ left: '55%' }} />
+              <span className={styles.scoreScaleTick} style={{ left: '70%' }} />
+              <span className={styles.scoreScaleTick} style={{ left: '85%' }} />
+            </div>
+            <div className={styles.scoreScaleEnds}>
+              <span>0</span>
+              <span>1000</span>
+            </div>
+          </div>
         </div>
 
-        {/* Score Band Explanation Card */}
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>SCORE BAND EXPLANATION</div>
-          <div className={styles.scoreBandList}>
-            <div className={styles.bandItem}>
-              <span className={styles.bandBadge} style={{ background: '#166534' }}>850 – 1000</span>
+        <div className={styles.summaryBody}>
+          <h3 className={styles.subTitle}>Summary</h3>
+          <p className={styles.bandInterpretation}>{bandInterpretation}</p>
+
+          <dl className={styles.summaryStats}>
+            <div>
+              <dt>Interview score</dt>
+              <dd>
+                {interviewScore}
+                <small> / 100</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Questions</dt>
+              <dd>{sessionStats?.questionCount ?? qaRows.length}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd>
+                {sessionStats?.durationMinutes ?? '—'}
+                {sessionStats?.durationMinutes != null ? <small> min</small> : null}
+              </dd>
+            </div>
+            <div>
+              <dt>Industry status</dt>
+              <dd className={styles.summaryStatText}>{statusLabel}</dd>
+            </div>
+          </dl>
+
+          <h3 className={styles.subTitle}>Score bands</h3>
+          <ul className={styles.scoreBandList}>
+            <li className={styles.bandItem}>
+              <span className={styles.bandBadge}>850 – 1000</span>
               <span className={styles.bandLabel}>Premium Market-Ready Talent</span>
-            </div>
-            <div className={styles.bandItem}>
-              <span className={styles.bandBadge} style={{ background: '#15803d' }}>700 – 849</span>
+            </li>
+            <li className={styles.bandItem}>
+              <span className={styles.bandBadge}>700 – 849</span>
               <span className={styles.bandLabel}>Industry Ready</span>
-            </div>
-            <div className={styles.bandItem}>
-              <span className={styles.bandBadge} style={{ background: '#d97706' }}>550 – 699</span>
+            </li>
+            <li className={styles.bandItem}>
+              <span className={styles.bandBadge}>550 – 699</span>
               <span className={styles.bandLabel}>Growth Potential</span>
-            </div>
-            <div className={styles.bandItem}>
-              <span className={styles.bandBadge} style={{ background: '#dc2626' }}>Below 550</span>
+            </li>
+            <li className={styles.bandItem}>
+              <span className={styles.bandBadge}>Below 550</span>
               <span className={styles.bandLabel}>Skill Enhancement Recommended</span>
-            </div>
-          </div>
-
-          <div className={styles.bandInterpretation}>
-            <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <HrIcon name="alert" size={14} /> INTERPRETATION:
-            </strong>{' '}
-            {bandInterpretation}
-          </div>
-        </div>
-
-        {/* Career Health Distribution (5 Donut Meters) */}
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>CAREER HEALTH DISTRIBUTION</div>
-          <div className={styles.donutRow}>
-            {donuts.map((d, i) => (
-              <div key={`${d.label}-${i}`} className={styles.donutCol}>
-                <svg className={styles.donutSvg} viewBox="0 0 36 36">
-                  <path
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    fill="none"
-                    stroke="#f1f5f9"
-                    strokeWidth="3.5"
-                  />
-                  <path
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                    fill="none"
-                    stroke={d.color}
-                    strokeWidth="3.5"
-                    strokeDasharray={`${d.score}, 100`}
-                    strokeLinecap="round"
-                  />
-                  <text x="18" y="19" className={styles.donutValueText}>
-                    {d.score}%
-                  </text>
-                </svg>
-                <div className={styles.donutLabel}>{d.label}</div>
-                <div className={styles.donutTag} style={{ color: d.color }}>
-                  {d.tag}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={styles.donutLegend}>
-            <span><span className={styles.legendDot} style={{ background: '#16a34a' }}></span> Strong (70%+)</span>
-            <span><span className={styles.legendDot} style={{ background: '#ea580c' }}></span> Moderate (50% - 69%)</span>
-            <span><span className={styles.legendDot} style={{ background: '#dc2626' }}></span> Needs Improvement (&lt;50%)</span>
-          </div>
+            </li>
+          </ul>
         </div>
       </section>
 
-      {/* Row 2: Detailed Career Health Metrics + Specialized Interview Pattern Assessment */}
-      <section className={styles.rowGridTwo}>
-        {/* Left: Detailed Career Health Metrics */}
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>DETAILED CAREER HEALTH METRICS</div>
-          <div className={styles.healthList}>
-            {healthMetrics.map((hm, i) => (
-              <div key={`${hm.label}-${i}`} className={styles.healthRow}>
-                <div className={styles.healthCategory}>
-                  <span className={styles.healthIconRose}>
-                    <HrIcon name={hm.iconName} size={16} />
+      {/* ── Score by area ── */}
+      <section className={styles.card} aria-labelledby="report-areas-heading">
+        <div className={styles.cardHead}>
+          <h2 id="report-areas-heading" className={styles.cardTitle}>Score by area</h2>
+          <div className={styles.donutLegend} aria-hidden="true">
+            <span><span className={styles.legendDot} style={{ background: '#047857' }}></span> Strong (75%+)</span>
+            <span><span className={styles.legendDot} style={{ background: '#b45309' }}></span> Moderate (50–74%)</span>
+            <span><span className={styles.legendDot} style={{ background: '#64748b' }}></span> Developing (below 50%)</span>
+          </div>
+        </div>
+        <ul className={styles.healthList}>
+          {healthMetrics.map((hm, i) => (
+            <li key={`${hm.label}-${i}`} className={styles.healthRow}>
+              <span className={styles.healthCategory}>{hm.label}</span>
+              <div className={styles.barTrack} aria-hidden="true">
+                <div className={styles.barFill} style={{ width: `${hm.score}%`, background: hm.color }} />
+              </div>
+              <span className={styles.healthScoreNum}>{hm.score}%</span>
+              <span className={styles.healthPerformanceTag} style={{ color: hm.color }}>
+                {hm.tag}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {separateCategoryScores ? (
+          <>
+            <h3 className={styles.subTitle}>Category scores</h3>
+            <ul className={styles.donutRow}>
+              {donuts.map((d, i) => (
+                <li key={`${d.label}-${i}`} className={styles.donutCol}>
+                  <span className={styles.donutValue}>{d.score}%</span>
+                  <span className={styles.donutLabel}>{d.label}</span>
+                  <span className={styles.donutTag} style={{ color: d.color }}>
+                    {d.tag}
                   </span>
-                  <span>{hm.label}</span>
-                </div>
-                <div className={styles.barTrack}>
-                  <div
-                    className={styles.barFill}
-                    style={{ width: `${hm.score}%`, background: hm.color }}
-                  />
-                </div>
-                <div className={styles.healthScoreNum}>{hm.score}%</div>
-                <div
-                  className={styles.healthPerformanceTag}
-                  style={{
-                    color: hm.color,
-                    background: `${hm.color}18`,
-                    border: `1px solid ${hm.color}35`,
-                  }}
-                >
-                  {hm.tag}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </section>
 
-        {/* Right: Specialized Interview Pattern Assessment */}
+      {/* ── Strengths / to improve ── */}
+      <section className={styles.rowGridTwo} aria-label="Strengths and areas to improve">
         <div className={styles.card}>
-          <div className={styles.cardTitle}>SPECIALIZED INTERVIEW PATTERN ASSESSMENT™</div>
-          <div className={styles.patternStatRow}>
-            <div className={styles.patternStatBox}>
-              <div className={styles.patternStatIcon}>
-                <HrIcon name="calendar" size={18} />
-              </div>
-              <div className={styles.patternStatNumber}>{sessionStats?.durationMinutes ?? '—'}</div>
-              <div className={styles.patternStatLabel}>Minutes Duration</div>
-            </div>
-            <div className={styles.patternStatBox}>
-              <div className={styles.patternStatIcon}>
-                <HrIcon name="message" size={18} />
-              </div>
-              <div className={styles.patternStatNumber}>{sessionStats?.questionCount ?? qaRows.length}</div>
-              <div className={styles.patternStatLabel}>Questions Asked</div>
-            </div>
-            <div className={styles.patternStatBox}>
-              <div className={styles.patternStatIcon}>
-                <HrIcon name="target" size={18} />
-              </div>
-              <div className={styles.patternStatNumber}>{sessionStats?.overallInterviewScore ?? overall} / 100</div>
-              <div className={styles.patternStatLabel}>Overall Interview Score</div>
-            </div>
-          </div>
-
-          <div className={styles.interviewTypePill}>
-            Interview Type: {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI Interview`}
-          </div>
-
-          <div style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#475569', marginBottom: '8px' }}>
-            INTERVIEW PERFORMANCE SUMMARY
-          </div>
-          <div className={styles.starSummaryGrid}>
-            {starPatterns.map((p, i) => (
-              <div key={`${p.name}-${i}`} className={styles.starSummaryItem}>
-                <span className={styles.starCategoryName}>{p.name}</span>
-                <span className={styles.starString}>{p.stars}</span>
-                <span className={styles.starLevelTag}>{p.level}</span>
-              </div>
+          <h2 className={styles.cardTitle}>Top strengths</h2>
+          <ul className={styles.strengthsList}>
+            {(result.strengths.length > 0 ? result.strengths : ['Complete an interview to generate AI strengths.']).map(
+              (text, i) => (
+                <li key={`${i}-${text}`}>
+                  <HrIcon name="check" size={14} /> <span>{text}</span>
+                </li>
+              ),
+            )}
+          </ul>
+        </div>
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Top growth areas</h2>
+          <ul className={styles.growthAreasList}>
+            {(result.improvements.length > 0
+              ? result.improvements
+              : ['AI growth areas appear after your first scored interview.']
+            ).map((text, i) => (
+              <li key={`${i}-${text}`}>
+                <HrIcon name="trending" size={14} /> <span>{text}</span>
+              </li>
             ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* ── Per-question detail ── */}
+      <section className={`${styles.card} ${styles.tableCard}`} aria-labelledby="report-questions-heading">
+        <div className={styles.cardHead}>
+          <h2 id="report-questions-heading" className={styles.cardTitle}>Questions and scores</h2>
+          <p className={styles.cardNote}>
+            {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI Interview`}
+          </p>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.qaTable}>
+            <thead>
+              <tr>
+                <th scope="col" className={styles.numCol}>#</th>
+                <th scope="col">Topic</th>
+                <th scope="col" className={styles.questionCol}>Question</th>
+                <th scope="col" className={styles.scoreCol}>Correct</th>
+                <th scope="col" className={styles.scoreCol}>Depth</th>
+                <th scope="col" className={styles.scoreCol}>Clarity</th>
+                <th scope="col" className={styles.scoreCol}>Overall</th>
+                <th scope="col">Rating</th>
+                <th scope="col">Feedback</th>
+              </tr>
+            </thead>
+            <tbody>
+              {qaRows.map((q) => (
+                <tr key={q.index}>
+                  <td className={styles.numCol}>
+                    <span className={styles.rowCircle}>{q.index}</span>
+                  </td>
+                  <td><span className={styles.topicTag}>{q.topic}</span></td>
+                  <td className={styles.questionCell}>{q.question}</td>
+                  <td className={styles.totalScoreCell}>
+                    {typeof q.correctnessScore === 'number' ? `${q.correctnessScore}%` : '—'}
+                  </td>
+                  <td className={styles.totalScoreCell}>
+                    {typeof q.depthScore === 'number'
+                      ? `${q.depthScore}%`
+                      : typeof q.depth === 'number'
+                        ? `${q.depth * 10}%`
+                        : '—'}
+                  </td>
+                  <td className={styles.totalScoreCell}>
+                    {typeof q.communicationScore === 'number'
+                      ? `${q.communicationScore}%`
+                      : typeof q.clarity === 'number'
+                        ? `${q.clarity * 10}%`
+                        : '—'}
+                  </td>
+                  <td className={styles.totalScoreCell}>
+                    <strong>
+                      {typeof q.questionScore === 'number'
+                        ? `${q.questionScore}%`
+                        : typeof q.total30 === 'number'
+                          ? `${Math.round((q.total30 / 30) * 100)}%`
+                          : '—'}
+                    </strong>
+                  </td>
+                  <td className={styles.starsCell}>{q.stars}</td>
+                  <td className={styles.feedbackCell}>{q.feedback}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {starPatterns.length > 0 ? (
+          <>
+            <h3 className={styles.subTitle}>Answer patterns</h3>
+            <ul className={styles.starSummaryGrid}>
+              {starPatterns.map((p, i) => (
+                <li key={`${p.name}-${i}`} className={styles.starSummaryItem}>
+                  <span className={styles.starCategoryName}>{p.name}</span>
+                  <span className={styles.starString}>{p.stars}</span>
+                  <span className={styles.starLevelTag}>{p.level}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </section>
+
+      {/* ── What to do next ── */}
+      <section className={styles.rowGridTwo} aria-label="Improvement plan">
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>What to work on</h2>
+          <ol className={styles.priorityList}>
+            {priorities.map((p) => (
+              <li key={p.num} className={styles.priorityItem}>
+                <span className={styles.priorityNum} aria-hidden="true">{p.num}</span>
+                <div>
+                  <div className={styles.priorityTitle}>{p.title}</div>
+                  <div className={styles.priorityText}>{p.text}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Coach notes</h2>
+          <div className={styles.coachBubble}>
+            <div className={styles.coachAvatar} aria-hidden="true">
+              <HrIcon name="bot" size={22} />
+            </div>
+            <div>
+              <p className={styles.coachQuote}>{coachNotes}</p>
+              <div className={styles.coachSignature}>HireRight AI career coach</div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Row 3: Actual Interview Questions & Scoring Matrix Table with Grouped Thead */}
-      <section className={`${styles.card} ${styles.tableCard}`}>
-        <div className={styles.cardTitle}>ACTUAL INTERVIEW QUESTIONS &amp; SCORING</div>
-        <table className={styles.qaTable}>
-          <thead>
-            <tr>
-              <th style={{ width: '36px', textAlign: 'center' }}>#</th>
-              <th>TOPIC</th>
-              <th style={{ width: '28%' }}>QUESTION ASKED</th>
-              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>CORRECT</th>
-              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>DEPTH</th>
-              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>COMM</th>
-              <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>ROLE SKILLS</th>
-              <th style={{ textAlign: 'center' }}>OVERALL</th>
-              <th>PERFORMANCE</th>
-              <th>AI FEEDBACK SUMMARY</th>
-            </tr>
-          </thead>
-          <tbody>
-            {qaRows.map((q) => (
-              <tr key={q.index}>
-                <td style={{ textAlign: 'center' }}>
-                  <span className={styles.rowCircle}>{q.index}</span>
-                </td>
-                <td><span className={styles.topicTag}>{q.topic}</span></td>
-                <td className={styles.questionCell}>{q.question}</td>
-                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
-                  {typeof q.correctnessScore === 'number' ? `${q.correctnessScore}%` : '—'}
-                </td>
-                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
-                  {typeof q.depthScore === 'number'
-                    ? `${q.depthScore}%`
-                    : typeof q.depth === 'number'
-                      ? `${q.depth * 10}%`
-                      : '—'}
-                </td>
-                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
-                  {typeof q.communicationScore === 'number'
-                    ? `${q.communicationScore}%`
-                    : typeof q.clarity === 'number'
-                      ? `${q.clarity * 10}%`
-                      : '—'}
-                </td>
-                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
-                  {typeof q.roleSkillsFitScore === 'number' ? `${q.roleSkillsFitScore}%` : '—'}
-                </td>
-                <td className={styles.totalScoreCell} style={{ textAlign: 'center' }}>
-                  <strong>
-                    {typeof q.questionScore === 'number'
-                      ? `${q.questionScore}%`
-                      : typeof q.total30 === 'number'
-                        ? `${Math.round((q.total30 / 30) * 100)}%`
-                        : '—'}
-                  </strong>
-                </td>
-                <td style={{ color: '#f59e0b', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>{q.stars}</td>
-                <td className={styles.feedbackCell}>{q.feedback}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {/* Row 4: Spider Radar + Growth Potential + Priorities */}
-      <section className={styles.rowGridFour}>
-        {/* Skill Strength Radar */}
-        <div className={`${styles.card} ${styles.radarCard}`}>
-          <div className={styles.cardTitle}>SKILL STRENGTH RADAR</div>
-          <svg className={styles.radarSvg} viewBox="0 0 220 220">
+      {/* ── Career fit ── */}
+      <section className={styles.rowGridThree} aria-label="Career fit">
+        <div className={styles.card}>
+          <h2 className={styles.cardTitle}>Skill profile</h2>
+          <svg className={styles.radarSvg} viewBox="0 0 220 220" role="img" aria-label="Skill strength by area">
             {[0.25, 0.5, 0.75, 1].map((lvl) => {
               const r = 75 * lvl
               const pts = radarAxes
@@ -610,7 +579,7 @@ export function CareerIntelligenceDashboard({
                   return `${(110 + r * Math.cos(angle)).toFixed(1)},${(110 + r * Math.sin(angle)).toFixed(1)}`
                 })
                 .join(' ')
-              return <polygon key={lvl} points={pts} fill="none" stroke="#e2e8f0" strokeWidth="1" />
+              return <polygon key={lvl} points={pts} fill="none" stroke="#e5e5ef" strokeWidth="1" />
             })}
 
             {radarAxes.map((axis, i) => {
@@ -621,228 +590,127 @@ export function CareerIntelligenceDashboard({
               const ly = 110 + 94 * Math.sin(angle)
               return (
                 <g key={`${axis.label}-${i}`}>
-                  <line x1="110" y1="110" x2={x2} y2={y2} stroke="#cbd5e1" strokeWidth="1" />
-                  <text
-                    x={lx}
-                    y={ly + 3}
-                    textAnchor="middle"
-                    fontSize="7"
-                    fontWeight="700"
-                    fill="#475569"
-                  >
+                  <line x1="110" y1="110" x2={x2} y2={y2} stroke="#e5e5ef" strokeWidth="1" />
+                  <text x={lx} y={ly + 3} textAnchor="middle" fontSize="7" fontWeight="600" fill="#5f6686">
                     {axis.label}
                   </text>
-                  <text
-                    x={lx}
-                    y={ly + 10}
-                    textAnchor="middle"
-                    fontSize="6.5"
-                    fontWeight="800"
-                    fill="#1e40af"
-                  >
-                    ({axis.val}%)
+                  <text x={lx} y={ly + 11} textAnchor="middle" fontSize="7" fontWeight="700" fill="#141638">
+                    {axis.val}%
                   </text>
                 </g>
               )
             })}
 
-            <polygon
-              points={radarPoints}
-              fill="rgba(37, 99, 235, 0.18)"
-              stroke="#2563eb"
-              strokeWidth="2"
-            />
+            <polygon points={radarPoints} fill="rgba(80, 70, 229, 0.14)" stroke="#5046e5" strokeWidth="1.75" />
           </svg>
         </div>
 
-        {/* Career Growth Potential */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}>CAREER GROWTH POTENTIAL</div>
-          <div className={styles.growthList}>
+          <h2 className={styles.cardTitle}>Role fit</h2>
+          <ul className={styles.growthList}>
             {careerPaths.map((g, i) => (
-              <div key={`${g.role}-${i}`} className={styles.growthItem}>
+              <li key={`${g.role}-${i}`} className={styles.growthItem}>
                 <div className={styles.growthItemHeader}>
                   <span>{g.role}</span>
                   <span>{g.match}%</span>
                 </div>
-                <div className={styles.barTrack}>
-                  <div
-                    className={styles.barFill}
-                    style={{
-                      width: `${g.match}%`,
-                      background: g.match >= 80 ? '#16a34a' : g.match >= 65 ? '#ea580c' : '#c2410c',
-                    }}
-                  />
+                <div className={styles.barTrack} aria-hidden="true">
+                  <div className={styles.barFill} style={{ width: `${g.match}%` }} />
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
 
-        {/* Market Priorities */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}>MARKET-BASED IMPROVEMENT PRIORITIES</div>
-          <div className={styles.priorityList}>
-            {priorities.map((p) => (
-              <div key={p.num} className={styles.priorityItem}>
-                <span className={styles.priorityNum}>{p.num}</span>
-                <div>
-                  <div className={styles.priorityTitle}>{p.title}</div>
-                  <div className={styles.priorityText}>{p.text}</div>
-                </div>
-              </div>
-            ))}
+          <h2 className={styles.cardTitle}>Resume match</h2>
+          <div className={styles.alignRow}>
+            <span className={styles.alignValue}>{industryAlignment}%</span>
+            <p className={styles.alignCaption}>{industryAlignmentCaption}</p>
           </div>
-        </div>
-      </section>
-
-      {/* Row 5: Positioning + Industry Alignment (74%) + AI Coach Notes */}
-      <section className={styles.positioningGrid}>
-        {/* Positioning */}
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>RESUME POSITIONING INTELLIGENCE™</div>
-          <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 10px' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <HrIcon name="lock" size={14} /> Your resume is currently kept private and not shared with
-              recruiters.
-            </span>
+          <div className={styles.barTrack} aria-hidden="true">
+            <div className={styles.barFill} style={{ width: `${industryAlignment}%` }} />
+          </div>
+          <p className={styles.privateNote}>
+            <HrIcon name="lock" size={13} /> Your resume is currently kept private and not shared with recruiters.
           </p>
-          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b' }}>
-            HireRight recommends improving:
-
-          </div>
-          <div className={styles.positioningIcons}>
-            {positioningItems.length > 0 ? (
-              positioningItems.map((text, i) => (
-                <div key={`${i}-${text.slice(0, 24)}`} className={styles.posIconBox}>
-                  <div className={styles.posIconSymbol}>
-                    <HrIcon name={POSITIONING_ICON_CYCLE[i % POSITIONING_ICON_CYCLE.length]} size={20} />
-                  </div>
-                  <div className={styles.posIconText}>{text}</div>
-                </div>
-              ))
-            ) : (
-              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0 }}>
-                No positioning gaps flagged — your interview feedback is in the strengths list.
-              </p>
-            )}
-          </div>
-          <div style={{ background: '#f1f5f9', borderRadius: '6px', padding: '6px 10px', fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>
-            {positioningFooter}
-          </div>
-        </div>
-
-        {/* Industry Alignment (74%) + Strengths & Growth Areas */}
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>INDUSTRY ALIGNMENT</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '12px' }}>
-            <svg style={{ width: '64px', height: '64px', flexShrink: 0 }} viewBox="0 0 36 36">
-              <path
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                fill="none"
-                stroke="#e2e8f0"
-                strokeWidth="4"
-              />
-              <path
-                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                fill="none"
-                stroke="#059669"
-                strokeWidth="4"
-                strokeDasharray={`${industryAlignment}, 100`}
-                strokeLinecap="round"
-              />
-              <text x="18" y="20" style={{ fontSize: '0.85rem', fontWeight: 900, fill: '#0f172a', textAnchor: 'middle' }}>
-                {industryAlignment}%
-              </text>
-            </svg>
-            <div style={{ fontSize: '0.76rem', fontWeight: 700, color: '#166534', lineHeight: 1.3 }}>
-              {industryAlignmentCaption}
-            </div>
-          </div>
-
-          <div style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', color: '#15803d', marginBottom: '3px' }}>
-            Top Strengths
-          </div>
-          <ul className={styles.strengthsList}>
-            {(result.strengths.length > 0 ? result.strengths : ['Complete an interview to generate AI strengths.']).map(
-              (text, i) => (
-                <li key={`${i}-${text}`}>
-                  <HrIcon name="check" size={12} /> {text}
-                </li>
-              ),
-            )}
-          </ul>
-
-          <div style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', color: '#dc2626', marginTop: '8px', marginBottom: '3px' }}>
-            Top Growth Areas
-          </div>
-          <ul className={styles.growthAreasList}>
-            {(result.improvements.length > 0
-              ? result.improvements
-              : ['AI growth areas appear after your first scored interview.']
-            ).map((text, i) => (
-              <li key={`${i}-${text}`}>⨁ {text}</li>
-            ))}
-          </ul>
-        </div>
-
-        {/* AI Career Coach Notes */}
-        <div className={styles.coachNoteCard}>
-          <div className={styles.cardTitle} style={{ color: '#1e3a8a' }}>
-            AI CAREER COACH NOTES™
-          </div>
-          <div className={styles.coachBubble}>
-            <div className={styles.coachAvatar}>
-              <HrIcon name="bot" size={28} />
-            </div>
-            <div>
-              <p className={styles.coachQuote}>“{coachNotes}”</p>
-              <div className={styles.coachSignature}>
-                — HireRight AI Career Coach
-
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
-      {/* Footer Ribbon */}
+      {/* ── Resume positioning + skills ── */}
+      <section className={styles.card} aria-labelledby="report-positioning-heading">
+        <h2 id="report-positioning-heading" className={styles.cardTitle}>Resume suggestions</h2>
+        {positioningItems.length > 0 ? (
+          <ul className={styles.positioningIcons}>
+            {positioningItems.map((text, i) => (
+              <li key={`${i}-${text.slice(0, 24)}`} className={styles.posIconBox}>
+                {text}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={styles.cardNote}>
+            No positioning gaps flagged — your interview feedback is in the strengths list.
+          </p>
+        )}
+        <p className={styles.positioningFooter}>{positioningFooter}</p>
+
+        <div className={styles.skillsRibbon}>
+          <span className={styles.skillsRibbonLabel}>Primary skills</span>
+          {skillPills.length > 0 ? (
+            skillPills.map((sk, i) => (
+              <span key={`${sk}-${i}`} className={styles.skillPill}>
+                {sk}
+              </span>
+            ))
+          ) : (
+            <span className={styles.skillsEmpty}>Skills from your profile appear here after onboarding</span>
+          )}
+        </div>
+      </section>
+
+      {/* ── Footer: status, recommended roles, one forward action ── */}
       <footer className={styles.footerRibbon}>
         <div className={styles.footerTopRow}>
           <div className={styles.finalStatusGroup}>
-            <span>FINAL CAREER STATUS:</span>
-            <div className={styles.finalStatusPill}>
+            <span className={styles.footerLabel}>Final career status</span>
+            <span className={styles.finalStatusPill}>
               <HrIcon name="check" size={14} /> {statusLabel}
-            </div>
+            </span>
           </div>
 
           <div className={styles.recommendedRoles}>
-            <span>RECOMMENDED FOR:</span>
-            {recommendedRoles.map((role, i) => (
-              <span key={`${role}-${i}`} className={styles.rolePill}>
-                {role}
-              </span>
-            ))}
+            <span className={styles.footerLabel}>Recommended for</span>
+            <div className={styles.rolePills}>
+              {recommendedRoles.map((role, i) => (
+                <span key={`${role}-${i}`} className={styles.rolePill}>
+                  {role}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
         <div className={styles.nextStepBox}>
-          <strong>NEXT RECOMMENDED STEP:</strong>
+          <strong>Next step</strong>
           <span>{nextRecommendedStep}</span>
         </div>
 
-        <div className={styles.actionButtonRow} data-download-exclude>
-          {onRetake && (
-            <button type="button" className={styles.secondaryBtn} onClick={onRetake}>
-              Retake Interview with Ava
-            </button>
-          )}
-          {onContinue && (
-            <button type="button" className={styles.primaryBtn} onClick={onContinue}>
-              Go to dashboard →
-            </button>
-          )}
-        </div>
+        {onRetake || onContinue ? (
+          <div className={styles.actionButtonRow} data-download-exclude>
+            {onRetake && (
+              <button type="button" className={styles.secondaryBtn} onClick={onRetake}>
+                Retake interview with Ava
+              </button>
+            )}
+            {onContinue && (
+              <button type="button" className={styles.primaryBtn} onClick={onContinue}>
+                Go to dashboard
+                <HrIcon name="arrow-right" size={16} />
+              </button>
+            )}
+          </div>
+        ) : null}
       </footer>
     </div>
   )

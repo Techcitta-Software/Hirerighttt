@@ -1,36 +1,37 @@
+/* Compact app footer: light surface, same content edge as app pages (--page-max inside the gutter). */
 .footer {
   margin-top: auto;
   width: 100%;
-  background: #0e0b24;
-  color: #e2e8f0;
-  font-family: var(--font, 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
-  -webkit-font-smoothing: antialiased;
-  padding: 1.25rem 0 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
   box-sizing: border-box;
+  padding: var(--space-8) 0 var(--space-6);
+  background: var(--ds-surface, #ffffff);
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+  color: var(--ds-text-muted, #5f6686);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 .inner {
   width: 100%;
-  max-width: none;
-  margin: 0;
-  padding-left: clamp(1.25rem, 4vw, 3rem);
-  padding-right: clamp(1.25rem, 4vw, 3rem);
+  max-width: calc(var(--page-max, 1280px) + 2 * var(--layout-gutter, 2rem));
+  margin: 0 auto;
+  padding: 0 var(--layout-gutter, 2rem);
   box-sizing: border-box;
 }
 
 .mainRow {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: clamp(1rem, 2vw, 2rem);
   flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
 }
 
 .brandBlock {
   display: flex;
-  align-items: center;
-  gap: 0.875rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -40,21 +41,13 @@
   text-decoration: none;
 }
 
-.logo {
-  height: 28px;
-  width: auto;
-  object-fit: contain;
-  opacity: 0.92;
-}
-
 .tagline {
   margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: #94a3b8;
-  line-height: 1.35;
-  max-width: 13rem;
+  max-width: 260px;
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ds-text-muted, #5f6686);
 }
 
 .nav {
@@ -62,71 +55,56 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.35rem clamp(0.75rem, 1.5vw, 1.25rem);
+  gap: var(--space-3) var(--space-6);
+  max-width: 520px;
   margin-left: auto;
-  flex: 0 1 auto;
+  padding-top: var(--space-2);
 }
 
 .link {
-  color: #a8b0c8;
+  color: var(--ds-text-muted, #5f6686);
   text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: 600;
   white-space: nowrap;
-  transition: color 0.18s ease;
+  border-radius: var(--radius-xs, 4px);
+  transition: color var(--ds-duration-fast, 140ms) ease;
 }
 
 .link:hover {
-  color: #ffffff;
+  color: var(--ds-text, #141638);
 }
 
 .bottomRow {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--ds-border, #e5e5ef);
 }
 
 .copyright {
   margin: 0;
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: #6b7289;
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 400;
+  color: var(--ds-text-muted, #5f6686);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .mainRow {
     flex-direction: column;
-    align-items: flex-start;
   }
 
   .nav {
     justify-content: flex-start;
+    margin-left: 0;
   }
 }
 
-@media (max-width: 480px) {
-  .brandBlock {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.45rem;
+@media (max-width: 640px) {
+  .footer {
+    padding: var(--space-6) 0 var(--space-4);
   }
 
-  .tagline {
-    max-width: none;
+  .nav {
+    gap: var(--space-3) var(--space-4);
   }
 }
-
-.footer { padding: 36px 0 22px; background: #17132d; }
-/* Same content edge as the app pages (1280px column inside the page gutter). */
-.inner { max-width: calc(1280px + 2 * var(--layout-gutter, 1.5rem)); margin: 0 auto; padding: 0 var(--layout-gutter, 1.5rem); }
-.mainRow { align-items: flex-start; justify-content: space-between; gap: 28px; }
-.brandBlock { flex-direction: column; align-items: flex-start; gap: 14px; }
-.tagline { max-width: 260px; line-height: 1.8; color: #ada6c3; font-weight: 400; }
-.nav { max-width: 510px; gap: 18px 24px; padding-top: 8px; }
-.link { font-size: 12px; color: #c3bdd3; }
-.link:focus-visible { outline: 2px solid #c3acf4; outline-offset: 5px; }
-.bottomRow { margin-top: 28px; padding-top: 20px; }
-.copyright { color: #a29ab7; }
-@media (max-width: 860px) { .nav { margin-left: 0; } }

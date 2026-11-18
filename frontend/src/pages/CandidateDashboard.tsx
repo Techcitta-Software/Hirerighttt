@@ -189,6 +189,35 @@ export function DashboardPage() {
     jobRail.current?.scrollBy({ left: direction * 310, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }
 
+  const requiredTotal = profileChecks.filter((c) => c.required).length
+  const requiredDone = profileChecks.filter((c) => c.required && c.done).length
+  const hasProfileGaps = missingRequired.length > 0 || missingOptional.length > 0
+
+  /* One prominent "next step": the most useful thing to do right now. */
+  const nextStep = missingRequired.length
+    ? {
+        title: 'Finish your profile',
+        body: `${requiredDone} of ${requiredTotal} required details added. Employers see your profile when you apply.`,
+        to: profileCheckHref(missingRequired[0]),
+        cta: 'Continue profile',
+        icon: 'user' as const,
+      }
+    : !hasScore
+      ? {
+          title: 'Take your AI interview',
+          body: 'A short voice interview about your experience. Your score is shared with employers when you apply.',
+          to: '/interview',
+          cta: 'Start interview',
+          icon: 'mic' as const,
+        }
+      : {
+          title: 'Your interview report is ready',
+          body: `You scored ${overallScore} out of 100. See what went well and what to work on next.`,
+          to: '/dashboard/report',
+          cta: 'View report',
+          icon: 'document' as const,
+        }
+
   return (
     <div className={styles.pageBleed}>
     <div className={styles.page}>
@@ -196,33 +225,29 @@ export function DashboardPage() {
         <header className={styles.heroBand}>
           <div className={styles.hero}>
             <div className={styles.heroCopy}>
-              <p className={styles.eyebrow}>Career workspace</p>
               <h1>Welcome back, {firstName}</h1>
-              <p>
-                Your live profile, interview score, and applications — full width view of where you stand
-                with employers on HireRighttt.
-              </p>
+              <p>Your profile, interview score and applications in one place.</p>
             </div>
             <div className={styles.heroActions}>
               {hasScore ? (
                 <>
-                  <Link to="/dashboard/report" className={styles.primary}>
-                    <HrIcon name="document" size={17} />
+                  <Link to="/dashboard/report" className={styles.secondary}>
+                    <HrIcon name="document" size={16} />
                     View report
                   </Link>
-                  <Link to="/pricing/retake" className={styles.secondary}>
-                    <HrIcon name="trending" size={17} />
+                  <Link to="/pricing/retake" className={styles.ghost}>
+                    <HrIcon name="trending" size={16} />
                     Improve your score?
                   </Link>
                 </>
               ) : (
                 <>
-                  <Link to="/interview" className={styles.primary}>
-                    <HrIcon name="sparkle" size={17} />
+                  <Link to="/interview" className={styles.secondary}>
+                    <HrIcon name="sparkle" size={16} />
                     Start AI interview
                   </Link>
-                  <Link to="/pricing/retake" className={styles.secondary}>
-                    <HrIcon name="trending" size={17} />
+                  <Link to="/pricing/retake" className={styles.ghost}>
+                    <HrIcon name="trending" size={16} />
                     Improve your score?
                   </Link>
                 </>
@@ -239,27 +264,45 @@ export function DashboardPage() {
           </p>
         )}
 
-        <section className={styles.kpiGrid} aria-label="Overview metrics">
-          <article className={styles.kpiCard}>
-            <div className={styles.kpiTop}>
-              <span className={styles.kpiLabel}>Interview score</span>
-              <span className={styles.kpiIcon} aria-hidden="true">
-                <HrIcon name="chart" size={18} />
-              </span>
-            </div>
+        <section className={styles.nextStep} aria-labelledby="next-step-heading">
+          <span className={styles.nextStepIcon} aria-hidden="true">
+            <HrIcon name={nextStep.icon} size={22} />
+          </span>
+          <div className={styles.nextStepCopy}>
+            <p className={styles.nextStepLabel}>Next step</p>
+            <h2 id="next-step-heading">{nextStep.title}</h2>
+            <p>{nextStep.body}</p>
+            {missingRequired.length > 0 && (
+              <div className={styles.nextStepProgress}>
+                <progress value={completion} max={100} aria-label="Profile completion" />
+                <span>{completion}% complete</span>
+              </div>
+            )}
+          </div>
+          <div className={styles.nextStepActions}>
+            <Link to={nextStep.to} className={styles.primary}>
+              {nextStep.cta}
+              <HrIcon name="arrow-right" size={16} />
+            </Link>
+            {hasProfileGaps && (
+              <a href="#complete-profile" className={styles.textLink}>
+                View checklist
+              </a>
+            )}
+          </div>
+        </section>
+
+        <section className={styles.kpiGrid} aria-label="Overview">
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiLabel}>Interview score</span>
             <strong className={styles.kpiValue}>
               {hasScore ? overallScore : '—'}
               {hasScore && <small>/100</small>}
             </strong>
             <p className={styles.kpiHint}>{hasScore ? 'Latest AI assessment' : 'Complete an interview to unlock'}</p>
-          </article>
-          <article className={styles.kpiCard}>
-            <div className={styles.kpiTop}>
-              <span className={styles.kpiLabel}>Applications</span>
-              <span className={styles.kpiIcon} aria-hidden="true">
-                <HrIcon name="document" size={18} />
-              </span>
-            </div>
+          </div>
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiLabel}>Applications</span>
             <strong className={styles.kpiValue}>{appsReady ? applications.length : '—'}</strong>
             <p className={styles.kpiHint}>
               {appsReady
@@ -270,195 +313,51 @@ export function DashboardPage() {
                   ? 'Loading…'
                   : 'Unavailable'}
             </p>
-          </article>
-          <article className={styles.kpiCard}>
-            <div className={styles.kpiTop}>
-              <span className={styles.kpiLabel}>Matched roles</span>
-              <span className={styles.kpiIcon} aria-hidden="true">
-                <HrIcon name="briefcase" size={18} />
-              </span>
-            </div>
-            <strong className={styles.kpiValue}>{jobsReady ? jobCount : '—'}</strong>
-            <p className={styles.kpiHint}>{jobsReady ? 'Live employer openings for you' : loading ? 'Loading…' : 'Unavailable'}</p>
-          </article>
-          <article className={styles.kpiCard}>
-            <div className={styles.kpiTop}>
-              <span className={styles.kpiLabel}>Career readiness</span>
-              <span className={styles.kpiIcon} aria-hidden="true">
-                <HrIcon name="target" size={18} />
-              </span>
-            </div>
-            <strong className={styles.kpiValue}>
-              {readinessScore}
-              <small>%</small>
-            </strong>
-            <p className={styles.kpiHint}>
-              Profile + {hasScore ? 'interview score' : 'interview pending'}
-            </p>
-          </article>
-        </section>
-
-        {appsReady && applications.length > 0 && (
-          <section className={styles.pipelineBar} aria-label="Application pipeline">
-            <div className={styles.pipelineStep}>
-              <strong>{applications.length}</strong>
-              <span>Submitted</span>
-            </div>
-            <div className={styles.pipelineStep}>
-              <strong>{inReviewCount}</strong>
-              <span>In review</span>
-            </div>
-            <div className={styles.pipelineStep}>
-              <strong>{interviewStageCount}</strong>
-              <span>Interview</span>
-            </div>
-            <div className={styles.pipelineStep}>
-              <strong>{offerCount}</strong>
-              <span>Offers</span>
-            </div>
-          </section>
-        )}
-
-        {topMatch && jobsReady && (
-          <section className={styles.featuredJob} aria-label="Top matched role">
-            <div className={styles.featuredJobCopy}>
-              <p className={styles.eyebrow} style={{ color: 'rgba(255,255,255,0.65)' }}>
-                Top match for you
-              </p>
-              <h2>{topMatch.title}</h2>
-              <p>
-                {topMatch.company} is hiring for this role. Applying shares your HireRighttt interview report
-                and resume with the employer team.
-              </p>
-              <div className={styles.featuredJobMeta}>
-                <span>
-                  <HrIcon name="map-pin" size={14} />
-                  {topMatch.location || 'Flexible'}
-                </span>
-                {topMatch.match > 0 && !topMatch.locked ? (
-                  <span>
-                    <HrIcon name="star" size={14} />
-                    {topMatch.match}% profile match
-                  </span>
-                ) : null}
-              </div>
-            </div>
-            <div className={styles.featuredJobActions}>
-              <Link
-                to={
-                  topMatch.shareableCode
-                    ? buildApplyPath(topMatch.company, topMatch.shareableCode)
-                    : `/jobs?job=${encodeURIComponent(topMatch.id || '')}`
-                }
-                className={styles.featuredPrimary}
-              >
-                View & apply
-                <HrIcon name="arrow-up-right" size={16} />
-              </Link>
-              <Link to="/jobs" className={styles.featuredSecondary}>
-                All matches
-              </Link>
-            </div>
-          </section>
-        )}
-
-        <section className={styles.profileHero} aria-label="Your profile">
-          <div className={styles.profileIdentity}>
-            <div className={styles.avatarWrap}>
-              <div className={styles.avatar} aria-hidden="true">{initials}</div>
-              <span className={styles.avatarRing} aria-hidden="true" />
-            </div>
-            <div className={styles.profileInfo}>
-              <p className={styles.eyebrow}>Your profile</p>
-              <h2>{profile?.fullName?.trim() || user?.name || email}</h2>
-              {profile?.currentRole?.trim() ? <p className={styles.role}>{profile.currentRole}</p> : null}
-              {chips.length > 0 && (
-                <div className={styles.chipRow}>
-                  {chips.map((chip) => (
-                    <span className={styles.chip} key={`${chip.icon}-${chip.text}`}>
-                      <HrIcon name={chip.icon} size={14} />
-                      {chip.text}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className={styles.profileCtaRow}>
-                <Link to="/profile" className={styles.primary}>
-                  <HrIcon name="user" size={16} />
-                  {missingDetails.length ? 'Complete profile' : 'Edit profile'}
-                </Link>
-                {profile?.updatedAt && (
-                  <p className={styles.updated}>Updated {dateLabel(profile.updatedAt)}</p>
-                )}
-              </div>
-            </div>
           </div>
-          {(missingRequired.length > 0 || missingOptional.length > 0) && (
-            <aside className={styles.completionPanel} aria-labelledby="profile-strength-heading">
-              <div className={styles.completionPanelHead}>
-                <span id="profile-strength-heading">Profile strength</span>
-                <span className={styles.completionPct}>{completion}%</span>
-              </div>
-              <progress value={completion} max={100} aria-label="Profile completion" />
-              {missingRequired.length > 0 ? (
-                <>
-                  <h3>
-                    {missingRequired.length} required item{missingRequired.length === 1 ? '' : 's'}{' '}
-                    missing
-                  </h3>
-                  <ul className={styles.missingChecklist}>
-                    {missingRequired.map((item) => (
-                      <li key={item.label}>
-                        <Link to={profileCheckHref(item)}>{item.label}</Link>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <h3>Core profile complete</h3>
-              )}
-              {missingOptional.length > 0 && (
-                <p className={styles.missingOptional}>
-                  Optional: {missingOptional.map((m) => m.label).join(', ')}
-                </p>
-              )}
-              <p>Based on your saved profile — only gaps are listed below.</p>
-              <a href="#complete-profile">
-                View checklist
-                <HrIcon name="arrow-right" size={15} />
-              </a>
-            </aside>
-          )}
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiLabel}>Matched roles</span>
+            <strong className={styles.kpiValue}>{jobsReady ? jobCount : '—'}</strong>
+            <p className={styles.kpiHint}>{jobsReady ? 'Open roles that fit your profile' : loading ? 'Loading…' : 'Unavailable'}</p>
+          </div>
         </section>
 
-        {(missingRequired.length > 0 || missingOptional.length > 0) && (
-          <section id="complete-profile" className={styles.completionSection} aria-labelledby="completion-heading">
-            <div className={styles.sectionIntro}>
-              <div className={styles.sectionHead}>
-                <div>
-                  <p className={styles.eyebrow}>Next steps</p>
-                  <h2 id="completion-heading">Complete your profile</h2>
-                </div>
-                <span className={styles.countBadge}>
-                  {profileChecks.filter((c) => c.required && c.done).length} /{' '}
-                  {profileChecks.filter((c) => c.required).length} required
-                </span>
+        {hasProfileGaps && (
+          <section id="complete-profile" className={`${styles.card} ${styles.completionSection}`} aria-labelledby="completion-heading">
+            <div className={styles.cardHeader}>
+              <div>
+                <h2 id="completion-heading">Complete your profile</h2>
+                <p className={styles.muted}>
+                  {missingRequired.length > 0
+                    ? `${missingRequired.length} required item${missingRequired.length === 1 ? '' : 's'} missing. Each link opens the right section.`
+                    : 'Core profile complete. A few optional details can still help.'}
+                </p>
               </div>
-              <p className={styles.muted}>Each card opens the exact section you still need — the rest of your profile stays untouched.</p>
+              <span className={styles.countBadge}>
+                {requiredDone} / {requiredTotal} required
+              </span>
             </div>
-            <div className={styles.completionGrid}>
+            <ul className={styles.checklist}>
               {[...missingRequired, ...missingOptional].map(item => (
-                <Link to={profileCheckHref(item)} className={styles.completionTile} key={item.label}>
-                  <span className={styles.tileIcon}><HrIcon name={item.icon} size={20} /></span>
-                  <h3>{item.label}</h3>
-                  <p>{item.hint}</p>
-                  <span className={styles.tileAction}>
-                    Add now
-                    <HrIcon name="plus" size={16} />
-                  </span>
-                </Link>
+                <li key={item.label}>
+                  <Link to={profileCheckHref(item)} className={styles.checkRow}>
+                    <span className={styles.checkIcon} aria-hidden="true">
+                      <HrIcon name={item.icon} size={18} />
+                    </span>
+                    <span className={styles.checkText}>
+                      <strong>
+                        {item.label}
+                        {!item.required && <span className={styles.optionalTag}>Optional</span>}
+                      </strong>
+                      <span>{item.hint}</span>
+                    </span>
+                    <span className={styles.checkAction}>
+                      Add
+                      <HrIcon name="arrow-right" size={15} />
+                    </span>
+                  </Link>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         )}
 
@@ -467,24 +366,16 @@ export function DashboardPage() {
             <section className={styles.card} aria-labelledby="interview-heading">
               <div className={styles.cardHeader}>
                 <div>
-                  <p className={styles.eyebrow}>Interview insights</p>
-                  <h2 id="interview-heading">Performance summary</h2>
+                  <h2 id="interview-heading">Interview performance</h2>
+                  <p className={styles.muted}>AI feedback on your answers. This is not a hiring decision.</p>
                 </div>
-                <HrIcon name="chart" size={22} className={styles.cardHeaderIcon} />
               </div>
-              <p className={styles.muted}>AI-generated feedback from your answers — not a hiring decision.</p>
 
               {hasScore && (
                 <div className={styles.scoreHero}>
-                  <div
-                    className={styles.scoreRing}
-                    style={{ ['--score' as string]: String(overallScore) }}
-                    aria-hidden="true"
-                  >
-                    <div className={styles.scoreRingInner}>
-                      {overallScore}
-                      <span>/100</span>
-                    </div>
+                  <div className={styles.scoreBig}>
+                    {overallScore}
+                    <span>/100</span>
                   </div>
                   <div className={styles.scoreHeroCopy}>
                     <h3>{interview?.role || profile?.currentRole || 'Your latest session'}</h3>
@@ -499,7 +390,7 @@ export function DashboardPage() {
               {performanceDimensions.length ? (
                 <div className={styles.scores}>
                   {performanceDimensions.map((dimension) => (
-                    <div key={dimension.key}>
+                    <div key={dimension.key} className={styles.scoreRow}>
                       <div className={styles.scoreLabel}>
                         <span>
                           {dimension.title}
@@ -521,13 +412,13 @@ export function DashboardPage() {
                         </span>
                         <strong>{dimension.score}<small> /100</small></strong>
                       </div>
-                      <p className={styles.dimensionCaption}>{dimension.caption}</p>
                       <progress aria-label={dimension.title} value={dimension.score} max={100} />
+                      <p className={styles.dimensionCaption}>{dimension.caption}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className={styles.empty} style={{ textAlign: 'left', padding: '12px 0' }}>
+                <p className={styles.inlineEmpty}>
                   {hasScore ? 'Category breakdown is not available for this session.' : 'Complete your AI interview to see scores and feedback here.'}
                 </p>
               )}
@@ -562,20 +453,61 @@ export function DashboardPage() {
               )}
             </section>
 
-            <section className={`${styles.card} ${styles.opportunities}`} aria-labelledby="jobs-heading">
-              <div className={styles.sectionHead}>
+            <section className={styles.card} aria-labelledby="jobs-heading">
+              <div className={styles.cardHeader}>
                 <div>
-                  <p className={styles.eyebrow}>Opportunities</p>
                   <h2 id="jobs-heading">Roles matched to you</h2>
-                  <p className={styles.muted}>Employer postings aligned with your profile.</p>
+                  <p className={styles.muted}>Open roles that fit your profile.</p>
                 </div>
-                <Link to="/jobs">
+                <Link to="/jobs" className={styles.headerLink}>
                   View all
-                  <HrIcon name="arrow-right" size={16} />
+                  <HrIcon name="arrow-right" size={15} />
                 </Link>
               </div>
+
+              {topMatch && jobsReady && (
+                <div className={styles.featuredJob} role="group" aria-label="Top matched role">
+                  <div className={styles.featuredJobCopy}>
+                    <span className={styles.topMatchTag}>
+                      <HrIcon name="star" size={13} />
+                      Top match for you
+                    </span>
+                    <h3>{topMatch.title}</h3>
+                    <p>
+                      {topMatch.company} is hiring for this role. Applying shares your HireRighttt interview report
+                      and resume with the employer team.
+                    </p>
+                    <div className={styles.featuredJobMeta}>
+                      <span>
+                        <HrIcon name="map-pin" size={14} />
+                        {topMatch.location || 'Flexible'}
+                      </span>
+                      {topMatch.match > 0 && !topMatch.locked ? (
+                        <span className={styles.matchPill}>{topMatch.match}% profile match</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className={styles.featuredJobActions}>
+                    <Link
+                      to={
+                        topMatch.shareableCode
+                          ? buildApplyPath(topMatch.company, topMatch.shareableCode)
+                          : `/jobs?job=${encodeURIComponent(topMatch.id || '')}`
+                      }
+                      className={styles.secondary}
+                    >
+                      View & apply
+                      <HrIcon name="arrow-up-right" size={16} />
+                    </Link>
+                    <Link to="/jobs" className={styles.textLink}>
+                      All matches
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {!jobsReady ? (
-                <p className={styles.empty} role="status">{loading ? 'Loading roles…' : 'Roles unavailable — retry above.'}</p>
+                <p className={styles.inlineEmpty} role="status">{loading ? 'Loading roles…' : 'Roles unavailable — retry above.'}</p>
               ) : jobs.length ? (
                 <>
                   <ul className={styles.jobRail} ref={jobRail} tabIndex={0} aria-label="Matched jobs">
@@ -589,10 +521,10 @@ export function DashboardPage() {
                             <span className={styles.matchPill}>{job.match}% match</span>
                           ) : null}
                         </div>
-                        <p className={styles.company}>{job.company}</p>
                         <h3>{job.title}</h3>
+                        <p className={styles.company}>{job.company}</p>
                         <p className={styles.jobLocation}>
-                          <HrIcon name="map-pin" size={15} />
+                          <HrIcon name="map-pin" size={14} />
                           {job.location || 'Location flexible'}
                         </p>
                         <Link
@@ -600,13 +532,13 @@ export function DashboardPage() {
                           aria-label={`View ${job.title} at ${job.company}`}
                         >
                           View role
-                          <HrIcon name="arrow-up-right" size={17} />
+                          <HrIcon name="arrow-up-right" size={16} />
                         </Link>
                       </li>
                     ))}
                   </ul>
                   <div className={styles.railControls}>
-                    <span>Swipe or use arrows to browse</span>
+                    <span>Scroll or use the arrows to browse</span>
                     <button type="button" onClick={() => scrollJobs(-1)} aria-label="Previous jobs">
                       <span className={styles.reverseArrow}><HrIcon name="arrow-right" size={18} /></span>
                     </button>
@@ -617,14 +549,13 @@ export function DashboardPage() {
                 </>
               ) : (
                 <div className={styles.empty}>
-                  <div className={styles.emptyIconWrap}><HrIcon name="briefcase" size={26} /></div>
                   <h3>No matches yet</h3>
                   <p>
                     {missingDetails.some((m) => m.section === 'role')
                       ? 'Add your target role on your profile to unlock tailored matches.'
                       : 'New employer roles appear here when they match your profile.'}
                   </p>
-                  <Link to="/jobs" className={styles.primary} style={{ minHeight: 40, padding: '0 18px', fontSize: '0.8125rem' }}>
+                  <Link to="/jobs" className={styles.secondary}>
                     Browse all jobs
                   </Link>
                 </div>
@@ -634,59 +565,118 @@ export function DashboardPage() {
             <section className={styles.card} aria-labelledby="research-heading">
               <div className={styles.cardHeader}>
                 <div>
-                  <p className={styles.eyebrow}>Prepare & research</p>
                   <h2 id="research-heading">Stay interview-ready</h2>
+                  <p className={styles.muted}>Simple steps to take before an employer looks at your profile.</p>
                 </div>
               </div>
-              <p className={styles.muted}>
-                Practical steps candidates use before employer screens — tied to your data on HireRighttt.
-              </p>
-              <div className={styles.researchGrid} style={{ marginTop: 16 }}>
-                <article className={styles.researchCard}>
-                  <HrIcon name="chart" size={20} />
-                  <h3>Review your score breakdown</h3>
-                  <p>See which dimensions employers notice first in your AI session.</p>
+              <ul className={styles.researchList}>
+                <li>
+                  <span className={styles.researchIcon} aria-hidden="true"><HrIcon name="chart" size={18} /></span>
+                  <div>
+                    <h3>Review your score breakdown</h3>
+                    <p>See which areas employers notice first in your interview.</p>
+                  </div>
                   <Link to={hasScore ? '/dashboard/report' : '/interview'}>
                     {hasScore ? 'Open report' : 'Take interview'}
                     <HrIcon name="arrow-right" size={14} />
                   </Link>
-                </article>
-                <article className={styles.researchCard}>
-                  <HrIcon name="briefcase" size={20} />
-                  <h3>Compare open roles</h3>
-                  <p>Scan matched postings and required skills before you commit to an application.</p>
+                </li>
+                <li>
+                  <span className={styles.researchIcon} aria-hidden="true"><HrIcon name="briefcase" size={18} /></span>
+                  <div>
+                    <h3>Compare open roles</h3>
+                    <p>Check the required skills before you apply.</p>
+                  </div>
                   <Link to="/jobs">
                     Explore jobs
                     <HrIcon name="arrow-right" size={14} />
                   </Link>
-                </article>
-                <article className={styles.researchCard}>
-                  <HrIcon name="user" size={20} />
-                  <h3>Keep profile market-ready</h3>
-                  <p>Location, experience, and skills drive which jobs surface in your feed.</p>
+                </li>
+                <li>
+                  <span className={styles.researchIcon} aria-hidden="true"><HrIcon name="user" size={18} /></span>
+                  <div>
+                    <h3>Keep your profile up to date</h3>
+                    <p>Location, experience and skills decide which jobs you see.</p>
+                  </div>
                   <Link to="/profile">
                     Update profile
                     <HrIcon name="arrow-right" size={14} />
                   </Link>
-                </article>
-              </div>
+                </li>
+              </ul>
             </section>
           </div>
 
-          <aside className={styles.sideStack}>
+          <aside className={styles.sideStack} aria-label="Profile and applications">
+            <section className={styles.card} aria-labelledby="profile-heading">
+              <div className={styles.profileIdentity}>
+                <div className={styles.avatar} aria-hidden="true">{initials}</div>
+                <div className={styles.profileInfo}>
+                  <h2 id="profile-heading">{profile?.fullName?.trim() || user?.name || email}</h2>
+                  {profile?.currentRole?.trim() ? <p className={styles.role}>{profile.currentRole}</p> : null}
+                </div>
+              </div>
+              {chips.length > 0 && (
+                <ul className={styles.chipRow}>
+                  {chips.map((chip) => (
+                    <li className={styles.chip} key={`${chip.icon}-${chip.text}`}>
+                      <HrIcon name={chip.icon} size={14} />
+                      <span>{chip.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className={styles.readiness}>
+                <div className={styles.readinessHead}>
+                  <span>Career readiness</span>
+                  <strong>{readinessScore}%</strong>
+                </div>
+                <progress value={readinessScore} max={100} aria-label="Career readiness" />
+                <p>Profile {completion}% + {hasScore ? 'interview score' : 'interview pending'}</p>
+              </div>
+              <div className={styles.profileCtaRow}>
+                <Link to="/profile" className={styles.secondary}>
+                  <HrIcon name="user" size={16} />
+                  {missingDetails.length ? 'Complete profile' : 'Edit profile'}
+                </Link>
+                {profile?.updatedAt && (
+                  <p className={styles.updated}>Updated {dateLabel(profile.updatedAt)}</p>
+                )}
+              </div>
+            </section>
+
             <section className={styles.card} aria-labelledby="apps-heading">
               <div className={styles.cardHeader}>
                 <div>
-                  <p className={styles.eyebrow}>Pipeline</p>
-                  <h2 id="apps-heading">Application activity</h2>
+                  <h2 id="apps-heading">Applications</h2>
                 </div>
-                <Link to="/applications">
+                <Link to="/applications" className={styles.headerLink}>
                   View all
                   <HrIcon name="arrow-right" size={15} />
                 </Link>
               </div>
+              {appsReady && applications.length > 0 && (
+                <dl className={styles.pipelineBar} aria-label="Application pipeline">
+                  <div className={styles.pipelineStep}>
+                    <dt>Submitted</dt>
+                    <dd>{applications.length}</dd>
+                  </div>
+                  <div className={styles.pipelineStep}>
+                    <dt>In review</dt>
+                    <dd>{inReviewCount}</dd>
+                  </div>
+                  <div className={styles.pipelineStep}>
+                    <dt>Interview</dt>
+                    <dd>{interviewStageCount}</dd>
+                  </div>
+                  <div className={styles.pipelineStep}>
+                    <dt>Offers</dt>
+                    <dd>{offerCount}</dd>
+                  </div>
+                </dl>
+              )}
               {!appsReady ? (
-                <p className={styles.empty}>{loading ? 'Loading applications…' : 'Applications unavailable.'}</p>
+                <p className={styles.inlineEmpty}>{loading ? 'Loading applications…' : 'Applications unavailable.'}</p>
               ) : recent.length ? (
                 <ul className={styles.rows}>
                   {recent.map(app => (
@@ -701,10 +691,9 @@ export function DashboardPage() {
                 </ul>
               ) : (
                 <div className={styles.empty}>
-                  <div className={styles.emptyIconWrap}><HrIcon name="document" size={24} /></div>
                   <h3>No applications yet</h3>
-                  <p>Apply to a matched role — status updates from employers show here in real time.</p>
-                  <Link to="/jobs">Find roles <HrIcon name="arrow-right" size={15} /></Link>
+                  <p>Apply to a matched role. Updates from employers show here.</p>
+                  <Link to="/jobs" className={styles.textLink}>Find roles <HrIcon name="arrow-right" size={15} /></Link>
                 </div>
               )}
             </section>

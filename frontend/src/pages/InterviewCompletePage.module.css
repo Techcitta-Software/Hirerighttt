@@ -158,3 +158,80 @@
   color: #5046e5;
   font-weight: 700;
 }
+
+/* Candidate redesign: plain confirmation. Neutral page, brand-solid action. */
+.page {
+  background: var(--hr-bg, #faf9ff);
+}
+
+.card {
+  border-radius: var(--radius-xl, 20px);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.06));
+}
+
+.check {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.title {
+  font-size: clamp(1.5rem, 3.4vw, 1.875rem);
+  font-weight: 700;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.lede {
+  font-size: 1rem;
+}
+
+.details {
+  background: #ffffff;
+  border-color: var(--hr-border, #e5e5ef);
+  border-radius: var(--radius-md, 10px);
+}
+
+.row {
+  border-bottom-color: var(--hr-border, #e5e5ef);
+}
+
+.row dd {
+  font-weight: 600;
+}
+
+.cta {
+  min-height: 48px;
+  border-radius: var(--radius-md, 10px);
+  background: var(--hr-brand-solid, #5046e5);
+  font-size: 1rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+  transition: background-color 0.15s ease;
+}
+
+.cta:hover:not(:disabled) {
+  transform: none;
+  background: var(--hr-brand-solid-hover, #4338ca);
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+}
+
+.cta:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.cta:focus-visible,
+.dispute a:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
+}
+
+.dispute a {
+  color: var(--hr-brand-solid, #5046e5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
+  }
+}

@@ -2,9 +2,9 @@
 .header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 24px; }
 .header h2, .header h3 { font-size: 21px; line-height: 28px; font-weight: 700; color: #171b38; margin: 0; letter-spacing: -.2px; }
 .whyLink { display: inline-flex; align-items: center; gap: 9px; font-size: 13.5px; color: #626b88; background: transparent; border: none; cursor: pointer; padding: 6px 4px; border-radius: 6px; }
-.whyLink:hover { color: #7047ff; }
+.whyLink:hover { color: var(--hr-brand-solid, #5046e5); }
 .infoIcon { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
-.whyPanel { margin-bottom: 18px; padding: 16px 18px; border-radius: 9px; background: #f7f4ff; border: 1px solid #ded5ff; color: #57448c; font-size: 14px; line-height: 1.6; }
+.whyPanel { margin-bottom: 18px; padding: 16px 18px; border-radius: 9px; background: #eef2ff; border: 1px solid #ded5ff; color: #57448c; font-size: 14px; line-height: 1.6; }
 .resumeUploadWrapper { display: flex; gap: 24px; align-items: flex-start; }
 .resumeIconBadge { width: 175px; min-width: 175px; height: 170px; background: #f6f2ff; border-radius: 14px; display: flex; align-items: center; justify-content: center; border: 1px solid #e1d8ff; }
 .resumeIconBadge svg { width: 105px; height: 120px; }
@@ -12,24 +12,24 @@
 .dropPromptTitle { font-size: 17.5px; line-height: 24px; font-weight: 600; color: #171b38; margin: 0 0 8px; }
 .dropPromptDesc { font-size: 15px; line-height: 22px; font-weight: 400; color: #626b88; margin: 0 0 16px; }
 .dropzone { border: 1.5px dashed #cdd2e2; background: #fdfdff; border-radius: 11px; padding: 22px 20px 18px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: border-color .2s ease,background .2s ease; position: relative; }
-.dropzone:hover,.dropzone.dragging { border-color: #7047ff; background: #f8f5ff; }
+.dropzone:hover,.dropzone.dragging { border-color: var(--hr-brand-solid, #5046e5); background: #eef2ff; }
 .dropzoneUploadIcon { width: 28px; height: 28px; color: #747b8d; margin-bottom: 10px; }
 .dropzoneText { font-size: 14.5px; line-height: 20px; font-weight: 600; color: #171b38; margin-bottom: 4px; }
 .dropzoneOr { font-size: 13px; line-height: 18px; color: #5f6686; margin-bottom: 10px; }
-.browseBtn { display: inline-block; background: linear-gradient(115deg,#7952ee,#6741df); color: #fff; padding: 10px 22px; border-radius: 7px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; margin-bottom: 12px; }
+.browseBtn { display: inline-block; background: var(--hr-brand-solid, #5046e5); color: #fff; padding: 10px 22px; border-radius: 7px; font-size: 14px; font-weight: 600; border: none; cursor: pointer; margin-bottom: 12px; }
 .browseBtn:hover { background: #6039e8; }
 .browseBtn:focus-visible { outline: 3px solid #c7b8ff; outline-offset: 3px; }
 .dropzoneHint { font-size: 12.5px; line-height: 16px; color: #626b88; }
 .hiddenInput { display: none; }
 .fileUploadedPreview { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 16px 20px; background: #fff; border: 1px solid #ded5ff; border-radius: 10px; margin-top: 10px; box-sizing: border-box; }
 .fileInfo { display: flex; align-items: center; min-width: 0; gap: 14px; font-size: 15px; color: #171b38; }
-.fileIcon { color: #7047ff; display: flex; align-items: center; }
+.fileIcon { color: var(--hr-brand-solid, #5046e5); display: flex; align-items: center; }
 .fileMeta { display: flex; min-width: 0; flex-direction: column; }
 .fileName { font-weight: 600; color: #171b38; overflow-wrap: anywhere; }
 .fileSize { font-size: 12.5px; color: #626b88; }
 .removeBtn { color: #dc3545; font-size: 13.5px; cursor: pointer; background: none; border: none; padding: 4px 8px; }
 .removeBtn:hover { text-decoration: underline; }
-.status,.error { font-size: 13.5px; color: #7047ff; margin-top: 10px; }
+.status,.error { font-size: 13.5px; color: var(--hr-brand-solid, #5046e5); margin-top: 10px; }
 .error { color: #dc3545; }
 .securityNote { display: flex; align-items: center; gap: 8px; font-size: 12.5px; line-height: 18px; color: #20ad65; margin-top: 16px; }
 .securityNote svg { width: 16px; height: 16px; flex-shrink: 0; }

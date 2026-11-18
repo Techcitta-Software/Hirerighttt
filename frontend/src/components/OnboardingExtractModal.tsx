@@ -44,7 +44,9 @@ export function OnboardingExtractModal({ open, firstName, onClose }: Props) {
             transition={{ duration: 0.22 }}
           >
             <div className={styles.icon} aria-hidden="true">
-              ✓
+              <svg viewBox="0 0 16 16" width="22" height="22" fill="none">
+                <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
             <h2 id="extract-modal-title">{title}</h2>
             <p className={styles.tagline}>Review or update your details, then continue.</p>

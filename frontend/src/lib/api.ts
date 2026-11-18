@@ -341,7 +341,7 @@ export async function sendInterviewConfirmationEmail(payload: {
 
 export async function fetchMailStatus() {
   try {
-    return (await request('/api/mail/status')) as { smtpConfigured: boolean }
+    return (await request('/api/mail/status')) as { smtpConfigured: boolean; inviteJoinWindowMinutes?: number }
   } catch {
     return { smtpConfigured: false }
   }

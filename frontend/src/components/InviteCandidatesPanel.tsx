@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { sendInterviewLinks, type SentInvite } from '../lib/vendorApi'
+import { HrIcon } from './HrIcon'
 import styles from './InviteCandidatesPanel.module.css'
 
 type Props = {
@@ -66,11 +67,13 @@ export function InviteCandidatesPanel({ jobs }: Props) {
   return (
     <section className={styles.panel} aria-label="Send interview links">
       <button type="button" className={styles.toggle} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span>
+        <span className={styles.toggleText}>
           <strong>Send interview links</strong>
-          <span className={styles.hint}> — email people a link that opens their interview directly</span>
+          <span className={styles.hint}>Email people a link that opens their AI interview directly.</span>
         </span>
-        <span aria-hidden>{open ? '–' : '+'}</span>
+        <span className={`${styles.toggleIcon} ${open ? styles.toggleIconOpen : ''}`} aria-hidden="true">
+          <HrIcon name="plus" size={14} />
+        </span>
       </button>
 
       {open ? (
@@ -139,8 +142,8 @@ export function InviteCandidatesPanel({ jobs }: Props) {
               <ul>
                 {results.map((r) => (
                   <li key={r.email} className={styles.result}>
-                    <span className={r.emailSent ? styles.ok : styles.fail} aria-hidden>
-                      {r.emailSent ? '✓' : '!'}
+                    <span className={r.emailSent ? styles.ok : styles.fail} aria-hidden="true">
+                      <HrIcon name={r.emailSent ? 'check' : 'alert'} size={12} />
                     </span>
                     <span className={styles.who}>
                       {r.email}

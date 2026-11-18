@@ -3,12 +3,12 @@
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: linear-gradient(180deg, #f8f7fc 0%, #ffffff 40%);
+  background: var(--hr-bg, #faf9ff);
 }
 
 .text {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
-  color: #3d3760;
+  color: var(--hr-navy, #141638);
 }

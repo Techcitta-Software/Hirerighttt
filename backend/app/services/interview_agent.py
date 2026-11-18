@@ -5,6 +5,8 @@ Mirrors the frontend/local agent so scoring stays consistent server-side.
 
 from __future__ import annotations
 
+import logging
+
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -70,6 +72,27 @@ STRUCTURE_SIGNALS = [
 
 CATEGORIES = ["Communication", "Technical", "Problem Solving", "Experience"]
 DEMO_ACCOUNT_NAME = "Arjun Sharma"
+
+
+logger = logging.getLogger("hireright.interview")
+
+# The browser waits about 45 s for the score; AI scoring must finish (or give up) well inside that.
+AI_SCORING_DEADLINE_SECONDS = 38.0
+
+
+def career_score_for(overall: int | float) -> int:
+    """The 0-1000 career score shown on the report: the interview score x10 (50..980)."""
+    return int(min(980, max(50, round(overall) * 10)))
+
+
+def career_status_for(career_score: int | float) -> str:
+    if career_score >= 850:
+        return "Premium Market-Ready"
+    if career_score >= 700:
+        return "Industry Ready"
+    if career_score >= 550:
+        return "Growth Potential"
+    return "Skill Enhancement Recommended"
 
 
 def _clean(value: Any) -> str:
@@ -489,16 +512,8 @@ def _build_interview_scorecard(
             }
         )
 
-    career_score = min(980, max(50, overall * 10))
-    status = (
-        "Premium Market-Ready"
-        if career_score >= 850
-        else "Industry Ready"
-        if career_score >= 700
-        else "Growth Potential"
-        if career_score >= 550
-        else "Skill Enhancement Recommended"
-    )
+    career_score = career_score_for(overall)
+    status = career_status_for(career_score)
     if not reliable:
         status = "Provisional — AI evaluation unavailable"
     name = _clean(ctx.get("name")).split()[0] or "You"
@@ -596,18 +611,36 @@ def _finalize_score_payload(
 
     strengths: list[str] = []
     improvements: list[str] = []
+    corr_scores = rubric_agg.get("correctness") or []
+    avg_correctness = round(sum(corr_scores) / len(corr_scores)) if corr_scores else None
+    # Praise for length or style only when the content was right: a fluent but wrong answer must not read as a
+    # strength to the recruiter.
+    content_ok = avg_correctness is None or avg_correctness >= 60
+    scored = [a for a in analyses if a.get("answer")]
+    weak_share = sum(1 for a in scored if int(a.get("score") or 0) < 40) / max(len(scored), 1)
+
+    # The specific, personal lines first: the evaluator's own comment on the best and the weakest answer.
+    if llm_scored and scored:
+        best_a = max(scored, key=lambda a: int(a.get("score") or 0))
+        worst_a = min(scored, key=lambda a: int(a.get("score") or 0))
+        if int(best_a.get("score") or 0) >= 70 and best_a.get("feedback"):
+            strengths.append(f"{best_a.get('topic') or 'Best answer'}: {str(best_a['feedback']).strip()}")
+        if worst_a is not best_a and int(worst_a.get("score") or 0) < 60 and worst_a.get("feedback"):
+            improvements.append(f"{worst_a.get('topic') or 'Weakest answer'}: {str(worst_a['feedback']).strip()}")
+
     avg_words = sum(a["wordCount"] for a in analyses) / max(len(analyses), 1)
-    if avg_words >= 50:
+    if avg_words >= 50 and content_ok:
         strengths.append("Answers are detailed enough for a live hiring screen.")
-    else:
+    elif avg_words < 50:
         improvements.append("Expand answers to roughly 60–150 words with concrete examples.")
 
     comm_scores = rubric_agg.get("communication") or []
-    if comm_scores and round(sum(comm_scores) / len(comm_scores)) >= 75:
+    if comm_scores and round(sum(comm_scores) / len(comm_scores)) >= 75 and content_ok and weak_share <= 1 / 3:
         strengths.append("Communication is clear and well structured.")
-    corr_scores = rubric_agg.get("correctness") or []
-    if corr_scores and round(sum(corr_scores) / len(corr_scores)) < 55:
+    if avg_correctness is not None and avg_correctness < 55:
         improvements.append("Tighten technical accuracy — answer the exact question asked.")
+    if weak_share > 1 / 3 and len(scored) >= 3:
+        improvements.append(f"{round(weak_share * len(scored))} of {len(scored)} answers did not address the question; prepare examples for each area of your resume.")
 
     if role_skills_analysis.get("requiredSkills"):
         req = role_skills_analysis["requiredSkills"]
@@ -615,14 +648,14 @@ def _finalize_score_payload(
         evidenced = role_skills_analysis.get("evidencedInAnswers") or []
         if on_resume:
             strengths.append(f"Role skills on résumé: {len(on_resume)}/{len(req)} ({', '.join(on_resume)}).")
-        if len(evidenced) >= min(2, len(req)):
+        if len(evidenced) >= min(2, len(req)) and content_ok:
             strengths.append(
                 f"Answers evidenced {len(evidenced)}/{len(req)} required role skills in this interview."
             )
-        else:
+        elif len(evidenced) < min(2, len(req)):
             missing = [s for s in req if s not in evidenced]
             if missing:
-                improvements.append(f"Mention required role skills in answers: {', '.join(missing)}.")
+                improvements.append(f"Show depth in these role skills: {', '.join(missing)}.")
     elif len(skills_referenced) >= 2:
         strengths.append(f"Resume alignment: you evidenced {', '.join(skills_referenced[:3])}.")
     elif ctx["skills"]:
@@ -705,13 +738,17 @@ async def score_session_async(
     llm_by_index = None
     agent = "python-resume-agent"
     if llm_eval_configured():
-        llm_by_index = await evaluate_answers_with_llm(
-            questions=questions,
-            answers=answers,
-            ctx=ctx,
-            role=role,
-            level=level,
-        )
+        import asyncio
+
+        try:
+            # Past this the candidate would see an error page: fall back to the (clearly labelled) provisional score.
+            llm_by_index = await asyncio.wait_for(
+                evaluate_answers_with_llm(questions=questions, answers=answers, ctx=ctx, role=role, level=level),
+                timeout=AI_SCORING_DEADLINE_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("AI scoring exceeded %ss; using the provisional score", AI_SCORING_DEADLINE_SECONDS)
+            llm_by_index = None
         if llm_by_index:
             agent = "python-resume-agent+llm"
 
@@ -725,6 +762,17 @@ async def score_session_async(
         )
         for i, q in enumerate(questions)
     ]
+    # Roles outside the skills catalog (nursing, mechanical, QA, ...) are measured against the candidate's own resume
+    # skills. They used to fall back to exact phrase matching, which gave an ICU nurse 0/100 role fit (15 points of the
+    # score) because no answer said "Ventilator management" word for word.
+    fit_skills = role_skills or [str(s) for s in (ctx.get("skills") or [])[:3] if str(s).strip()]
+    if llm_by_index and fit_skills:
+        # With AI scores available, role fit counts skills the candidate actually demonstrated (not keywords).
+        from app.services.role_skills_fit_scoring import compute_session_role_skills_fit_scored
+
+        role_skills_analysis = compute_session_role_skills_fit_scored(
+            ctx, fit_skills, questions, answers, [a.get("score") for a in analyses]
+        )
     return _finalize_score_payload(
         role=role,
         level=level,

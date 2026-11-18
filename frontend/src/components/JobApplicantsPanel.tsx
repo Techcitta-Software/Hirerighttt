@@ -28,12 +28,18 @@ function ScoreCell({ value, label }: { value: number | null | undefined; label: 
   const tone = value >= 75 ? styles.good : value >= 50 ? styles.mid : styles.low
   return (
     <span className={styles.score} role="img" aria-label={`${label} ${Math.round(value)} out of 100`}>
-      <span className={`${styles.scoreBar} ${tone}`} aria-hidden="true">
-        <span style={{ width: `${Math.max(4, Math.min(100, value))}%` }} />
-      </span>
+      <span className={`${styles.dot} ${tone}`} aria-hidden="true" />
       <strong className="ds-num">{Math.round(value)}</strong>
     </span>
   )
+}
+
+const STATUS_TONE: Partial<Record<EmployerApplicant['status'], string>> = {
+  New: styles.statusNew,
+  'In Review': styles.statusReview,
+  Interviewing: styles.statusReview,
+  Shortlisted: styles.statusGood,
+  Rejected: styles.statusBad,
 }
 
 /** Everyone who applied to one job — from the job board or a shared link — ranked by JD fit and interview. */
@@ -246,7 +252,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                       )}
                     </td>
                     <td data-label="Status">
-                      <span className={styles.status}>{a.status}</span>
+                      <span className={`${styles.status} ${STATUS_TONE[a.status] ?? ''}`}>{a.status}</span>
                     </td>
                     <td className={styles.actions}>
                       <button type="button" onClick={() => onViewDocument('resume', a)} disabled={!a.resumeName && !a.resumeText}>

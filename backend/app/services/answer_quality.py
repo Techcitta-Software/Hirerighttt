@@ -18,15 +18,45 @@ _STOP = {
 }
 
 # Attempts to talk the evaluator (an LLM) into a higher score. Answers are untrusted input.
+# Unambiguous: these phrases are aimed at the scorer, never at the interview question.
 _INJECTION_RE = re.compile(
     r"(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|messages?|directions?|rubric|scoring)\b"
-    r"|\b(system|developer)\s+(note|prompt|message|instruction)s?\b"
     r"|\b(note|message)\s+to\s+(the\s+)?(evaluator|grader|scorer|assistant|ai)\b"
     r"|\bcalibration\s+(mode|instruction)\b"
     r"|\b(set|give|output|return|assign)\s+(the\s+)?(correctness|depth|communication|scores?)\b[^.]{0,60}\b(100|full|maximum|max|perfect)\b"
-    r"|\bpre-?approved\b|\bscoring\s+rubric\b|\bjson\s+format\b",
+    r"|\bpre-?approved\b",
     re.I,
 )
+# Everyday vocabulary for anyone who builds LLM applications ("I put the rules in the system prompt", "return JSON
+# format"). They only count as an attack when the same sentence is aimed at the scorer. They used to zero the answer
+# on their own, which gave a correct RAG answer ("system instructions that force the model to cite sources") 5/100.
+_LLM_VOCAB_RE = re.compile(
+    r"\b(system|developer)\s+(note|prompt|message|instruction)s?\b|\bscoring\s+rubric\b|\bjson\s+format\b", re.I
+)
+_AT_SCORER_RE = re.compile(
+    r"\b(evaluator|grader|scorer|grading|grade|graded|score|scores|scoring|marks?|full\s+points|rate\s+(this|me|my)|this\s+answer|my\s+answer)\b",
+    re.I,
+)
+
+
+def looks_like_prompt_injection(text: str) -> bool:
+    if _INJECTION_RE.search(text):
+        return True
+    for sentence in re.split(r"(?<=[.!?\n])\s+", text):
+        vocab = _LLM_VOCAB_RE.search(sentence)
+        if vocab and _AT_SCORER_RE.search(sentence[: vocab.start()] + " " + sentence[vocab.end():]):
+            return True
+    return False
+
+# A short reply that only says the candidate does not know. Honest, but it shows no skill.
+_NO_ANSWER_RE = re.compile(
+    r"\b(i\s+)?(don'?t|do\s+not|really\s+don'?t)\s+(really\s+)?know\b|\bnot\s+sure\b|\bno\s+idea\b"
+    r"|\b(can'?t|cannot|not\s+able\s+to|unable\s+to)\s+(recall|remember)\b|\bhaven'?t\s+(come\s+across|worked\s+on|used)\b"
+    r"|\bpass\s+on\s+this\b|\bskip\s+(this|it)\b",
+    re.I,
+)
+NO_ANSWER_MAX_WORDS = 18
+NO_ANSWER_CAP = 10
 
 # Heuristic-only scores are provisional, so they can never reach the top band.
 HEURISTIC_CEILING = 75
@@ -54,8 +84,14 @@ def assess_answer_quality(question: dict[str, Any], answer: str, ctx: dict[str, 
     cap: int | None = None
 
     # 0. Prompt injection: instructions aimed at the scorer instead of an answer to the question.
-    if _INJECTION_RE.search(text):
+    if looks_like_prompt_injection(text):
         return {"flags": ["prompt_injection"], "multiplier": 0.05, "cap": 5, "empty": False}
+
+    # 0b. "I don't know" (and nothing else): no evidence of skill, whatever the evaluator thought of the wording.
+    if n <= NO_ANSWER_MAX_WORDS and _NO_ANSWER_RE.search(text):
+        flags.append("no_answer")
+        multiplier = min(multiplier, 0.4)
+        cap = NO_ANSWER_CAP
 
     # 1. Repetition / keyword stuffing: very low lexical variety in a longer answer.
     if n >= 20:

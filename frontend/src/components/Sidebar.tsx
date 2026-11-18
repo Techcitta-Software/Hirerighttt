@@ -144,7 +144,7 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
       <div className={`${styles.why} ${step === 3 ? styles.trustCard : ''}`}>
         <h3>
           {step === 3 ? (
-            '✓  Your journey is in safe hands.'
+            'Your journey is in safe hands.'
           ) : (
             <>Why HireRight{step === 2 ? ' ?' : ''}</>
           )}
@@ -162,7 +162,11 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
               : WHY_ITEMS
           ).map((item) => (
             <li key={item}>
-              <span className={styles.check}>✓</span>
+              <span className={styles.check} aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
+                  <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
               <span>{item}</span>
             </li>
           ))}

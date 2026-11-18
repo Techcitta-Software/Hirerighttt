@@ -50,7 +50,6 @@ export function AppFooter() {
             <BrandLogo
               to={user?.role === 'employer' ? '/employer/dashboard' : '/dashboard'}
               size="sm"
-              dark
               className={styles.brandLink}
             />
             <p className={styles.tagline}>Your experience. Your potential. Your next opportunity.</p>

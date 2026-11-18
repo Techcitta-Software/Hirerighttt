@@ -123,10 +123,9 @@ function OrganizationSignupForm() {
 
       <main className={styles.main}>
         <section className={styles.intro}>
-          <p className={styles.kicker}>For hiring teams</p>
           <h1>Screen every candidate with an AI interview.</h1>
           <p className={styles.lead}>
-            Post a role, share a link, and review scored interviews instead of sorting resumes.
+            For hiring teams: post a role, share a link, and review scored interviews instead of sorting resumes.
           </p>
           <ol className={styles.steps}>
             {OFFERINGS.map((o, i) => (
@@ -176,7 +175,7 @@ function OrganizationSignupForm() {
               </span>
             </label>
             {error && (
-              <p className={styles.error} role="alert">
+              <p className={styles.error} role="alert" id="org-signup-error">
                 {error}
               </p>
             )}

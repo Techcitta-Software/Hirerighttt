@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--app-shell-bg, #ffffff);
+  background: var(--app-shell-bg, var(--ds-bg, #faf9ff));
   overflow-x: clip;
 }
 

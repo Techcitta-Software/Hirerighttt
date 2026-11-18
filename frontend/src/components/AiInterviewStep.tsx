@@ -80,7 +80,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
   return <div className={styles.stack}>
     <header className={styles.intro}>
       <span className={styles.calendarIcon}><Icon kind="calendar" /></span>
-      <div><h1>{data.resumeFile || getProfile()?.resumeName ? 'Great! Your resume is uploaded successfully! 🎉' : 'Great! Let’s get your AI interview scheduled! 🎉'}</h1><h2>Let&apos;s book your 15-minute AI interview. Choose a time that works best for you.</h2></div>
+      <div><h1>{data.resumeFile || getProfile()?.resumeName ? 'Great! Your resume is uploaded successfully.' : 'Great! Let’s get your AI interview scheduled.'}</h1><h2>Let&apos;s book your 15-minute AI interview. Choose a time that works best for you.</h2></div>
     </header>
     <div className={styles.immediateSection}>
       <h3 className={styles.immediateTitle}>Book an Interview Immediately</h3>
@@ -115,7 +115,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
           })}</div>
           <div className={styles.legend}><span><i className={styles.available} />Available</span><span><i className={styles.limited} />Limited Slots</span><span><i className={styles.unavailable} />Unavailable</span></div>
         </div>
-        <div className={styles.slotsCol}><h4>{dateLabel} <span aria-hidden="true">☀️</span></h4>{SLOT_GROUPS.map(([label, slots]) => <div className={styles.slotGroup} key={label}><h5>{label}</h5><div className={styles.slotGrid}>{slots.map(slot => <button type="button" key={slot} disabled={appointment(selectedDate, slot).getTime() <= Date.now()} aria-pressed={selectedSlot === slot} className={`${styles.slotBtn} ${selectedSlot === slot ? styles.slotActive : ''}`} onClick={() => setSelectedSlot(slot)}>{slot}{selectedSlot === slot && <span>✓</span>}</button>)}</div></div>)}</div>
+        <div className={styles.slotsCol}><h4>{dateLabel}</h4>{SLOT_GROUPS.map(([label, slots]) => <div className={styles.slotGroup} key={label}><h5>{label}</h5><div className={styles.slotGrid}>{slots.map(slot => <button type="button" key={slot} disabled={appointment(selectedDate, slot).getTime() <= Date.now()} aria-pressed={selectedSlot === slot} className={`${styles.slotBtn} ${selectedSlot === slot ? styles.slotActive : ''}`} onClick={() => setSelectedSlot(slot)}>{slot}{selectedSlot === slot && <span>✓</span>}</button>)}</div></div>)}</div>
       </div>
     </section>
     <section className={styles.selectedSummary} aria-live="polite">

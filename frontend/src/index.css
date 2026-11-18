@@ -2,34 +2,14 @@
 
 :root {
   --hr-layout-width: min(1200px, calc(100% - 2rem));
-  --hr-navy: #07122a;
-  --hr-navy-deep: #050b18;
-  --hr-red: #e53935;
-  --hr-red-hover: #d32f2f;
-  --hr-muted: #64748b;
-  --hr-border: #e2e8f0;
-  --hr-text: #1e293b;
-  /* Stripe / Vercel Crisp Light Foundation */
-  --bg-page: #f8fafc;
+  /* --hr-* palette lives only in styles/hire-theme.css. */
+
+  /* Surfaces */
+  --bg-page: #faf9ff;
   --bg-surface: #ffffff;
-  --bg-subtle: #f1f5f9;
+  --bg-subtle: #f1f1f7;
   --bg-card: #ffffff;
   --bg-elevated: #ffffff;
-
-  /* Crisp Slate & Neutral Palette */
-  --space-dark-950: #090d16;
-  --space-dark-900: #0f172a;
-  --space-dark-850: #1e293b;
-  --space-dark-800: #334155;
-
-  --space-blue-800: #1e40af;
-  --space-blue-700: #1d4ed8;
-  --space-blue-600: #2563eb;
-  --space-blue-500: #3b82f6;
-  --space-blue-400: #60a5fa;
-  --space-blue-300: #93c5fd;
-  --space-cyan-400: #38bdf8;
-  --space-cyan-300: #7dd3fc;
 
   /* Brand accents */
   --brand-primary: var(--hr-brand-solid);
@@ -38,59 +18,23 @@
   --brand-light: #eef2ff;
   --brand-border: #c7d2fe;
   --brand-gradient: var(--hr-brand-gradient);
-  --brand-glow: 0 4px 20px var(--hr-brand-glow);
+  --brand-glow: none;
 
-  --purple-50: #f8fafc;
-  --purple-100: #f1f5f9;
-  --purple-200: #e2e8f0;
-  --purple-300: #93c5fd;
-  --purple-400: #60a5fa;
-  --purple-500: #2563eb;
-  --purple-600: #1d4ed8;
-  --purple-700: #1e40af;
-  --purple-800: #1e3a8a;
-  --navy-900: #090d16;
-  --navy-850: #0f172a;
-  --navy-800: #1e293b;
-
-  /* Crisp Borders */
-  --border-subtle: #f1f5f9;
-  --border-default: #e2e8f0;
-  --border-strong: #cbd5e1;
+  /* Borders */
+  --border-subtle: #f1f1f7;
+  --border-default: #e5e5ef;
+  --border-strong: #d6d7e5;
   --border-active: var(--hr-brand-solid);
 
-  /* Grays */
-  --gray-50: #f8fafc;
-  --gray-100: #f1f5f9;
-  --gray-200: #e2e8f0;
-  --gray-300: #cbd5e1;
-  --gray-400: #94a3b8;
-  --gray-500: #64748b;
-  --gray-600: #475569;
-  --gray-700: #334155;
-  --gray-800: #1e293b;
-  --gray-900: #0f172a;
-
-  /* Semantic */
-  --green-500: #10b981;
-  --green-600: #059669;
-  --red-500: #ef4444;
-  --red-600: #dc2626;
-  --orange-500: #f59e0b;
-  --orange-600: #d97706;
-  --orange-100: #fef3c7;
-
   --white: #ffffff;
-  --space-blue-gradient: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
-  --space-glow: 0 4px 20px rgba(37, 99, 235, 0.2);
 
-  /* Stripe / Vercel Layered Precision Shadows */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 4px 14px -1px rgba(15, 23, 42, 0.07), 0 2px 6px -2px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 12px 30px -4px rgba(15, 23, 42, 0.08), 0 4px 12px -2px rgba(15, 23, 42, 0.04);
-  --shadow-xl: 0 24px 48px -12px rgba(15, 23, 42, 0.12);
-  --shadow-btn: 0 2px 6px rgba(37, 99, 235, 0.28), 0 1px 2px rgba(37, 99, 235, 0.16);
+  /* Shadows (navy-tinted, used sparingly; cards have none) */
+  --shadow-xs: 0 1px 2px rgb(20 22 56 / 5%);
+  --shadow-sm: 0 1px 3px rgb(20 22 56 / 8%), 0 1px 2px rgb(20 22 56 / 4%);
+  --shadow-md: 0 4px 12px rgb(20 22 56 / 8%);
+  --shadow-lg: 0 12px 32px -4px rgb(20 22 56 / 14%);
+  --shadow-xl: 0 24px 48px -12px rgb(20 22 56 / 24%);
+  --shadow-btn: var(--shadow-xs);
 
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -154,7 +98,7 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
   color: var(--color-text-primary);
-  background-color: var(--bg-page, #f8fafc);
+  background-color: var(--bg-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: var(--line-height-relaxed);
@@ -168,7 +112,7 @@ h1,
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: 1.15;
-  color: #090d16;
+  color: var(--ds-text, #141638);
 }
 
 /* Tier 1: Heading -> h2 */
@@ -184,7 +128,7 @@ h2,
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.25;
-  color: #090d16;
+  color: var(--ds-text, #141638);
 }
 
 /* Tier 2: Sub Heading -> h3 */
@@ -198,7 +142,7 @@ h3,
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.35;
-  color: #090d16;
+  color: var(--ds-text, #141638);
 }
 
 /* Tier 3: Content -> h4 */
@@ -211,7 +155,7 @@ h4,
   font-size: var(--text-h4);
   font-weight: 400;
   line-height: 1.6;
-  color: #334155;
+  color: var(--ds-text-secondary, #363b5c);
 }
 
 button,

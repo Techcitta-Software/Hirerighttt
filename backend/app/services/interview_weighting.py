@@ -64,8 +64,16 @@ def compute_weighted_score(
         answered.append({"index": i, "question": q, "analysis": a, "technical": is_technical(q)})
 
     plan = planned_slots(fresher)
-    n_tech = max(plan["technical"], sum(1 for x in answered if x["technical"]))
-    n_other = max(plan["other"], sum(1 for x in answered if not x["technical"]))
+    got_tech = sum(1 for x in answered if x["technical"])
+    got_other = len(answered) - got_tech
+    # Missing questions are counted against the WHOLE plan. The model decides whether a follow-up is "technical" or
+    # "other", so the mix varies; counting each type separately (max(planned, got) per type) added a phantom
+    # "not answered" slot whenever the mix differed from 3+4, which cost complete interviews 9-16 points.
+    shortfall = max(0, plan["technical"] + plan["other"] - len(answered))
+    missing_tech = min(max(0, plan["technical"] - got_tech), shortfall)
+    missing_other = shortfall - missing_tech
+    n_tech = got_tech + missing_tech
+    n_other = got_other + missing_other
     w_tech, w_other = TECHNICAL_WEIGHT, OTHER_WEIGHT
 
     question_total = w_tech * n_tech + w_other * n_other
@@ -92,8 +100,6 @@ def compute_weighted_score(
                 "answered": True,
             }
         )
-    missing_tech = n_tech - sum(1 for x in answered if x["technical"])
-    missing_other = n_other - sum(1 for x in answered if not x["technical"])
     for kind, count, weight in (("technical", missing_tech, w_tech), ("other", missing_other, w_other)):
         for _ in range(max(0, count)):
             rows.append(

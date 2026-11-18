@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
+import { HrIcon } from '../components/HrIcon'
 import { PageLoader } from '../components/SignalLoader'
 import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp } from '../motion/variants'
@@ -572,11 +573,11 @@ export function LoginPage({
           <div className={styles.splitLeftCopy}>
             {authMode === 'signup' && signupRole === 'employer' ? (
               <>
-                <h1 className={styles.leftHeadline}>
+                <p className={styles.leftHeadline}>
                   Hire with proof,
                   <br />
                   not guesswork.
-                </h1>
+                </p>
                 <ul className={styles.leftChecklist}>
                   <li>
                     <CheckIcon />
@@ -594,11 +595,11 @@ export function LoginPage({
               </>
             ) : authMode === 'signup' ? (
               <>
-                <h1 className={styles.leftHeadline}>
+                <p className={styles.leftHeadline}>
                   Your future starts with
                   <br />
                   understanding you.
-                </h1>
+                </p>
                 <ul className={styles.leftChecklist}>
                   <li>
                     <CheckIcon />
@@ -616,13 +617,13 @@ export function LoginPage({
               </>
             ) : (
               <>
-                <h1 className={styles.leftHeadline}>
+                <p className={styles.leftHeadline}>
                   Pick up where your
                   <br />
                   career conversation
                   <br />
                   left off.
-                </h1>
+                </p>
                 <p className={styles.leftSubtitle}>
                   Log in to see your 360° Career View, your next steps and your progress.
                 </p>
@@ -659,12 +660,12 @@ export function LoginPage({
               <form className={styles.loginForm} onSubmit={handleLoginSubmit}>
                 {successMessage ? (
                   <div className={styles.successBanner} role="status">
-                    <span>✓</span>
+                    <HrIcon name="check" size={16} />
                     <span>{successMessage}</span>
                   </div>
                 ) : sessionStorage.getItem('hireright.intent') === 'upload_resume' ? (
                   <div className={styles.successBanner} role="status">
-                    <span>📄</span>
+                    <HrIcon name="document" size={16} />
                     <span>Resume saved! Log in to automatically attach it to your profile.</span>
                   </div>
                 ) : null}
@@ -767,7 +768,7 @@ export function LoginPage({
               <form className={styles.loginForm} onSubmit={handleSignupSubmit}>
                 {sessionStorage.getItem('hireright.intent') === 'upload_resume' && (
                   <div className={styles.successBanner} role="status" style={{ marginBottom: 16 }}>
-                    <span>📄</span>
+                    <HrIcon name="document" size={16} />
                     <span>Resume selected! Create your account to automatically analyze your profile.</span>
                   </div>
                 )}
@@ -1025,8 +1026,7 @@ export function SettingsPage() {
           initial="hidden"
           animate="show"
         >
-          <span className={styles.kicker}>ACCOUNT</span>
-          <h1>Account Settings</h1>
+          <h1>Account settings</h1>
           <p>
             Signed in as <strong>{user?.email ?? 'guest'}</strong>
             {user?.name ? ` · ${user.name}` : ''}
@@ -1037,14 +1037,17 @@ export function SettingsPage() {
 
           {panel === 'menu' && (
             <div className={styles.settingsList}>
-              <button type="button" onClick={() => setPanel('security')}>
-                Email & password
+              <button type="button" className={styles.settingsRow} onClick={() => setPanel('security')}>
+                <span>Email & password</span>
+                <HrIcon name="arrow-right" size={16} />
               </button>
-              <button type="button" onClick={() => setPanel('notifications')}>
-                Notification preferences
+              <button type="button" className={styles.settingsRow} onClick={() => setPanel('notifications')}>
+                <span>Notification preferences</span>
+                <HrIcon name="arrow-right" size={16} />
               </button>
-              <button type="button" onClick={() => setPanel('privacy')}>
-                Privacy & visibility
+              <button type="button" className={styles.settingsRow} onClick={() => setPanel('privacy')}>
+                <span>Privacy & visibility</span>
+                <HrIcon name="arrow-right" size={16} />
               </button>
               <MotionButton
                 type="button"
@@ -1052,7 +1055,7 @@ export function SettingsPage() {
                 onClick={() => navigate('/profile')}
                 lift
               >
-                View Profile
+                View profile
               </MotionButton>
               <MotionButton
                 type="button"

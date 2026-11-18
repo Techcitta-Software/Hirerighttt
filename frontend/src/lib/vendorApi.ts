@@ -225,6 +225,17 @@ export async function fetchVendorCandidateResumeDocument(candidateEmail: string)
   return parse<VendorCandidateDocumentLink>(res)
 }
 
+/** The stored resume file itself (via the API, so the browser needs no cross-origin S3 access). */
+export async function fetchVendorCandidateResumeFile(candidateEmail: string): Promise<ArrayBuffer> {
+  const qs = new URLSearchParams({ email: candidateEmail, raw: '1' })
+  const res = await apiFetch(`/api/vendor/candidate-documents/resume?${qs}`)
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error || `Could not load the resume (${res.status})`)
+  }
+  return res.arrayBuffer()
+}
+
 export async function fetchVendorCandidateReportDocument(candidateEmail: string) {
   const qs = new URLSearchParams({ email: candidateEmail })
   const res = await apiFetch(`/api/vendor/candidate-documents/report?${qs}`)

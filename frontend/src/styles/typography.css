@@ -29,9 +29,21 @@
   --font-size-heading: var(--text-h2);
   --font-size-subheading: var(--text-h3);
   --font-size-content: var(--text-h4);
-  --font-size-body: var(--font-size-md);
-  --font-size-label: var(--font-size-xs);
+  --font-size-body: 1rem;
+  --font-size-label: var(--font-size-sm);
   --font-size-caption: var(--font-size-sm);
+
+  /* ── App type scale (rulebook §1.3) ── */
+  --fs-page-title: clamp(1.5rem, 1.2rem + 1vw, 1.75rem); /* 24→28 */
+  --fs-section-title: 1.25rem; /* 20 */
+  --fs-card-title: 1rem; /* 16 */
+  --fs-body-lg: 1rem; /* 16 */
+  --fs-body: 0.9375rem; /* 15 */
+  --fs-sm: 0.875rem; /* 14 */
+  --fs-xs: 0.8125rem; /* 13 */
+  --fs-2xs: 0.75rem; /* 12 — minimum */
+  --fs-stat: 1.5rem; /* 24 */
+  --fs-score: 2.5rem; /* 40 */
 
   /* ── Line height ── */
   --line-height-tight: 1.2;
@@ -54,19 +66,19 @@
   --font-weight-extrabold: 800;
 
   /* ── Page & Dashboard backgrounds (plain white foundation) ── */
-  --color-bg-page: #ffffff;
-  --color-bg-dashboard: #ffffff;
+  --color-bg-page: #faf9ff;
+  --color-bg-dashboard: #faf9ff;
   --color-bg-surface: #ffffff;
   --color-bg-app-nav: #ffffff;
-  --dash-bg: #ffffff;
-  --employer-bg: #ffffff;
-  --app-shell-bg: #ffffff;
+  --dash-bg: #faf9ff;
+  --employer-bg: #faf9ff;
+  --app-shell-bg: #faf9ff;
 
   /* ── Text colors ── */
   --color-text-primary: #141638;
-  --color-text-secondary: #334155;
+  --color-text-secondary: #363b5c;
   --color-text-muted: #5f6686;
-  --color-text-subtle: #64748b;
+  --color-text-subtle: #5f6686;
   --color-text-inverse: #ffffff;
   /* Brand gradient (purple → blue) — single source for accents */
   --hr-brand-gradient-start: #5046e5;
@@ -93,13 +105,15 @@
 
   /* ── Spacing scale (4px base) ── */
   --space-0: 0;
+  --space-0-5: 0.125rem; /* 2 — inside small components only */
   --space-1: 0.25rem; /* 4 */
+  --space-1-5: 0.375rem; /* 6 — inside small components only */
   --space-2: 0.5rem; /* 8 */
   --space-3: 0.75rem; /* 12 */
   --space-4: 1rem; /* 16 */
   --space-5: 1.25rem; /* 20 */
   --space-6: 1.5rem; /* 24 */
-  --space-7: 1.75rem; /* 28 */
+  --space-7: 1.75rem; /* 28 — deprecated, do not use */
   --space-8: 2rem; /* 32 */
   --space-10: 2.5rem; /* 40 */
   --space-12: 3rem; /* 48 */
@@ -107,8 +121,8 @@
   --space-20: 5rem; /* 80 */
 
   /* ── Layout spacing ── */
-  --layout-max-width: 1200px;
-  --layout-gutter: clamp(1rem, 3vw, 1.5rem);
+  --layout-max-width: 1280px;
+  --layout-gutter: clamp(1rem, 3vw, 2rem);
   --layout-gutter-wide: clamp(1.25rem, 3.5vw, 3rem);
   --layout-section-y: var(--space-10);
   --layout-section-y-lg: var(--space-12);
@@ -119,30 +133,30 @@
   --layout-inline-gap-lg: var(--space-4);
 
   /* App shell */
-  --app-main-padding-y: var(--space-7);
+  --app-main-padding-y: clamp(1rem, 2.5vw, 2rem);
   --app-main-padding-x: var(--layout-gutter);
   --app-page-padding-bottom: var(--space-16);
 
   /* Cards & forms */
-  --card-padding: var(--space-6);
+  --card-padding: var(--space-5);
   --card-padding-sm: var(--space-4);
-  --card-gap: var(--space-5);
-  --form-field-gap: var(--space-2);
+  --card-gap: var(--space-4);
+  --form-field-gap: var(--space-4);
   --form-section-gap: var(--space-6);
-  --form-label-gap: var(--space-1);
+  --form-label-gap: var(--space-1-5);
 
   /* Nav */
-  --nav-height: 64px;
+  --nav-height: 64px; /* real SiteNav header height (all breakpoints) */
   --nav-padding-x: var(--space-6);
   --nav-padding-y: var(--space-3);
 
   /* Brand wordmark (text logo) */
-  --logo-color-hire: #0a1128;
+  --logo-color-hire: #141638;
   --logo-color-right: var(--hr-brand-solid);
-  --logo-color-tagline: #6b7280;
+  --logo-color-tagline: #5f6686;
   --logo-color-hire-on-dark: #ffffff;
-  --logo-color-right-on-dark: #b8acf5;
-  --logo-color-tagline-on-dark: #94a3b8;
+  --logo-color-right-on-dark: #c7d2fe;
+  --logo-color-tagline-on-dark: #8a8fa8;
   --logo-wordmark-weight: 700;
   --logo-wordmark-tracking: -0.03em;
   --logo-tagline-weight: 500;
@@ -190,8 +204,7 @@
   line-height: var(--line-height-tight);
 }
 
-.hr-h2,
-.hr-page-title {
+.hr-h2 {
   font-family: var(--font-display);
   font-size: var(--text-h2);
   font-weight: var(--font-weight-bold);
@@ -199,13 +212,30 @@
   line-height: var(--line-height-snug);
 }
 
-.hr-h3,
-.hr-section-title {
+.hr-page-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-page-title);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--ds-text, #141638);
+}
+
+.hr-h3 {
   font-family: var(--font-display);
   font-size: var(--text-h3);
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.02em;
   line-height: var(--line-height-snug);
+}
+
+.hr-section-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-section-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--ds-text, #141638);
 }
 
 .hr-h4,
@@ -240,11 +270,9 @@
 }
 
 .hr-label {
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-text-subtle);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ds-text, #141638);
 }
 
 .hr-caption {
@@ -435,7 +463,7 @@
 .hr-logo--dark .hr-logo__right {
   background: linear-gradient(
     var(--hr-brand-gradient-angle),
-    #c4b5fd 0%,
+    #c7d2fe 0%,
     var(--hr-brand-gradient-end) 100%
   );
   -webkit-background-clip: text;

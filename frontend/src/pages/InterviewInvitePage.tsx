@@ -257,9 +257,8 @@ export function InterviewInvitePage() {
       <MarketingNavBar />
       <main className={styles.main}>
         <header className={styles.hero}>
-          <p className={styles.eyebrow}>AI interview invitation</p>
           <h1>{invite?.jobTitle || 'Your scheduled interview'}</h1>
-          {invite?.company && <p className={styles.sub}>{invite.company}</p>}
+          <p className={styles.sub}>AI interview invitation{invite?.company ? ` from ${invite.company}` : ''}</p>
         </header>
 
         {loading && <PageLoader label="Loading your interview…" />}

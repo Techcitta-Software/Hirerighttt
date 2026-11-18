@@ -1,6 +1,7 @@
 import type { Question } from './interviewEngine'
 import type { SavedProfile } from './store'
 import { apiFetch } from './api'
+import { isEndInterviewRequest } from './answerTiming'
 import { ensureApiSession } from './apiSession'
 import { candidateFullName } from './store'
 import { clientLlmAllowed } from './clientLlm'
@@ -39,11 +40,9 @@ export function isPreloadedInterviewQuestion(q: Question | undefined): boolean {
   return Boolean(q?.text && q.text.trim().length >= 24)
 }
 
-const END_INTERVIEW_RE =
-  /\b(end (the )?interview|stop (the )?interview|finish (the )?interview|i'?m done|that'?s all|no more questions)\b/i
-
+/** The candidate asked to end the whole interview (rules: answerTiming.isEndInterviewRequest). */
 export function isEndInterviewCommand(text: string): boolean {
-  return END_INTERVIEW_RE.test(text.trim())
+  return isEndInterviewRequest(text)
 }
 
 export { extractClaimedSkills } from './interviewQuestionGeneration'

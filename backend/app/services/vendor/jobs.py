@@ -427,7 +427,9 @@ def update_application_interview(
         return None
     from datetime import datetime, timezone
 
-    app["status"] = "interviewed"
+    # A vendor's decision (shortlisted / rejected) stands; the interview only moves a new applicant forward.
+    if str(app.get("status") or "applied").lower() not in ("shortlisted", "rejected"):
+        app["status"] = "interviewed"
     app["data"] = {
         **(app.get("data") or {}),
         "interviewScore": result.get("overall"),

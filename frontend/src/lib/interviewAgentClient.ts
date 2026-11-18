@@ -368,7 +368,12 @@ export type InterviewTurnResponse = {
   agent?: string
 }
 
-/** Ava acknowledges the answer and bridges to the next question (interactive agent). */
+/**
+ * Ava acknowledges the answer and bridges to the next question.
+ *
+ * Built on the device, instantly. It used to POST /api/interview/turn first, but the server only ever returned a
+ * fixed phrase that this function discarded, so every answer paid a network round trip for nothing.
+ */
 export async function processInterviewTurn(options: {
   sessionId: string | null
   role: string
@@ -380,44 +385,18 @@ export async function processInterviewTurn(options: {
   nextQuestion?: Question
   profile: SavedProfile | null
 }): Promise<InterviewTurnResponse> {
-  await ensureApiSession()
   const agentProfile = enrichProfileForAgent(options.profile)
   const first = candidateFirstName(agentProfile)
-  const fallback = (words: number) => {
-    if (words < 8) {
-      return `Thanks ${first}. Add a concrete example from your resume when you can — let's continue. `
-    }
-    if (words < 22) {
-      return `Thanks ${first}, I appreciate that. Let's go deeper on the next one. `
-    }
-    return `Great, ${first} — that helps. Let's move on. `
-  }
   const wordCount = options.answer.trim().split(/\s+/).filter(Boolean).length
-
-  try {
-    const res = await apiFetch('/api/interview/turn', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: options.sessionId,
-        role: options.role,
-        level: options.level,
-        profile: agentProfile,
-        question: options.question,
-        answer: options.answer,
-        questionIndex: options.questionIndex,
-        totalQuestions: options.totalQuestions,
-        nextQuestion: options.nextQuestion,
-      }),
-    })
-    if (res.ok) {
-      const data = (await res.json()) as InterviewTurnResponse
-      if (data.spoken?.trim()) return data
-    }
-  } catch {
-    // local fallback
+  let spoken: string
+  if (wordCount < 8) {
+    spoken = `Thanks ${first}. Add a concrete example from your resume when you can — let's continue. `
+  } else if (wordCount < 22) {
+    spoken = `Thanks ${first}, I appreciate that. Let's go deeper on the next one. `
+  } else {
+    spoken = `Great, ${first} — that helps. Let's move on. `
   }
-
-  return { spoken: fallback(wordCount), interactive: false, agent: 'local-bridge' }
+  return { spoken, interactive: false, agent: 'local-bridge' }
 }
 
 /**

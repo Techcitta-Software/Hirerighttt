@@ -7,6 +7,7 @@ import {
 } from '../data/wizard'
 import { MotionItem, MotionStack } from '../motion/MotionStack'
 import { SelectField } from './SelectField'
+import { toMonthInputValue } from '../lib/resumeExperience'
 import styles from './PerformanceStep.module.css'
 
 interface PerformanceStepProps {
@@ -394,7 +395,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                   <input
                     className={styles.textInput}
                     type="month"
-                    value={cert.dateEarned}
+                    value={toMonthInputValue(cert.dateEarned)}
                     onChange={(event) =>
                       updateCert(cert.id, 'dateEarned', event.target.value)
                     }

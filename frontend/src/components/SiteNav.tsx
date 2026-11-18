@@ -13,7 +13,7 @@ import styles from './SiteNav.module.css'
 const MARKETING_NAV = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
-  { to: '/career-view', label: '360° Report' },
+  { to: '/career-view', label: '360° report' },
   { to: '/solutions', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
 ]
@@ -248,7 +248,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                         <p className={styles.profileDropdownEmail}>{user?.email}</p>
                         <span className={styles.profileDropdownBadge}>
                           {user?.role === 'employer'
-                            ? (user?.companyName ? user.companyName : 'Employer Portal')
+                            ? (user?.companyName ? user.companyName : 'Employer portal')
                             : 'Candidate'}
                         </span>
                       </div>
@@ -261,7 +261,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                             className={styles.profileDropdownItem}
                             onClick={() => goFromProfileMenu('/employer/jobs')}
                           >
-                            Jobs &amp; Openings
+                            Jobs &amp; openings
                           </button>
                           <button
                             type="button"
@@ -332,7 +332,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   Dashboard
                 </Link>
                 <Link to="/interview" className={styles.homeLoginPill}>
-                  AI Interview
+                  AI interview
                 </Link>
               </>
             ) : (
@@ -341,7 +341,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   Sign in
                 </Link>
                 <Link to="/signup" className={styles.homeLoginPill} onClick={onSignupClick}>
-                  Student / Job Seeker Login
+                  Job seeker sign up
                 </Link>
               </>
             )
@@ -426,7 +426,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                           isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
                         }
                       >
-                        Jobs &amp; Openings
+                        Jobs &amp; openings
                       </NavLink>
                       <NavLink
                         to="/employer/candidates"

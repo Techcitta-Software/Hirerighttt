@@ -74,13 +74,11 @@ export function InterviewCompletePage() {
               <path d="M5 12.5l4.5 4.5L19 7.5" />
             </svg>
           </div>
-          <p className={styles.kicker}>Interview complete</p>
           <h1 id="complete-title" className={styles.title}>
-            Congratulations, {fullName.split(/\s+/)[0]}!
+            Interview submitted, {fullName.split(/\s+/)[0]}
           </h1>
           <p className={styles.lede}>
-            You completed your interview — well done, and thank you for the time and thought you put into your
-            answers. Your 360° career report is ready on your dashboard.
+            Thank you for your time. Your career report is ready on your dashboard.
           </p>
 
           <dl className={styles.details}>

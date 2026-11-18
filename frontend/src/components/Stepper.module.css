@@ -182,3 +182,125 @@
     min-width: 6px;
   }
 }
+
+/* ── Candidate redesign: calm stepper. Brand for the current step, green tick for done. ── */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.circle {
+  position: relative;
+  border: 1px solid var(--hr-border, #e5e5ef);
+  background: #ffffff;
+  color: var(--hr-muted, #5f6686);
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.compact .circle {
+  width: 36px;
+  height: 36px;
+  font-size: 0.9375rem;
+}
+
+.compact .connectorItem {
+  padding-top: 18px;
+}
+
+.label {
+  color: var(--hr-muted, #5f6686);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.active .circle {
+  background: var(--hr-brand-solid, #5046e5);
+  border-color: var(--hr-brand-solid, #5046e5);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px var(--brand-light, #eef2ff);
+}
+
+.compact .active .label {
+  color: var(--hr-navy, #141638);
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.done .circle,
+.compact .done .circle {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+  font-size: 0.9375rem;
+}
+
+.done .label {
+  color: var(--hr-navy, #141638);
+}
+
+.compact .connector {
+  border-top: 2px solid var(--hr-border, #e5e5ef);
+}
+
+.connectorActive,
+.compact .connectorActive {
+  border-top-color: #6ee7b7;
+}
+
+.step:not(:disabled):hover .circle {
+  border-color: var(--brand-border, #c7d2fe);
+}
+
+.step:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+@media (max-width: 1000px) {
+  .label,
+  .compact .active .label {
+    font-size: 0.8125rem;
+  }
+
+  .compact .circle {
+    width: 32px;
+    height: 32px;
+    font-size: 0.875rem;
+  }
+
+  .compact .connectorItem {
+    padding-top: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  /* Only the current step keeps its label on phones; the progress line carries the rest. */
+  .step:not(.active) .label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .item {
+    flex: 0 0 auto;
+  }
+
+  .active {
+    min-width: 72px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .circle {
+    transition: none;
+  }
+}

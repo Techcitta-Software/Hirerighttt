@@ -23,7 +23,7 @@ import os
 import time
 from typing import Any, AsyncIterator
 
-from app.services.gemini_client import API_ROOT, gemini_keys
+from app.services.gemini_client import API_ROOT, gemini_keys, shared_http_client
 
 logger = logging.getLogger("hireright.tts")
 
@@ -121,8 +121,8 @@ async def open_speech(text: str, voice: str | None = None, *, client: Any = None
     ready = [(m, i) for (m, i) in combos if _key_until.get(i, 0) <= now and _model_until.get(m, 0) <= now]
     order = ready or combos
 
-    own_client = client is None
-    http = client or httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+    http = client or shared_http_client()  # keep-alive: no new TLS handshake per sentence
+    timeout = httpx.Timeout(20.0, connect=5.0)
     last_error = "no attempt"
     for model, idx in order:
         response = None
@@ -133,6 +133,7 @@ async def open_speech(text: str, voice: str | None = None, *, client: Any = None
                 params={"alt": "sse"},
                 headers={"x-goog-api-key": keys[idx]},
                 json=body,
+                **({"timeout": timeout} if client is None else {}),
             )
             response = await http.send(request, stream=True)
             if response.status_code != 200:
@@ -164,9 +165,7 @@ async def open_speech(text: str, voice: str | None = None, *, client: Any = None
                         yield chunk
 
             async def closer(response=response) -> None:
-                await response.aclose()
-                if own_client:
-                    await http.aclose()
+                await response.aclose()  # returns the connection to the shared pool
 
             return first, rest(), closer
         except Exception as exc:  # network error, timeout, bad JSON: try the next combination
@@ -176,7 +175,5 @@ async def open_speech(text: str, voice: str | None = None, *, client: Any = None
                     await response.aclose()
                 except Exception:
                     pass
-    if own_client:
-        await http.aclose()
     logger.warning("Neural voice unavailable (%s)", last_error)
     raise TtsUnavailable(last_error)

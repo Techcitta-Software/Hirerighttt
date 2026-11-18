@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 1200;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(20, 22, 56, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,12 +13,13 @@
   width: min(1120px, 96vw);
   max-height: min(96vh, 1080px);
   background: #ffffff;
-  border-radius: 16px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+  border-radius: var(--radius-lg, 14px);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  box-shadow: var(--shadow-xl, 0 24px 48px -12px rgba(15, 23, 42, 0.12));
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  font-family: var(--font-sans);
 }
 
 .modal {
@@ -38,15 +39,16 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px 22px 12px;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--ds-border, #e5e5ef);
 }
 
 .header h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.125rem;
   font-weight: 800;
-  color: #0f172a;
+  line-height: 1.3;
+  color: var(--ds-text, #141638);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -54,24 +56,33 @@
 
 .subtitle {
   margin: 4px 0 0;
-  font-size: 0.82rem;
-  color: #64748b;
+  font-size: 0.8125rem;
+  color: var(--ds-text-muted, #5f6686);
 }
 
 .closeBtn {
+  display: grid;
+  place-items: center;
   border: none;
-  background: #f8fafc;
-  border-radius: 8px;
+  background: transparent;
+  border-radius: var(--radius-sm, 6px);
   width: 34px;
   height: 34px;
   cursor: pointer;
-  color: #64748b;
+  color: var(--ds-text-muted, #5f6686);
   flex-shrink: 0;
 }
 
 .closeBtn:hover {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: var(--bg-subtle, #f1f5f9);
+  color: var(--ds-text, #141638);
+}
+
+.closeBtn:focus-visible,
+.primaryBtn:focus-visible,
+.secondaryBtn:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
 }
 
 .body {
@@ -87,7 +98,7 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 22px 20px;
+  padding: 16px 24px 24px;
   min-height: 0;
   scroll-behavior: smooth;
 }
@@ -111,8 +122,8 @@
 
 .videoSection {
   flex-shrink: 0;
-  padding-top: 12px;
-  border-top: 2px solid #e2e8f0;
+  padding-top: 20px;
+  border-top: 1px solid var(--ds-border, #e5e5ef);
   scroll-margin-top: 12px;
   width: 100%;
 }
@@ -178,6 +189,70 @@
   margin: 0;
   color: #64748b;
   font-size: 0.9rem;
+}
+
+/* Word (.docx) resume rendered as HTML, laid out like a page in the same frame size as the PDF viewer. */
+.docxFrame {
+  height: min(920px, 72vh);
+  min-height: 640px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #e9edf2;
+  padding: 24px 16px;
+}
+
+.docxPage {
+  max-width: 760px;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #1e293b;
+  padding: 48px 56px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.docxPage h1,
+.docxPage h2,
+.docxPage h3,
+.docxPage h4 {
+  margin: 1.1em 0 0.4em;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.docxPage h1 { font-size: 1.45rem; }
+.docxPage h2 { font-size: 1.15rem; }
+.docxPage h3,
+.docxPage h4 { font-size: 1rem; }
+
+.docxPage p { margin: 0 0 0.55em; }
+.docxPage ul,
+.docxPage ol { margin: 0 0 0.7em; padding-left: 1.4em; }
+.docxPage li { margin: 0.15em 0; }
+.docxPage a { color: #4f46e5; text-decoration: underline; }
+.docxPage img { max-width: 100%; height: auto; }
+
+.docxPage table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5em 0 0.9em;
+}
+
+.docxPage td,
+.docxPage th {
+  border: 1px solid #e2e8f0;
+  padding: 6px 8px;
+  vertical-align: top;
+  text-align: left;
+}
+
+@media (max-width: 640px) {
+  .docxFrame { padding: 12px 8px; }
+  .docxPage { padding: 24px 18px; }
 }
 
 .fallbackLink {
@@ -348,8 +423,9 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  padding: 14px 22px 18px;
-  border-top: 1px solid #f1f5f9;
+  padding: 14px 24px;
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+  background: var(--ds-surface-tint, #faf9ff);
   flex-wrap: wrap;
 }
 
@@ -362,21 +438,28 @@
 
 .secondaryBtn,
 .primaryBtn {
-  border-radius: 10px;
-  font-size: 0.88rem;
+  min-height: 38px;
+  border-radius: var(--radius-md, 10px);
+  font-family: inherit;
+  font-size: 0.875rem;
   font-weight: 700;
-  padding: 10px 16px;
+  padding: 0 14px;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
 }
 
 .secondaryBtn {
-  background: #f1f5f9;
-  color: #334155;
+  background: var(--ds-surface, #ffffff);
+  border-color: var(--ds-border-strong, #d6d7e5);
+  color: var(--ds-text, #141638);
+}
+
+.secondaryBtn:hover {
+  border-color: var(--hr-brand-solid, #5046e5);
 }
 
 .primaryBtn {
-  background: #4f46e5;
+  background: var(--hr-brand-solid, #5046e5);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -389,18 +472,44 @@
 }
 
 .primaryBtn:not(:disabled):hover {
-  background: #4338ca;
+  background: var(--hr-brand-solid-hover, #4338ca);
 }
 
 /* Inline HireRighttt report (rendered from the interview data), with the interview video directly below it. */
 .reportSection {
-  background: #f7f6ff;
-  border: 1px solid #e5e5ef;
-  border-radius: 16px;
+  background: var(--ds-surface-tint, #faf9ff);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
   padding: clamp(0.5rem, 2vw, 1.25rem);
   overflow-x: auto;
 }
 
 .videoSection {
   scroll-margin-top: 1rem;
+}
+
+@media (max-width: 720px) {
+  .overlay {
+    padding: 0;
+  }
+
+  .modalWide {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .header,
+  .bodyScroll,
+  .footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .docFrameTwoPage,
+  .docxFrame {
+    min-height: 420px;
+  }
 }

@@ -103,6 +103,15 @@ export function filterJobSeekerCandidates(records: OrgCandidateRecord[]): OrgCan
   return records.filter(isJobSeekerCandidateRecord)
 }
 
+/**
+ * Candidates who belong to this organisation (applied to its jobs, shared an interview, or sit in its talent vault).
+ * The candidate directory also lists platform-wide job seekers ("platform" / "talent") for search; those must not
+ * count as this organisation's pipeline, applications or activity.
+ */
+export function isOwnOrgCandidate(c: Pick<OrgCandidateRecord, 'source'>): boolean {
+  return c.source !== 'platform' && c.source !== 'talent'
+}
+
 export function mapOrgCandidate(c: OrgCandidateRecord): EmployerApplicant {
   const interviewResult = c.interviewResult as EmployerApplicant['interviewResult']
   const overall =

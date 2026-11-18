@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import time
+import weakref
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -43,6 +44,51 @@ def _llm_gate() -> asyncio.Semaphore:
             limit = 24
         gate = _gates[loop_id] = asyncio.Semaphore(limit)
     return gate
+
+# One HTTP client per event loop (= per worker process), reused by every Gemini and voice call. Opening a fresh
+# client per call paid a new TCP + TLS handshake to Google every time (measured about 40 ms per call from India).
+_shared_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Any]" = weakref.WeakKeyDictionary()
+
+
+def shared_http_client() -> Any:
+    """The keep-alive HTTP client for Google APIs (created on first use, one per event loop)."""
+    import httpx
+
+    loop = asyncio.get_running_loop()
+    client = _shared_clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(60.0, connect=5.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20, keepalive_expiry=60.0),
+        )
+        _shared_clients[loop] = client
+    return client
+
+
+async def close_shared_http_client() -> None:
+    """Close this loop's client (application shutdown)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    client = _shared_clients.pop(loop, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
+# Thinking: the 3.x models reason before answering unless told otherwise, which adds seconds to every question.
+# Interview questions do not need deep reasoning, so latency-sensitive callers ask for the lightest setting. A model
+# that rejects the setting is remembered and called without it (one extra fast round trip, once per process).
+_no_thinking_config: set[str] = set()
+
+
+def _thinking_config(model: str, level: str | None) -> dict[str, Any] | None:
+    if not level or model in _no_thinking_config:
+        return None
+    if model.startswith("gemini-2."):
+        return {"thinkingBudget": 0} if level == "minimal" else {"thinkingBudget": 1024}
+    return {"thinkingLevel": level}
+
 
 API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 # Aliases that always point at a live model, so a retired model name can never break the fallback.
@@ -159,13 +205,14 @@ async def generate_content(
     timeout: float = 60.0,
     total_budget: float | None = None,
     client: Any = None,
+    thinking: str | None = None,
 ) -> GeminiResult | None:
     """Call Gemini with failover. Returns None only if every key and model failed (or the time budget ran out).
 
     `total_budget` caps the whole call (default 2x the per-request timeout) so a full outage cannot keep a
     candidate waiting through every key and model one timeout at a time.
+    `thinking` ("minimal" | "low" | ...) asks thinking models to reason less, for latency-sensitive calls.
     """
-    import httpx  # imported lazily so modules that only need the key helpers do not require httpx
 
     keys = gemini_keys()
     if not keys:
@@ -197,8 +244,9 @@ async def generate_content(
         "generationConfig": generation,
     }
 
-    own_client = client is None
-    http = client or httpx.AsyncClient(timeout=timeout)
+    http = client or shared_http_client()
+    # A per-request timeout on our shared client; a client passed in (tests) keeps its own settings.
+    per_request = {"timeout": timeout} if client is None else {}
     started = time.time()
     budget = total_budget if total_budget is not None else timeout * 2
     attempts = 0
@@ -213,13 +261,32 @@ async def generate_content(
                 _health.last_error = (_health.last_error or "") + " (time budget reached)"
                 break
             attempts += 1
+            thinking_cfg = _thinking_config(model, thinking)
+            request_body = body
+            if thinking_cfg:
+                request_body = {**body, "generationConfig": {**generation, "thinkingConfig": thinking_cfg}}
+            remaining = budget - (time.time() - started)
             try:
                 async with _llm_gate():
-                    res = await http.post(
-                        f"{API_ROOT}/{model}:generateContent",
-                        headers={"Content-Type": "application/json", "x-goog-api-key": keys[idx]},
-                        json=body,
+                    res = await asyncio.wait_for(
+                        http.post(
+                            f"{API_ROOT}/{model}:generateContent",
+                            headers={"Content-Type": "application/json", "x-goog-api-key": keys[idx]},
+                            json=request_body,
+                            **per_request,
+                        ),
+                        timeout=max(2.0, min(timeout, remaining)),  # never outlive the call's total budget
                     )
+                    if thinking_cfg and res.status_code == 400 and "thinking" in res.text.lower():
+                        # This model does not accept the thinking setting: remember that and resend without it.
+                        _no_thinking_config.add(model)
+                        logger.info("Model %s rejected thinkingConfig; calling it without", model)
+                        res = await http.post(
+                            f"{API_ROOT}/{model}:generateContent",
+                            headers={"Content-Type": "application/json", "x-goog-api-key": keys[idx]},
+                            json=body,
+                            **per_request,
+                        )
             except Exception as err:  # network error / timeout: try the next combination
                 _health.last_error = f"key {idx + 1} / {model}: {type(err).__name__}"
                 logger.warning("Gemini request failed (%s): key %d, model %s", type(err).__name__, idx + 1, model)
@@ -269,8 +336,7 @@ async def generate_content(
             # other transient errors (5xx etc.): simply move on to the next combination
         return None
     finally:
-        if own_client:
-            await http.aclose()
+        pass  # the shared client stays open for the next call (keep-alive)
 
 
 def _key_status(i: int, now: float) -> dict[str, Any]:

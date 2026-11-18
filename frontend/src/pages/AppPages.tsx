@@ -400,7 +400,7 @@ export function JobsPage() {
             bullets:
               jdBullets.length > 0
                 ? jdBullets
-                : ['Review the full description on the apply form.', 'Submit your resume for ATS scoring.'],
+                : ['Review the full description on the apply form.', 'Submit your resume to check how well it matches.'],
             shareableCode: j.shareableCode || raw?.shareableCode,
             companySlug: j.companySlug || raw?.companySlug,
           }
@@ -615,6 +615,10 @@ export function JobsPage() {
           initial="hidden"
           animate="show"
         >
+            <motion.header className={styles.jobsPageHead} variants={fadeUp}>
+              <h1>Jobs</h1>
+              <p>Open roles from employers on HireRighttt. Select a job to see details and apply.</p>
+            </motion.header>
             <motion.div className={styles.jobsBoardToolbar} variants={fadeUp}>
               <div className={styles.jobsSearchWrap}>
                 <HrIcon name="search" size={18} className={styles.jobsSearchIcon} />
@@ -814,33 +818,29 @@ export function JobsPage() {
                         </span>
                       </div>
 
-                      <p className={styles.naukriSkillsLine}>{job.skillTags.join(' · ')}</p>
-
-                      <div className={styles.naukriCardFoot}>
-                        <span className={styles.naukriPosted}>{job.posted}</span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          className={
-                            savedJobIds.has(job.id) ? styles.naukriSaveActive : styles.naukriSave
-                          }
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleSave(job)
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              handleSave(job)
-                            }
-                          }}
-                        >
-                          <HrIcon name="document" size={16} />
-                          {savedJobIds.has(job.id) ? 'Saved' : 'Save'}
-                        </span>
-                      </div>
+                      {job.skillTags.length > 0 ? (
+                        <p className={styles.naukriSkillsLine}>{job.skillTags.join(' · ')}</p>
+                      ) : null}
                     </button>
+
+                    <div className={styles.naukriCardFoot}>
+                      <span className={styles.naukriPosted}>{job.posted}</span>
+                      <button
+                        type="button"
+                        className={
+                          savedJobIds.has(job.id) ? styles.naukriSaveActive : styles.naukriSave
+                        }
+                        aria-pressed={savedJobIds.has(job.id)}
+                        aria-label={`${savedJobIds.has(job.id) ? 'Saved' : 'Save'}: ${job.title} at ${job.company}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSave(job)
+                        }}
+                      >
+                        <HrIcon name="document" size={16} />
+                        {savedJobIds.has(job.id) ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
 
                     {isOpen ? (
                       <div className={styles.naukriJobExpand}>
@@ -1359,7 +1359,7 @@ export function ProfilePage() {
             {/* Header */}
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
-                <span className={styles.eyebrow}>PROFILE AND PREFERENCES</span>
+                <span className={styles.eyebrow}>Profile and preferences</span>
                 <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
                 <p>
                   {profileLoading
@@ -1413,8 +1413,8 @@ export function ProfilePage() {
                   style={{ marginTop: 12, opacity: basicsSaving ? 0.65 : 1 }}
                 >
                   <div className={styles.formFieldBlock}>
-                    <label>FULL NAME</label>
-                    <input
+                    <label htmlFor="pf-full-name">Full name</label>
+                    <input id="pf-full-name"
                       type="text"
                       className={styles.formInputText}
                       value={fullName}
@@ -1425,8 +1425,8 @@ export function ProfilePage() {
                     />
                     </div>
                   <div className={styles.formFieldBlock}>
-                    <label>EMAIL</label>
-                    <input
+                    <label htmlFor="pf-email">Email</label>
+                    <input id="pf-email"
                       type="email"
                       className={styles.formInputText}
                       value={email}
@@ -1436,8 +1436,8 @@ export function ProfilePage() {
                     />
                 </div>
                   <div className={styles.formFieldBlock}>
-                    <label>PHONE</label>
-                    <input
+                    <label htmlFor="pf-phone">Phone</label>
+                    <input id="pf-phone"
                       type="tel"
                       className={styles.formInputText}
                       value={phone}
@@ -1450,8 +1450,8 @@ export function ProfilePage() {
                   </div>
 
                 <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: basicsSaving ? 0.65 : 1 }}>
-                  <label>CURRENT CITY</label>
-                  <input
+                  <label htmlFor="pf-current-city">Current city</label>
+                  <input id="pf-current-city"
                     type="text"
                     className={styles.formInputText}
                     value={city}
@@ -1483,8 +1483,8 @@ export function ProfilePage() {
                   style={{ marginTop: 12, opacity: roleSaving ? 0.65 : 1 }}
                 >
                   <div className={styles.formFieldBlock}>
-                    <label>TARGET ROLE</label>
-                    <input
+                    <label htmlFor="pf-target-role">Target role</label>
+                    <input id="pf-target-role"
                       type="text"
                       className={styles.formInputText}
                       value={targetRole}
@@ -1495,8 +1495,8 @@ export function ProfilePage() {
                     />
                 </div>
                   <div className={styles.formFieldBlock}>
-                    <label>TOTAL EXPERIENCE</label>
-                    <select
+                    <label htmlFor="pf-total-experience">Total experience</label>
+                    <select id="pf-total-experience"
                       className={styles.formInputText}
                       value={experience}
                       onChange={(e) => setExperience(e.target.value)}
@@ -1511,8 +1511,8 @@ export function ProfilePage() {
                     </select>
                   </div>
                   <div className={styles.formFieldBlock}>
-                    <label>CURRENT COMPANY AND TITLE</label>
-                    <input
+                    <label htmlFor="pf-current-company-and-title">Current company and title</label>
+                    <input id="pf-current-company-and-title"
                       type="text"
                       className={styles.formInputText}
                       value={companyTitle}
@@ -1525,8 +1525,8 @@ export function ProfilePage() {
                 </div>
 
                 <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: roleSaving ? 0.65 : 1 }}>
-                  <label>HIGHEST EDUCATION</label>
-                  <input
+                  <label htmlFor="pf-highest-education">Highest education</label>
+                  <input id="pf-highest-education"
                     type="text"
                     className={styles.formInputText}
                     value={highestEducation}
@@ -1591,11 +1591,12 @@ export function ProfilePage() {
 
                 {skillsEditing && !skillsSaving && (
                   <div style={{ marginTop: 16 }}>
-                    <label className={styles.filterLabel} style={{ marginBottom: 6, display: 'block' }}>
-                      ADD A SKILL
+                    <label htmlFor="pf-add-skill" className={styles.filterLabel} style={{ marginBottom: 6, display: 'block' }}>
+                      Add a skill
                     </label>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <input
+                        id="pf-add-skill"
                         type="text"
                         className={styles.formInputText}
                         placeholder="For example: Docker"
@@ -1660,8 +1661,8 @@ export function ProfilePage() {
                     <div className={styles.resumeActionBtns}>
                       <button
                         type="button"
-                        className={styles.primary}
-                        style={{ height: 34, padding: '0 14px', fontSize: '0.8rem' }}
+                        className={styles.btnOutline}
+                        style={{ height: 36, padding: '0 14px', fontSize: '0.8125rem' }}
                         disabled={resumeReplaceStatus === 'updating'}
                         onClick={() => resumeFileInputRef.current?.click()}
                       >
@@ -1705,8 +1706,8 @@ export function ProfilePage() {
 
                 <div className={styles.formGridThree}>
                   <div className={styles.formFieldBlock}>
-                    <label>EXPECTED CTC (LPA)</label>
-                    <input
+                    <label htmlFor="pf-expected-ctc-lpa">Expected CTC (LPA)</label>
+                    <input id="pf-expected-ctc-lpa"
                       type="text"
                       className={styles.formInputText}
                       value={expectedCtc}
@@ -1714,8 +1715,8 @@ export function ProfilePage() {
                     />
             </div>
                   <div className={styles.formFieldBlock}>
-                    <label>NOTICE PERIOD</label>
-                    <select
+                    <label htmlFor="pf-notice-period">Notice period</label>
+                    <select id="pf-notice-period"
                       className={styles.formInputText}
                       value={noticePeriod}
                       onChange={(e) => setNoticePeriod(e.target.value)}
@@ -1728,8 +1729,8 @@ export function ProfilePage() {
                     </select>
                   </div>
                   <div className={styles.formFieldBlock}>
-                    <label>PREFERRED LOCATIONS</label>
-                    <input
+                    <label htmlFor="pf-preferred-locations">Preferred locations</label>
+                    <input id="pf-preferred-locations"
                       type="text"
                       className={styles.formInputText}
                       value={prefLocations}
@@ -1739,10 +1740,10 @@ export function ProfilePage() {
                 </div>
 
                 <div style={{ marginTop: 16 }}>
-                  <label className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
-                    WORK MODE
-                  </label>
-                  <div style={{ display: 'flex', gap: 20 }}>
+                  <span id="pf-work-mode" className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
+                    Work mode
+                  </span>
+                  <div role="group" aria-labelledby="pf-work-mode" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                     <label className={styles.checkboxRow} style={{ margin: 0 }}>
                       <input
                         type="checkbox"
@@ -1771,10 +1772,10 @@ export function ProfilePage() {
                 </div>
 
                 <div style={{ marginTop: 16 }}>
-                  <label className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
-                    JOB TYPE
-                  </label>
-                  <div style={{ display: 'flex', gap: 20 }}>
+                  <span id="pf-job-type" className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
+                    Job type
+                  </span>
+                  <div role="group" aria-labelledby="pf-job-type" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                     <label className={styles.checkboxRow} style={{ margin: 0 }}>
                       <input
                         type="checkbox"
@@ -1808,8 +1809,8 @@ export function ProfilePage() {
                 <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Links</h2>
                 <div className={styles.formGridThree}>
                   <div className={styles.formFieldBlock}>
-                    <label>LINKEDIN</label>
-                    <input
+                    <label htmlFor="pf-linkedin">LinkedIn</label>
+                    <input id="pf-linkedin"
                       type="text"
                       className={styles.formInputText}
                       value={linkedin}
@@ -1817,8 +1818,8 @@ export function ProfilePage() {
                     />
                   </div>
                   <div className={styles.formFieldBlock}>
-                    <label>GITHUB</label>
-                    <input
+                    <label htmlFor="pf-github">GitHub</label>
+                    <input id="pf-github"
                       type="text"
                       className={styles.formInputText}
                       value={github}
@@ -1826,8 +1827,8 @@ export function ProfilePage() {
                     />
                   </div>
                   <div className={styles.formFieldBlock}>
-                    <label>PORTFOLIO</label>
-                    <input
+                    <label htmlFor="pf-portfolio">Portfolio</label>
+                    <input id="pf-portfolio"
                       type="text"
                       className={styles.formInputText}
                       value={portfolio}
@@ -2026,7 +2027,7 @@ export function ApplicationsPage() {
                 show up here automatically.
               </p>
             </div>
-            <Link to="/jobs" className={styles.primary}>
+            <Link to="/jobs" className={styles.secondary}>
               Find more roles
             </Link>
           </motion.header>
@@ -2053,7 +2054,7 @@ export function ApplicationsPage() {
                 </p>
               </div>
               <Link to={interview ? '/jobs' : '/interview'} className={styles.primary}>
-                {interview ? 'Browse jobs →' : 'Take interview →'}
+                {interview ? 'Browse jobs' : 'Take interview'}
               </Link>
             </motion.aside>
           ) : !appsLoading ? (
@@ -2066,30 +2067,52 @@ export function ApplicationsPage() {
                     className={`${styles.jobCard} ${jobRemoved ? styles.jobCardEmployerDeleted : ''}`}
                     variants={fadeUp}
                   >
-                  <div>
-                    <h2>{app.title}</h2>
+                  <div className={styles.appRowMain}>
+                    <div className={styles.appRowTitle}>
+                      <h2>{app.title}</h2>
+                      <span
+                        className={`${styles.appStatus} ${
+                          jobRemoved
+                            ? styles.appStatusRemoved
+                            : app.status === 'Offer'
+                              ? styles.appStatusOffer
+                              : app.status === 'Interview'
+                                ? styles.appStatusInterview
+                                : app.status === 'In Review'
+                                  ? styles.appStatusReview
+                                  : ''
+                        }`}
+                      >
+                        {jobRemoved ? 'Job deleted' : app.status}
+                      </span>
+                    </div>
                     <p>
                       {app.company} · {app.location}
                         {app.roleTrack ? ` · ${app.roleTrack}` : ''}
                       </p>
+                    <p className={styles.appRowMeta}>
+                        Applied {new Date(app.appliedAt).toLocaleDateString()}
+                        {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
+                    </p>
                       {jobRemoved ? (
                         <p className={styles.jobDeletedBanner} role="status">
                           {app.jobDeletedMessage ||
                             'This job was removed by the employer. You can withdraw this application.'}
                         </p>
                       ) : null}
-                    <span className={styles.lockTag}>
-                        {jobRemoved ? 'Job deleted' : app.status} ·{' '}
-                        {new Date(app.appliedAt).toLocaleDateString()}
-                        {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
-                    </span>
                   </div>
                   <div className={styles.jobRight}>
-                      <b>
-                        {app.interviewScore != null
-                          ? `${app.interviewScore}% Interview`
-                          : `${app.match}% Match`}
-                      </b>
+                      <span className={styles.appScore}>
+                        {app.interviewScore != null ? (
+                          <>
+                            <strong>{app.interviewScore}%</strong> interview score
+                          </>
+                        ) : (
+                          <>
+                            <strong>{app.match}%</strong> match
+                          </>
+                        )}
+                      </span>
                     <button
                       type="button"
                       className={styles.secondary}

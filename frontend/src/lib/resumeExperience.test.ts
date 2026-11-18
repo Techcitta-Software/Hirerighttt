@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('pdfjs-dist', () => ({ getDocument: () => ({}), GlobalWorkerOptions: {} }))
 vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({ default: '' }))
 
-import { computeExperience, dateRangesIn, monthsToLabel, pickStatedMonths } from './resumeExperience'
+import { computeExperience, dateRangesIn, monthIndex, monthsToLabel, pickStatedMonths, toMonthInputValue } from './resumeExperience'
 import { parseResumeText } from './resumeParser'
 
 const NOW = new Date('2026-11-12T00:00:00Z')
@@ -210,5 +210,23 @@ Python`
       expect(p.workExperiences?.[0]?.responsibilities).toContain('Built payment APIs')
       expect(p.totalExperience).toBe('2 – 3 Years')
     })
+  })
+})
+
+describe('month input dates', () => {
+  it('turns resume dates into the yyyy-MM value a month input needs', () => {
+    expect(toMonthInputValue('Jul 2020')).toBe('2020-07')
+    expect(toMonthInputValue('July 2020')).toBe('2020-07')
+    expect(toMonthInputValue('07/2020')).toBe('2020-07')
+    expect(toMonthInputValue('2020-07')).toBe('2020-07')
+    expect(toMonthInputValue('2019')).toBe('2019-01')
+    expect(toMonthInputValue('Present')).toBe('')
+    expect(toMonthInputValue('')).toBe('')
+    expect(toMonthInputValue('sometime')).toBe('')
+  })
+
+  it('reads the yyyy-MM value back as the right month, not January', () => {
+    expect(monthIndex('2020-07')).toBe(2020 * 12 + 6)
+    expect(monthIndex('2022-12')).toBe(2022 * 12 + 11)
   })
 })

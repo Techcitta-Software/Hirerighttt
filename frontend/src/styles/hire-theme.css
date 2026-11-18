@@ -16,46 +16,50 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 48px;
-  padding: 0 1.5rem;
-  background: var(--hr-accent);
-  color: #fff;
-  font-weight: 700;
-  font-size: 1rem;
-  border-radius: 999px;
+  gap: var(--space-2);
+  min-height: var(--control-h-lg, 48px);
+  padding: 0 var(--space-6);
+  background: var(--hr-brand-solid, #5046e5);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: var(--fs-body-lg, 1rem);
+  border-radius: var(--radius-md, 10px);
   text-decoration: none;
-  border: none;
+  border: 1px solid var(--hr-brand-solid, #5046e5);
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(112, 71, 255, 0.3);
-  transition: background 0.15s, transform 0.15s;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background-color 140ms,
+    border-color 140ms;
 }
 
 .hr-btn-primary:hover {
-  background: var(--hr-accent-hover);
-  transform: translateY(-1px);
+  background: var(--hr-brand-solid-hover, #4338ca);
+  border-color: var(--hr-brand-solid-hover, #4338ca);
 }
 
 .hr-btn-outline {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 48px;
-  padding: 0 1.5rem;
+  gap: var(--space-2);
+  min-height: var(--control-h-lg, 48px);
+  padding: 0 var(--space-6);
   background: var(--hr-surface);
   color: var(--hr-navy);
   font-weight: 600;
-  font-size: 1rem;
-  border-radius: 999px;
+  font-size: var(--fs-body-lg, 1rem);
+  border-radius: var(--radius-md, 10px);
   text-decoration: none;
-  border: 2px solid var(--hr-border);
-  transition: border-color 0.15s, background 0.15s;
+  border: 1px solid var(--ds-border-strong, #d6d7e5);
+  transition:
+    background-color 140ms,
+    border-color 140ms;
 }
 
 .hr-btn-outline:hover {
-  border-color: var(--hr-accent);
-  background: #f5f2ff;
+  border-color: var(--ds-brand, #5046e5);
+  background: var(--ds-brand-soft, #eef2ff);
 }
 
 .hr-page-shell {
@@ -68,8 +72,8 @@
 .hr-card {
   background: var(--hr-surface);
   border: 1px solid var(--hr-border);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+  border-radius: var(--radius-lg, 14px);
+  box-shadow: none;
 }
 
 .hr-heading {

@@ -21,7 +21,6 @@ export function InterviewRetakePricingPage() {
         </Link>
 
         <header className={styles.header}>
-          <p className={styles.kicker}>Interview retake</p>
           <h1>Improve your score with a fresh AI session</h1>
           <p className={styles.subtitle}>
             Your first HireRighttt interview is included. Each additional full retake refreshes your
@@ -54,12 +53,12 @@ export function InterviewRetakePricingPage() {
             </li>
             <li>
               <HrIcon name="check" size={16} />
-              Download an refreshed PDF scorecard
+              Download a refreshed PDF scorecard
             </li>
           </ul>
 
           <button type="button" className={styles.payBtn} onClick={startRetakeInterview}>
-            Continue — ₹{RETAKE_PRICE_INR} retake
+            Continue to retake (₹{RETAKE_PRICE_INR})
           </button>
           <p className={styles.disclaimer}>
             No payment gateway yet. Tapping continue takes you straight to the interview room.

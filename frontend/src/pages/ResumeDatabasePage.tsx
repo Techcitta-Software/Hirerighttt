@@ -9,6 +9,7 @@ import { fetchOrganizationCandidates } from '../lib/vendorApi'
 import type { OrgCandidateRecord } from '../lib/vendorApi'
 import { fadeUp, staggerContainer } from '../motion/variants'
 import { HrIcon } from '../components/HrIcon'
+import ui from './EmployerDashboard.module.css'
 import styles from './ResumeDatabasePage.module.css'
 
 export type StoredResumeCandidate = {
@@ -202,94 +203,83 @@ export function ResumeDatabasePage() {
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.shell}>
+    <div className={ui.pageBleed}>
+    <div className={ui.page}>
+      <div className={ui.shell}>
         <motion.header
-          className={styles.header}
+          className={ui.pageHeader}
           initial="hidden"
           animate="show"
           variants={staggerContainer}
         >
           <div>
-            <motion.div className={styles.kicker} variants={fadeUp}>
-              <HrIcon name="folder" size={18} /> YOUR TALENT COLLECTION
-            </motion.div>
-            <motion.h1 className={styles.title} variants={fadeUp}>
-              All Candidate <em>Resumes & Profiles</em>
+            <motion.h1 className={ui.pageTitle} variants={fadeUp}>
+              Talent vault
             </motion.h1>
-            <motion.p className={styles.subtitle} variants={fadeUp}>
-              Centralized repository storing every candidate's extracted resume, skills, contact dossier, and proctored AI interview scorecards.
+            <motion.p className={ui.pageSub} variants={fadeUp}>
+              Every candidate’s resume, skills, contact details and proctored AI interview scores in one place.
             </motion.p>
-            {loadError ? (
-              <motion.p className={`ds-alert ds-alert--error ${styles.loadError}`} variants={fadeUp} role="alert">
-                {loadError}
-              </motion.p>
-            ) : null}
           </div>
 
-          <motion.div className={styles.headerActions} variants={fadeUp}>
-            <button
-              type="button"
-              className={styles.uploadBtn}
-              onClick={() => setShowUploadModal(true)}
-            >
-              <HrIcon name="plus" size={18} /> Ingest Resume File
+          <motion.div className={ui.pageActions} variants={fadeUp}>
+            <button type="button" className={ui.btnSecondary} onClick={exportToJson}>
+              <HrIcon name="download" size={16} /> Export JSON
             </button>
-            <button
-              type="button"
-              className={styles.exportBtn}
-              onClick={exportToJson}
-            >
-              <HrIcon name="download" size={18} /> Export Vault JSON
+            <button type="button" className={ui.btnPrimary} onClick={() => setShowUploadModal(true)}>
+              <HrIcon name="upload" size={16} /> Upload resume
             </button>
           </motion.div>
         </motion.header>
 
-        {/* KPI Cards */}
-        <section className={styles.kpiGrid}>
+        {loadError ? (
+          <p className={`ds-alert ds-alert--error ${styles.loadError}`} role="alert">
+            {loadError}
+          </p>
+        ) : null}
+
+        <section className={styles.kpiGrid} aria-label="Vault numbers">
           <div className={styles.kpiCard}>
-            <span>Total Candidates</span>
+            <span>Total candidates</span>
             <strong>{totalResumes}</strong>
-            <small style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <HrIcon name="check" size={12} /> Unified across ATS & Onboarding
-            </small>
+            <small>Unified across ATS and onboarding</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>Resumes Parsed</span>
+            <span>Resumes parsed</span>
             <strong>{totalResumes}</strong>
             <small>PDF / DOCX extracted</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>AI Interviewed</span>
+            <span>AI interviewed</span>
             <strong>{scoredCount}</strong>
             <small>{Math.round((scoredCount / (totalResumes || 1)) * 100)}% completion rate</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>Average Talent Score</span>
+            <span>Average score</span>
             <strong>{avgScore}%</strong>
-            <small>Ava Proctored AI benchmark</small>
+            <small>Proctored AI interview</small>
           </div>
         </section>
 
-        {/* Search & Filter Toolbar */}
-        <section className={styles.toolbar}>
-          <div className={styles.searchBox}>
-            <HrIcon name="search" size={18} />
+        <section className={styles.toolbar} aria-label="Search and filter">
+          <label className={styles.searchBox}>
+            <HrIcon name="search" size={16} />
+            <span className="ds-sr-only">Search candidates</span>
             <input
-              type="text"
-              placeholder="Search by candidate name, skill, email, or resume text..."
+              type="search"
+              placeholder="Search name, skill, email or resume text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-          </div>
+          </label>
 
           <div className={styles.filterGroup}>
             <select
               className={styles.filterSelect}
+              aria-label="Filter by role"
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
             >
-              <option value="All">All Roles</option>
+              <option value="All">All roles</option>
               <option value="Frontend">Frontend</option>
               <option value="Backend">Backend</option>
               <option value="Full Stack">Full Stack</option>
@@ -298,10 +288,11 @@ export function ResumeDatabasePage() {
 
             <select
               className={styles.filterSelect}
+              aria-label="Filter by status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
-              <option value="All">All Statuses</option>
+              <option value="All">All statuses</option>
               <option value="New">New</option>
               <option value="Screening">Screening</option>
               <option value="Shortlisted">Shortlisted</option>
@@ -309,11 +300,12 @@ export function ResumeDatabasePage() {
               <option value="Hired">Hired</option>
             </select>
 
-            <div className={styles.viewToggle}>
+            <div className={styles.viewToggle} role="group" aria-label="View">
               <button
                 type="button"
                 className={`${styles.toggleBtn} ${viewMode === 'grid' ? styles.toggleActive : ''}`}
                 onClick={() => setViewMode('grid')}
+                aria-pressed={viewMode === 'grid'}
                 title="Grid view"
               >
                 Grid
@@ -322,15 +314,19 @@ export function ResumeDatabasePage() {
                 type="button"
                 className={`${styles.toggleBtn} ${viewMode === 'table' ? styles.toggleActive : ''}`}
                 onClick={() => setViewMode('table')}
+                aria-pressed={viewMode === 'table'}
                 title="Table view"
               >
-                <HrIcon name="menu" size={16} /> Table
+                <HrIcon name="menu" size={14} /> Table
               </button>
             </div>
           </div>
         </section>
 
-        {/* Candidate List Display */}
+        <p className={styles.resultCount} role="status">
+          Showing <strong>{filtered.length}</strong> of {candidates.length} candidates
+        </p>
+
         {viewMode === 'grid' ? (
           <div className={styles.candidateGrid}>
             {filtered.map((c) => {
@@ -342,50 +338,40 @@ export function ResumeDatabasePage() {
                 .toUpperCase()
 
               return (
-                <div
+                <article
                   key={c.id}
                   className={styles.candidateCard}
                   onClick={() => setSelectedCandidate(c)}
                 >
                   <div className={styles.cardTop}>
                     <div className={styles.avatarBox}>
-                      <div className={styles.avatar}>{initials}</div>
-                      <div>
+                      <div className={styles.avatar} aria-hidden="true">{initials}</div>
+                      <div style={{ minWidth: 0 }}>
                         <h3 className={styles.candidateName}>{c.name}</h3>
                         <p className={styles.candidateRole}>{c.currentRole}</p>
                       </div>
                     </div>
 
                     {typeof c.interviewScore === 'number' ? (
-                      <span
-                        className={`${styles.scorePill} ${c.interviewScore >= 80 ? styles.scoreHigh : styles.scoreMed}`}
-                      >
-                        <HrIcon name="zap" size={14} /> {c.interviewScore}%
-                      </span>
+                      <ScoreValue value={c.interviewScore} />
                     ) : (
-                      <span className={`${styles.scorePill} styles.scorePending`}>
-                        Pending
-                      </span>
+                      <span className={ui.pill}>Pending</span>
                     )}
                   </div>
 
                   <div className={styles.candidateMeta}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>
                       <HrIcon name="map-pin" size={14} /> {c.location}
                     </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>
                       <HrIcon name="calendar" size={14} /> {c.experienceYears}
                     </span>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span>
                       <HrIcon name="tag" size={14} /> {c.status}
                     </span>
                   </div>
 
-                  {c.summary && (
-                    <div className={styles.resumeSnippet}>
-                      <span className={styles.resumeSnippetText}>"{c.summary}"</span>
-                    </div>
-                  )}
+                  {c.summary && <p className={styles.resumeSnippet}>{c.summary}</p>}
 
                   <div className={styles.skillPills}>
                     {c.skills.slice(0, 5).map((s) => (
@@ -393,58 +379,58 @@ export function ResumeDatabasePage() {
                         {s}
                       </span>
                     ))}
-                    {c.skills.length > 5 && (
-                      <span className={styles.skillPill}>+{c.skills.length - 5}</span>
-                    )}
+                    {c.skills.length > 5 && <span className={styles.skillMore}>+{c.skills.length - 5}</span>}
                   </div>
 
                   <div className={styles.cardFooter}>
                     <span className={styles.resumeFileBadge}>
-                      <HrIcon name="document" size={14} /> {c.resumeName || 'Resume PDF'}
+                      <HrIcon name="document" size={14} /> <span>{c.resumeName || 'Resume PDF'}</span>
                     </span>
                     <button
                       type="button"
-                      className={styles.viewDossierBtn}
+                      className={`${ui.btnSecondary} ${ui.btnSm}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         setSelectedCandidate(c)
                       }}
                     >
-                      View Dossier →
+                      View dossier
                     </button>
                   </div>
-                </div>
+                </article>
               )
             })}
           </div>
         ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
+          <div className={`${ui.panel} ${ui.tableScroll}`}>
+            <table className={`${ui.dataTable} ${styles.table} ${ui.stackOnPhone}`}>
               <thead>
                 <tr>
-                  <th>Candidate</th>
-                  <th>Role & Experience</th>
-                  <th>Location</th>
-                  <th>Skills</th>
-                  <th>Score</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th scope="col">Candidate</th>
+                  <th scope="col">Role and experience</th>
+                  <th scope="col">Location</th>
+                  <th scope="col">Skills</th>
+                  <th scope="col">Score</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">
+                    <span className="ds-sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id}>
                     <td>
-                      <strong style={{ color: '#ffffff' }}>{c.name}</strong>
-                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{c.email}</div>
+                      <div className={ui.candidateName}>{c.name}</div>
+                      <div className={ui.candidateContact}>{c.email}</div>
                     </td>
-                    <td>
+                    <td data-label="Role">
                       <div>{c.currentRole}</div>
-                      <small style={{ color: '#94a3b8' }}>{c.experienceYears}</small>
+                      <div className={ui.candidateContact}>{c.experienceYears}</div>
                     </td>
-                    <td>{c.location}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                    <td data-label="Location">{c.location}</td>
+                    <td data-label="Skills">
+                      <div className={styles.skillPills}>
                         {c.skills.slice(0, 3).map((s) => (
                           <span key={s} className={styles.skillPill}>
                             {s}
@@ -452,24 +438,20 @@ export function ResumeDatabasePage() {
                         ))}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Score">
                       {typeof c.interviewScore === 'number' ? (
-                        <span style={{ fontWeight: 800, color: '#38bdf8' }}>
-                          {c.interviewScore}%
-                        </span>
+                        <ScoreValue value={c.interviewScore} />
                       ) : (
-                        <span style={{ color: '#64748b' }}>—</span>
+                        <span className={ui.docMuted}>—</span>
                       )}
                     </td>
-                    <td>
-                      <span className={styles.skillPill} style={{ background: '#0284c7', color: '#fff' }}>
-                        {c.status}
-                      </span>
+                    <td data-label="Status">
+                      <span className={`${ui.pill} ${statusTone(c.status)}`}>{c.status}</span>
                     </td>
-                    <td>
+                    <td className={ui.rowActions}>
                       <button
                         type="button"
-                        className={styles.viewDossierBtn}
+                        className={`${ui.btnSecondary} ${ui.btnSm}`}
                         onClick={() => setSelectedCandidate(c)}
                       >
                         View
@@ -483,75 +465,86 @@ export function ResumeDatabasePage() {
         )}
 
         {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-            <div style={{ marginBottom: '12px', color: '#64748b' }}>
-              <HrIcon name="search" size={40} />
-            </div>
-            <h3>No candidates found</h3>
-            <p>Try adjusting your search query or filter criteria.</p>
+          <div className={`ds-empty ${styles.emptyBlock}`}>
+            <span className="ds-empty__icon" aria-hidden="true">
+              <HrIcon name="search" size={20} />
+            </span>
+            <h3 className="ds-empty__title">No candidates found</h3>
+            <p className="ds-empty__body">Try adjusting your search query or filter criteria.</p>
           </div>
         )}
       </div>
 
-      {/* Candidate Dossier & Resume Viewer Modal */}
+      {/* Candidate dossier */}
       <AnimatePresence>
         {selectedCandidate && (
-          <div
-            className={styles.modalBackdrop}
-            onClick={() => setSelectedCandidate(null)}
-          >
+          <div className={ui.modalOverlay} onClick={() => setSelectedCandidate(null)}>
             <motion.div
-              className={styles.modal}
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              className={`${ui.modal} ${ui.modalReport}`}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.18 }}
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-labelledby="dossier-title"
             >
-              <div className={styles.modalHeader}>
+              <div className={ui.modalHeader}>
                 <div>
-                  <h2 id="dossier-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <HrIcon name="document" size={22} /> {selectedCandidate.name} — Full Resume &
-                    Profile Dossier
-                  </h2>
-                  <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-                    {selectedCandidate.currentRole} · {selectedCandidate.location} · Source: {selectedCandidate.source}
-                  </span>
+                  <h2 id="dossier-title">{selectedCandidate.name}</h2>
+                  <p className={ui.modalSub}>
+                    Full resume and profile · {selectedCandidate.currentRole} · {selectedCandidate.location} · Source:{' '}
+                    {selectedCandidate.source}
+                  </p>
                 </div>
                 <button
                   type="button"
                   ref={dossierCloseRef}
-                  className={styles.closeBtn}
+                  className={ui.closeBtn}
                   aria-label="Close dossier"
                   onClick={() => setSelectedCandidate(null)}
                 >
-                  <HrIcon name="close" size={18} />
+                  <HrIcon name="close" size={16} />
                 </button>
               </div>
 
-              <div className={styles.modalBody}>
-                {/* Contact and Score Bar */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                  <div style={{ background: '#131b2e', padding: '14px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase' }}>EMAIL & CONTACT</div>
-                    <div style={{ fontWeight: 700, color: '#f8fafc', marginTop: '2px', fontSize: '0.9rem' }}>{selectedCandidate.email}</div>
-                    <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{selectedCandidate.phone}</div>
+              <div className={ui.modalBody}>
+                <div className={styles.dossierGrid}>
+                  <div className={ui.summaryCard}>
+                    <span className={ui.summaryLabel}>AI interview score</span>
+                    <span className={ui.summaryValue}>
+                      {selectedCandidate.interviewScore ? `${selectedCandidate.interviewScore}%` : '—'}
+                    </span>
+                    {!selectedCandidate.interviewScore ? (
+                      <span className={ui.modalSub}>Pending interview</span>
+                    ) : null}
                   </div>
 
-                  <div style={{ background: '#131b2e', padding: '14px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase' }}>AI INTERVIEW SCORE</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
-                      {selectedCandidate.interviewScore ? `${selectedCandidate.interviewScore}%` : 'Pending Interview'}
-                    </div>
+                  <div className={ui.summaryCard}>
+                    <span className={ui.summaryLabel} style={{ marginBottom: 10 }}>
+                      Contact
+                    </span>
+                    <dl className={ui.detailList}>
+                      <div>
+                        <dt>Email</dt>
+                        <dd>{selectedCandidate.email}</dd>
+                      </div>
+                      <div>
+                        <dt>Phone</dt>
+                        <dd>{selectedCandidate.phone || '—'}</dd>
+                      </div>
+                    </dl>
                   </div>
 
-                  <div style={{ background: '#131b2e', padding: '14px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase' }}>CANDIDATE STATUS</div>
+                  <div className={ui.summaryCard}>
+                    <label className={ui.summaryLabel} htmlFor="dossier-status">
+                      Candidate status
+                    </label>
                     <select
+                      id="dossier-status"
                       className={styles.filterSelect}
-                      style={{ marginTop: '6px', width: '100%' }}
+                      style={{ marginTop: 8, width: '100%' }}
                       value={selectedCandidate.status}
                       onChange={(e) =>
                         updateCandidateStatus(
@@ -570,77 +563,61 @@ export function ResumeDatabasePage() {
                   </div>
                 </div>
 
-                {/* Skills section */}
-                <div>
-                  <h4 style={{ color: '#f8fafc', marginBottom: '8px', fontSize: '0.9rem' }}>Extracted Skills</h4>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <section className={ui.reportSection} aria-labelledby="dossier-skills">
+                  <h3 id="dossier-skills" className={ui.reportSectionTitle}>
+                    Extracted skills
+                  </h3>
+                  <div className={styles.skillPills}>
                     {selectedCandidate.skills.map((s) => (
-                      <span key={s} className={styles.skillPill} style={{ background: '#2563eb', padding: '4px 10px', fontSize: '0.8rem' }}>
+                      <span key={s} className={styles.skillPill}>
                         {s}
                       </span>
                     ))}
                   </div>
-                </div>
+                </section>
 
-                {/* Full Extracted Resume Text Box */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h4 style={{ color: '#f8fafc', margin: 0, fontSize: '0.9rem' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <HrIcon name="document" size={18} /> Extracted Resume Content (
-                        {selectedCandidate.resumeName})
-                      </span>
-                    </h4>
+                <section className={ui.reportSection} aria-labelledby="dossier-resume">
+                  <h3 id="dossier-resume" className={ui.reportSectionTitle}>
+                    <span>
+                      Extracted resume content{' '}
+                      <span className={ui.reportSectionMeta}>({selectedCandidate.resumeName})</span>
+                    </span>
                     <button
                       type="button"
-                      style={{
-                        background: '#1e293b',
-                        color: copied ? '#10b981' : '#38bdf8',
-                        border: '1px solid #334155',
-                        borderRadius: '6px',
-                        padding: '4px 10px',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
+                      className={`${ui.btnSecondary} ${ui.btnSm} ${copied ? styles.copiedBtn : ''}`}
                       onClick={() => copyResumeText(selectedCandidate.resumeText)}
                     >
                       {copied ? (
                         <>
-                          <HrIcon name="check" size={14} /> Copied!
+                          <HrIcon name="check" size={14} /> Copied
                         </>
                       ) : (
                         <>
-                          <HrIcon name="clipboard" size={14} /> Copy Resume Text
+                          <HrIcon name="clipboard" size={14} /> Copy resume text
                         </>
                       )}
                     </button>
-                  </div>
+                  </h3>
                   <div className={styles.resumeFullBox}>
                     {selectedCandidate.resumeText || 'No raw text extracted.'}
                   </div>
-                </div>
+                </section>
 
-                {/* Proctored Video Timeline if interview was taken */}
                 {selectedCandidate.interviewResult && (
-                  <div>
+                  <section className={ui.reportSection}>
                     <VideoProctorTimeline
                       sessionId={selectedCandidate.interviewResult.sessionId}
                       candidateEmail={selectedCandidate.email}
                       logs={selectedCandidate.interviewResult.integrity?.logs}
                       proctoring={selectedCandidate.interviewResult.integrity?.proctoring}
                     />
-                  </div>
+                  </section>
                 )}
               </div>
 
-              <div className={styles.modalFooter}>
-                <button
-                  type="button"
-                  className={styles.cancelModalBtn}
-                  onClick={() => setSelectedCandidate(null)}
-                >
-                  Close Dossier
+              <div className={ui.modalFooter}>
+                <button type="button" className={ui.btnSecondary} onClick={() => setSelectedCandidate(null)}>
+                  Close dossier
                 </button>
               </div>
             </motion.div>
@@ -648,82 +625,70 @@ export function ResumeDatabasePage() {
         )}
       </AnimatePresence>
 
-      {/* Resume File Ingestion Modal */}
+      {/* Resume upload */}
       <AnimatePresence>
         {showUploadModal && (
-          <div
-            className={styles.modalBackdrop}
-            onClick={() => setShowUploadModal(false)}
-          >
+          <div className={ui.modalOverlay} onClick={() => setShowUploadModal(false)}>
             <motion.div
-              className={styles.modal}
+              className={ui.modal}
               style={{ maxWidth: '520px' }}
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.18 }}
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="upload-title"
             >
-              <div className={styles.modalHeader}>
-                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <HrIcon name="document" size={22} /> Ingest Resume File
-                </h2>
+              <div className={ui.modalHeader}>
+                <div>
+                  <h2 id="upload-title">Upload resume</h2>
+                  <p className={ui.modalSub}>
+                    PDF or DOCX. We extract the name, skills, contact details and full text and save it to the vault.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  className={styles.closeBtn}
+                  className={ui.closeBtn}
                   onClick={() => setShowUploadModal(false)}
                   aria-label="Close"
                 >
-                  <HrIcon name="close" size={18} />
+                  <HrIcon name="close" size={16} />
                 </button>
               </div>
 
-              <div className={styles.modalBody}>
-                <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>
-                  Upload a candidate resume in PDF or DOCX format. The parser will automatically extract the name, skills, contact info, and full text, saving it into the Talent Vault.
-                </p>
-
-                <div
-                  style={{
-                    border: '2px dashed #3b82f6',
-                    borderRadius: '14px',
-                    padding: '36px 20px',
-                    textAlign: 'center',
-                    background: 'rgba(37, 99, 235, 0.05)',
-                    cursor: 'pointer',
-                  }}
+              <div className={ui.modalBody}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx"
+                  style={{ display: 'none' }}
+                  onChange={handleFileUpload}
+                />
+                <button
+                  type="button"
+                  className={styles.dropzone}
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  aria-busy={uploading}
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx"
-                    style={{ display: 'none' }}
-                    onChange={handleFileUpload}
-                  />
-                  <div style={{ marginBottom: '8px', color: '#e11d48' }}>
-                    <HrIcon name="folder" size={40} />
-                  </div>
-                  <strong style={{ color: '#ffffff', fontSize: '0.95rem' }}>
-                    {uploading ? 'Extracting & Parsing Resume...' : 'Click to browse or drop PDF / DOCX'}
-                  </strong>
-                  <div style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '4px' }}>
-                    Supports native PDF (pdfjs-dist) & DOCX (mammoth)
-                  </div>
-                </div>
+                  <span className={styles.dropzoneIcon} aria-hidden="true">
+                    <HrIcon name="upload" size={20} />
+                  </span>
+                  <strong>{uploading ? 'Extracting and parsing resume…' : 'Choose a PDF or DOCX file'}</strong>
+                  <span>Text is read in your browser (PDF and Word supported).</span>
+                </button>
 
                 {uploadError && (
-                  <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '10px', fontSize: '0.85rem' }}>
+                  <p className="ds-alert ds-alert--error" role="alert" style={{ marginTop: 12 }}>
                     {uploadError}
-                  </div>
+                  </p>
                 )}
               </div>
 
-              <div className={styles.modalFooter}>
-                <button
-                  type="button"
-                  className={styles.cancelModalBtn}
-                  onClick={() => setShowUploadModal(false)}
-                >
+              <div className={ui.modalFooter}>
+                <button type="button" className={ui.btnSecondary} onClick={() => setShowUploadModal(false)}>
                   Cancel
                 </button>
               </div>
@@ -731,7 +696,27 @@ export function ResumeDatabasePage() {
           </div>
         )}
       </AnimatePresence>
-
     </div>
+    </div>
+  )
+}
+
+function statusTone(status: StoredResumeCandidate['status']): string {
+  if (status === 'Shortlisted' || status === 'Hired') return ui.pillSuccess
+  if (status === 'Screening' || status === 'Technical') return ui.pillWarning
+  if (status === 'Rejected') return ui.pillDanger
+  return ui.pillBrand
+}
+
+/** Score as a number with a coloured dot: green 75+, amber 50+, red below. */
+function ScoreValue({ value }: { value: number }) {
+  const rounded = Math.round(value)
+  const tone = rounded >= 75 ? ui.toneGood : rounded >= 50 ? ui.toneMid : ui.toneLow
+  return (
+    <span className={ui.score} title="AI interview score">
+      <span className={`${ui.scoreDot} ${tone}`} aria-hidden="true" />
+      {rounded}
+      <span className={ui.scoreMax}>/100</span>
+    </span>
   )
 }

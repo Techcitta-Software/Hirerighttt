@@ -24,6 +24,12 @@ function timeAgo(iso: string) {
   return `${days}d ago`
 }
 
+function absoluteDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return undefined
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 function kindLabel(kind: AppNotification['kind']) {
   if (kind === 'job_match') return 'Job match'
   if (kind === 'application') return 'Application'
@@ -162,10 +168,7 @@ export function CandidateNotificationBell() {
             transition={{ duration: 0.16 }}
           >
             <div className={styles.panelHead}>
-              <div>
-                <p className={styles.panelEyebrow}>Inbox</p>
-                <h2 className={styles.panelTitle}>Notifications</h2>
-              </div>
+              <h2 className={styles.panelTitle}>Notifications</h2>
               {unread > 0 && (
                 <button
                   type="button"
@@ -176,7 +179,7 @@ export function CandidateNotificationBell() {
                     refreshList()
                   }}
                 >
-                  Clear all
+                  Mark all as read
                 </button>
               )}
             </div>
@@ -220,7 +223,9 @@ export function CandidateNotificationBell() {
                       <span className={styles.itemBody}>
                         <span className={styles.itemMeta}>
                           <span className={styles.itemKind}>{kindLabel(n.kind)}</span>
-                          <span className={styles.itemTime}>{timeAgo(n.createdAt)}</span>
+                          <span className={styles.itemTime} title={absoluteDate(n.createdAt)}>
+                            {timeAgo(n.createdAt)}
+                          </span>
                         </span>
                         <span className={styles.itemTitle}>{n.title}</span>
                         <span className={styles.itemText}>{n.body}</span>

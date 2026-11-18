@@ -18,6 +18,7 @@ import {
   profileHasRoleContextForSkills,
   suggestSkillsForProfile,
 } from '../lib/roleSkillSuggestions'
+import { toMonthInputValue } from '../lib/resumeExperience'
 import styles from './SkillsStep.module.css'
 
 interface SkillsStepProps {
@@ -478,7 +479,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
                       <input
                         className={styles.textInput}
                         type="month"
-                        value={exp.startDate}
+                        value={toMonthInputValue(exp.startDate)}
                         onChange={(event) =>
                           updateExperience(exp.id, {
                             startDate: event.target.value,
@@ -499,7 +500,7 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
                       <input
                         className={styles.textInput}
                         type="month"
-                        value={exp.endDate}
+                        value={toMonthInputValue(exp.endDate)}
                         onChange={(event) =>
                           updateExperience(exp.id, {
                             endDate: event.target.value,

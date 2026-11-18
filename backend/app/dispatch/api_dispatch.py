@@ -19,7 +19,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.db import store as db_store
-from app.db.dynamo_config import persistence_ready
+from app.db.dynamo_config import database_provider, persistence_ready
 from app.db.talent_index import (
     get_candidate_talent_by_id,
     grant_organization_talent_access,
@@ -33,6 +33,7 @@ from app.server import runtime
 from app.services.ats_composite import compute_employer_interview_composite
 from app.server.json_safe import json_safe
 from app.services import interview_api as ia
+from app.services import retake_payments
 from app.services.interview_invites import (
     INVITE_JOIN_WINDOW_MINUTES,
     build_interview_invite_email,
@@ -508,6 +509,24 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 profile = candidate_profile_for_documents(db, candidate_email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 signed = await resolve_resume_download_from_profile(profile, pool, inline=True)
+                if request.query_params.get("raw") == "1":
+                    # The file itself, for the in-app DOCX viewer: the browser cannot read S3 cross-origin.
+                    import httpx
+
+                    try:
+                        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as http:
+                            stored = await http.get(signed["url"])
+                    except httpx.HTTPError:
+                        return _json(502, {"error": "Could not load the resume from storage. Please try again."})
+                    if stored.status_code != 200:
+                        return _json(404, {"error": "No stored resume file for this account."})
+                    if len(stored.content) > 10 * 1024 * 1024:
+                        return _json(413, {"error": "This resume is too large to preview. Download it instead."})
+                    return Response(
+                        content=stored.content,
+                        media_type=signed.get("contentType") or "application/octet-stream",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+                    )
                 return _json(
                     200,
                     {
@@ -599,7 +618,6 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             role = (job or {}).get("roleTrack") or (job or {}).get("title") or app.get("data", {}).get("jobTitle") or "Engineer"
             level = app.get("data", {}).get("experienceYears") or (job or {}).get("experienceLevel") or "1–3 years"
             questions = []
-            history = []
             if not ia.llm_configured():
                 return _json(
                     503,
@@ -608,23 +626,30 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "code": "LLM_QUESTION_REQUIRED",
                     },
                 )
-            preview_seed = secrets.token_hex(8)
-            for _ in range(ia.INTERVIEW_TURN_COUNT):
-                q = await ia.generate_adaptive_question(
+            # One Gemini call with the same structure the candidate will get (it used to be 8 sequential calls,
+            # 12-35 s, which could outlast the page's wait).
+            try:
+                batch = await ia.generate_adaptive_question_batch(
                     {
                         "ctx": digest,
                         "profile": profile,
                         "role": role,
                         "level": level,
                         "jobDescription": jd,
-                        "history": history,
-                        "lastAnswer": "",
-                        "varietySeed": preview_seed,
-                        "totalTurns": ia.INTERVIEW_TURN_COUNT,
+                        "varietySeed": secrets.token_hex(8),
+                        "totalTurns": ia.resolve_interview_total_turns(profile, level, digest),
+                        "fresher": ia._is_fresher(profile, level, digest),
+                        "skillFocus": ia.vendor_skill_focus(skill_analysis, required) if skill_analysis else [],
                     }
                 )
+            except Exception as err:
+                logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
+                return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
+            for q in batch.get("questions") or []:
+                if q.get("focus") == "pending-fallback" or not str(q.get("text") or "").strip():
+                    q = {**q, "text": "Live follow-up on the candidate's previous answer (written during the interview).",
+                         "category": q.get("category") or "Experience", "topic": q.get("topic") or "Follow-up"}
                 questions.append(q)
-                history.append({"question": q, "answer": "Preview placeholder."})
             return _json(
                 200,
                 {
@@ -678,6 +703,26 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if vendor_resolved.get("error"):
                 err = vendor_resolved["error"]
                 return _json(err["status"], {"error": err["message"]})
+            # Paid retakes: the first career interview is free, later ones need a paid credit. Job interviews are free.
+            # Checked here (before the AI writes questions); the credit is only used once the session is created.
+            retake_charged = False
+            if not retake_payments.is_job_interview(body) and persistence_ready(config.database_url) and database_provider() != "dynamodb":
+                from psycopg.rows import dict_row
+
+                with db_store.db_pool(config.database_url).connection() as conn:
+                    conn.row_factory = dict_row
+                    status = retake_payments.retake_status(conn, email)
+                if not status["canStartCareerInterview"]:
+                    return _json(
+                        402,
+                        {
+                            "error": f"You have used your free interview. A retake costs ₹{status['priceInr']}.",
+                            "code": "RETAKE_PAYMENT_REQUIRED",
+                            "priceInr": status["priceInr"],
+                            "paymentsConfigured": status["paymentsConfigured"],
+                        },
+                    )
+                retake_charged = not status["freeInterviewAvailable"]
             vendor_job = vendor_resolved.get("job")
             vendor_application = vendor_resolved.get("application")
             role = str(body.get("role") or "Full Stack Engineer")
@@ -764,6 +809,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 raise
             agent_label = first.get("focus") or "adaptive-llm"
             session_id = secrets.token_hex(12)
+            if retake_charged:
+                from psycopg.rows import dict_row
+
+                with db_store.db_pool(config.database_url).connection() as conn:
+                    conn.row_factory = dict_row
+                    used = retake_payments.consume_credit_for_start(conn, email, session_id)
+                if not used:  # spent by another tab between the check and now
+                    return _json(402, {"error": "Your retake credit has already been used.", "code": "RETAKE_PAYMENT_REQUIRED"})
             session = {
                 "id": session_id,
                 "email": email,
@@ -1349,6 +1402,17 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 paddle_extract = await _run_paddle(base64.b64decode(b64), file_name)
             if paddle_extract:
                 return _json(200, {"ok": True, "source": "paddle-ocr", "extract": paddle_extract})
+            if not text and file_data:
+                # No OCR service: read the text layer of the PDF / DOCX on the server instead.
+                import base64
+
+                from app.services.resume_text import resume_file_text
+
+                try:
+                    b64 = file_data.split(",", 1)[1] if "," in str(file_data) else str(file_data)
+                    text = resume_file_text(base64.b64decode(b64), file_name)
+                except Exception:
+                    text = ""
             if text:
                 parsed = await ia.parse_resume_with_ai(text)
                 if parsed:
@@ -1566,6 +1630,15 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         return _json(err.status_code, {"error": err.detail if isinstance(err.detail, str) else "Request failed."})
     if sched is not None:
         return sched
+
+    from app.dispatch.payment_routes import try_payment_routes
+
+    try:
+        paid = await try_payment_routes(request, ctx, _json)
+    except HTTPException as err:
+        return _json(err.status_code, {"error": err.detail if isinstance(err.detail, str) else "Request failed."})
+    if paid is not None:
+        return paid
 
     from app.dispatch.route_extensions import try_extended_routes
 

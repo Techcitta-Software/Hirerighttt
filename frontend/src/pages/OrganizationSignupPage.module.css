@@ -1,22 +1,41 @@
 .page {
   min-height: 100vh;
-  background: var(--bg-page, #f8fafc);
-  color: var(--hr-text, #1e293b);
+  background: var(--hr-bg, #faf9ff);
+  color: var(--ds-text, #141638);
+  font-family: var(--font-sans);
+}
+
+.page :where(a, button, input):focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
 }
 
 .top {
   width: var(--hr-layout-width, min(1200px, calc(100% - 2rem)));
   margin: 0 auto;
   padding: 20px 0;
+  border-bottom: 1px solid var(--ds-border, #e5e5ef);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .topLink {
-  color: var(--hr-navy, #07122a);
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--ds-border-strong, #d6d7e5);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface, #ffffff);
+  color: var(--ds-text, #141638);
+  font-size: 0.875rem;
+  font-weight: 700;
   text-decoration: none;
+}
+
+.topLink:hover {
+  border-color: var(--hr-brand-solid, #5046e5);
 }
 
 .topLink:hover {
@@ -26,7 +45,7 @@
 .main {
   width: var(--hr-layout-width, min(1200px, calc(100% - 2rem)));
   margin: 0 auto;
-  padding: 24px 0 64px;
+  padding: clamp(32px, 6vw, 64px) 0 64px;
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
   gap: 56px;
@@ -44,15 +63,18 @@
 
 .intro h1 {
   margin: 0;
-  color: var(--hr-navy, #07122a);
-  font-size: clamp(2rem, 4vw, 2.75rem);
-  line-height: 1.12;
+  max-width: 18ch;
+  color: var(--ds-text, #141638);
+  font-size: clamp(1.875rem, 4vw, 2.625rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 .lead {
   margin: 16px 0 32px;
-  color: var(--hr-muted, #64748b);
-  font-size: 1.05rem;
+  color: var(--ds-text-muted, #5f6686);
+  font-size: 1.0625rem;
   line-height: 1.6;
   max-width: 34rem;
 }
@@ -62,22 +84,27 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 20px;
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+}
+
+.steps li + li {
+  border-top: 1px solid var(--ds-border, #e5e5ef);
 }
 
 .steps li {
   display: flex;
   gap: 16px;
   align-items: flex-start;
+  padding: 16px 0;
 }
 
 .num {
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--brand-light, #eef2ff);
-  color: var(--brand-primary);
+  color: var(--hr-brand-solid-hover, #4338ca);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -85,29 +112,30 @@
 }
 
 .steps h2 {
-  margin: 4px 0 4px;
-  font-size: 1.02rem;
-  color: var(--hr-navy, #07122a);
+  margin: 3px 0 4px;
+  font-size: 1rem;
+  color: var(--ds-text, #141638);
 }
 
 .steps p {
   margin: 0;
-  color: var(--hr-muted, #64748b);
+  color: var(--ds-text-muted, #5f6686);
+  font-size: 0.9375rem;
   line-height: 1.5;
 }
 
 .card {
-  background: var(--bg-surface, #fff);
-  border: 1px solid var(--hr-border, #e2e8f0);
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  background: var(--ds-surface, #ffffff);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
+  padding: 28px;
+  box-shadow: var(--shadow-md, 0 4px 14px -1px rgba(15, 23, 42, 0.07));
 }
 
 .card h2 {
   margin: 0 0 20px;
-  font-size: 1.3rem;
-  color: var(--hr-navy, #07122a);
+  font-size: 1.25rem;
+  color: var(--ds-text, #141638);
 }
 
 .card form {
@@ -118,15 +146,16 @@
 .card label {
   display: grid;
   gap: 6px;
-  font-size: 0.88rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--ds-text-secondary, #363b5c);
 }
 
 .card input:not([type='checkbox']) {
   height: 44px;
   padding: 0 14px;
-  border: 1px solid var(--hr-border, #e2e8f0);
-  border-radius: 10px;
+  border: 1px solid var(--ds-border-strong, #d6d7e5);
+  border-radius: var(--radius-md, 10px);
   font: inherit;
   font-weight: 400;
   background: #fff;
@@ -134,9 +163,16 @@
 }
 
 .card input:focus-visible {
-  outline: 2px solid var(--brand-primary);
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
   outline-offset: 1px;
-  border-color: var(--brand-primary);
+  border-color: var(--hr-brand-solid, #5046e5);
+}
+
+.card input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--hr-brand-solid, #5046e5);
 }
 
 .card .check {
@@ -155,9 +191,10 @@
 
 .card button {
   height: 46px;
+  margin-top: 4px;
   border: 0;
-  border-radius: 999px;
-  background: var(--brand-primary);
+  border-radius: var(--radius-md, 10px);
+  background: var(--hr-brand-solid, #5046e5);
   color: #fff;
   font: inherit;
   font-weight: 700;
@@ -165,7 +202,7 @@
 }
 
 .card button:hover:not(:disabled) {
-  background: var(--brand-hover);
+  background: var(--hr-brand-solid-hover, #4338ca);
 }
 
 .card button:disabled {

@@ -1,17 +1,15 @@
 .page {
   min-height: calc(100vh - var(--nav-height, 64px));
-  background:
-    radial-gradient(ellipse 70% 40% at 50% -10%, rgba(112, 71, 255, 0.12), transparent),
-    linear-gradient(180deg, #ebe7ff 0%, #faf9ff 280px, #eeecf8 100%);
-  color: #141638;
+  background: var(--hr-bg, #faf9ff);
+  color: var(--hr-navy, #141638);
   box-sizing: border-box;
 }
 
 .shell {
   width: 100%;
-  max-width: min(640px, 100%);
+  max-width: min(600px, 100%);
   margin: 0 auto;
-  padding: clamp(24px, 4vw, 40px) clamp(20px, 3vw, 32px) 48px;
+  padding: clamp(24px, 4vw, 40px) 16px 48px;
   box-sizing: border-box;
 }
 
@@ -19,11 +17,16 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.8125rem;
+  min-height: 36px;
+  margin-bottom: 20px;
+  font-size: 0.875rem;
   font-weight: 600;
-  color: #5f6686 !important;
+  color: var(--hr-muted, #5f6686) !important;
   text-decoration: none !important;
-  margin-bottom: 24px;
+}
+
+.backLink:hover {
+  color: var(--hr-navy, #141638) !important;
 }
 
 .backIcon {
@@ -31,36 +34,36 @@
 }
 
 .header h1 {
-  margin: 8px 0 12px;
-  font-size: clamp(1.5rem, 3vw, 1.85rem);
+  margin: 0 0 10px;
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
+  text-wrap: balance;
 }
 
 .kicker {
   margin: 0;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #7047ff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--hr-muted, #5f6686);
 }
 
 .subtitle {
   margin: 0;
-  font-size: 0.9375rem;
+  max-width: 60ch;
+  font-size: 1rem;
   line-height: 1.6;
-  color: #5f6686;
+  color: var(--hr-muted, #5f6686);
 }
 
 .offerCard {
-  margin-top: 28px;
-  padding: 28px 26px;
-  border-radius: 20px;
+  margin-top: 24px;
+  padding: clamp(20px, 4vw, 28px);
+  border-radius: var(--radius-lg, 14px);
   background: #ffffff;
-  border: 1px solid #e5e5ef;
-  box-shadow: 0 12px 40px rgba(20, 22, 56, 0.08);
+  border: 1px solid var(--hr-border, #e5e5ef);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.06));
 }
 
 .offerTop {
@@ -68,20 +71,22 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 16px;
+  padding-bottom: 20px;
   margin-bottom: 20px;
+  border-bottom: 1px solid var(--hr-border, #e5e5ef);
 }
 
 .offerTop h2 {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   font-size: 1.125rem;
   font-weight: 700;
 }
 
 .offerTop p {
   margin: 0;
-  font-size: 0.8125rem;
-  color: #5f6686;
+  font-size: 0.875rem;
   line-height: 1.5;
+  color: var(--hr-muted, #5f6686);
 }
 
 .priceBlock {
@@ -94,22 +99,22 @@
 .currency {
   font-size: 1.25rem;
   font-weight: 700;
-  color: #7047ff;
+  color: var(--hr-navy, #141638);
 }
 
 .amount {
   font-size: 2.25rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
-  color: #141638;
   line-height: 1;
+  color: var(--hr-navy, #141638);
+  font-variant-numeric: tabular-nums;
 }
 
 .per {
   margin-left: 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #94a3b8;
+  font-size: 0.8125rem;
+  color: var(--hr-muted, #5f6686);
 }
 
 .featureList {
@@ -125,40 +130,52 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  font-size: 0.875rem;
-  line-height: 1.45;
-  color: #363b5c;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--hr-navy, #141638);
 }
 
 .featureList svg {
   flex-shrink: 0;
-  margin-top: 2px;
-  color: #7047ff;
+  margin-top: 3px;
+  color: #047857;
 }
 
 .payBtn {
   width: 100%;
-  min-height: 52px;
+  min-height: 48px;
   border: none;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #7047ff 0%, #5b36eb 100%);
-  color: #fff;
+  border-radius: var(--radius-md, 10px);
+  background: var(--hr-brand-solid, #5046e5);
+  color: #ffffff;
+  font: inherit;
   font-size: 1rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 10px 28px rgba(112, 71, 255, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+  transition: background-color 0.15s ease;
 }
 
 .payBtn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 32px rgba(112, 71, 255, 0.4);
+  background: var(--hr-brand-solid-hover, #4338ca);
+}
+
+.payBtn:focus-visible,
+.backLink:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
 }
 
 .disclaimer {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   text-align: center;
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: #94a3b8;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--hr-muted, #5f6686);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .payBtn {
+    transition: none;
+  }
 }

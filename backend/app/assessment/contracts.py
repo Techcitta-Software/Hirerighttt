@@ -12,6 +12,31 @@ class AssessmentError(Exception):
         self.status = status
 
 
+_QUOTE_MAP = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-", "\u00a0": " "})
+
+
+def _norm(value: str) -> str:
+    """Quote comparison that ignores line breaks, spacing, case, curly quotes and dashes (PDF text is full of them)."""
+    return re.sub(r"\s+", " ", str(value or "").translate(_QUOTE_MAP)).strip().lower().strip(" .,;:\"'")
+
+
+def quoted_in(quote: str, sources: list[str]) -> bool:
+    q = _norm(quote)
+    return bool(q) and any(q in _norm(src) for src in sources)
+
+
+def match_competency(value: Any, competencies: list[dict], index: int) -> dict | None:
+    """The model may return the competency id, its name, or keep the supplied order."""
+    raw = _norm(str(value or ""))
+    for c in competencies:
+        if raw and raw in (_norm(c["id"]), _norm(c["name"])):
+            return c
+    for c in competencies:
+        if raw and (_norm(c["id"]) in raw or _norm(c["name"]) in raw):
+            return c
+    return competencies[index] if not raw and index < len(competencies) else None
+
+
 def check(condition: Any, message: str, status: int = 400) -> None:
     if not condition:
         raise AssessmentError(status, message)
@@ -63,7 +88,7 @@ def validate_plan(value: Any, job: dict, resume_text: str = "") -> dict:
     questions = []
     for index, q in enumerate(value["questions"]):
         check(isinstance(q, dict), "Invalid question")
-        competency = next((c for c in job["competencies"] if c["id"] == q.get("competency")), None)
+        competency = match_competency(q.get("competency"), job["competencies"], index)
         check(competency, "Unknown competency")
         check(q.get("difficulty") in ("basic", "intermediate", "advanced"), "Invalid difficulty")
         check(
@@ -76,7 +101,7 @@ def validate_plan(value: Any, job: dict, resume_text: str = "") -> dict:
         rubric = {str(n): text(rubric_in.get(str(n), rubric_in.get(n)), "rubric anchor") for n in range(5)}
         evidence = text(q.get("resume_or_job_evidence"), "relevance evidence", 2000)
         sources = [resume_text or "", job.get("description") or "", competency["requirement"]]
-        check(any(evidence in src for src in sources), "Relevance evidence must quote the supplied resume or job requirement")
+        check(quoted_in(evidence, sources), "Relevance evidence must quote the supplied resume or job requirement")
         points = strings(q.get("expected_answer_points"), "expected answer points")
         check(points, "Expected answer points required")
         questions.append(
@@ -106,7 +131,7 @@ def validate_plan(value: Any, job: dict, resume_text: str = "") -> dict:
 def validate_evaluation(value: Any, answer: str) -> dict:
     check(isinstance(value, dict) and isinstance(value.get("score"), int) and 0 <= value["score"] <= 4, "Invalid evaluation score")
     evidence = strings(value.get("evidence"), "evidence")
-    check(all(quote in answer for quote in evidence), "Evaluation evidence must quote the answer exactly")
+    check(all(quoted_in(quote, [answer]) for quote in evidence), "Evaluation evidence must quote the answer exactly")
     check(value["score"] == 0 or evidence, "Positive scores require answer evidence")
     check(isinstance(value.get("confidence"), (int, float)) and 0 <= value["confidence"] <= 1, "Invalid confidence")
     check(isinstance(value.get("needs_human_review"), bool), "Review flag required")

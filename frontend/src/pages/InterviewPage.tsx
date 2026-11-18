@@ -5,9 +5,9 @@ import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   mapExperienceToLevel,
-  mapProfileRoleToInterviewRole,
   type Question,
 } from '../lib/interviewEngine'
+import { interviewRoleFromProfile } from '../lib/interviewRole'
 import {
   cancelSpeech,
   configureInterviewRecognition,
@@ -103,13 +103,15 @@ import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
 import { easeOut } from '../motion/variants'
 import styles from './InterviewPage.module.css'
+import { answerDoneCommand, silenceAdvanceMs, stripAnswerDoneCommand } from '../lib/answerTiming'
 
 
 type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
 const QUESTION_SECONDS = 180
-/** After this much silence with an answer on the transcript, auto-advance (call-style). */
-const SILENCE_ADVANCE_MS = 5000
+/** Silence before an answer counts as finished: answerTiming.silenceAdvanceMs (2.8-5 s by answer length). */
+/** Longest the next question waits for Ava's bridge sentence to finish (a stuck audio callback never blocks). */
+const BRIDGE_MAX_WAIT_MS = 9000
 /** If the candidate never speaks after Ava finishes the question, advance silently (no UI). */
 const NO_ANSWER_SKIP_MS = 10_000
 const MIN_ANSWER_CHARS = 10
@@ -121,7 +123,7 @@ const LOBBY_TIPS = [
   'Questions follow your resume and the role on your profile',
   'It works for any field — engineering, healthcare, oil & gas, and more',
   'Talk over Ava to interrupt — only your voice stops her (not background noise)',
-  'Pause ~5 seconds when you are done — the next question starts automatically',
+  'When you finish, pause for a moment or say "next question" — the next one starts automatically',
   'Say "end the interview" when you want to finish (after 2+ answers)',
 ]
 
@@ -165,7 +167,8 @@ export function InterviewPage() {
   const [stage, setStage] = useState<Stage>('setup')
   const [role] = useState<string>(() => {
     if (targetJobRaw?.role) return targetJobRaw.role
-    return mapProfileRoleToInterviewRole(profile?.currentRole ?? '')
+    // The most recent job title exactly as on the resume (never squeezed into a fixed list of roles).
+    return interviewRoleFromProfile(profile)
   })
   const [level] = useState<string>(() => {
     if (targetJobRaw?.level) return targetJobRaw.level
@@ -379,6 +382,9 @@ export function InterviewPage() {
   const listenAfterTtsRef = useRef(true)
   const speakGenRef = useRef(0)
   const bridgeRef = useRef('')
+  /** Ava's bridge sentence, already playing while the next question is fetched (resolves when it ends). */
+  const bridgePlaybackRef = useRef<Promise<void> | null>(null)
+  const bridgeSpeakingRef = useRef(false)
   const advancingRef = useRef(false)
   const adaptiveRef = useRef(true)
   const interviewStartedAtRef = useRef<number>(0)
@@ -932,7 +938,7 @@ export function InterviewPage() {
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
 
-    speakText(spoken, {
+    const speakQuestion = () => speakText(spoken, {
       onStart: () => {
         if (gen === speakGenRef.current) {
           setAiSpeaking(true)
@@ -963,9 +969,21 @@ export function InterviewPage() {
       },
     })
 
+    // The bridge ("Thanks Bharath, let's go deeper...") started while this question was being fetched: let it
+    // finish, then ask the question, so the candidate hears Ava straight away instead of silence.
+    const playing = bridgePlaybackRef.current
+    bridgePlaybackRef.current = null
+    if (playing) {
+      void Promise.race([playing, new Promise<void>((r) => window.setTimeout(r, BRIDGE_MAX_WAIT_MS))]).then(() => {
+        if (gen === speakGenRef.current) speakQuestion()
+      })
+    } else {
+      speakQuestion()
+    }
+
     return () => {
       speakGenRef.current += 1
-      cancelSpeech()
+      if (!bridgeSpeakingRef.current) cancelSpeech() // never cut off a bridge that is playing for the next question
       stopListening()
       setAiSpeaking(false)
       aiSpeakingRef.current = false
@@ -986,10 +1004,14 @@ export function InterviewPage() {
       }
       const text = draftRef.current.trim()
       const phase = sttPhaseRef.current
+      if (text && answerDoneCommand(text) !== null) {
+        submitAnswerRef.current() // "...next question": move on now, no silence wait
+        return
+      }
       if (text.length >= MIN_ANSWER_CHARS) {
         const last = lastSpeechAtRef.current
         if (!last) return
-        if (Date.now() - last < SILENCE_ADVANCE_MS) return
+        if (Date.now() - last < silenceAdvanceMs(text)) return
         submitAnswerRef.current()
         return
       }
@@ -1240,7 +1262,7 @@ export function InterviewPage() {
     listenAfterTtsRef.current = false
     stopAllSpeech()
 
-    const answer = draftRef.current.trim()
+    const answer = stripAnswerDoneCommand(draftRef.current)
     const next = [...answersRef.current]
     next[current] = answer
     answersRef.current = next
@@ -1315,6 +1337,22 @@ export function InterviewPage() {
         isPreloadedInterviewQuestion(preloaded) &&
         !isDeferredAdaptiveQuestion(preloaded)
 
+      if (!usePreloaded && bridgeRef.current.trim()) {
+        // The next question has to be generated (a few seconds): say the bridge now, while it loads.
+        const bridgeText = bridgeRef.current
+        bridgeRef.current = ''
+        bridgeSpeakingRef.current = true
+        setAiSpeaking(true)
+        aiSpeakingRef.current = true
+        bridgePlaybackRef.current = new Promise<void>((resolve) => {
+          const done = () => {
+            bridgeSpeakingRef.current = false
+            resolve()
+          }
+          speakText(bridgeText, { onEnd: done, onError: done })
+        })
+      }
+
       if (usePreloaded) {
         if (finishingRef.current || stageRef.current !== 'interview') return
         if (historyRef.current.length >= totalTurnsRef.current) {
@@ -1364,6 +1402,8 @@ export function InterviewPage() {
         return
       }
       setDeviceError('Could not load the next question. Try again or say "end the interview".')
+      bridgePlaybackRef.current = null
+      bridgeSpeakingRef.current = false
     } finally {
       advancingRef.current = false
       setAdvancing(false)

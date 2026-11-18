@@ -6,8 +6,6 @@ import base64
 import json
 import re
 import uuid
-import zipfile
-from io import BytesIO
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -107,18 +105,20 @@ def extract_resume_text(body: dict) -> str:
     check(isinstance(raw, str) and len(raw) <= 2_800_000, "Invalid or oversized resume upload")
     buf = base64.b64decode(raw)
     check(0 < len(buf) <= 2_000_000, "Resume must be at most 2 MB")
+    from app.services.resume_text import docx_text, pdf_text
+
     if filename.lower().endswith(".pdf"):
         check(buf[:5] == b"%PDF-", "File content does not match its extension")
-        # Lightweight text pull; binary PDFs still yield what the stream contains.
-        text_out = "".join(ch if 32 <= ord(ch) < 127 or ch in "\n\t" else " " for ch in buf.decode("latin1", errors="ignore"))
-        text_out = re.sub(r"\s+", " ", text_out).strip()
+        # Real PDFs store text in compressed streams; reading raw bytes gave the AI noise instead of the resume.
+        text_out = pdf_text(buf)
     else:
         check(buf[:4] == b"PK\x03\x04", "File content does not match its extension")
-        with zipfile.ZipFile(BytesIO(buf)) as zf:
-            xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
-        text_out = re.sub(r"<[^>]+>", " ", xml)
-        text_out = re.sub(r"\s+", " ", text_out).strip()
-    check(len(text_out) >= 40, "Could not extract enough text from the resume", 422)
+        text_out = docx_text(buf)
+    check(
+        len(text_out) >= 40,
+        "Could not read text from this resume (it may be a scanned image). Upload a PDF or DOCX with selectable text.",
+        422,
+    )
     return text_out[:100_000]
 
 

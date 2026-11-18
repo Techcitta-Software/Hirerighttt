@@ -26,6 +26,8 @@ def _skill_tokens(skill: str) -> list[str]:
         if len(re.sub(r"[^a-z0-9+#]", "", p)) >= 2
     ]
     out = [c, *parts]
+    # "LLMs" must match an answer that says "LLM" (and "APIs" -> "API"): add the singular form too.
+    out += [p[:-1] for p in out if len(p) >= 4 and p.endswith("s") and not p.endswith("ss")]
     return list(dict.fromkeys([p for p in out if p]))
 
 
@@ -130,4 +132,48 @@ def compute_session_role_skills_fit(
         "evidencedInAnswers": evidenced,
         "resumeMatchCount": len(on_resume),
         "answerMatchCount": len(evidenced),
+    }
+
+
+def question_targets_skill(question: dict[str, Any], skill: str) -> bool:
+    q_text = f"{_clean(question.get('topic'))} {_clean(question.get('text'))}".lower()
+    return _clean(skill).lower() in q_text or any(len(tok) >= 3 and tok in q_text for tok in _skill_tokens(skill))
+
+
+def compute_session_role_skills_fit_scored(
+    ctx: dict[str, Any],
+    required_skills: list[str],
+    questions: list[dict[str, Any]],
+    answers: list[str],
+    answer_scores: list[int | None],
+) -> dict[str, Any]:
+    """Role fit using the evaluator's per-answer scores, so it measures demonstrated skill, not keywords.
+
+    A required skill is evidenced when
+      * it is named in an answer that scored at least 50 (buzzwords inside a wrong answer do not count), or
+      * a question about that skill was answered well (score >= 60), even if the answer never repeated its name
+        (a correct explanation of Python generators is evidence of Python).
+    """
+    base = compute_session_role_skills_fit(ctx, required_skills, [])
+    required = base["requiredSkills"]
+    if not required:
+        return base
+    evidenced: list[str] = []
+    for skill in required:
+        for i, answer in enumerate(answers):
+            score = answer_scores[i] if i < len(answer_scores) else None
+            if score is None:
+                continue
+            q = questions[i] if i < len(questions) else {}
+            if (score >= 50 and skill_evidence_in_answer(skill, answer)) or (score >= 60 and question_targets_skill(q, skill)):
+                evidenced.append(skill)
+                break
+    on_resume = base["onResume"]
+    n = len(required)
+    return {
+        **base,
+        "fitScore": _clamp((len(on_resume) / n) * 50 + (len(evidenced) / n) * 50),
+        "evidencedInAnswers": evidenced,
+        "answerMatchCount": len(evidenced),
+        "evidenceRule": "answer-quality",
     }

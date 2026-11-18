@@ -252,7 +252,7 @@ export function CandidateApplyPage() {
           <SiteNav />
           <div className={styles.card} style={{ textAlign: 'center', marginTop: '60px' }}>
             <h2 className={styles.errorTitle}>
-              <HrIcon name="warning" size={22} /> Private Job Link Not Found
+              <HrIcon name="warning" size={22} /> Job link not found
             </h2>
             <p className={styles.muted}>
               The job application link you accessed may have expired or been removed by the employer.
@@ -264,7 +264,7 @@ export function CandidateApplyPage() {
               onClick={() => navigate('/signup')}
               style={{ maxWidth: '240px', margin: '20px auto 0' }}
             >
-              Explore Public Jobs →
+              Explore public jobs
             </button>
           </div>
         </div>
@@ -284,7 +284,7 @@ export function CandidateApplyPage() {
           animate={{ opacity: 1, y: 0 }}
         >
           <span className={styles.companyBadge}>
-            <HrIcon name="building" size={16} /> PRIVATE JOB INVITATION · {job.company}
+            <HrIcon name="building" size={16} /> Private job invitation · {job.company}
           </span>
           <h1 className={styles.title}>{job.title}</h1>
 
@@ -295,14 +295,14 @@ export function CandidateApplyPage() {
           </div>
 
           <div className={styles.jdBox}>
-            <h3 className={styles.jdHeading}>
-              <HrIcon name="document" size={20} /> Job Description & Requirements
-            </h3>
+            <h2 className={styles.jdHeading}>
+              <HrIcon name="document" size={20} /> Job description and requirements
+            </h2>
             <p>{job.jobDescription}</p>
 
             {job.requiredSkills && job.requiredSkills.length > 0 && (
               <div className={styles.skillsBlock}>
-                <strong className={styles.skillsLabel}>REQUIRED SKILLS:</strong>
+                <strong className={styles.skillsLabel}>Required skills</strong>
                 <div className={styles.skillsRow}>
                   {job.requiredSkills.map((sk) => (
                     <span key={sk} className={styles.skillPill}>
@@ -316,14 +316,14 @@ export function CandidateApplyPage() {
 
           {atsSummary ? (
             <div className={styles.atsCard}>
-              <h3 className={styles.atsTitle}>Application submitted — ATS match</h3>
+              <h2 className={styles.atsTitle}>Application submitted</h2>
               <div className={styles.atsScores}>
                 <div>
-                  <span className={styles.atsLabel}>Resume fit</span>
+                  <span className={styles.atsLabel}>Resume match</span>
                   <strong>{Math.round(atsSummary.atsScore)}%</strong>
                 </div>
                 <div>
-                  <span className={styles.atsLabel}>JD match</span>
+                  <span className={styles.atsLabel}>Fit for this role</span>
                   <strong>{Math.round(atsSummary.jdMatchScore)}%</strong>
                 </div>
               </div>
@@ -335,7 +335,7 @@ export function CandidateApplyPage() {
               )}
               {atsSummary.missingSkills.length > 0 && (
                 <p className={styles.muted}>
-                  <strong>Gaps:</strong> {atsSummary.missingSkills.join(', ')}
+                  <strong>Skills to build:</strong> {atsSummary.missingSkills.join(', ')}
                 </p>
               )}
               <button
@@ -343,7 +343,7 @@ export function CandidateApplyPage() {
                 className={styles.submitBtn}
                 onClick={() => navigate('/interview')}
               >
-                Continue to AI interview →
+                Continue to AI interview
               </button>
             </div>
           ) : signedInEmployer ? (
@@ -352,9 +352,9 @@ export function CandidateApplyPage() {
             </div>
           ) : !signedInCandidate ? (
             <div className={styles.signInGate}>
-              <h3 className={styles.formSectionTitle}>
+              <h2 className={styles.formSectionTitle}>
                 <HrIcon name="form" size={22} /> Sign in to apply
-              </h3>
+              </h2>
               <p className={styles.muted}>
                 Your application, resume and HireRighttt interview stay together in your candidate account. New
                 here? Create a free account; after a short profile setup your application is sent automatically.
@@ -370,15 +370,16 @@ export function CandidateApplyPage() {
             </div>
           ) : (
             <>
-              <h3 className={styles.formSectionTitle}>
+              <h2 className={styles.formSectionTitle}>
                 <HrIcon name="form" size={22} /> Apply with your resume
-              </h3>
+              </h2>
 
               <form onSubmit={handleSubmit}>
                 <div className={styles.formGrid}>
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Full Name</label>
+                    <label htmlFor="apply-name" className={styles.label}>Full name</label>
                     <input
+                      id="apply-name"
                       type="text"
                       required
                       className={styles.input}
@@ -389,8 +390,9 @@ export function CandidateApplyPage() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Email Address</label>
+                    <label htmlFor="apply-email" className={styles.label}>Email address</label>
                     <input
+                      id="apply-email"
                       type="email"
                       required
                       readOnly
@@ -402,8 +404,9 @@ export function CandidateApplyPage() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Phone Number</label>
+                    <label htmlFor="apply-phone" className={styles.label}>Phone number</label>
                     <input
+                      id="apply-phone"
                       type="tel"
                       required
                       className={styles.input}
@@ -414,8 +417,9 @@ export function CandidateApplyPage() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label className={styles.label}>Years of Experience</label>
+                    <label htmlFor="apply-experience" className={styles.label}>Years of experience</label>
                     <input
+                      id="apply-experience"
                       type="text"
                       required
                       className={styles.input}
@@ -426,19 +430,19 @@ export function CandidateApplyPage() {
                   </div>
 
                   <div className={styles.formGroupFull}>
-                    <label className={styles.label}>Upload Resume (PDF / DOCX)</label>
+                    <span className={styles.label}>Resume (PDF or DOCX)</span>
                     <label className={styles.fileInputBox}>
                       <input
                         type="file"
                         accept=".pdf,.docx,.txt"
-                        style={{ display: 'none' }}
+                        className={styles.fileInputNative}
                         onChange={handleFileChange}
                       />
-                      <div style={{ marginBottom: '6px', color: '#6036eb' }}>
+                      <div className={styles.fileIcon}>
                         <HrIcon name="folder" size={32} />
                       </div>
                       <div style={{ fontWeight: 700, color: '#141638' }}>
-                        {resumeFile ? resumeFile.name : 'Click to Upload Resume PDF'}
+                        {resumeFile ? resumeFile.name : 'Choose your resume file'}
                       </div>
                       <div className={styles.muted} style={{ marginTop: '2px', fontSize: '0.8rem' }}>
                         {resumeFile ? (
@@ -471,7 +475,7 @@ export function CandidateApplyPage() {
                 </label>
 
                 <button type="submit" className={styles.submitBtn} disabled={loading || !applyConsent}>
-                  {loading ? 'Submitting application…' : 'Submit & start AI interview →'}
+                  {loading ? 'Submitting application…' : 'Submit and start AI interview'}
                 </button>
               </form>
             </>

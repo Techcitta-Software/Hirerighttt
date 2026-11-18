@@ -60,8 +60,8 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   }
   return <div className={styles.stack}>
     <section className={styles.headerBanner}>
-      <div className={styles.successSeal} aria-hidden="true">✓</div>
-      <div className={styles.bannerText}><h1>All Set, {name}! 🎉</h1><h2>{scheduled ? 'Your 15-Minute AI Interview is Confirmed!' : 'You’re Ready for Your AI Interview!'}</h2><h3>We’re excited to connect with you and help you take the next step<br className={styles.desktopBreak} /> in your career journey.</h3>{applyNote && <p className={styles.applyNote}>{applyNote}</p>}</div>
+      <div className={styles.successSeal} aria-hidden="true"><svg viewBox="0 0 16 16" width="32" height="32" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg></div>
+      <div className={styles.bannerText}><h1>All set, {name}</h1><h2>{scheduled ? 'Your 15-Minute AI Interview is Confirmed!' : 'You’re Ready for Your AI Interview!'}</h2><h3>We’re excited to connect with you and help you take the next step<br className={styles.desktopBreak} /> in your career journey.</h3>{applyNote && <p className={styles.applyNote}>{applyNote}</p>}</div>
       <div role="img" aria-label="Ava, your friendly AI interviewer" className={styles.robotAvatarImg} />
     </section>
     <section className={styles.detailsCard}>
@@ -82,7 +82,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
     <section className={styles.section}><h2>Get Ready for Your Interview!</h2><h3>Add the event to your calendar for a 15-minute reminder.</h3><div className={styles.timeline}>
       {([{ icon: 'bell', title: '24 Hours Before', copy: 'Review your experience and prepare a few examples.' }, { icon: 'clock', title: '1 Hour Before', copy: 'Check your camera, microphone and connection.' }, { icon: 'bell', title: '15 Minutes Before', copy: 'Find a quiet space and get ready.' }, { icon: 'video', title: 'Interview Time', copy: 'Join and ace your AI interview!' }] as const).map(item => <div className={styles.timelineItem} key={item.title}><div className={styles.timelineIcon}><Icon kind={item.icon} /></div><div><h3>{item.title}</h3><p>{item.copy}</p></div></div>)}
     </div></section>
-    <section className={styles.trophyBanner}><div className={styles.star} aria-hidden="true">⭐</div><div><h2>You’ve Taken the <em>Right Step!</em></h2><h3>Believe in yourself. Showcase your best. Opportunities are waiting for you!</h3><strong>We’re with you, every step of the way.</strong><p className={styles.helpText}>Keep your profile up to date to discover your next opportunity.</p></div><div className={styles.trophy} aria-hidden="true" /></section>
+    <section className={styles.trophyBanner}><div><h2>You’ve Taken the <em>Right Step!</em></h2><h3>Believe in yourself. Showcase your best. Opportunities are waiting for you!</h3><strong>We’re with you, every step of the way.</strong><p className={styles.helpText}>Keep your profile up to date to discover your next opportunity.</p></div><div className={styles.trophy} aria-hidden="true" /></section>
     {interview && <><button className={styles.dossierButton} onClick={() => setShowDossier(!showDossier)} aria-expanded={showDossier}>{showDossier ? 'Hide' : 'View'} Your Career Intelligence Report {showDossier ? '−' : '+'}</button>{showDossier && <CareerIntelligenceDashboard result={interview} candidateName={candidateFullName()} candidateRole={data.currentRole} candidateExperience={data.totalExperience} skills={data.skills} onRetake={() => navigate('/interview')} onContinue={() => navigate('/jobs')} />}</>}
   </div>
 }

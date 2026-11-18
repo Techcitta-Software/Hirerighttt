@@ -4,6 +4,7 @@ import {
   fetchVendorCandidateRecordingDocument,
   fetchVendorCandidateReportDocument,
   fetchVendorCandidateResumeDocument,
+  fetchVendorCandidateResumeFile,
   fetchVendorInterviewReview,
   type VendorCandidateDocumentLink,
   type VendorCandidateRecordingLink,
@@ -13,6 +14,7 @@ import { canViewInterviewVideo } from '../lib/adminAccess'
 import { HrIcon } from './HrIcon'
 import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
+import { docxToSafeHtml, isDocxDocument } from '../lib/docxPreview'
 import styles from './EmployerCandidateDocumentModal.module.css'
 
 export type EmployerDocumentKind = 'resume' | 'report'
@@ -50,6 +52,9 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   const isResume = kind === 'resume'
   const inlineReport = !isResume && Boolean(applicant.interviewResult)
   const [downloading, setDownloading] = useState(false)
+  const [docxHtml, setDocxHtml] = useState('')
+  const [docxLoading, setDocxLoading] = useState(false)
+  const [docxError, setDocxError] = useState('')
   const title = isResume
     ? `Resume — ${applicant.candidateName}`
     : `HireRighttt report — ${applicant.candidateName}`
@@ -183,6 +188,36 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     applicant.interviewResult?.sessionId,
   ])
 
+  // Word resumes: browsers cannot show .docx in an iframe, so convert it to HTML for an in-app preview.
+  const isDocx = Boolean(documentLink && isResume && isDocxDocument(documentLink.contentType, documentLink.filename))
+  useEffect(() => {
+    if (!isDocx) {
+      setDocxHtml('')
+      setDocxError('')
+      return
+    }
+    let cancelled = false
+    setDocxLoading(true)
+    setDocxError('')
+    void (async () => {
+      try {
+        const data = await fetchVendorCandidateResumeFile(applicant.candidateEmail)
+        const html = await docxToSafeHtml(data)
+        if (!cancelled) setDocxHtml(html)
+      } catch (err) {
+        if (!cancelled) {
+          setDocxHtml('')
+          setDocxError(err instanceof Error ? err.message : 'Could not preview this Word file.')
+        }
+      } finally {
+        if (!cancelled) setDocxLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [isDocx, applicant.candidateEmail])
+
   async function handleDownload() {
     if (inlineReport) {
       setDownloading(true)
@@ -257,8 +292,21 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                       src={pdfViewUrl(documentLink!.viewUrl)}
                     />
                   </>
+                ) : isDocx && (docxLoading || docxHtml) ? (
+                  <>
+                    <p className={styles.sectionHint}>Resume preview (Word document).</p>
+                    {docxLoading ? (
+                      <p className={styles.loading}>Preparing the Word document…</p>
+                    ) : (
+                      <div className={styles.docxFrame}>
+                        {/* sanitizeDocxHtml keeps document markup only: no scripts, handlers, styles or unsafe URLs */}
+                        <article className={styles.docxPage} dangerouslySetInnerHTML={{ __html: docxHtml }} />
+                      </div>
+                    )}
+                  </>
                 ) : documentLink ? (
                   <div className={styles.fallbackLink}>
+                    {docxError ? <p role="alert">{docxError}</p> : null}
                     <p>This file is not a PDF preview in the browser.</p>
                     <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
                       Open {documentLink.filename || 'file'}

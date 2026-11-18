@@ -33,7 +33,14 @@ export function Stepper({ current, onStepClick, completedThrough }: Props) {
                   aria-current={isActive ? 'step' : undefined}
                 >
                   <span className={styles.circle}>
-                    {isDone ? '✓' : index + 1}
+                    {isDone ? (
+                      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true">
+                        <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      index + 1
+                    )}
+                    {isDone ? <span className={styles.srOnly}>Done: </span> : null}
                   </span>
                   <span className={styles.copy}>
                     <span className={styles.label}>{step.label}</span>

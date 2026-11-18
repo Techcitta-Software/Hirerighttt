@@ -179,37 +179,6 @@ export function mapExperienceToLevel(experience: string): (typeof LEVELS)[number
   return '6+ years'
 }
 
-/** Best-effort match of free-text profile role to interview role chips. */
-export function mapProfileRoleToInterviewRole(profileRole: string): string {
-  const r = profileRole.toLowerCase()
-  if (!r) return ROLES[0]
-  if (r.includes('front') || r.includes('ui') || r.includes('react')) return 'Frontend Developer'
-  if (r.includes('full') || r.includes('mern') || r.includes('stack')) return 'Full Stack Engineer'
-  if (r.includes('back') || r.includes('node') || r.includes('java') || r.includes('api')) {
-    return 'Backend Developer'
-  }
-  if (r.includes('data') || r.includes('analyst') || r.includes('bi')) return 'Data Analyst'
-  if (r.includes('ml') || r.includes('machine') || r.includes('ai ') || r.startsWith('ai')) {
-    return 'AI / ML Engineer'
-  }
-  if (r.includes('product') || r.includes('pm')) return 'Product Manager'
-  if (r.includes('civil') || r.includes('structural')) return 'Civil Engineer'
-  if (r.includes('mechanical') || r.includes('hvac')) return 'Mechanical Engineer'
-  if (r.includes('chemical') || r.includes('process eng')) return 'Chemical Engineer'
-  if (r.includes('electrical') || r.includes('instrumentation')) return 'Electrical Engineer'
-  if (r.includes('oil') || r.includes('gas') || r.includes('petro') || r.includes('energy')) {
-    return 'Oil & Gas / Energy'
-  }
-  if (r.includes('nurse') || r.includes('rn ') || r.startsWith('rn')) return 'Registered Nurse (RN)'
-  if (r.includes('lab tech') || r.includes('laboratory')) return 'Medical Laboratory Tech'
-  if (r.includes('doctor') || r.includes('physician') || r.includes('clinical') || r.includes('health')) {
-    return 'Healthcare / Clinical'
-  }
-  if (r.includes('construction') || r.includes('site manager')) return 'Construction / Site Manager'
-  const exact = ROLES.find((role) => role.toLowerCase() === r)
-  return exact ?? 'General Professional'
-}
-
 function skillQuestion(skills: string[]): Question | null {
   const top = skills.filter(Boolean).slice(0, 5)
   if (top.length === 0) return null

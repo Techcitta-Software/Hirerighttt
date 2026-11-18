@@ -1357,3 +1357,240 @@
     padding: 2rem 1.5rem 3rem;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Candidate redesign layer: calm auth + settings.
+   Solid navy brand panel (no decorative gradient), brand-solid actions,
+   10px control radius, visible focus rings. Class meanings unchanged.
+   ══════════════════════════════════════════════════════════════════ */
+.splitPage {
+  background: #ffffff;
+}
+
+.splitLeft {
+  background: var(--hr-navy, #141638);
+}
+
+.leftHeadline {
+  font-size: clamp(1.875rem, 2.8vw, 2.5rem);
+  font-weight: 700;
+  text-wrap: balance;
+}
+
+.leftChecklist li {
+  font-size: 1.0625rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.leftFooter {
+  font-size: 0.9375rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.welcomeTitle {
+  font-size: clamp(1.625rem, 2.2vw, 2rem);
+  color: var(--hr-navy, #141638);
+}
+
+.welcomeSub {
+  font-size: 1rem;
+  color: var(--hr-muted, #5f6686);
+}
+
+.formLabel {
+  font-size: 0.9375rem;
+  color: var(--hr-navy, #141638);
+}
+
+.formInput {
+  height: 48px;
+  border: 1px solid #d4d6e2;
+  border-radius: var(--radius-md, 10px);
+  color: var(--hr-navy, #141638);
+}
+
+.formInput:focus {
+  border-color: var(--hr-brand-solid, #5046e5);
+  box-shadow: 0 0 0 3px rgba(80, 70, 229, 0.16);
+}
+
+.formInput::placeholder {
+  color: #8a8fa8;
+}
+
+.fieldHint,
+.requiredMark {
+  font-size: 0.8125rem;
+  color: var(--hr-muted, #5f6686);
+}
+
+.loginPillBtn {
+  border-radius: var(--radius-md, 10px);
+  background: var(--hr-brand-solid, #5046e5);
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+  transition: background-color 0.15s ease;
+}
+
+.loginPillBtn:hover:not(:disabled) {
+  background: var(--hr-brand-solid-hover, #4338ca);
+  transform: none;
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+}
+
+.forgotLink,
+.switchModeLink,
+.discoveryLink,
+.termsLink {
+  color: var(--hr-brand-solid, #5046e5);
+  text-underline-offset: 3px;
+}
+
+.subLinkLine {
+  font-size: 0.9375rem;
+  color: var(--hr-muted, #5f6686);
+}
+
+.noResumeText {
+  color: var(--hr-muted, #5f6686);
+}
+
+.errorBanner {
+  border-radius: var(--radius-md, 10px);
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.successBanner {
+  border-radius: var(--radius-md, 10px);
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.successBanner svg {
+  flex-shrink: 0;
+}
+
+.splitPage a:focus-visible,
+.splitPage button:focus-visible,
+.settingsAppWrap a:focus-visible,
+.settingsAppWrap button:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.splitLeft a:focus-visible {
+  outline-color: #c7d2fe;
+}
+
+/* Settings */
+.settingsAppWrap {
+  width: min(100% - 32px, 560px);
+  padding: 2.5rem 0 3rem;
+}
+
+.settingsCard {
+  max-width: none;
+  padding: 1.75rem;
+  border-radius: var(--radius-lg, 14px);
+  border: 1px solid var(--hr-border, #e5e5ef);
+  background: #ffffff;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.settingsCard h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--hr-navy, #141638);
+}
+
+.settingsCard > p {
+  margin-top: 0.35rem;
+  font-size: 0.9375rem;
+  color: var(--hr-muted, #5f6686);
+  overflow-wrap: anywhere;
+}
+
+.settingsList {
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.settingsList > .settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  height: auto;
+  padding: 0 16px;
+  border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--hr-border, #e5e5ef);
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--hr-navy, #141638);
+  cursor: pointer;
+}
+
+.settingsList > .settingsRow svg {
+  color: var(--hr-muted, #5f6686);
+}
+
+.settingsList > .settingsRow:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: var(--hr-navy, #141638);
+}
+
+.settingsList .submit,
+.settingsList .ghost,
+.settingsCard .form .submit,
+.settingsCard .form .ghost {
+  min-height: 48px;
+  border-radius: var(--radius-md, 10px);
+}
+
+.settingsList .submit:first-of-type {
+  margin-top: 8px;
+}
+
+.settingsCard .submit {
+  background: var(--hr-brand-solid, #5046e5);
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+}
+
+.settingsCard .submit:hover {
+  background: var(--hr-brand-solid-hover, #4338ca);
+  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+}
+
+.settingsCard .checkRow {
+  border-color: var(--hr-border, #e5e5ef);
+  background: #ffffff;
+  font-weight: 500;
+  color: var(--hr-navy, #141638);
+}
+
+.settingsCard .checkRow input {
+  accent-color: var(--hr-brand-solid, #5046e5);
+}
+
+.settingsCard .error {
+  margin-top: 12px;
+  border-radius: var(--radius-md, 10px);
+  color: #be123c;
+  font-size: 0.875rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loginPillBtn,
+  .formInput {
+    transition: none;
+  }
+}
