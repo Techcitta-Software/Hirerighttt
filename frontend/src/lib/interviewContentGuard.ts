@@ -207,7 +207,8 @@ export function attachInterviewContentGuard(options: ContentGuardOptions): () =>
 }
 
 /** Camera names used by virtual-camera software (pre-recorded video, face swapping). */
-const VIRTUAL_CAMERA_RE = /\b(obs|obs-camera|virtual|manycam|snap camera|xsplit|vcam|splitcam|chromacam|mmhmm|e2esoft|fake)\b/i
+const VIRTUAL_CAMERA_RE =
+  /\b(obs|obs-camera|virtual|manycam|snap camera|xsplit|vcam|splitcam|chromacam|mmhmm|e2esoft|fake|camtwist|vmix|droidcam|loopback|v4l2loopback)\b/i
 
 export function looksLikeVirtualCamera(label: string | undefined | null): boolean {
   return VIRTUAL_CAMERA_RE.test(String(label || ''))

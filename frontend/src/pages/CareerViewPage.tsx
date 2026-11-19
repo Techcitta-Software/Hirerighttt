@@ -318,6 +318,29 @@ export function CareerViewPage() {
               </p>
             </div>
 
+            <div className={styles.metricsRibbon}>
+              <div className={styles.metricCard}>
+                <span className={styles.metricVal}>94%</span>
+                <span className={styles.metricTitle}>Overall Match %</span>
+                <span className={styles.metricSub}>Role track baseline fit</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricVal}>06</span>
+                <span className={styles.metricTitle}>Core Strengths</span>
+                <span className={styles.metricSub}>Deep behavioral signals</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricVal}>Top 8%</span>
+                <span className={styles.metricTitle}>Readiness Score</span>
+                <span className={styles.metricSub}>Integrity & communication</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricVal}>₹89</span>
+                <span className={styles.metricTitle}>Full Retake Pass</span>
+                <span className={styles.metricSub}>Instant rank refresh</span>
+              </div>
+            </div>
+
             <div className={styles.reportStage} id="sample-report">
               <div className={styles.pageIndex}>
                 <div className={styles.pageIndexHead}>Sample career report / 06 chapters</div>

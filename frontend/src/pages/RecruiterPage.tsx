@@ -295,7 +295,7 @@ export function RecruiterPage() {
                       <h3>{c.resume}</h3>
                       <p>{c.intro}</p>
                       <div className={styles.paper}>
-                        <b>RESUME</b>
+                        <span className={`${styles.badge} ${styles.badgeResume}`}>RESUME CLAIM</span>
                         <span>{c.resume}</span>
                       </div>
                     </>
@@ -303,12 +303,12 @@ export function RecruiterPage() {
                   {step === 'conversation' && (
                     <>
                       <h3>“The follow-up is where the details appear.”</h3>
-                      <div className={styles.paper}>
-                        <b>AVA ASKS</b>
+                      <div className={`${styles.paper} ${styles.paperQuestion}`}>
+                        <span className={`${styles.badge} ${styles.badgeQuestion}`}>AVA ASKS</span>
                         <span>{c.question}</span>
                       </div>
-                      <div className={`${styles.paper} ${styles.paperAlt}`}>
-                        <b>APPLICANT</b>
+                      <div className={`${styles.paper} ${styles.paperAnswer}`}>
+                        <span className={`${styles.badge} ${styles.badgeAnswer}`}>APPLICANT</span>
                         <span>{c.answer}</span>
                       </div>
                     </>
@@ -316,9 +316,12 @@ export function RecruiterPage() {
                   {step === 'review' && (
                     <>
                       <h3>Now you have something to ask about.</h3>
-                      <p>{c.evidence}</p>
-                      <div className={styles.paper}>
-                        <b>FOLLOW-UP</b>
+                      <div className={`${styles.paper} ${styles.paperEvidence}`}>
+                        <span className={`${styles.badge} ${styles.badgeEvidence}`}>EVALUATION EVIDENCE</span>
+                        <span>{c.evidence}</span>
+                      </div>
+                      <div className={`${styles.paper} ${styles.paperFollowup}`}>
+                        <span className={`${styles.badge} ${styles.badgeFollowup}`}>RECOMMENDED PROBE</span>
                         <span>{c.followup}</span>
                       </div>
                     </>

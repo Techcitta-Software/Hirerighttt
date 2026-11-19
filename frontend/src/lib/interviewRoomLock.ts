@@ -131,9 +131,16 @@ export function attachInterviewRoomGuard(options: InterviewRoomGuardOptions): ()
   const onKeyDown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase()
     const fullscreenExit = key === 'escape' || key === 'f11'
-    const navigation = key === 'f5' ||
+    const isWindowsKey = key === 'meta' || key === 'os'
+    const isDevTools =
+      key === 'f12' ||
+      ((event.ctrlKey || event.metaKey) && event.shiftKey && ['i', 'j', 'c'].includes(key))
+    const navigation =
+      key === 'f5' ||
       ((event.ctrlKey || event.metaKey) && ['l', 't', 'w', 'r', 'n', 'tab'].includes(key)) ||
-      (event.altKey && ['tab', 'f4', 'arrowleft', 'arrowright', 'home'].includes(key))
+      (event.altKey && ['tab', 'f4', 'arrowleft', 'arrowright', 'home'].includes(key)) ||
+      isWindowsKey ||
+      isDevTools
     if (!fullscreenExit && !navigation) return
     event.preventDefault()
     fire(fullscreenExit ? 'FULLSCREEN_EXIT' : 'TAB_HIDDEN')

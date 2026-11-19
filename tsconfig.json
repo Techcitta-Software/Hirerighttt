@@ -1,7 +1,6 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./frontend/tsconfig.app.json" },
-    { "path": "./frontend/tsconfig.node.json" }
+  "extends": "./frontend/tsconfig.app.json",
+  "include": [
+    "frontend/src/**/*"
   ]
 }

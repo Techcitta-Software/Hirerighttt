@@ -29,17 +29,17 @@
   padding-bottom: var(--space-8, 32px);
 }
 
-/* The auth card: 440px, radius 20, border only. */
+/* The auth card: 416px, radius 18, serene ambient shadow. */
 .card {
   width: 100%;
-  max-width: var(--auth-card-max, 440px);
+  max-width: 416px;
   margin: 0 auto;
   box-sizing: border-box;
-  padding: var(--space-8, 32px);
+  padding: 38px 34px;
   background: var(--ds-surface, #ffffff);
-  border: 1px solid var(--ds-border, #e5e5ef);
-  border-radius: var(--radius-xl, 20px);
-  box-shadow: none;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03), 0 20px 40px -12px rgba(15, 23, 42, 0.07);
 }
 
 /* Eyebrow above the card title (contact page). */
@@ -114,11 +114,11 @@
   display: block;
   width: 100%;
   min-width: 0;
-  height: var(--control-h-md, 40px);
-  padding: 0 var(--space-3, 12px);
+  height: 44px;
+  padding: 0 14px;
   box-sizing: border-box;
-  border: 1px solid var(--ds-border-strong, #d6d7e5);
-  border-radius: var(--radius-md, 10px);
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
   background: var(--ds-surface, #ffffff);
   color: var(--ds-text, #141638);
   font: inherit;
@@ -126,8 +126,8 @@
   font-weight: 400;
   line-height: 1.5;
   transition:
-    border-color var(--ds-duration-fast, 140ms) var(--ds-ease-out, ease-out),
-    box-shadow var(--ds-duration-fast, 140ms) var(--ds-ease-out, ease-out);
+    border-color 0.18s ease,
+    box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .form textarea {
@@ -141,7 +141,7 @@
 .form input::placeholder,
 .form textarea::placeholder,
 .settingsFields input::placeholder {
-  color: var(--ds-text-subtle, #8a8fa8);
+  color: #94a3b8;
 }
 
 .formInput:focus,
@@ -149,8 +149,8 @@
 .form textarea:focus,
 .settingsFields input:not([type='checkbox']):focus {
   outline: none;
-  border-color: var(--ds-brand, #5046e5);
-  box-shadow: var(--ds-focus-ring, 0 0 0 3px rgb(80 70 229 / 16%));
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 1px #4f46e5, 0 0 0 4px rgba(79, 70, 229, 0.12), 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .form input[type='checkbox'],
@@ -166,7 +166,7 @@
 }
 
 /* ── Buttons ── */
-/* Single primary CTA on an auth step: lg (48px), full width. */
+/* Single primary CTA on an auth step: 44px, full width with tactile active physics. */
 .submit,
 .loginPillBtn {
   display: inline-flex;
@@ -174,35 +174,37 @@
   justify-content: center;
   gap: var(--space-2, 8px);
   width: 100%;
-  min-height: var(--control-h-lg, 48px);
+  min-height: 44px;
   padding: 0 var(--space-6, 24px);
   box-sizing: border-box;
-  border: 1px solid var(--ds-brand, #5046e5);
+  border: 1px solid transparent;
   border-radius: var(--radius-md, 10px);
-  background: var(--ds-brand, #5046e5);
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
   color: #ffffff;
   font: inherit;
-  font-size: var(--fs-body-lg, 1rem);
-  font-weight: 600;
+  font-size: var(--fs-body, 0.9375rem);
+  font-weight: 650;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: var(--shadow-xs, 0 1px 2px rgb(20 22 56 / 5%));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(79, 70, 229, 0.22);
   transition:
-    background-color var(--ds-duration-fast, 140ms) var(--ds-ease-out, ease-out),
-    border-color var(--ds-duration-fast, 140ms) var(--ds-ease-out, ease-out);
+    background 0.18s ease,
+    transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease;
 }
 
 .submit:hover:not(:disabled),
 .loginPillBtn:hover:not(:disabled) {
-  background: var(--ds-brand-hover, #4338ca);
-  border-color: var(--ds-brand-hover, #4338ca);
+  background: linear-gradient(135deg, #4338ca 0%, #3730a3 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3);
 }
 
 .submit:active:not(:disabled),
 .loginPillBtn:active:not(:disabled) {
-  background: var(--ds-brand-active, #3b3bb8);
-  border-color: var(--ds-brand-active, #3b3bb8);
+  transform: scale(0.985);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .submit:disabled,
@@ -460,8 +462,15 @@
 
 .splitFormWrap {
   width: 100%;
-  max-width: var(--auth-card-max, 440px);
+  max-width: 416px;
   margin: auto;
+  background: var(--ds-surface, #ffffff);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  padding: 38px 34px;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.03), 0 20px 40px -12px rgba(15, 23, 42, 0.07);
+  box-sizing: border-box;
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .authContainer {

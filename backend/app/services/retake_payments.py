@@ -42,6 +42,117 @@ def retake_price_inr() -> int:
         return 89
 
 
+def inr_to_paise(amount_inr: int | float) -> int:
+    """Convert INR to Razorpay paise (1 INR = 100 paise). Handles rounding and non-positive values."""
+    try:
+        val = float(amount_inr)
+        if val <= 0 or val != val:  # nan check
+            return 0
+        return int(round(val * 100))
+    except (TypeError, ValueError):
+        return 0
+
+
+def paise_to_inr(paise: int) -> float:
+    """Convert Razorpay paise back to INR."""
+    try:
+        val = int(paise)
+        return max(0.0, val / 100.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def calculate_interview_tier_price(
+    count: int | Any,
+    unit_price_inr: int | None = None,
+    discount_percent: float = 0.0,
+) -> int:
+    """Calculate total price for `count` interviews.
+    Clamps negative or non-integer counts to 0. Enforces ₹89 fallback."""
+    try:
+        c = int(count)
+        if c <= 0:
+            return 0
+    except (TypeError, ValueError):
+        return 0
+
+    unit = unit_price_inr if (unit_price_inr is not None and unit_price_inr > 0) else retake_price_inr()
+    subtotal = c * unit
+    try:
+        disc = max(0.0, min(100.0, float(discount_percent)))
+    except (TypeError, ValueError):
+        disc = 0.0
+
+    discount_amount = int(round((subtotal * disc) / 100.0))
+    return max(0, subtotal - discount_amount)
+
+
+# Approximate exchange rates relative to INR (1 USD = ~87 INR, 1 EUR = ~91 INR, etc.)
+DEFAULT_FX_RATES: dict[str, float] = {
+    "INR": 1.0,
+    "USD": 0.0115,  # ~ ₹89 INR -> ~$1.02 USD
+    "EUR": 0.0110,
+    "GBP": 0.0093,
+    "AED": 0.0422,
+    "SGD": 0.0155,
+}
+
+
+def convert_currency(
+    amount_inr: float | int,
+    target_currency: str = "INR",
+    custom_rate: float | None = None,
+) -> float:
+    """Convert an INR amount to a target currency.
+    If target is unknown and no custom rate provided, returns amount_inr in INR.
+    Results rounded to 2 decimal places."""
+    try:
+        base = max(0.0, float(amount_inr))
+    except (TypeError, ValueError):
+        return 0.0
+
+    target = (target_currency or "INR").strip().upper()
+    if target == "INR":
+        return round(base, 2)
+
+    rate = custom_rate
+    if rate is None or rate <= 0:
+        rate = DEFAULT_FX_RATES.get(target)
+
+    if not rate:
+        return round(base, 2)
+
+    return round(base * rate, 2)
+
+
+VALID_COUPONS: dict[str, float] = {
+    "WELCOME10": 10.0,
+    "HIRERIGHT50": 50.0,
+    "FREEPASS": 100.0,
+}
+
+
+def apply_coupon_guard(
+    base_price_inr: int,
+    coupon_code: str | None,
+) -> tuple[int, int, str | None]:
+    """Applies coupon discount with strict guards:
+    Returns (effective_price, discount_amount, applied_code_or_none).
+    Effective price cannot be negative. Discount cannot exceed base price."""
+    base = max(0, int(base_price_inr))
+    if not coupon_code or not isinstance(coupon_code, str):
+        return base, 0, None
+
+    code = coupon_code.strip().upper()
+    percent = VALID_COUPONS.get(code)
+    if percent is None:
+        return base, 0, None
+
+    discount = int(round((base * percent) / 100.0))
+    effective = max(0, base - discount)
+    return effective, discount, code
+
+
 def razorpay_key_id() -> str:
     return (os.environ.get("RAZORPAY_KEY_ID") or "").strip()
 

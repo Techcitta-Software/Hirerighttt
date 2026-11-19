@@ -540,6 +540,56 @@
   margin: 0 0 6px;
 }
 
+.metricsRibbon {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.metricCard {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.metricCard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(196, 181, 253, 0.45);
+  box-shadow: 0 12px 36px -4px rgba(80, 70, 229, 0.28);
+}
+
+.metricVal {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+  line-height: 1.1;
+}
+
+.metricTitle {
+  font-size: 0.88rem;
+  font-weight: 750;
+  color: #c4b5fd;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.metricSub {
+  font-size: 0.78rem;
+  color: #b4b8d8;
+  line-height: 1.4;
+}
+
 .reportStage {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
@@ -1274,7 +1324,37 @@
   }
 }
 
+@media (max-width: 960px) {
+  .metricsRibbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
 @media (max-width: 600px) {
+  .metricsRibbon {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+
+  .metricCard {
+    padding: 14px 16px;
+    border-radius: var(--radius-md, 10px);
+  }
+
+  .metricVal {
+    font-size: 1.5rem;
+  }
+
+  .metricTitle {
+    font-size: 0.78rem;
+  }
+
+  .metricSub {
+    font-size: 0.68rem;
+  }
+
   .container {
     width: calc(100% - 38px);
   }
@@ -1452,6 +1532,10 @@
 
   .paperGrid {
     min-height: auto;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
   }
 
   .paperKicker {

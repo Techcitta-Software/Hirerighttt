@@ -249,6 +249,7 @@ describe('role-aligned skills and session variety', () => {
     const a = planRoleAlignedInterviewSkills('Data Engineer', ctx, 'session-a', null)
     const b = planRoleAlignedInterviewSkills('Data Engineer', ctx, 'session-b', null)
     expect(a.some((s) => /PySpark/i.test(s))).toBe(true)
+    expect(b.some((s) => /PySpark/i.test(s))).toBe(true)
     expect(a).toContain('SQL')
     const q2a = buildStructuredTurnQuestion({
       turnNumber: 2,

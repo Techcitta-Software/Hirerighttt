@@ -189,15 +189,23 @@ export function WhyPage() {
               aria-live="polite"
             >
               <div className={`${styles.compareRow} ${styles.tableHead}`}>
-                <div />
-                <div>The usual journey</div>
-                <div>With HireRighttt</div>
+                <div className={styles.dimensionHead}>Stage</div>
+                <div className={styles.usualHead}>The usual journey</div>
+                <div className={styles.oursHead}>With HireRighttt</div>
               </div>
               {DIMENSIONS.map((dimension, i) => (
                 <div className={styles.compareRow} key={dimension}>
-                  <div className={styles.dimension}>{dimension}</div>
-                  <div>{rows.usual[i]}</div>
-                  <div>{rows.ours[i]}</div>
+                  <div className={styles.dimension}>
+                    <span className={styles.dimBadge}>{dimension}</span>
+                  </div>
+                  <div className={styles.usualCol}>
+                    <span className={styles.mobileColLabel}>The usual journey</span>
+                    <p className={styles.colText}>{rows.usual[i]}</p>
+                  </div>
+                  <div className={styles.oursCol}>
+                    <span className={styles.mobileColLabel}>With HireRighttt</span>
+                    <p className={styles.colText}>{rows.ours[i]}</p>
+                  </div>
                 </div>
               ))}
             </div>
