@@ -6,11 +6,11 @@
   --brand: var(--hr-brand-solid, #5046e5);
   --brand-hover: var(--hr-brand-solid-hover, #4338ca);
   --brand-end: var(--hr-brand-gradient-end, #4f95ff);
-  --line: var(--hr-border, #e2e8f0);
+  --line: var(--ds-border, #e5e5ef);
   --tint-1: color-mix(in srgb, var(--brand) 6%, white);
   --tint-2: color-mix(in srgb, var(--brand) 12%, white);
   --tint-3: color-mix(in srgb, var(--brand) 24%, white);
-  --paper: #f7f6ff;
+  --paper: var(--ds-bg, #faf9ff);
   --serif: Georgia, 'Times New Roman', serif;
 
   min-height: 100vh;
@@ -20,7 +20,7 @@
   color: var(--ink);
   font-family: var(--font-sans);
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip; /* clip, not hidden, so the sticky header keeps sticking */
 }
 
 .page main {
@@ -54,8 +54,8 @@
 .eyebrow {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 0.7rem;
+  gap: 12px;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -89,7 +89,7 @@
   font-size: clamp(2.9rem, 6vw, 5.4rem);
   font-weight: 700;
   max-width: 720px;
-  margin: 22px 0 26px !important;
+  margin: 24px 0 24px !important;
   line-height: 1.03 !important;
 }
 
@@ -99,35 +99,23 @@
   margin-top: 16px !important;
 }
 
-.reveal {
-  opacity: 0;
-  transform: translateY(22px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
-
-.isVisible {
-  opacity: 1;
-  transform: none;
-}
-
 /* buttons */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 16px;
-  padding: 15px 22px;
+  padding: 16px 24px;
   border-radius: 10px;
   background: var(--brand);
   color: #fff;
   font-size: 0.85rem;
-  font-weight: 750;
+  font-weight: 700;
   text-decoration: none;
-  transition: transform 0.25s, background 0.25s;
+  transition: background-color var(--ds-duration-fast, 140ms) ease;
 }
 
 .btn:hover {
   background: var(--brand-hover);
-  transform: translateY(-2px);
 }
 
 .textLink {
@@ -135,7 +123,7 @@
   align-items: center;
   gap: 8px;
   color: var(--brand);
-  font-weight: 750;
+  font-weight: 700;
   font-size: 0.85rem;
   text-decoration: none;
 }
@@ -164,10 +152,10 @@
 
 .actions {
   display: flex;
-  gap: 22px;
+  gap: 24px;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 30px;
+  margin-top: 32px;
 }
 
 .facts {
@@ -175,7 +163,7 @@
   gap: 20px;
   flex-wrap: wrap;
   margin-top: 32px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--muted);
 }
@@ -190,7 +178,7 @@
   position: relative;
   min-width: 0;
   aspect-ratio: 4 / 4.2;
-  border-radius: 24px;
+  border-radius: 20px;
   overflow: hidden;
   background: var(--ink);
   box-shadow: 0 38px 90px color-mix(in srgb, var(--brand) 22%, transparent);
@@ -226,9 +214,9 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   letter-spacing: 0.17em;
-  font-weight: 750;
+  font-weight: 700;
   text-transform: uppercase;
   color: var(--tint-3);
 }
@@ -250,8 +238,8 @@
 
 .filmKicker {
   display: block;
-  margin-bottom: 11px;
-  font-size: 0.66rem;
+  margin-bottom: 12px;
+  font-size: 0.75rem;
   letter-spacing: 0.15em;
   text-transform: uppercase;
   font-weight: 700;
@@ -277,7 +265,7 @@
 
 .filmProgress {
   height: 2px;
-  margin-top: 22px;
+  margin-top: 24px;
   background: rgb(255 255 255 / 0.22);
   overflow: hidden;
 }
@@ -308,7 +296,7 @@
   justify-content: space-between;
   align-items: center;
   margin-top: 16px;
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: var(--tint-3);
 }
 
@@ -318,7 +306,7 @@
   border-bottom: 1px solid var(--tint-3);
   color: #fff;
   font: inherit;
-  padding: 3px 0;
+  padding: 4px 0;
   cursor: pointer;
 }
 
@@ -341,7 +329,7 @@
 }
 
 .statementGrid p + p {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 
 .statementGrid .textLink {
@@ -376,7 +364,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 26px;
+  gap: 24px;
   margin-bottom: 40px;
 }
 
@@ -404,15 +392,15 @@
 .demoSide {
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 26px;
+  gap: 8px;
+  padding: 24px;
   background: color-mix(in srgb, var(--ink) 92%, var(--brand));
   border-right: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
 }
 
 .hint {
-  margin-bottom: 15px;
-  font-size: 0.65rem;
+  margin-bottom: 16px;
+  font-size: 0.75rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 800;
@@ -421,8 +409,8 @@
 
 .roleChoice {
   text-align: left;
-  padding: 13px 14px;
-  border-radius: 9px;
+  padding: 12px 16px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
   background: transparent;
   color: var(--tint-3);
@@ -446,7 +434,7 @@
   margin-top: auto;
   padding-top: 20px;
   border-top: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   line-height: 1.6;
   color: var(--tint-3);
 }
@@ -455,14 +443,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 30px 33px 30px;
+  padding: 32px 32px 32px;
 }
 
 .demoTopline {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -472,7 +460,7 @@
 .demoTopline span:last-child {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
 }
 
 .liveDot {
@@ -494,7 +482,7 @@
 
 .demoSwitch button {
   position: relative;
-  padding: 12px 19px 15px 0;
+  padding: 12px 20px 16px 0;
   margin-right: 24px;
   background: transparent;
   border: 0;
@@ -523,7 +511,7 @@
 .demoContent {
   flex: 1;
   min-height: 280px;
-  padding-top: 30px;
+  padding-top: 32px;
   animation: quoteIn 0.4s ease;
 }
 
@@ -537,7 +525,7 @@
 
 .demoContent p {
   max-width: 665px;
-  margin-top: 13px;
+  margin-top: 12px;
   font-size: 0.9rem;
   line-height: 1.75;
   color: var(--tint-3);
@@ -545,25 +533,25 @@
 
 .paper {
   display: flex;
-  gap: 13px;
+  gap: 12px;
   align-items: flex-start;
   max-width: 680px;
   margin-top: 20px;
-  padding: 17px 20px;
-  border-radius: 11px;
+  padding: 16px 20px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
   background: color-mix(in srgb, var(--brand) 30%, var(--ink));
   color: #fff;
 }
 
 .paperAlt {
-  margin-top: 9px;
+  margin-top: 8px;
   background: color-mix(in srgb, var(--brand-end) 24%, var(--ink));
 }
 
 .paper b {
   flex: none;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   color: var(--tint-3);
   white-space: nowrap;
 }
@@ -574,15 +562,15 @@
 }
 
 .demoEnd {
-  padding-top: 17px;
-  font-size: 0.72rem;
-  font-weight: 750;
+  padding-top: 16px;
+  font-size: 0.75rem;
+  font-weight: 700;
   color: var(--tint-3);
 }
 
 .note {
-  margin-top: 14px !important;
-  font-size: 0.72rem;
+  margin-top: 16px !important;
+  font-size: 0.75rem;
   color: var(--tint-3) !important;
 }
 
@@ -633,7 +621,7 @@
 
 .processItem h3 {
   font-size: 1.7rem;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .processItem p {
@@ -684,14 +672,14 @@
 .valueList {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 21px;
+  gap: 20px;
 }
 
 .value {
   min-height: 210px;
-  padding: 28px 26px;
+  padding: 28px 24px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 14px;
   background: rgb(255 255 255 / 0.8);
 }
 
@@ -704,7 +692,7 @@
 }
 
 .value h3 {
-  margin: 20px 0 10px;
+  margin: 20px 0 12px;
   font-size: 1.5rem;
 }
 
@@ -731,7 +719,7 @@
 }
 
 .estimateInner .h2 {
-  margin-bottom: 17px;
+  margin-bottom: 16px;
   font-size: clamp(2.2rem, 4vw, 3.6rem);
 }
 
@@ -746,7 +734,7 @@
   align-items: center;
   gap: 20px;
   width: 100%;
-  padding: 24px 26px;
+  padding: 24px 24px;
   border: 1px solid var(--tint-3);
   border-radius: 14px;
   background: var(--tint-2);
@@ -764,7 +752,7 @@
 
 .estButton small {
   display: block;
-  margin-top: 3px;
+  margin-top: 4px;
   font-size: 0.75rem;
   color: var(--muted);
 }
@@ -776,10 +764,10 @@
 
 .calcs {
   display: none;
-  margin-top: 15px;
+  margin-top: 16px;
   padding: 23px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 14px;
   background: var(--tint-1);
 }
 
@@ -792,7 +780,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: var(--muted);
 }
@@ -808,7 +796,7 @@
 }
 
 .calcNumber {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 1.8rem;
   font-weight: 700;
   letter-spacing: -0.05em;
@@ -816,8 +804,8 @@
 }
 
 .fine {
-  margin-top: 10px;
-  font-size: 0.65rem;
+  margin-top: 12px;
+  font-size: 0.75rem;
   line-height: 1.55;
   color: var(--muted);
 }
@@ -836,7 +824,7 @@
   gap: 35px;
   min-height: 360px;
   padding: 64px 8%;
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--ink);
   color: #fff;
 }
@@ -866,7 +854,7 @@
 
 .lastInner p {
   max-width: 380px;
-  margin-top: 14px;
+  margin-top: 16px;
   color: var(--tint-3);
 }
 
@@ -875,12 +863,12 @@
   z-index: 1;
   display: inline-flex;
   gap: 16px;
-  padding: 15px 22px;
+  padding: 16px 24px;
   border-radius: 10px;
   background: #fff;
   color: var(--ink);
   font-size: 0.85rem;
-  font-weight: 750;
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
   transition: background 0.25s;
@@ -925,7 +913,7 @@
   }
   .storyTop p,
   .valuesHead p {
-    margin-top: 18px;
+    margin-top: 20px;
   }
   .demo {
     grid-template-columns: 1fr;
@@ -936,7 +924,7 @@
     align-items: center;
     border-right: 0;
     border-bottom: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
-    padding: 17px;
+    padding: 16px;
   }
   .hint {
     width: 100%;
@@ -946,11 +934,11 @@
     display: none;
   }
   .roleChoice {
-    padding: 8px 10px;
-    font-size: 0.72rem;
+    padding: 8px 12px;
+    font-size: 0.75rem;
   }
   .demoMain {
-    padding: 22px;
+    padding: 24px;
   }
   .process {
     grid-template-columns: 1fr;
@@ -970,7 +958,7 @@
   }
   .valueList {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 12px;
   }
   .value {
     min-height: 0;
@@ -980,7 +968,7 @@
   }
   .lastInner {
     display: block;
-    padding: 50px 30px;
+    padding: 50px 32px;
     min-height: 0;
   }
   .lastBtn {
@@ -994,9 +982,5 @@
   .page *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
-  }
-  .reveal {
-    opacity: 1;
-    transform: none;
   }
 }

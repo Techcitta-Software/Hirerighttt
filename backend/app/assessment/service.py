@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -24,6 +26,12 @@ from app.assessment.contracts import (
 from app.assessment.provider import EVALUATION_PROMPT, PLAN_PROMPT, structured_call
 from app.db.store import db_pool
 from app.node_config import config
+from app.server import background
+
+logger = logging.getLogger("hireright.assessment")
+
+# Every database block below is synchronous (psycopg pool / DynamoDB): handlers run them with asyncio.to_thread so
+# they never stall the event loop, and no connection is held while awaiting the AI provider.
 
 
 def _pool():
@@ -122,48 +130,66 @@ def extract_resume_text(body: dict) -> str:
     return text_out[:100_000]
 
 
+def _list_jobs(actor: dict, org: str | None) -> list:
+    with _pool().connection() as conn:
+        conn.row_factory = dict_row
+        if org:
+            _require_recruiter(conn, actor, org)
+            rows = conn.execute(
+                "SELECT id,title,description,experience_level,competencies,created_at FROM assessment_jobs WHERE organization_id=%s ORDER BY created_at DESC",
+                (org,),
+            ).fetchall()
+        else:
+            check(actor["role"] == "jobseeker", "Candidate account required", 403)
+            rows = conn.execute(
+                """SELECT j.id,j.title,j.description,j.experience_level,j.organization_id,j.created_at,o.name AS organization_name
+                   FROM assessment_jobs j JOIN organizations o ON o.id=j.organization_id
+                   WHERE j.personal_candidate_id IS NULL AND o.status='active'
+                   ORDER BY j.created_at DESC LIMIT 50"""
+            ).fetchall()
+    return rows
+
+
+def _create_job(actor: dict, body: dict) -> dict:
+    competencies = validate_competencies(body.get("competencies"))
+    with _pool().connection() as conn:
+        conn.row_factory = dict_row
+        _require_recruiter(conn, actor, body.get("organization_id"))
+        row = conn.execute(
+            """INSERT INTO assessment_jobs(organization_id,created_by,title,description,experience_level,competencies)
+               VALUES(%s,%s,%s,%s,%s,%s::jsonb) RETURNING *""",
+            (
+                body["organization_id"],
+                actor["id"],
+                text(body.get("title"), "job title", 200),
+                text(body.get("description"), "job description", 20000),
+                text(body.get("experience_level"), "experience level", 200),
+                json.dumps(competencies),
+            ),
+        ).fetchone()
+        conn.commit()
+    return row
+
+
+def _list_sessions(actor: dict, org: str, limit: int, offset: int) -> list:
+    with _pool().connection() as conn:
+        conn.row_factory = dict_row
+        _require_recruiter(conn, actor, org)
+        return conn.execute(
+            """SELECT id,candidate_id,plan_id,status,created_at,completed_at FROM assessment_sessions
+               WHERE organization_id=%s ORDER BY created_at DESC,id LIMIT %s OFFSET %s""",
+            (org, limit, offset),
+        ).fetchall()
+
+
 async def handle(method: str, path: str, email: str, body: dict, query: dict) -> tuple[int, dict]:
-    actor = actor_for_email(email)
+    actor = await asyncio.to_thread(actor_for_email, email)
     if path == "/api/assessments/jobs" and method == "GET":
-        org = query.get("organization_id")
-        with _pool().connection() as conn:
-            conn.row_factory = dict_row
-            if org:
-                _require_recruiter(conn, actor, org)
-                rows = conn.execute(
-                    "SELECT id,title,description,experience_level,competencies,created_at FROM assessment_jobs WHERE organization_id=%s ORDER BY created_at DESC",
-                    (org,),
-                ).fetchall()
-            else:
-                check(actor["role"] == "jobseeker", "Candidate account required", 403)
-                rows = conn.execute(
-                    """SELECT j.id,j.title,j.description,j.experience_level,j.organization_id,j.created_at,o.name AS organization_name
-                       FROM assessment_jobs j JOIN organizations o ON o.id=j.organization_id
-                       WHERE j.personal_candidate_id IS NULL AND o.status='active'
-                       ORDER BY j.created_at DESC LIMIT 50"""
-                ).fetchall()
-        return 200, {"jobs": rows}
+        return 200, {"jobs": await asyncio.to_thread(_list_jobs, actor, query.get("organization_id"))}
     if path == "/api/assessments/jobs" and method == "POST":
-        competencies = validate_competencies(body.get("competencies"))
-        with _pool().connection() as conn:
-            conn.row_factory = dict_row
-            _require_recruiter(conn, actor, body.get("organization_id"))
-            row = conn.execute(
-                """INSERT INTO assessment_jobs(organization_id,created_by,title,description,experience_level,competencies)
-                   VALUES(%s,%s,%s,%s,%s,%s::jsonb) RETURNING *""",
-                (
-                    body["organization_id"],
-                    actor["id"],
-                    text(body.get("title"), "job title", 200),
-                    text(body.get("description"), "job description", 20000),
-                    text(body.get("experience_level"), "experience level", 200),
-                    json.dumps(competencies),
-                ),
-            ).fetchone()
-            conn.commit()
-        return 201, {"job": row}
+        return 201, {"job": await asyncio.to_thread(_create_job, actor, body)}
     if path == "/api/assessments/resumes" and method == "POST":
-        extracted = extract_resume_text(body)
+        extracted = await asyncio.to_thread(extract_resume_text, body)  # PDF / DOCX parsing is CPU work
         return await _save_resume(actor, body.get("filename") or "resume.pdf", extracted)
     if path == "/api/assessments/generate" and method == "POST":
         return await _generate(actor, body)
@@ -171,32 +197,24 @@ async def handle(method: str, path: str, email: str, body: dict, query: dict) ->
         org = query.get("organization_id") or ""
         limit = int(query.get("limit") or 25)
         offset = int(query.get("offset") or 0)
-        with _pool().connection() as conn:
-            conn.row_factory = dict_row
-            _require_recruiter(conn, actor, org)
-            rows = conn.execute(
-                """SELECT id,candidate_id,plan_id,status,created_at,completed_at FROM assessment_sessions
-                   WHERE organization_id=%s ORDER BY created_at DESC,id LIMIT %s OFFSET %s""",
-                (org, limit, offset),
-            ).fetchall()
-        return 200, {"interviews": rows}
+        return 200, {"interviews": await asyncio.to_thread(_list_sessions, actor, org, limit, offset)}
     match = re.match(r"^/api/assessments/([0-9a-f-]{36})(?:/([a-z-]+))?$", path, re.I)
     check(match, "Assessment endpoint not found", 404)
     sid, action = match.group(1), match.group(2)
     if not action and method == "GET":
-        return 200, _get(actor, sid)
+        return 200, await asyncio.to_thread(_get, actor, sid)
     if action == "plan" and method == "GET":
-        return 200, _plan(actor, sid)
+        return 200, await asyncio.to_thread(_plan, actor, sid)
     if action == "approve" and method == "POST":
-        return 200, _approve(actor, sid, body)
+        return 200, await asyncio.to_thread(_approve, actor, sid, body)
     if action in ("start", "pause", "cancel", "complete") and method == "POST":
-        return 200, _transition(actor, sid, action, body)
+        return 200, await asyncio.to_thread(_transition, actor, sid, action, body)
     if action in ("messages", "answers") and method == "POST":
         return 200, await _message(actor, sid, body)
     if action == "repeat-question" and method == "POST":
         return 200, await _message(actor, sid, {"message": "repeat the question"})
     if action == "report" and method == "GET":
-        return 200, _report(actor, sid)
+        return 200, await _report(actor, sid)
     raise AssessmentError(404, "Assessment endpoint not found")
 
 
@@ -204,13 +222,18 @@ async def _save_resume(actor: dict, filename: str, extracted: str) -> tuple[int,
     check(actor["role"] == "jobseeker", "Candidate account required", 403)
     cleaned = text(extracted, "resume text", 100000)
     rid = str(uuid.uuid4())
-    with _pool().connection() as conn:
-        conn.execute(
-            """INSERT INTO assessment_resumes(id,candidate_id,filename,extracted_text,expires_at)
-               VALUES(%s,%s,%s,%s,NOW()+INTERVAL '30 days')""",
-            (rid, actor["id"], text(filename, "filename", 200), cleaned),
-        )
-        conn.commit()
+    safe_name = text(filename, "filename", 200)
+
+    def insert() -> None:
+        with _pool().connection() as conn:
+            conn.execute(
+                """INSERT INTO assessment_resumes(id,candidate_id,filename,extracted_text,expires_at)
+                   VALUES(%s,%s,%s,%s,NOW()+INTERVAL '30 days')""",
+                (rid, actor["id"], safe_name, cleaned),
+            )
+            conn.commit()
+
+    await asyncio.to_thread(insert)
     return 201, {
         "resume_id": rid,
         "extracted_text": cleaned,
@@ -219,9 +242,7 @@ async def _save_resume(actor: dict, filename: str, extracted: str) -> tuple[int,
     }
 
 
-async def _generate(actor: dict, body: dict) -> tuple[int, dict]:
-    check(actor["role"] == "jobseeker", "Candidate account required", 403)
-    check(body.get("consent") is True, "Consent to share this assessment with the job organization is required")
+def _generate_inputs(actor: dict, body: dict) -> tuple[dict, dict | None]:
     with _pool().connection() as conn:
         conn.row_factory = dict_row
         job = conn.execute("SELECT * FROM assessment_jobs WHERE id=%s", (body.get("job_id"),)).fetchone()
@@ -230,15 +251,10 @@ async def _generate(actor: dict, body: dict) -> tuple[int, dict]:
             "SELECT extracted_text FROM assessment_resumes WHERE id=%s AND candidate_id=%s AND expires_at>NOW()",
             (body.get("resume_id"), actor["id"]),
         ).fetchone()
-    check(resume, "Your unexpired resume is required", 404)
-    if isinstance(job.get("competencies"), str):
-        job["competencies"] = json.loads(job["competencies"])
-    generated = await structured_call(
-        system=PLAN_PROMPT,
-        payload={"job": job, "resume_text": resume["extracted_text"]},
-        purpose="plan",
-        validate=lambda value: validate_plan(value, job, resume["extracted_text"]),
-    )
+    return job, resume
+
+
+def _store_plan(actor: dict, job: dict, generated: dict) -> tuple[dict, dict]:
     with _pool().connection() as conn:
         conn.row_factory = dict_row
         plan = conn.execute(
@@ -257,6 +273,23 @@ async def _generate(actor: dict, body: dict) -> tuple[int, dict]:
             (plan["id"], job["organization_id"], actor["id"]),
         ).fetchone()
         conn.commit()
+    return plan, session
+
+
+async def _generate(actor: dict, body: dict) -> tuple[int, dict]:
+    check(actor["role"] == "jobseeker", "Candidate account required", 403)
+    check(body.get("consent") is True, "Consent to share this assessment with the job organization is required")
+    job, resume = await asyncio.to_thread(_generate_inputs, actor, body)
+    check(resume, "Your unexpired resume is required", 404)
+    if isinstance(job.get("competencies"), str):
+        job["competencies"] = json.loads(job["competencies"])
+    generated = await structured_call(
+        system=PLAN_PROMPT,
+        payload={"job": job, "resume_text": resume["extracted_text"]},
+        purpose="plan",
+        validate=lambda value: validate_plan(value, job, resume["extracted_text"]),
+    )
+    plan, session = await asyncio.to_thread(_store_plan, actor, job, generated)
     return 201, {
         **_view(session, generated["data"]["questions"]),
         "plan_id": str(plan["id"]),
@@ -275,7 +308,14 @@ def _get(actor: dict, sid: str) -> dict:
             (sid,),
         ).fetchall()
         plan = conn.execute("SELECT status FROM interview_plans WHERE id=%s", (session["plan_id"],)).fetchone()
-    return {**_view(session, questions), "plan_status": plan["status"] if plan else None, "answers": answers}
+        evaluated = {str(e["answer_id"]) for e in _session_evaluations(conn, sid)} if answers else set()
+    pending = sum(1 for a in answers if str(a["id"]) not in evaluated)
+    return {
+        **_view(session, questions),
+        "plan_status": plan["status"] if plan else None,
+        "answers": answers,
+        "evaluations_pending": pending,  # answers saved but not scored yet (scoring runs in the background)
+    }
 
 
 def _plan(actor: dict, sid: str) -> dict:
@@ -338,8 +378,15 @@ def _transition(actor: dict, sid: str, action: str, body: dict) -> dict:
     return _view(row, questions)
 
 
-async def _message(actor: dict, sid: str, body: dict) -> dict:
-    message = text(body.get("message"), "answer or message", 20000)
+def _session_evaluations(conn, sid: str) -> list[dict]:
+    return conn.execute(
+        """SELECT e.* FROM answer_evaluations e JOIN interview_answers a ON a.id=e.answer_id WHERE a.session_id=%s""",
+        (sid,),
+    ).fetchall()
+
+
+def _record_answer(actor: dict, sid: str, body: dict, message: str) -> dict:
+    """Blocking: validate and save the answer and advance the session in one transaction."""
     with _pool().connection() as conn:
         conn.row_factory = dict_row
         session = _load_session(conn, sid, actor, candidate_only=True)
@@ -347,7 +394,9 @@ async def _message(actor: dict, sid: str, body: dict) -> dict:
         if message.strip().lower() in ("repeat", "repeat the question", "repeat question"):
             q = questions[int(session.get("current_index") or 0)] if questions else None
             spoken = f"Of course! Here is the question again: {(q or {}).get('question_text') or 'No active question.'}"
-            return {**_view(session, questions), "response": spoken, "intent": "repeat_question", "source": "quick_response"}
+            return {
+                "repeat": {**_view(session, questions), "response": spoken, "intent": "repeat_question", "source": "quick_response"}
+            }
         check(int(body.get("version")) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
         check(session["status"] == "in_progress", "Interview is not in progress", 409)
         question = questions[int(session.get("current_index") or 0)]
@@ -366,7 +415,27 @@ async def _message(actor: dict, sid: str, body: dict) -> dict:
             (sid,),
         ).fetchone()
         conn.commit()
-    view = {**_view(updated, questions), "answer_id": str(answer["id"]), "used_llm": True}
+    return {"answer": answer, "updated": updated, "questions": questions, "question": question}
+
+
+def _store_evaluation(answer_id: Any, generated: dict) -> None:
+    with _pool().connection() as conn:
+        conn.execute(
+            """INSERT INTO answer_evaluations(answer_id,data,score,model,prompt_version,rubric_version)
+               VALUES(%s,%s::jsonb,%s,%s,%s,%s) ON CONFLICT(answer_id) DO NOTHING""",
+            (answer_id, json.dumps(generated["data"]), generated["data"]["score"], generated["model"], VERSION, VERSION),
+        )
+        conn.commit()
+
+
+# Answer evaluation runs after the response: the candidate gets the next question as soon as the answer is saved.
+# In-flight evaluations are tracked per answer so the report can wait for them; an evaluation that failed (provider
+# down, process restarted) is re-run when the report is opened, so a saved answer is never left unscored for good.
+_eval_tasks: dict[str, asyncio.Task] = {}
+REPORT_EVALUATION_WAIT_S = 40.0
+
+
+async def _evaluate_answer(answer_id: Any, question: dict, message: str) -> bool:
     try:
         generated = await structured_call(
             system=EVALUATION_PROMPT,
@@ -374,20 +443,50 @@ async def _message(actor: dict, sid: str, body: dict) -> dict:
             purpose="evaluation",
             validate=lambda value: validate_evaluation(value, message),
         )
-        with _pool().connection() as conn:
-            conn.execute(
-                """INSERT INTO answer_evaluations(answer_id,data,score,model,prompt_version,rubric_version)
-                   VALUES(%s,%s::jsonb,%s,%s,%s,%s) ON CONFLICT(answer_id) DO NOTHING""",
-                (answer["id"], json.dumps(generated["data"]), generated["data"]["score"], generated["model"], VERSION, VERSION),
-            )
-            conn.commit()
-        view["evaluation_status"] = "evaluated"
-    except AssessmentError:
-        view["evaluation_status"] = "pending_retry"
+    except AssessmentError as err:
+        logger.warning("Assessment answer %s was not evaluated (retried when the report opens): %s", answer_id, err)
+        return False
+    except Exception:
+        logger.exception("Assessment answer %s evaluation crashed (retried when the report opens)", answer_id)
+        return False
+    try:
+        await asyncio.to_thread(_store_evaluation, answer_id, generated)
+    except Exception:
+        logger.exception("Could not save the evaluation of assessment answer %s (retried when the report opens)", answer_id)
+        return False
+    return True
+
+
+def _start_evaluation(answer_id: Any, question: dict, message: str) -> asyncio.Task:
+    key = str(answer_id)
+    running = _eval_tasks.get(key)
+    if running is not None and not running.done():
+        return running
+    task = background.spawn(_evaluate_answer(answer_id, question, message), f"assessment-eval-{key}")
+    _eval_tasks[key] = task
+
+    def _forget(t: asyncio.Task, k: str = key) -> None:
+        if _eval_tasks.get(k) is t:
+            _eval_tasks.pop(k, None)
+
+    task.add_done_callback(_forget)
+    return task
+
+
+async def _message(actor: dict, sid: str, body: dict) -> dict:
+    message = text(body.get("message"), "answer or message", 20000)
+    saved = await asyncio.to_thread(_record_answer, actor, sid, body, message)
+    if "repeat" in saved:
+        return saved["repeat"]
+    answer = saved["answer"]
+    view = {**_view(saved["updated"], saved["questions"]), "answer_id": str(answer["id"]), "used_llm": True}
+    # The answer is committed above; scoring it no longer holds up the next question.
+    _start_evaluation(answer["id"], saved["question"], message)
+    view["evaluation_status"] = "pending"
     return view
 
 
-def _report(actor: dict, sid: str) -> dict:
+def _report_rows(actor: dict, sid: str) -> dict:
     with _pool().connection() as conn:
         conn.row_factory = dict_row
         session = _load_session(conn, sid, actor)
@@ -400,10 +499,41 @@ def _report(actor: dict, sid: str) -> dict:
         if isinstance(job.get("competencies"), str):
             job["competencies"] = json.loads(job["competencies"])
         answers = conn.execute("SELECT * FROM interview_answers WHERE session_id=%s ORDER BY created_at", (sid,)).fetchall()
-        evaluations = conn.execute(
-            """SELECT e.* FROM answer_evaluations e JOIN interview_answers a ON a.id=e.answer_id WHERE a.session_id=%s""",
-            (sid,),
-        ).fetchall()
+        evaluations = _session_evaluations(conn, sid)
+    return {"session": session, "questions": questions, "job": job, "answers": answers, "evaluations": evaluations}
+
+
+def _load_session_evaluations(sid: str) -> list[dict]:
+    with _pool().connection() as conn:
+        conn.row_factory = dict_row
+        return _session_evaluations(conn, sid)
+
+
+async def _settle_evaluations(answers: list[dict], questions: list[dict]) -> None:
+    """Wait for in-flight evaluations of these answers; (re)start any that are not running in this process."""
+    by_qid = {q.get("question_id"): q for q in questions}
+    tasks = []
+    for a in answers:
+        question = by_qid.get(a.get("question_id"))
+        if question is None:
+            continue
+        tasks.append(_start_evaluation(a["id"], question, str(a.get("answer_text") or "")))
+    if tasks:
+        # asyncio.wait never cancels: an evaluation that outlives the wait still lands for the next report.
+        await asyncio.wait(tasks, timeout=REPORT_EVALUATION_WAIT_S)
+
+
+async def _report(actor: dict, sid: str) -> dict:
+    rows = await asyncio.to_thread(_report_rows, actor, sid)
+    session, questions, job, answers = rows["session"], rows["questions"], rows["job"], rows["answers"]
+    evaluations = rows["evaluations"]
+    evaluated = {str(e["answer_id"]) for e in evaluations}
+    unscored = [a for a in answers if str(a["id"]) not in evaluated]
+    if unscored:
+        # Scores still being written (or a failed background evaluation): finish them before building the report.
+        await _settle_evaluations(unscored, questions)
+        evaluations = await asyncio.to_thread(_load_session_evaluations, sid)
+        evaluated = {str(e["answer_id"]) for e in evaluations}
     report = {
         "session_id": sid,
         "candidate_id": session["candidate_id"],
@@ -413,5 +543,6 @@ def _report(actor: dict, sid: str) -> dict:
         "questions": questions,
         "answers": answers,
         "evaluations": evaluations,
+        "evaluations_pending": sum(1 for a in answers if str(a["id"]) not in evaluated),
     }
     return report

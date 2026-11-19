@@ -1,44 +1,62 @@
-/* Onboarding wizard: navy rail, calm white canvas, one brand primary action. */
+/*
+ * Onboarding wizard shell.
+ * Desktop: brand rail (left, sticky) | top bar + content column (max --page-max-form).
+ * ≤900px: top bar, then the rail as a compact progress band, then content.
+ */
 .layout {
-  --font-display: var(--font);
-  display: flex;
+  display: grid;
+  grid-template-areas:
+    'side top'
+    'side main';
+  grid-template-columns: 304px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
-  background: var(--hr-bg, #faf9ff);
-  color: var(--hr-navy, #141638);
+  background: var(--ds-bg, #faf9ff);
+  color: var(--ds-text, #141638);
+}
+
+.layout > aside {
+  grid-area: side;
+  align-self: start;
+  min-width: 0;
+}
+
+.topbarSlot {
+  grid-area: top;
+  min-width: 0;
 }
 
 .main {
-  flex: 1;
-  min-width: 0;
+  grid-area: main;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  width: 100%;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 0 40px 40px;
+  gap: var(--space-6);
   box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--page-max-form, 880px) + 2 * var(--layout-gutter, 32px));
+  min-width: 0;
+  margin-inline: auto;
+  padding: var(--app-main-padding-y, 32px) var(--layout-gutter, 32px) 0;
 }
 
+/* Page header (§2.1) */
 .pageHeader h1 {
   margin: 0;
-  font-size: clamp(1.5rem, 2.4vw, 1.875rem);
+  font-size: var(--fs-page-title);
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.2;
   letter-spacing: -0.02em;
-  color: var(--hr-navy, #141638);
+  color: var(--ds-text, #141638);
   text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
-.pageHeader h2,
-.pageHeader h3,
 .pageHeader p {
-  margin: 6px 0 0;
-  max-width: 62ch;
-  font-size: 1rem;
-  font-weight: 400;
+  max-width: 64ch;
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-body);
   line-height: 1.55;
-  color: var(--hr-muted, #5f6686);
+  color: var(--ds-text-muted, #5f6686);
 }
 
 .panel {
@@ -46,223 +64,255 @@
   min-width: 0;
 }
 
-.actions,
-.actionsSplit {
+/* Sticky action bar: one primary per step. */
+.actions {
   position: sticky;
   bottom: 0;
-  z-index: 5;
+  z-index: var(--z-toolbar, 10);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 4px;
-  padding: 14px 0;
-  border-top: 1px solid var(--hr-border, #e5e5ef);
-  background: var(--hr-bg, #faf9ff);
+  gap: var(--space-4);
+  margin-top: auto;
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+  background: var(--ds-bg, #faf9ff);
+  box-shadow: 0 -1px 0 var(--ds-bg, #faf9ff);
+}
+
+.actionMeta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-0-5);
+  min-width: 0;
+  text-align: center;
+}
+
+.stepCount {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-muted, #5f6686);
 }
 
 .actionRight {
   display: flex;
-  gap: 10px;
-  margin-left: auto;
+  gap: var(--space-2);
 }
 
+/* Buttons (§2.2). The row shares the lg height so every control lines up. */
 .primaryBtn,
 .secondaryBtn,
-.backBtn,
 .ghostBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 22px;
+  gap: var(--space-2);
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-6);
+  border: 1px solid transparent;
   border-radius: var(--radius-md, 10px);
   font: inherit;
-  font-size: 0.9375rem;
+  font-size: var(--fs-body-lg);
   font-weight: 600;
-  cursor: pointer;
+  line-height: 1;
   white-space: nowrap;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    border-color var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out);
 }
 
 .primaryBtn {
-  margin-left: auto;
-  border: 1px solid var(--hr-brand-solid, #5046e5);
-  background: var(--hr-brand-solid, #5046e5);
+  border-color: var(--ds-brand, #5046e5);
+  background: var(--ds-brand, #5046e5);
   color: #ffffff;
-  box-shadow: 0 1px 2px rgba(20, 22, 56, 0.14);
+  box-shadow: var(--shadow-xs);
 }
 
 .primaryBtn:hover:not(:disabled) {
-  border-color: var(--hr-brand-solid-hover, #4338ca);
-  background: var(--hr-brand-solid-hover, #4338ca);
+  border-color: var(--ds-brand-hover, #4338ca);
+  background: var(--ds-brand-hover, #4338ca);
 }
 
-.secondaryBtn,
-.backBtn {
-  border: 1px solid var(--hr-border, #e5e5ef);
-  background: #ffffff;
-  color: var(--hr-navy, #141638);
+.primaryBtn:active:not(:disabled) {
+  background: var(--ds-brand-active, #3b3bb8);
 }
 
-.secondaryBtn:hover:not(:disabled),
-.backBtn:hover {
-  border-color: var(--brand-border, #c7d2fe);
-  background: var(--brand-light, #eef2ff);
+.secondaryBtn {
+  padding-inline: var(--space-5);
+  border-color: var(--ds-border-strong, #d6d7e5);
+  background: var(--ds-surface, #ffffff);
+  color: var(--ds-text, #141638);
+}
+
+.secondaryBtn:hover:not(:disabled) {
+  border-color: var(--ds-brand, #5046e5);
+  color: var(--ds-brand-hover, #4338ca);
 }
 
 .ghostBtn {
-  border: 0;
+  padding-inline: var(--space-4);
   background: transparent;
-  color: var(--hr-muted, #5f6686);
+  color: var(--ds-brand, #5046e5);
 }
 
 .ghostBtn:hover {
-  background: #f1f1f7;
-  color: var(--hr-navy, #141638);
+  background: var(--ds-brand-soft, #eef2ff);
 }
 
 .primaryBtn svg,
-.backBtn svg {
+.secondaryBtn svg {
   width: 18px;
   height: 18px;
 }
 
 .primaryBtn:disabled,
 .secondaryBtn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-.primaryBtn:focus-visible,
-.secondaryBtn:focus-visible,
-.backBtn:focus-visible,
-.ghostBtn:focus-visible {
-  outline: 2px solid var(--hr-brand-solid, #5046e5);
-  outline-offset: 2px;
-}
-
-/* Reassurance: changes save automatically (steps 2+). */
+/* Reassurance (steps 2+) */
 .autoSave {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-1-5);
   margin: 0;
-  font-size: 0.875rem;
-  color: var(--hr-muted, #5f6686);
+  font-size: var(--fs-xs);
+  color: var(--ds-text-muted, #5f6686);
 }
 
 .autoSaveDot {
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #ecfdf5;
-  color: #047857;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--ds-success-soft, #ecfdf5);
+  color: var(--ds-success, #047857);
 }
 
 .autoSaveDot svg {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
 }
 
-.stepHint {
-  margin: -8px 0 0;
-  text-align: center;
-  font-size: 0.8125rem;
-  color: var(--hr-muted, #5f6686);
-}
-
+/* Toast (§2.13) */
 .toast {
   position: fixed;
-  right: 28px;
-  bottom: 28px;
-  z-index: 80;
+  right: var(--space-6);
+  bottom: calc(var(--control-h-lg) + var(--space-10));
+  z-index: var(--z-toast, 1200);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md, 10px);
-  background: var(--hr-navy, #141638);
+  background: var(--ds-text, #141638);
   color: #ffffff;
-  box-shadow: 0 8px 24px rgba(20, 22, 56, 0.2);
-  font-size: 0.875rem;
+  box-shadow: var(--shadow-xl);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
 }
 
 .toastDot {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: #34d399;
+  border-radius: var(--radius-full);
+  background: var(--ds-success-border, #a7f3d0);
 }
 
-@media (min-width: 1440px) {
-  .main {
-    padding-inline: 48px;
+@media (max-width: 1024px) {
+  .layout {
+    grid-template-columns: 272px minmax(0, 1fr);
   }
-}
 
-@media (max-width: 900px) {
   .autoSave {
     display: none;
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .layout {
-    display: block;
+    grid-template-areas:
+      'top'
+      'side'
+      'main';
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto 1fr;
   }
 
   .main {
-    gap: 20px;
-    padding: 0 16px 24px;
+    padding-top: var(--space-6);
+  }
+}
+
+@media (max-width: 640px) {
+  .main {
+    gap: var(--space-4);
+    padding-top: var(--space-4);
+  }
+
+  /* The progress band already shows "Step N of 3" on phones. */
+  .actionMeta {
+    display: none;
   }
 
   .actions {
-    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-3) 0;
   }
 
   .primaryBtn,
   .secondaryBtn,
-  .backBtn {
-    padding-inline: 16px;
+  .ghostBtn {
+    padding-inline: var(--space-4);
+    font-size: var(--fs-sm);
+  }
+
+  .primaryBtn,
+  .actionRight {
+    flex: 1;
+  }
+
+  .actionRight .primaryBtn {
+    flex: 1;
+  }
+
+  .secondaryBtn svg {
+    display: none;
   }
 
   .toast {
-    left: 16px;
-    right: 16px;
+    right: var(--space-4);
+    bottom: calc(var(--control-h-lg) + var(--space-8));
+    left: var(--space-4);
+    max-width: none;
   }
 }
 
+/* Small phones: keep the buttons side by side in one compact row (the bar stays ~64px tall). */
 @media (max-width: 420px) {
-  .actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
   .primaryBtn,
   .secondaryBtn,
-  .backBtn,
-  .actionRight {
-    width: 100%;
-  }
-
-  .actionRight {
-    flex-direction: column-reverse;
-  }
-
-  .actionRight > button {
-    width: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .primaryBtn,
-  .secondaryBtn,
-  .backBtn,
   .ghostBtn {
-    transition: none;
+    min-height: var(--control-h-md);
+    padding-inline: var(--space-3);
+  }
+
+  .secondaryBtn,
+  .ghostBtn {
+    flex: 0 0 auto;
+  }
+
+  .primaryBtn {
+    min-width: 0;
   }
 }

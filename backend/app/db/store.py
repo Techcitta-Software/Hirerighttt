@@ -13,6 +13,7 @@ import random
 import string
 import threading
 import time
+import weakref
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -228,6 +229,35 @@ def _invalidates_reads(fn):
     return wrapper
 
 
+# Testing a pooled connection before handing it out costs an extra round trip on EVERY query (0.1 ms locally, ~1 ms
+# in-region, 100+ ms to a remote database). A connection that went back to the pool moments ago is almost certainly
+# still alive, so only connections idle for longer than DB_POOL_CHECK_IDLE_SECONDS (default 30 s; 0 = always) are
+# tested. Keepalives, max_idle and max_lifetime still recycle connections, and a broken connection is discarded by
+# the pool when it is returned.
+_conn_returned_at: "weakref.WeakKeyDictionary[Connection, float]" = weakref.WeakKeyDictionary()
+_conn_returned_lock = threading.Lock()
+
+
+def _pool_check_idle_seconds() -> float:
+    try:
+        return max(0.0, float(os.environ.get("DB_POOL_CHECK_IDLE_SECONDS", "30") or 30))
+    except ValueError:
+        return 30.0
+
+
+def _note_connection_returned(conn: Connection) -> None:
+    with _conn_returned_lock:
+        _conn_returned_at[conn] = time.monotonic()
+
+
+def _check_connection_if_idle(conn: Connection) -> None:
+    with _conn_returned_lock:
+        returned = _conn_returned_at.get(conn)
+    if returned is not None and time.monotonic() - returned < _pool_check_idle_seconds():
+        return
+    ConnectionPool.check_connection(conn)
+
+
 def _ensure_pool(database_url: str) -> ConnectionPool:
     global _pool
     with _pool_lock:
@@ -245,7 +275,8 @@ def _ensure_pool(database_url: str) -> ConnectionPool:
                     "keepalives_interval": 10,
                     "keepalives_count": 3,
                 },
-                check=ConnectionPool.check_connection,  # test a pooled connection before handing it out
+                check=_check_connection_if_idle,  # test a pooled connection that sat idle before handing it out
+                reset=_note_connection_returned,
                 max_idle=120,  # recycle before the server's idle timeout
                 max_lifetime=900,
                 reconnect_timeout=60,

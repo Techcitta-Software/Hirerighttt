@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
 import { beginImmediateInterview } from '../lib/interviewTestMode'
 import { getInterviewResult, getProfile } from '../lib/store'
+import { moonshineStt } from '../lib/moonshineStt'
 import styles from './AiInterviewStep.module.css'
 
 interface AiInterviewStepProps {
@@ -47,29 +48,38 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     if (saved && !Number.isNaN(saved.getTime()) && saved.getTime() > Date.now()) {
       return { date: indiaDay(saved), slot: saved.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) }
     }
-    return { date: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1), slot: '01:30 PM' }
+    // Nothing is booked until the candidate picks a time.
+    return { date: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1), slot: null as string | null }
   })
   const [selectedDate, setSelectedDate] = useState(initial.date)
-  const [selectedSlot, setSelectedSlot] = useState(initial.slot)
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(initial.slot)
   const [month, setMonth] = useState(new Date(initial.date.getFullYear(), initial.date.getMonth(), 1))
-  const scheduledAt = appointment(selectedDate, selectedSlot)
-  const scheduled = `Scheduled: ${scheduledAt.toISOString()}`
+  // The candidate can start the interview from this step: warm the speech-to-text model now.
   useEffect(() => {
-    if (data.interviewNotes !== scheduled) onChange('interviewNotes', scheduled)
-  }, [data.interviewNotes, onChange, scheduled])
+    moonshineStt.preloadWhenIdle(1500)
+  }, [])
+  // A slot saved earlier that has since passed is not a booking any more.
+  useEffect(() => {
+    if (!initial.slot && data.interviewNotes.startsWith('Scheduled:')) onChange('interviewNotes', '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function book(date: Date, slot: string | null) {
+    setSelectedSlot(slot)
+    onChange('interviewNotes', slot ? `Scheduled: ${appointment(date, slot).toISOString()}` : '')
+  }
 
   const firstDay = month.getDay()
   const totalDays = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
   const cellCount = Math.ceil((firstDay + totalDays) / 7) * 7
-  const dateLabel = selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const shortLabel = selectedDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
+  const dateLabel = selectedDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const shortLabel = selectedDate.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' })
 
   function selectDate(date: Date) {
     setSelectedDate(date)
-    if (appointment(date, selectedSlot).getTime() <= Date.now()) {
-      const nextSlot = SLOT_GROUPS.flatMap(([, slots]) => [...slots]).find(slot => appointment(date, slot).getTime() > Date.now())
-      if (nextSlot) setSelectedSlot(nextSlot)
-    }
+    if (!selectedSlot) return
+    // Keep the chosen time on the new day when it is still in the future; otherwise ask for a new time.
+    book(date, appointment(date, selectedSlot).getTime() > Date.now() ? selectedSlot : null)
   }
   function launchLiveInterview() {
     const existing = getInterviewResult()
@@ -77,52 +87,128 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     beginImmediateInterview(navigate)
   }
 
-  return <div className={styles.stack}>
-    <header className={styles.intro}>
-      <span className={styles.calendarIcon}><Icon kind="calendar" /></span>
-      <div><h1>{data.resumeFile || getProfile()?.resumeName ? 'Great! Your resume is uploaded successfully.' : 'Great! Let’s get your AI interview scheduled.'}</h1><h2>Let&apos;s book your 15-minute AI interview. Choose a time that works best for you.</h2></div>
-    </header>
-    <div className={styles.immediateSection}>
-      <h3 className={styles.immediateTitle}>Book an Interview Immediately</h3>
-      <p className={styles.immediateDesc}>
-        Ready right now? Skip scheduling and start your 15-minute live AI interview immediately.
-      </p>
-      <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
-        <span className={styles.nowBtnIcon} aria-hidden="true">▶</span>
-        Take interview immediately
-      </button>
-    </div>
+  const hasResume = Boolean(data.resumeFile || getProfile()?.resumeName)
 
-    <div className={styles.orDivider} aria-hidden="true">
-      <span>(or)</span>
-    </div>
-
-    <section className={styles.bookingSection}>
-      <div className={styles.bookingHeading}>
-        <h2>Select Your 15-Minute Interview Slot</h2>
-      </div>
-      <h3 className={styles.timezone}>All times are shown in <span>(IST) Asia/Kolkata</span></h3>
-      <div className={styles.bookingGrid}>
-        <div className={styles.calendarCol}>
-          <div className={styles.calendarNav}><h4>{month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h4><div><button type="button" aria-label="Previous month" disabled={month <= new Date(today.getFullYear(), today.getMonth(), 1)} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><button type="button" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></div></div>
-          <div className={styles.weekdaysGrid}>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <span key={day}>{day}</span>)}</div>
-          <div className={styles.daysGrid}>{Array.from({ length: cellCount }, (_, index) => {
-            const date = new Date(month.getFullYear(), month.getMonth(), index - firstDay + 1)
-            const outside = date.getMonth() !== month.getMonth()
-            const disabled = outside || appointment(date, '07:00 PM').getTime() <= Date.now()
-            const selected = date.getTime() === selectedDate.getTime()
-            return <button key={index} type="button" disabled={disabled} aria-label={date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} aria-pressed={selected} className={`${styles.dayCell} ${selected ? styles.daySelected : ''} ${outside ? styles.outside : ''}`} onClick={() => selectDate(date)}><span>{date.getDate()}</span>{!outside && <i className={disabled ? styles.unavailable : styles.available} />}</button>
-          })}</div>
-          <div className={styles.legend}><span><i className={styles.available} />Available</span><span><i className={styles.limited} />Limited Slots</span><span><i className={styles.unavailable} />Unavailable</span></div>
+  return (
+    <div className={styles.stack}>
+      <div className={styles.intro}>
+        <span className={styles.calendarIcon}><Icon kind="calendar" /></span>
+        <div>
+          <p className={styles.introTitle}>
+            {hasResume ? 'Your resume is uploaded.' : 'Let’s get your AI interview scheduled.'}
+          </p>
+          <p className={styles.introSub}>Book your 15-minute AI interview. Choose a time that works best for you.</p>
         </div>
-        <div className={styles.slotsCol}><h4>{dateLabel}</h4>{SLOT_GROUPS.map(([label, slots]) => <div className={styles.slotGroup} key={label}><h5>{label}</h5><div className={styles.slotGrid}>{slots.map(slot => <button type="button" key={slot} disabled={appointment(selectedDate, slot).getTime() <= Date.now()} aria-pressed={selectedSlot === slot} className={`${styles.slotBtn} ${selectedSlot === slot ? styles.slotActive : ''}`} onClick={() => setSelectedSlot(slot)}>{slot}{selectedSlot === slot && <span>✓</span>}</button>)}</div></div>)}</div>
       </div>
-    </section>
-    <section className={styles.selectedSummary} aria-live="polite">
-      <div className={styles.selection}><span className={styles.checkCircle}><Icon kind="check" /></span><div><small>You&apos;ve selected</small><strong>{shortLabel}</strong><p>{selectedSlot} (IST)</p></div></div>
-      <div className={styles.assurance}><Icon kind="clock" /><p>You will receive a reminder before your interview</p></div>
-      <div className={styles.assurance}><Icon kind="refresh" /><p>Reschedule or change time anytime</p></div>
-      <div className={styles.assurance}><Icon kind="shield" /><p>Smooth, secure and distraction-free experience</p></div>
-    </section>
-  </div>
+
+      <section className={styles.immediateSection} aria-labelledby="ai-now-title">
+        <div className={styles.immediateCopy}>
+          <h2 id="ai-now-title" className={styles.immediateTitle}>Start your interview now</h2>
+          <p className={styles.immediateDesc}>
+            Ready right now? Skip scheduling and start your 15-minute live AI interview immediately.
+          </p>
+        </div>
+        <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
+          <span className={styles.nowBtnIcon} aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.5v9l7-4.5-7-4.5Z" /></svg>
+          </span>
+          Take interview immediately
+        </button>
+      </section>
+
+      <div className={styles.orDivider} aria-hidden="true">
+        <span>or</span>
+      </div>
+
+      <section className={styles.bookingSection} aria-labelledby="ai-slot-title">
+        <div className={styles.bookingHeading}>
+          <h2 id="ai-slot-title">Choose a 15-minute interview slot</h2>
+          <p className={styles.timezone}>All times are in IST (Asia/Kolkata)</p>
+        </div>
+        <div className={styles.bookingGrid}>
+          <div className={styles.calendarCol}>
+            <div className={styles.calendarNav}>
+              <h3>{month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</h3>
+              <div>
+                <button type="button" aria-label="Previous month" disabled={month <= new Date(today.getFullYear(), today.getMonth(), 1)} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M12.5 5L7.5 10L12.5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+                <button type="button" aria-label="Next month" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7.5 5L12.5 10L7.5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              </div>
+            </div>
+            <div className={styles.weekdaysGrid} aria-hidden="true">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <span key={day}>{day}</span>)}
+            </div>
+            <div className={styles.daysGrid}>
+              {Array.from({ length: cellCount }, (_, index) => {
+                const date = new Date(month.getFullYear(), month.getMonth(), index - firstDay + 1)
+                const outside = date.getMonth() !== month.getMonth()
+                const disabled = outside || appointment(date, '07:00 PM').getTime() <= Date.now()
+                const selected = date.getTime() === selectedDate.getTime()
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    disabled={disabled}
+                    aria-label={date.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    aria-pressed={selected}
+                    className={`${styles.dayCell} ${selected ? styles.daySelected : ''} ${outside ? styles.outside : ''}`}
+                    onClick={() => selectDate(date)}
+                  >
+                    <span>{date.getDate()}</span>
+                    {!outside && <i className={disabled ? styles.unavailable : styles.available} />}
+                  </button>
+                )
+              })}
+            </div>
+            <div className={styles.legend}>
+              <span><i className={styles.available} />Available</span>
+              <span><i className={styles.unavailable} />Unavailable</span>
+            </div>
+          </div>
+          <div className={styles.slotsCol}>
+            <h3>{dateLabel}</h3>
+            {SLOT_GROUPS.map(([label, slots]) => (
+              <div className={styles.slotGroup} key={label} role="group" aria-label={`${label} slots`}>
+                <h4>{label}</h4>
+                <div className={styles.slotGrid}>
+                  {slots.map(slot => (
+                    <button
+                      type="button"
+                      key={slot}
+                      disabled={appointment(selectedDate, slot).getTime() <= Date.now()}
+                      aria-pressed={selectedSlot === slot}
+                      className={`${styles.slotBtn} ${selectedSlot === slot ? styles.slotActive : ''}`}
+                      onClick={() => book(selectedDate, slot)}
+                    >
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {selectedSlot && (
+        <section className={styles.selectedSummary} aria-live="polite" aria-label="Selected interview slot">
+          <div className={styles.selection}>
+            <span className={styles.checkCircle}><Icon kind="check" /></span>
+            <div>
+              <small>You’ve selected</small>
+              <strong>{shortLabel}</strong>
+              <p>{selectedSlot} IST</p>
+            </div>
+          </div>
+          <ul className={styles.assuranceList}>
+            <li className={styles.assurance}><Icon kind="clock" /><p>We’ll email you a confirmation and a reminder</p></li>
+            <li className={styles.assurance}><Icon kind="refresh" /><p>You can change the time later</p></li>
+          </ul>
+        </section>
+      )}
+    </div>
+  )
 }

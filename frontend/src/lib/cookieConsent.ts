@@ -4,7 +4,7 @@ const CONSENT_VERSION = 1
 export type CookieConsentChoice = {
   version: number
   essential: true
-  /** HireRight does not enable non-essential marketing/analytics cookies by default. */
+  /** HireRighttt does not enable non-essential marketing/analytics cookies by default. */
   analytics: false
   decidedAt: string
 }

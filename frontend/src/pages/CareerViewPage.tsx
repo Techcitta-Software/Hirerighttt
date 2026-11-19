@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
@@ -145,7 +145,6 @@ export function CareerViewPage() {
   const [day, setDay] = useState<DayKey>('30')
   const [motionOff, setMotionOff] = useState(prefersReducedMotion)
   const [bounce, setBounce] = useState(0)
-  const rootRef = useRef<HTMLDivElement>(null)
   const universeRef = useRef<HTMLDivElement>(null)
 
   const item = TOPICS[topic]
@@ -159,28 +158,6 @@ export function CareerViewPage() {
       document.getElementById('explore')?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' })
     }
   }
-
-  // Sections ease in as they scroll into view (skipped when the visitor prefers reduced motion).
-  useEffect(() => {
-    const nodes = rootRef.current?.querySelectorAll<HTMLElement>('[data-reveal]') ?? []
-    if (!('IntersectionObserver' in window) || prefersReducedMotion()) {
-      nodes.forEach((el) => el.classList.add(styles.isVisible))
-      return undefined
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const en of entries) {
-          if (en.isIntersecting) {
-            en.target.classList.add(styles.isVisible)
-            io.unobserve(en.target)
-          }
-        }
-      },
-      { threshold: 0.07 },
-    )
-    nodes.forEach((el) => io.observe(el))
-    return () => io.disconnect()
-  }, [])
 
   // The orbit gently follows the pointer.
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
@@ -197,14 +174,14 @@ export function CareerViewPage() {
   }
 
   return (
-    <div className={styles.page} ref={rootRef} data-motion-off={motionOff ? 'true' : 'false'}>
+    <div className={styles.page} data-motion-off={motionOff ? 'true' : 'false'}>
       <MarketingNavBar />
 
       <main>
         {/* ── Hero ── */}
         <section className={styles.hero} aria-labelledby="career-hero-title">
           <div className={`${styles.container} ${styles.heroInner}`}>
-            <div className={styles.heroCopy} data-reveal>
+            <div className={styles.heroCopy}>
               <div className={styles.label}>360° Career View</div>
               <h1 id="career-hero-title">
                 A resume lists what you&apos;ve done.<span className={styles.serif}>What&apos;s next?</span>
@@ -326,7 +303,7 @@ export function CareerViewPage() {
         {/* ── Sample report ── */}
         <section className={styles.lab} id="explore" aria-labelledby="lab-title">
           <div className={styles.container}>
-            <div className={styles.labHeading} data-reveal>
+            <div className={styles.labHeading}>
               <div>
                 <div className={styles.label}>A sample report</div>
                 <h2 id="lab-title">
@@ -341,7 +318,7 @@ export function CareerViewPage() {
               </p>
             </div>
 
-            <div className={styles.reportStage} id="sample-report" data-reveal>
+            <div className={styles.reportStage} id="sample-report">
               <div className={styles.pageIndex}>
                 <div className={styles.pageIndexHead}>Sample career report / 06 chapters</div>
                 <div className={styles.pageTabList} role="tablist" aria-label="Explore the six parts of a sample career report">
@@ -419,7 +396,7 @@ export function CareerViewPage() {
         {/* ── Roadmap ── */}
         <section className={styles.roadmap} aria-labelledby="roadmap-title">
           <div className={`${styles.container} ${styles.roadmapGrid}`}>
-            <div data-reveal>
+            <div>
               <div className={styles.label}>Putting it to use</div>
               <h2 id="roadmap-title">
                 What should you <em className={styles.serif}>work on first?</em>
@@ -433,7 +410,7 @@ export function CareerViewPage() {
               </Link>
             </div>
 
-            <div className={styles.planCanvas} data-reveal>
+            <div className={styles.planCanvas}>
               <div className={styles.planTop}>An example 30 / 60 / 90 day plan</div>
               <div className={styles.milestones} role="tablist" aria-label="Explore example career plan milestones">
                 {DAYS.map((d, i) => (

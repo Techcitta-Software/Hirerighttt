@@ -62,8 +62,12 @@ export function JobInviteEntryPage() {
   }, [code, companySlug, navigate])
 
   return (
-    <div className={styles.screen} role="status" aria-live="polite">
-      <p className={styles.text}>{status}</p>
-    </div>
+    <main className={styles.screen}>
+      <h1 className="ds-sr-only">Opening your job invitation</h1>
+      <div className={styles.panel} role="status" aria-live="polite">
+        <span className={`ds-spinner ${styles.spinner}`} aria-hidden="true" />
+        <p className={styles.text}>{status}</p>
+      </div>
+    </main>
   )
 }

@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
-from app.db.finders import find_employer_app, find_job, find_user, remove_job, vault_for_org
+from app.db.finders import (
+    employer_app_counts_for_org,
+    find_employer_app,
+    find_job,
+    find_user,
+    remove_job,
+    vault_for_org,
+)
 import asyncio
+import functools
+import importlib.util
 import logging
 import os
 import re
@@ -29,7 +38,7 @@ from app.db.talent_index import (
 from app.dispatch.context import DispatchContext
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
-from app.server import runtime
+from app.server import background, runtime
 from app.services.ats_composite import compute_employer_interview_composite
 from app.server.json_safe import json_safe
 from app.services import interview_api as ia
@@ -102,6 +111,7 @@ from app.services.vendor.jobs import (
     resolve_public_job,
     update_application_interview,
 )
+from app.services.vendor import interview_plan_cache as plan_cache
 from app.services.vendor.org_candidates import list_job_candidates, list_organization_candidates
 
 PADDLE_SCRIPT = Path(__file__).resolve().parents[2] / "paddle_resume_parser.py"
@@ -158,16 +168,33 @@ async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) ->
     return {"job": None, "application": None}
 
 
-async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
+@functools.lru_cache(maxsize=1)
+def paddle_ocr_available() -> bool:
+    """Checked once per process: the OCR subprocess needs the script and the `paddleocr` package.
+
+    paddleocr is not in requirements.txt, so without this check every file parse spawned a Python process that failed
+    with ModuleNotFoundError (~0.2 s each, on the event loop)."""
+    if os.environ.get("PADDLE_OCR_ENABLED", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
     if not PADDLE_SCRIPT.is_file():
-        return None
+        return False
+    try:
+        return importlib.util.find_spec("paddleocr") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+PADDLE_TIMEOUT_S = 60
+
+
+def _run_paddle_sync(buffer: bytes, filename: str) -> dict | None:
     suffix = Path(filename).suffix or ".pdf"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(buffer)
         path = tmp.name
     cmd = [sys.executable, str(PADDLE_SCRIPT), path]
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=PADDLE_TIMEOUT_S)
         if out.returncode != 0:
             return None
         import json
@@ -178,6 +205,13 @@ async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
         return None
     finally:
         Path(path).unlink(missing_ok=True)
+
+
+async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
+    if not paddle_ocr_available():
+        return None
+    # The OCR subprocess can take seconds: run it in a worker thread, never on the event loop.
+    return await asyncio.to_thread(_run_paddle_sync, buffer, filename)
 
 
 logger = logging.getLogger("hireright.api")
@@ -327,8 +361,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 )
             await ctx.save_db(db)
             if (u or {}).get("id") and persistence_ready(config.database_url):
-                asyncio.create_task(
-                    grant_organization_talent_access(config.database_url, job["organizationId"], u["id"], "application")
+                background.spawn(
+                    grant_organization_talent_access(config.database_url, job["organizationId"], u["id"], "application"),
+                    "grant-talent-access",
                 )
             ats = created_pack.get("ats") or {
                 "atsScore": application["data"].get("atsScore"),
@@ -384,7 +419,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if persistence_ready(config.database_url):
                 await asyncio.to_thread(db_store.sync_org_jobs_from_database, config.database_url, db, org_id)
             scope = _vendor_recruiter_scope(access)
-            jobs = [public_job_payload(j) for j in list_org_jobs(db, org_id, scope)]
+            # Applicant counts in one grouped query, so the jobs page no longer fetches every job's applicant list.
+            counts = employer_app_counts_for_org(db, org_id)
+            jobs = [
+                {**public_job_payload(j), "applicantCount": counts.get(str(j.get("id")), 0)}
+                for j in list_org_jobs(db, org_id, scope)
+            ]
             return _json(200, {"jobs": jobs, "total": len(jobs), "organizationId": org_id})
 
         if method == "POST" and re.match(r"^/api/vendor/jobs/[^/]+/mark-deleted-for-candidates$", path):
@@ -492,6 +532,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "experienceYears": params.get("experienceYears") or params.get("experience") or "",
                 "keywords": params.get("keywords") or params.get("q") or "",
                 "jobId": params.get("jobId") or "",
+                # "org" = only this organisation's own candidates (no platform roster / talent search);
+                # anything else keeps the full list.
+                "scope": "org" if str(params.get("scope") or "").strip().lower() == "org" else "all",
             }
             roster = await list_organization_candidates(
                 db, org_id, config.database_url, filters, _vendor_recruiter_scope(access)
@@ -617,7 +660,6 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             )
             role = (job or {}).get("roleTrack") or (job or {}).get("title") or app.get("data", {}).get("jobTitle") or "Engineer"
             level = app.get("data", {}).get("experienceYears") or (job or {}).get("experienceLevel") or "1–3 years"
-            questions = []
             if not ia.llm_configured():
                 return _json(
                     503,
@@ -626,9 +668,34 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "code": "LLM_QUESTION_REQUIRED",
                     },
                 )
-            # One Gemini call with the same structure the candidate will get (it used to be 8 sequential calls,
-            # 12-35 s, which could outlast the page's wait).
             try:
+                skill_focus = ia.vendor_skill_focus(skill_analysis, required) if skill_analysis else []
+                total_turns = ia.resolve_interview_total_turns(profile, level, digest)
+                fresher = ia._is_fresher(profile, level, digest)
+            except Exception as err:
+                logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
+                return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
+            # Same applicant + same job text + same resume => same preview for 30 minutes (?refresh=1 rebuilds it).
+            # Any edit to the job or the resume changes the key, so a stale plan is never served.
+            plan_key = plan_cache.plan_cache_key(
+                organizationId=access["tenant"]["organization"]["id"],
+                applicationId=app_id,
+                jobId=(job or {}).get("id"),
+                jobUpdatedAt=(job or {}).get("updatedAt"),
+                jobDescription=jd,
+                requiredSkills=required,
+                role=role,
+                level=level,
+                profile=profile,
+                candidateName=app.get("data", {}).get("candidateName") or app.get("candidateEmail"),
+                skillFocus=skill_focus,
+                totalTurns=total_turns,
+                fresher=fresher,
+            )
+
+            async def _build_plan() -> dict:
+                # One Gemini call with the same structure the candidate will get (it used to be 8 sequential calls,
+                # 12-35 s, which could outlast the page's wait).
                 batch = await ia.generate_adaptive_question_batch(
                     {
                         "ctx": digest,
@@ -637,29 +704,33 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "level": level,
                         "jobDescription": jd,
                         "varietySeed": secrets.token_hex(8),
-                        "totalTurns": ia.resolve_interview_total_turns(profile, level, digest),
-                        "fresher": ia._is_fresher(profile, level, digest),
-                        "skillFocus": ia.vendor_skill_focus(skill_analysis, required) if skill_analysis else [],
+                        "totalTurns": total_turns,
+                        "fresher": fresher,
+                        "skillFocus": skill_focus,
                     }
                 )
-            except Exception as err:
-                logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
-                return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
-            for q in batch.get("questions") or []:
-                if q.get("focus") == "pending-fallback" or not str(q.get("text") or "").strip():
-                    q = {**q, "text": "Live follow-up on the candidate's previous answer (written during the interview).",
-                         "category": q.get("category") or "Experience", "topic": q.get("topic") or "Follow-up"}
-                questions.append(q)
-            return _json(
-                200,
-                {
+                questions = []
+                for q in batch.get("questions") or []:
+                    if q.get("focus") == "pending-fallback" or not str(q.get("text") or "").strip():
+                        q = {**q, "text": "Live follow-up on the candidate's previous answer (written during the interview).",
+                             "category": q.get("category") or "Experience", "topic": q.get("topic") or "Follow-up"}
+                    questions.append(q)
+                return {
                     "questionMode": "adaptive",
                     "role": role,
                     "level": level,
                     "skillAnalysis": skill_analysis,
                     "questions": [{"text": q["text"], "category": q.get("category"), "topic": q.get("topic")} for q in questions],
-                },
-            )
+                }
+
+            try:
+                payload, _cached = await plan_cache.get_or_build(
+                    plan_key, _build_plan, refresh=request.query_params.get("refresh") == "1"
+                )
+            except Exception as err:
+                logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
+                return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
+            return _json(200, payload)
 
         if method == "POST" and path == "/api/interview/start":
             email = await runtime.require_auth_email(request)
@@ -1035,25 +1106,32 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 except Exception:
                     logger.exception("Could not save job interview result to application %s", session.get("applicationId"))
             if persistence_ready(config.database_url) and s3_storage_configured():
-                try:
-                    pool = db_store.db_pool(config.database_url or "dynamodb")
-                    await art_store.persist_interview_transcript_to_s3(
-                        pool=pool,
-                        db=db,
-                        requesterEmail=email,
-                        account=user,
-                        sessionId=session_id,
-                        questions=scored_questions,
-                        answers=scored_answers,
-                        result=result,
-                    )
-                except Exception:
-                    pass
+                # The transcript copy in S3 is for the archive; the candidate does not wait for the upload.
+                # The task gets plain copies (never the request's unit of work).
+                async def _persist_transcript(
+                    session_copy: dict = dict(session), account: dict | None = dict(user) if user else None
+                ) -> None:
+                    try:
+                        await art_store.persist_interview_transcript_to_s3(
+                            pool=db_store.db_pool(config.database_url or "dynamodb"),
+                            db={"interviewSessions": {session_id: session_copy}},
+                            requesterEmail=email,
+                            account=account,
+                            sessionId=session_id,
+                            questions=scored_questions,
+                            answers=scored_answers,
+                            result=result,
+                        )
+                    except Exception:
+                        logger.warning("Could not store the interview transcript for session %s", session_id, exc_info=True)
+
+                background.spawn(_persist_transcript(), "persist-transcript")
             if user and persistence_ready(config.database_url):
-                asyncio.create_task(
+                background.spawn(
                     upsert_candidate_talent(
                         config.database_url or "", user, db.get("profiles", {}).get(email) or {}, result
-                    )
+                    ),
+                    "upsert-candidate-talent",
                 )
             return _json(200, {"interview": strip_interview_result_for_candidate(result), "sessionId": session_id})
 
@@ -1410,7 +1488,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
 
                 try:
                     b64 = file_data.split(",", 1)[1] if "," in str(file_data) else str(file_data)
-                    text = resume_file_text(base64.b64decode(b64), file_name)
+                    text = await asyncio.to_thread(resume_file_text, base64.b64decode(b64), file_name)
                 except Exception:
                     text = ""
             if text:

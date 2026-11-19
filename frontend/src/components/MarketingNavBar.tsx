@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { prefetchOnIntent, prefetchRouteChunk } from '../routeImports'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
@@ -18,47 +19,75 @@ const MARKETING_NAV: readonly NavItem[] = [
     match: ['/career-view', '/360-career-view', '/career'],
   },
   {
-    to: '/organizations/signup',
+    to: '/for-recruiters',
     label: 'Organisations',
-    match: ['/solutions', '/organizations/signup'],
+    match: ['/for-recruiters', '/organizations', '/organizations/signup', '/solutions'],
   },
   { to: '/contact', label: 'Contact us', match: ['/contact'] },
 ]
 
-function isActive(pathname: string, match: readonly string[]) {
-  return match.some((p) => pathname === p)
+/** Header destinations are small; fetch them once the browser is idle so a click shows the page at once. */
+let idlePrefetchStarted = false
+function prefetchHeaderPagesWhenIdle() {
+  if (idlePrefetchStarted) return
+  idlePrefetchStarted = true
+  const run = () => {
+    for (const item of MARKETING_NAV) void prefetchRouteChunk(item.to)
+    void prefetchRouteChunk('/signup')
+  }
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 4000 })
+  else window.setTimeout(run, 1500)
 }
 
 function navLinkClass(pathname: string, match: readonly string[]) {
-  return `${styles.navLink} ${isActive(pathname, match) ? styles.navLinkActive : ''}`
+  return `${styles.navLink} ${match.includes(pathname) ? styles.navLinkActive : ''}`
 }
 
 /**
  * Public marketing header for pre-login pages only (not used on candidate dashboard / app shell).
  */
 export function MarketingNavBar() {
-  const location = useLocation()
+  const { pathname } = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  function closeAll() {
-    setMobileMenuOpen(false)
-  }
+  const headerRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    prefetchHeaderPagesWhenIdle()
+  }, [])
 
   useEffect(() => {
     setMobileMenuOpen(false)
-  }, [location.pathname])
+  }, [pathname])
 
-  const orgState = (to: string) => (to === '/organizations/signup' ? { explicitSignup: true } : undefined)
+  // Open menu: Escape or a tap outside the header closes it.
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMobileMenuOpen(false)
+    }
+    function onPointer(e: PointerEvent) {
+      if (!headerRef.current?.contains(e.target as Node)) setMobileMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('pointerdown', onPointer)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('pointerdown', onPointer)
+    }
+  }, [mobileMenuOpen])
+
+  const close = () => setMobileMenuOpen(false)
 
   return (
-    <header className={styles.navbar}>
+    <header className={styles.navbar} ref={headerRef}>
       <div className={styles.navInner}>
-        <BrandLogo to="/" size="md" className={styles.brandWrap} onClick={closeAll} />
+        <BrandLogo to="/" size="md" className={styles.brandWrap} onClick={close} />
 
         <nav aria-label="Main Navigation" className={styles.navCenter}>
           <ul className={styles.navLinks}>
             {MARKETING_NAV.map((item) => (
               <li key={item.to}>
-                <Link to={item.to} state={orgState(item.to)} className={navLinkClass(location.pathname, item.match)}>
+                <Link to={item.to} className={navLinkClass(pathname, item.match)} {...prefetchOnIntent(item.to)}>
                   {item.label}
                 </Link>
               </li>
@@ -67,7 +96,7 @@ export function MarketingNavBar() {
         </nav>
 
         <div className={styles.navActions}>
-          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn}>
+          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} {...prefetchOnIntent('/signup')}>
             Get started
           </Link>
         </div>
@@ -75,34 +104,31 @@ export function MarketingNavBar() {
         <button
           type="button"
           className={styles.mobileMenuBtn}
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          onClick={() => setMobileMenuOpen((open) => !open)}
           aria-expanded={mobileMenuOpen}
-          aria-label="Toggle Menu"
+          aria-controls="marketing-mobile-menu"
+          aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
         >
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             {mobileMenuOpen ? <path d="M18 6L6 18M6 6l12 12" /> : <path d="M4 6h16M4 12h16M4 18h16" />}
           </svg>
         </button>
       </div>
 
-      <div className={`${styles.mobileMenuDrawer} ${mobileMenuOpen ? styles.mobileOpen : ''}`}>
-        {MARKETING_NAV.map((item) => (
-          <Link
-            key={item.to}
-            to={item.to}
-            state={orgState(item.to)}
-            className={navLinkClass(location.pathname, item.match)}
-            onClick={closeAll}
-          >
-            {item.label}
-          </Link>
-        ))}
-        <div className={styles.mobileAuthActions}>
-          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={closeAll}>
-            Get started
-          </Link>
-        </div>
-      </div>
+      {mobileMenuOpen ? (
+        <nav id="marketing-mobile-menu" aria-label="Mobile Navigation" className={styles.mobileMenuDrawer}>
+          {MARKETING_NAV.map((item) => (
+            <Link key={item.to} to={item.to} className={navLinkClass(pathname, item.match)} onClick={close} {...prefetchOnIntent(item.to)}>
+              {item.label}
+            </Link>
+          ))}
+          <div className={styles.mobileAuthActions}>
+            <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={close}>
+              Get started
+            </Link>
+          </div>
+        </nav>
+      ) : null}
     </header>
   )
 }

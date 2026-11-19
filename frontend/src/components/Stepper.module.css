@@ -1,189 +1,143 @@
+/*
+ * Onboarding step list. Rendered inside the brand sidebar (dark surface), so it uses
+ * white-on-navy values: the sanctioned colourful exception for the onboarding flow only.
+ * Desktop: vertical list with a "why it matters" line. ≤900px: compact horizontal row.
+ */
 .stepper {
-  width: calc(100% + 72px);
-  margin: -24px -36px 0;
-  padding: 24px 36px 26px;
-  border-bottom: 1px solid #ececf3;
-  overflow-x: auto;
+  --st-text: #ffffff;
+  --st-muted: color-mix(in srgb, #ffffff 80%, transparent);
+  --st-line: color-mix(in srgb, #ffffff 22%, transparent);
+  --st-fill: color-mix(in srgb, #ffffff 12%, transparent);
+  width: 100%;
 }
 
 .list {
-  list-style: none;
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  width: 100%;
-  padding: 0;
+  flex-direction: column;
+  gap: var(--space-1);
   margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .item {
-  flex: 1 0 90px;
-  min-width: 0;
+  position: relative;
+}
+
+/* Connector between markers. */
+.item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--space-3) + 29px);
+  bottom: calc(-1 * (var(--space-1) + var(--space-3)));
+  left: calc(var(--space-3) + 14px);
+  width: 2px;
+  border-radius: var(--radius-xs, 4px);
+  background: var(--st-line);
+}
+
+.done:not(:last-child)::after {
+  background: var(--ds-success-border, #a7f3d0);
 }
 
 .step {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: var(--space-3);
   width: 100%;
-  border: 0;
+  padding: var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 10px);
   background: transparent;
-  padding: 0;
+  color: var(--st-muted);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
-  text-align: center;
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    border-color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.step:hover:not(:disabled) {
+  background: var(--st-fill);
 }
 
 .step:disabled {
   cursor: default;
-  opacity: 1;
 }
 
-.circle {
+.step:focus-visible {
+  outline: 2px solid var(--st-text);
+  outline-offset: 2px;
+}
+
+/* Current step: bright pill. */
+.active .step,
+.active .step:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #ffffff 28%, transparent);
+  background: color-mix(in srgb, #ffffff 14%, transparent);
+  color: var(--st-text);
+}
+
+.marker {
+  position: relative;
+  z-index: 1;
   display: grid;
+  flex-shrink: 0;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  border: 1.5px solid #dedfeb;
-  border-radius: 50%;
-  background: #fafbfe;
-  color: #7b819b;
-  font-size: 18px;
-  font-weight: 600;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid var(--st-line);
+  border-radius: var(--radius-full);
+  background: #141638;
+  color: var(--st-muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1;
-  transition: all 0.2s ease;
+}
+
+.active .marker {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: var(--ds-brand, #5046e5);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #ffffff 22%, transparent);
+}
+
+.done .marker {
+  border-color: var(--ds-success-border, #a7f3d0);
+  background: var(--ds-success-soft, #ecfdf5);
+  color: var(--ds-success, #047857);
+}
+
+.marker svg {
+  width: 14px;
+  height: 14px;
 }
 
 .copy {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-0-5);
+  min-width: 0;
+  padding-top: var(--space-0-5);
 }
 
 .label {
-  color: #30365a;
-  font-size: 15.5px;
-  font-weight: 550;
-  white-space: nowrap;
-  letter-spacing: -0.1px;
-}
-
-.sublabel {
-  color: #5f6686;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.connectorItem {
-  flex: 1 1 0;
-  padding-top: 21px;
-  min-width: 12px;
-  list-style: none;
-}
-
-.connector {
-  border-top: 1.5px dashed #ccd0e0;
-  width: 100%;
-}
-
-.connectorActive {
-  border-color: #2bbb79;
-  border-top-style: solid;
-}
-
-.active .circle {
-  background: linear-gradient(135deg, #855cff, #6336f8);
-  border-color: #7047ff;
-  color: white;
-  box-shadow: 0 3px 10px rgba(112, 71, 255, 0.25);
+  font-size: var(--fs-sm);
   font-weight: 600;
+  line-height: 1.45;
+  color: var(--st-text);
 }
 
-.done .circle {
-  background: #29b974;
-  border-color: #29b974;
-  color: white;
-  font-size: 20px;
-  font-weight: 700;
+.hint {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--st-muted);
 }
 
-.compact {
-  border-bottom: 0;
-  padding-top: 24px;
-  padding-bottom: 24px;
-}
-
-.compact .active .label {
-  color: #7047ff;
-  font-weight: 700;
-  font-size: 15.5px;
-}
-
-.compact .circle {
-  width: 42px;
-  height: 42px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.compact .done .circle {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.compact .connectorItem {
-  padding-top: 21px;
-}
-
-.compact .connector {
-  border-top: 1.5px solid #e2e4f0;
-}
-
-@media (min-width: 1440px) {
-  .stepper {
-    width: calc(100% + 96px);
-    margin-inline: -48px;
-    padding-inline: 48px;
-  }
-}
-
-@media (max-width: 1000px) {
-  .label {
-    font-size: 12.5px;
-  }
-  .sublabel {
-    font-size: 11px;
-  }
-  .item {
-    flex-basis: 75px;
-  }
-  .compact .circle {
-    width: 34px;
-    height: 34px;
-    font-size: 15px;
-  }
-  .compact .connectorItem {
-    padding-top: 17px;
-  }
-}
-
-@media (max-width: 760px) {
-  .stepper {
-    width: calc(100% + 32px);
-    margin: -20px -16px 0;
-    padding: 20px 16px;
-  }
-  .sublabel {
-    display: none;
-  }
-  .item {
-    flex-basis: 68px;
-  }
-  .connectorItem {
-    min-width: 6px;
-  }
-}
-
-/* ── Candidate redesign: calm stepper. Brand for the current step, green tick for done. ── */
 .srOnly {
   position: absolute;
   width: 1px;
@@ -193,114 +147,69 @@
   white-space: nowrap;
 }
 
-.circle {
-  position: relative;
-  border: 1px solid var(--hr-border, #e5e5ef);
-  background: #ffffff;
-  color: var(--hr-muted, #5f6686);
-  font-variant-numeric: tabular-nums;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.compact .circle {
-  width: 36px;
-  height: 36px;
-  font-size: 0.9375rem;
-}
-
-.compact .connectorItem {
-  padding-top: 18px;
-}
-
-.label {
-  color: var(--hr-muted, #5f6686);
-  font-size: 0.9375rem;
-  font-weight: 500;
-}
-
-.active .circle {
-  background: var(--hr-brand-solid, #5046e5);
-  border-color: var(--hr-brand-solid, #5046e5);
-  color: #ffffff;
-  box-shadow: 0 0 0 4px var(--brand-light, #eef2ff);
-}
-
-.compact .active .label {
-  color: var(--hr-navy, #141638);
-  font-size: 0.9375rem;
-  font-weight: 700;
-}
-
-.done .circle,
-.compact .done .circle {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-  color: #047857;
-  font-size: 0.9375rem;
-}
-
-.done .label {
-  color: var(--hr-navy, #141638);
-}
-
-.compact .connector {
-  border-top: 2px solid var(--hr-border, #e5e5ef);
-}
-
-.connectorActive,
-.compact .connectorActive {
-  border-top-color: #6ee7b7;
-}
-
-.step:not(:disabled):hover .circle {
-  border-color: var(--brand-border, #c7d2fe);
-}
-
-.step:focus-visible {
-  outline: 2px solid var(--hr-brand-solid, #5046e5);
-  outline-offset: 4px;
-  border-radius: 8px;
-}
-
-@media (max-width: 1000px) {
-  .label,
-  .compact .active .label {
-    font-size: 0.8125rem;
-  }
-
-  .compact .circle {
-    width: 32px;
-    height: 32px;
-    font-size: 0.875rem;
-  }
-
-  .compact .connectorItem {
-    padding-top: 16px;
-  }
-}
-
-@media (max-width: 520px) {
-  /* Only the current step keeps its label on phones; the progress line carries the rest. */
-  .step:not(.active) .label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
+/* Tablet and phone: compact horizontal row inside the top progress band. */
+@media (max-width: 900px) {
+  .list {
+    flex-direction: row;
+    gap: var(--space-2);
   }
 
   .item {
-    flex: 0 0 auto;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
-  .active {
-    min-width: 72px;
+  .item:not(:last-child)::after {
+    display: none;
+  }
+
+  .step {
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-1-5) var(--space-2);
+  }
+
+  .marker {
+    width: 24px;
+    height: 24px;
+  }
+
+  .marker svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .active .marker {
+    box-shadow: none;
+  }
+
+  .copy {
+    padding-top: 0;
+  }
+
+  .label {
+    overflow: hidden;
+    font-size: var(--fs-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hint {
+    display: none;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .circle {
-    transition: none;
+@media (max-width: 420px) {
+  .item:not(.active) .copy {
+    display: none;
+  }
+
+  .item:not(.active) {
+    flex: 0 0 auto;
+  }
+
+  .step {
+    justify-content: center;
   }
 }

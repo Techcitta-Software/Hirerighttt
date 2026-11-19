@@ -8,6 +8,7 @@ import {
   type JobApplicantFilters,
 } from '../lib/jobApplicantFilters'
 import { HrIcon } from './HrIcon'
+import { Score } from './Score'
 import styles from './JobApplicantsPanel.module.css'
 
 type Props = {
@@ -25,21 +26,20 @@ const SOURCE_LABEL: Record<NonNullable<EmployerApplicant['source']>, string> = {
 
 function ScoreCell({ value, label }: { value: number | null | undefined; label: string }) {
   if (typeof value !== 'number') return <span className={styles.muted}>—</span>
-  const tone = value >= 75 ? styles.good : value >= 50 ? styles.mid : styles.low
-  return (
-    <span className={styles.score} role="img" aria-label={`${label} ${Math.round(value)} out of 100`}>
-      <span className={`${styles.dot} ${tone}`} aria-hidden="true" />
-      <strong className="ds-num">{Math.round(value)}</strong>
-    </span>
-  )
+  return <Score value={value} label={label} />
 }
 
 const STATUS_TONE: Partial<Record<EmployerApplicant['status'], string>> = {
-  New: styles.statusNew,
+  New: styles.statusNeutral,
   'In Review': styles.statusReview,
-  Interviewing: styles.statusReview,
+  Interviewing: styles.statusBrand,
   Shortlisted: styles.statusGood,
   Rejected: styles.statusBad,
+}
+
+/** Sentence-case display labels; the stored status values are unchanged. */
+const STATUS_LABEL: Partial<Record<EmployerApplicant['status'], string>> = {
+  'In Review': 'In review',
 }
 
 /** Everyone who applied to one job — from the job board or a shared link — ranked by JD fit and interview. */
@@ -78,19 +78,19 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
   return (
     <div className={styles.panel}>
       <dl className={styles.summary}>
-        <div>
+        <div className={styles.stat}>
           <dt>Applicants</dt>
           <dd className="ds-num">{summary.total}</dd>
         </div>
-        <div>
+        <div className={styles.stat}>
           <dt>Interviewed</dt>
           <dd className="ds-num">{summary.interviewed}</dd>
         </div>
-        <div>
+        <div className={styles.stat}>
           <dt>Avg ATS score</dt>
           <dd className="ds-num">{summary.avgAts ?? '—'}</dd>
         </div>
-        <div>
+        <div className={styles.stat}>
           <dt>Avg HireRighttt score</dt>
           <dd className="ds-num">{summary.avgInterview ?? '—'}</dd>
         </div>
@@ -99,7 +99,9 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
       <div className={styles.filters} role="search" aria-label="Filter applicants">
         <label className={styles.searchField}>
           <span className="ds-sr-only">Search applicants</span>
-          <HrIcon name="search" size={16} />
+          <span className={styles.searchIcon} aria-hidden="true">
+            <HrIcon name="search" size={16} />
+          </span>
           <input
             type="search"
             placeholder="Search name, email or skill…"
@@ -107,7 +109,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             onChange={(e) => set({ query: e.target.value })}
           />
         </label>
-        <label>
+        <label className={styles.filterField}>
           <span>ATS score</span>
           <select aria-label="ATS score" value={f.minAts} onChange={(e) => set({ minAts: Number(e.target.value) })}>
             <option value={0}>Any</option>
@@ -116,7 +118,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             <option value={85}>85+</option>
           </select>
         </label>
-        <label>
+        <label className={styles.filterField}>
           <span>HireRighttt score</span>
           <select
             aria-label="HireRighttt score"
@@ -134,7 +136,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             <option value="85">85+</option>
           </select>
         </label>
-        <label>
+        <label className={styles.filterField}>
           <span>Source</span>
           <select aria-label="Source" value={f.source} onChange={(e) => set({ source: e.target.value as JobApplicantFilters['source'] })}>
             <option value="all">All</option>
@@ -143,7 +145,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             <option value="invite">Invite</option>
           </select>
         </label>
-        <label>
+        <label className={styles.filterField}>
           <span>Status</span>
           <select aria-label="Status" value={f.status} onChange={(e) => set({ status: e.target.value as JobApplicantFilters['status'] })}>
             <option value="all">All</option>
@@ -154,7 +156,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             <option value="Rejected">Rejected</option>
           </select>
         </label>
-        <label>
+        <label className={styles.filterField}>
           <span>Sort by</span>
           <select aria-label="Sort by" value={f.sort} onChange={(e) => set({ sort: e.target.value as JobApplicantFilters['sort'] })}>
             <option value="ats">Best ATS score</option>
@@ -166,7 +168,9 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
       </div>
 
       <p className={styles.count} role="status">
-        Showing <strong>{visible.length}</strong> of {rows.length}
+        <span>
+          Showing <strong className="ds-num">{visible.length}</strong> of <span className="ds-num">{rows.length}</span>
+        </span>
         {filtered ? (
           <button type="button" className={styles.reset} onClick={() => setF(DEFAULT_JOB_APPLICANT_FILTERS)}>
             Clear filters
@@ -178,7 +182,11 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
         <div className="ds-empty">
           <p className="ds-empty__title">No applicants match these filters</p>
           <div className="ds-empty__actions">
-            <button type="button" className={styles.reset} onClick={() => setF(DEFAULT_JOB_APPLICANT_FILTERS)}>
+            <button
+              type="button"
+              className="ds-btn ds-btn--secondary"
+              onClick={() => setF(DEFAULT_JOB_APPLICANT_FILTERS)}
+            >
               Clear filters
             </button>
           </div>
@@ -189,12 +197,18 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
             <thead>
               <tr>
                 <th scope="col">Candidate</th>
-                <th scope="col">ATS score</th>
-                <th scope="col">JD match</th>
-                <th scope="col">HireRighttt score</th>
+                <th scope="col" className={styles.num}>
+                  ATS score
+                </th>
+                <th scope="col" className={styles.num}>
+                  JD match
+                </th>
+                <th scope="col" className={styles.num}>
+                  HireRighttt score
+                </th>
                 <th scope="col">Matched skills</th>
                 <th scope="col">Status</th>
-                <th scope="col">
+                <th scope="col" className={styles.actionsHead}>
                   <span className="ds-sr-only">Actions</span>
                 </th>
               </tr>
@@ -209,16 +223,18 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                       <button type="button" className={styles.name} onClick={() => onOpenApplicant(a)}>
                         {a.candidateName}
                       </button>
-                      <span className={styles.sub}>{a.candidateEmail}</span>
+                      <span className={styles.sub} title={a.candidateEmail}>
+                        {a.candidateEmail}
+                      </span>
                       {a.source ? <span className={styles.source}>{SOURCE_LABEL[a.source]}</span> : null}
                     </td>
-                    <td data-label="ATS score">
+                    <td className={styles.num}>
                       <ScoreCell value={a.atsScore} label="ATS score" />
                     </td>
-                    <td data-label="JD match">
+                    <td className={styles.num}>
                       <ScoreCell value={a.jdMatchScore} label="JD match" />
                     </td>
-                    <td data-label="HireRighttt score">
+                    <td className={styles.num}>
                       {iv === null ? (
                         <span className={styles.muted}>Not interviewed</span>
                       ) : (
@@ -237,7 +253,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                         </>
                       )}
                     </td>
-                    <td data-label="Matched skills">
+                    <td>
                       {skills.length ? (
                         <span className={styles.skills}>
                           {skills.slice(0, 3).map((s) => (
@@ -251,19 +267,23 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                         <span className={styles.muted}>—</span>
                       )}
                     </td>
-                    <td data-label="Status">
-                      <span className={`${styles.status} ${STATUS_TONE[a.status] ?? ''}`}>{a.status}</span>
+                    <td>
+                      <span className={`${styles.status} ${STATUS_TONE[a.status] ?? styles.statusNeutral}`}>
+                        {STATUS_LABEL[a.status] ?? a.status}
+                      </span>
                     </td>
                     <td className={styles.actions}>
-                      <button type="button" onClick={() => onViewDocument('resume', a)} disabled={!a.resumeName && !a.resumeText}>
-                        Resume
-                      </button>
-                      <button type="button" onClick={() => onViewDocument('report', a)} disabled={iv === null}>
-                        Report
-                      </button>
-                      <button type="button" className={styles.primary} onClick={() => onOpenApplicant(a)}>
-                        Details
-                      </button>
+                      <div className={styles.actionGroup}>
+                        <button type="button" onClick={() => onViewDocument('resume', a)} disabled={!a.resumeName && !a.resumeText}>
+                          Resume
+                        </button>
+                        <button type="button" onClick={() => onViewDocument('report', a)} disabled={iv === null}>
+                          Report
+                        </button>
+                        <button type="button" className={styles.detailsBtn} onClick={() => onOpenApplicant(a)}>
+                          Details
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )

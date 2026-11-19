@@ -8,7 +8,7 @@ import {
   type AppNotification,
 } from '../lib/store'
 import { rememberNotifiedJobIds, syncJobMatchNotifications } from '../lib/jobMatchNotifications'
-import { fetchCandidateJobAlerts, fetchOpenJobs } from '../lib/vendorApi'
+import { fetchCandidateJobAlerts, fetchMatchedJobsForAlerts } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
 import styles from './CandidateNotificationBell.module.css'
 
@@ -64,11 +64,12 @@ export function CandidateNotificationBell() {
       try {
         const ok = await ensureApiSession()
         if (!ok || cancelled) return
-        const [res, alertsRes] = await Promise.all([
-          fetchOpenJobs({ summary: true, scope: 'matched', limit: 30, background: true }),
+        const [matchedJobs, alertsRes] = await Promise.all([
+          fetchMatchedJobsForAlerts(30),
           fetchCandidateJobAlerts().catch(() => ({ alerts: [] as { jobId: string; title: string; company: string }[] })),
         ])
-        const fromJobs = (res.jobs ?? []).map((j) => ({
+        if (cancelled) return
+        const fromJobs = matchedJobs.map((j) => ({
           id: j.id,
           title: j.title,
           company: j.company,
@@ -87,10 +88,15 @@ export function CandidateNotificationBell() {
         /* ignore — bell still shows stored notifications */
       }
     }
-    void pollJobAlerts()
-    const timer = window.setInterval(() => void pollJobAlerts(), 90_000)
+    // First poll a moment after mount, so it can reuse the matched-jobs list the page itself is
+    // loading (dashboard / jobs) instead of sending a second /api/jobs request.
+    const first = window.setTimeout(() => void pollJobAlerts(), 1_200)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') void pollJobAlerts()
+    }, 90_000)
     return () => {
       cancelled = true
+      window.clearTimeout(first)
       window.clearInterval(timer)
     }
   }, [])

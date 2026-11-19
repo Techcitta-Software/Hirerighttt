@@ -1,13 +1,12 @@
 /**
- * Single-person face tracking for the AI interview studio.
- * Full-range BlazeFace + stable timestamps so detection does not falsely "pause".
+ * Single-person face tracking for the AI interview (lobby + room).
+ *
+ * One MediaPipe FaceLandmarker, shared by the live status chip and the proctoring engine, so the room never runs
+ * two models. It runs on the CPU delegate (the GPU delegate stalls the main thread on a synchronous readPixels
+ * every frame) against a small downscaled frame, and the page samples it at ~3 Hz.
  */
 
-import {
-  FaceDetector,
-  FilesetResolver,
-  type Detection,
-} from '@mediapipe/tasks-vision'
+import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@mediapipe/tasks-vision'
 
 export type FaceIssue =
   | 'ok'
@@ -26,126 +25,122 @@ export type FaceTrackStatus = {
   severity: 'ok' | 'warn' | 'block' | 'ban'
   issue: FaceIssue
   faceAreaRatio: number
+  /** Normalised head turn, -1..1 (about ±60°). */
   yaw: number
   lookingForward: boolean
 }
 
+/** Raw per-frame measurements, consumed by the proctoring engine (same model, same frame). */
+export type FaceObservation = {
+  faceCount: number
+  yawDeg: number
+  pitchDeg: number
+  gazeScore: number
+  gazeDirection: 'left' | 'right' | 'center'
+}
+
 /** Match installed @mediapipe/tasks-vision version (see package.json). */
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
+const MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'
 
-/** Short-range = best for webcam/selfie (closer faces). */
-const SHORT_RANGE_MODEL =
-  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite'
+/** How often callers should sample (≈3 Hz). */
+export const FACE_SAMPLE_INTERVAL_MS = 330
 
-/** Full-range = farther faces / angled views. */
-const FULL_RANGE_MODEL =
-  'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/1/blaze_face_full_range.tflite'
-
-const KP = {
-  RIGHT_EYE: 0,
-  LEFT_EYE: 1,
-  NOSE: 2,
-  MOUTH: 3,
-  RIGHT_EAR: 4,
-  LEFT_EAR: 5,
-} as const
+/** Frames are downscaled to this width before inference (keeps upload/readback tiny). */
+const FRAME_WIDTH = 320
 
 const TOO_FAR_RATIO = 0.035
 const VERY_FAR_RATIO = 0.018
 const YAW_WARN = 0.32
 const YAW_STRONG = 0.48
+/** Degrees of head turn that map to yaw = 1. */
+const YAW_FULL_SCALE_DEG = 60
+/** A second face smaller than this share of the main face is background noise (poster, reflection). */
+const SECONDARY_FACE_MIN_RATIO = 0.15
 
-let detectorPromise: Promise<FaceDetector | null> | null = null
+let landmarkerPromise: Promise<FaceLandmarker | null> | null = null
 
-async function createDetector(
-  modelUrl: string,
-  delegate: 'GPU' | 'CPU',
-): Promise<FaceDetector> {
-  const vision = await FilesetResolver.forVisionTasks(WASM_URL)
-  return FaceDetector.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: modelUrl,
-      delegate,
-    },
-    runningMode: 'VIDEO',
-    minDetectionConfidence: 0.4,
-    minSuppressionThreshold: 0.3,
-  })
-}
-
-async function getDetector(): Promise<FaceDetector | null> {
-  if (!detectorPromise) {
-    detectorPromise = (async () => {
-      // Prefer short-range for interview webcam distance; fall back to full-range / CPU.
-      const attempts: Array<{ model: string; delegate: 'GPU' | 'CPU' }> = [
-        { model: SHORT_RANGE_MODEL, delegate: 'GPU' },
-        { model: SHORT_RANGE_MODEL, delegate: 'CPU' },
-        { model: FULL_RANGE_MODEL, delegate: 'GPU' },
-        { model: FULL_RANGE_MODEL, delegate: 'CPU' },
-      ]
-      for (const attempt of attempts) {
-        try {
-          return await createDetector(attempt.model, attempt.delegate)
-        } catch (err) {
-          console.warn(
-            `[face-tracker] init failed (${attempt.delegate}, ${attempt.model.includes('full') ? 'full' : 'short'})`,
-            err,
-          )
+async function getLandmarker(): Promise<FaceLandmarker | null> {
+  if (!landmarkerPromise) {
+    landmarkerPromise = (async () => {
+      try {
+        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
+        // CPU first: at 3 Hz on a 320px frame it is as accurate and never blocks on GPU readback.
+        for (const delegate of ['CPU', 'GPU'] as const) {
+          try {
+            return await FaceLandmarker.createFromOptions(vision, {
+              baseOptions: { modelAssetPath: MODEL_URL, delegate },
+              runningMode: 'VIDEO',
+              numFaces: 3,
+              minFaceDetectionConfidence: 0.5,
+              minFacePresenceConfidence: 0.5,
+              minTrackingConfidence: 0.5,
+              outputFaceBlendshapes: true,
+              outputFacialTransformationMatrixes: true,
+            })
+          } catch (err) {
+            console.warn(`[face-tracker] init failed (${delegate})`, err)
+          }
         }
+      } catch (err) {
+        console.warn('[face-tracker] runtime failed to load', err)
       }
       return null
     })()
   }
-  return detectorPromise
+  return landmarkerPromise
 }
 
-function kp(
-  detection: Detection,
-  index: number,
-): { x: number; y: number } | null {
-  const points = detection.keypoints
-  if (!points || !points[index]) return null
-  const p = points[index]
-  if (typeof p.x !== 'number' || typeof p.y !== 'number') return null
-  return { x: p.x, y: p.y }
+/** Start loading the model early (e.g. as soon as the camera is on). */
+export function preloadFaceTracker(): void {
+  void getLandmarker()
 }
 
-function estimateYaw(detection: Detection): number {
-  const re = kp(detection, KP.RIGHT_EYE)
-  const le = kp(detection, KP.LEFT_EYE)
-  const nose = kp(detection, KP.NOSE)
-  if (!re || !le || !nose) return 0
-
-  const eyeSpan = Math.abs(le.x - re.x)
-  if (eyeSpan < 0.01) return 0
-
-  const midX = (le.x + re.x) / 2
-  let yaw = (nose.x - midX) / (eyeSpan * 0.5)
-
-  const rEar = kp(detection, KP.RIGHT_EAR)
-  const lEar = kp(detection, KP.LEFT_EAR)
-  if (rEar && lEar) {
-    const dR = Math.hypot(nose.x - rEar.x, nose.y - rEar.y)
-    const dL = Math.hypot(nose.x - lEar.x, nose.y - lEar.y)
-    const earBias = (dL - dR) / Math.max(dL + dR, 0.01)
-    yaw = yaw * 0.55 + earBias * 0.45
+function boxArea(landmarks: Array<{ x: number; y: number }>): number {
+  let minX = 1
+  let maxX = 0
+  let minY = 1
+  let maxY = 0
+  for (const pt of landmarks) {
+    if (pt.x < minX) minX = pt.x
+    if (pt.x > maxX) maxX = pt.x
+    if (pt.y < minY) minY = pt.y
+    if (pt.y > maxY) maxY = pt.y
   }
-
-  return Math.max(-1, Math.min(1, yaw))
+  return Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
 }
 
-function faceAreaRatio(detection: Detection, video: HTMLVideoElement): number {
-  const box = detection.boundingBox
-  if (!box) return 0
-  const vw = video.videoWidth || 1
-  const vh = video.videoHeight || 1
-  const w = 'width' in box ? Number(box.width) : 0
-  const h = 'height' in box ? Number(box.height) : 0
-  if (w <= 1 && h <= 1) return Math.max(0, w * h)
-  return Math.max(0, (w * h) / (vw * vh))
+export function headAnglesFromMatrix(matrixData?: ArrayLike<number>): { yawDeg: number; pitchDeg: number } {
+  if (!matrixData || matrixData.length < 16) return { yawDeg: 0, pitchDeg: 0 }
+  const m02 = matrixData[8]
+  const m12 = matrixData[9]
+  const m22 = matrixData[10]
+  const yawDeg = Math.atan2(m02, m22) * (180 / Math.PI)
+  const pitchDeg = Math.asin(-Math.max(-1, Math.min(1, m12))) * (180 / Math.PI)
+  return { yawDeg, pitchDeg }
 }
 
-function buildStatus(
+export function eyeGazeFromBlendshapes(
+  categories?: Array<{ categoryName: string; score: number }>,
+): { gazeScore: number; gazeDirection: 'left' | 'right' | 'center' } {
+  if (!categories) return { gazeScore: 0, gazeDirection: 'center' }
+  const get = (name: string) => categories.find((c) => c.categoryName === name)?.score || 0
+  const lookLeft = (get('eyeLookOutLeft') + get('eyeLookInRight')) / 2
+  const lookRight = (get('eyeLookOutRight') + get('eyeLookInLeft')) / 2
+  return lookLeft > lookRight
+    ? { gazeScore: lookLeft, gazeDirection: 'left' }
+    : { gazeScore: lookRight, gazeDirection: 'right' }
+}
+
+/** Faces that count: the largest, plus any other face at least 15% of its size. */
+export function countRealFaces(areas: number[]): number {
+  if (!areas.length) return 0
+  const primary = Math.max(...areas)
+  return areas.filter((a) => a >= primary * SECONDARY_FACE_MIN_RATIO).length
+}
+
+export function buildStatus(
   faceCount: number,
   opts: {
     yaw?: number
@@ -161,7 +156,7 @@ function buildStatus(
     return {
       faceCount: 0,
       ok: false,
-      label: 'No face found — center yourself in the camera',
+      label: 'We can’t see your face — sit in front of the camera',
       severity: 'warn',
       issue: 'no_face',
       faceAreaRatio: 0,
@@ -174,7 +169,7 @@ function buildStatus(
     return {
       faceCount,
       ok: false,
-      label: `${faceCount} people in frame — only you are allowed`,
+      label: `${faceCount} people in view — only you should be on camera`,
       severity: 'warn',
       issue: 'multi_person',
       faceAreaRatio: area,
@@ -200,7 +195,7 @@ function buildStatus(
     return {
       faceCount: 1,
       ok: true,
-      label: 'Turn toward the camera — keep your face centered',
+      label: 'Turn a little toward the camera',
       severity: 'warn',
       issue: 'looking_away',
       faceAreaRatio: area,
@@ -213,7 +208,7 @@ function buildStatus(
     return {
       faceCount: 1,
       ok: true,
-      label: 'You look too far — move closer so Ava can see you clearly',
+      label: 'You look far away — move closer to the camera',
       severity: 'warn',
       issue: 'too_far',
       faceAreaRatio: area,
@@ -226,7 +221,7 @@ function buildStatus(
     return {
       faceCount: 1,
       ok: true,
-      label: 'A bit far — scoot closer to the camera',
+      label: 'Move a little closer to the camera',
       severity: 'warn',
       issue: 'too_far',
       faceAreaRatio: area,
@@ -238,7 +233,7 @@ function buildStatus(
   return {
     faceCount: 1,
     ok: true,
-    label: 'One face detected · facing camera',
+    label: 'You’re in view',
     severity: 'ok',
     issue: 'ok',
     faceAreaRatio: area,
@@ -254,7 +249,7 @@ export function statusFromCount(faceCount: number): FaceTrackStatus {
 const SCANNING: FaceTrackStatus = {
   faceCount: 0,
   ok: false,
-  label: 'Scanning for your face…',
+  label: 'Looking for your face…',
   severity: 'warn',
   issue: 'scanning',
   faceAreaRatio: 0,
@@ -262,59 +257,106 @@ const SCANNING: FaceTrackStatus = {
   lookingForward: false,
 }
 
+function unable(label: string): FaceTrackStatus {
+  return { ...SCANNING, issue: 'unable_to_assess', label }
+}
+
+/**
+ * Identity of what the candidate actually sees. Two statuses with the same key render identically, so callers
+ * only need to update React state when the key changes.
+ */
+export function faceStatusKey(status: FaceTrackStatus): string {
+  return [
+    status.issue,
+    status.severity,
+    status.faceCount,
+    status.label,
+    status.ok ? 1 : 0,
+    status.lookingForward ? 1 : 0,
+    Math.abs(status.yaw) >= YAW_STRONG ? 1 : 0,
+  ].join('|')
+}
+
+/** Mean luminance and variance of an RGBA buffer, sampling every `step`-th pixel. */
+export function frameLighting(data: Uint8ClampedArray, step = 4): { mean: number; variance: number } {
+  let sum = 0
+  let squares = 0
+  let n = 0
+  for (let i = 0; i < data.length; i += 4 * step) {
+    const l = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+    sum += l
+    squares += l * l
+    n += 1
+  }
+  if (!n) return { mean: 0, variance: 0 }
+  const mean = sum / n
+  return { mean, variance: squares / n - mean * mean }
+}
+
 export class FaceTracker {
   private lastTs = -1
-  private canvas = document.createElement('canvas')
+  private canvas: HTMLCanvasElement | null = null
+  private ctx: CanvasRenderingContext2D | null = null
   private videoTime = -1
   private frameAt = performance.now()
-  private lastStatus: FaceTrackStatus = SCANNING
   private disposed = false
-  private errorStreak = 0
+  /** Measurements from the last analysed frame (null when no frame could be analysed). */
+  lastObservation: FaceObservation | null = null
   multiPersonStreak = 0
   noFaceStreak = 0
 
   async ready() {
-    return (await getDetector()) != null
+    return (await getLandmarker()) != null
+  }
+
+  private frame(video: HTMLVideoElement): HTMLCanvasElement | null {
+    if (!this.canvas) {
+      this.canvas = document.createElement('canvas')
+      this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })
+    }
+    const ctx = this.ctx
+    if (!ctx) return null
+    const w = FRAME_WIDTH
+    const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * FRAME_WIDTH))
+    if (this.canvas.width !== w) this.canvas.width = w
+    if (this.canvas.height !== h) this.canvas.height = h
+    ctx.drawImage(video, 0, 0, w, h)
+    return this.canvas
   }
 
   async detect(video: HTMLVideoElement | null): Promise<FaceTrackStatus> {
+    this.lastObservation = null
     if (this.disposed || !video || video.readyState < 2 || !video.videoWidth) {
-      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: camera frame unavailable.' }
+      return unable('Waiting for your camera…')
     }
-    if (video.currentTime !== this.videoTime) { this.videoTime = video.currentTime; this.frameAt = performance.now() }
+    if (video.currentTime !== this.videoTime) {
+      this.videoTime = video.currentTime
+      this.frameAt = performance.now()
+    }
     if (document.hidden || performance.now() - this.frameAt > 1500) {
-      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: video paused or page hidden.' }
-    }
-    this.canvas.width = 64
-    this.canvas.height = 48
-    const ctx = this.canvas.getContext('2d', { willReadFrequently: true })
-    if (ctx) {
-      ctx.drawImage(video, 0, 0, 64, 48)
-      const data = ctx.getImageData(0, 0, 64, 48).data
-      let sum = 0, squares = 0
-      for (let i = 0; i < data.length; i += 4) {
-        const l = .2126 * data[i] + .7152 * data[i + 1] + .0722 * data[i + 2]
-        sum += l; squares += l * l
-      }
-      const mean = sum / (64 * 48)
-      if (mean < 35 || mean > 235 || squares / (64 * 48) - mean * mean < 70) {
-        return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: improve lighting and keep the lens clear.' }
-      }
+      return unable('Camera paused — keep this tab open')
     }
 
-    const detector = await getDetector()
-    if (!detector) {
-      this.lastStatus = {
+    const landmarker = await getLandmarker()
+    if (this.disposed) return SCANNING
+    if (!landmarker) {
+      return {
         faceCount: 0,
         ok: false,
-        label: 'Unable to assess: camera checks unavailable. Refresh to retry.',
+        label: 'Camera check isn’t available — refresh to try again',
         severity: 'warn',
         issue: 'engine_off',
         faceAreaRatio: 0,
         yaw: 0,
         lookingForward: true,
       }
-      return this.lastStatus
+    }
+
+    const canvas = this.frame(video)
+    if (!canvas || !this.ctx) return unable('Waiting for your camera…')
+    const { mean, variance } = frameLighting(this.ctx.getImageData(0, 0, canvas.width, canvas.height).data)
+    if (mean < 35 || mean > 235 || variance < 70) {
+      return unable('We can’t see you clearly — add light and keep the lens clear')
     }
 
     // MediaPipe VIDEO mode requires strictly increasing timestamps (ms).
@@ -322,55 +364,43 @@ export class FaceTracker {
     if (ts <= this.lastTs) ts = this.lastTs + 1
     this.lastTs = ts
 
+    let result: FaceLandmarkerResult
     try {
-      const result = detector.detectForVideo(video, ts)
-      this.errorStreak = 0
-      const detections = (result.detections as Detection[] | undefined) ?? []
-      if (detections.some(d => (d.categories?.[0]?.score ?? 0) < .65)) {
-        return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: low detection confidence.' }
-      }
-      const count = detections.length
-
-      if (count > 1) {
-        this.multiPersonStreak += 1
-        this.noFaceStreak = 0
-      } else if (count === 0) {
-        this.noFaceStreak += 1
-        this.multiPersonStreak = 0
-      } else {
-        this.multiPersonStreak = 0
-        this.noFaceStreak = 0
-      }
-
-      if (count === 0) return buildStatus(0)
-
-      let primary = detections[0]
-      let bestArea = faceAreaRatio(primary, video)
-      for (let i = 1; i < detections.length; i += 1) {
-        const a = faceAreaRatio(detections[i], video)
-        if (a > bestArea) {
-          bestArea = a
-          primary = detections[i]
-        }
-      }
-
-      if (bestArea < TOO_FAR_RATIO) return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: move closer and center your face.' }
-      const yaw = estimateYaw(primary)
-      const lookingForward = Math.abs(yaw) < YAW_WARN
-      this.lastStatus = buildStatus(count, {
-        yaw,
-        area: bestArea,
-        lookingForward,
-      })
-      return this.lastStatus
+      result = landmarker.detectForVideo(canvas, ts)
     } catch (err) {
-      this.errorStreak += 1
       console.warn('[face-tracker] detect error', err)
-      return { ...SCANNING, issue: 'unable_to_assess', label: 'Unable to assess: camera analysis interrupted.' }
+      return unable('Camera check interrupted — hold on a moment')
     }
+
+    const faces = result.faceLandmarks ?? []
+    const areas = faces.map((lm) => boxArea(lm))
+    const count = countRealFaces(areas)
+    const { yawDeg, pitchDeg } = headAnglesFromMatrix(result.facialTransformationMatrixes?.[0]?.data)
+    const gaze = eyeGazeFromBlendshapes(result.faceBlendshapes?.[0]?.categories)
+    this.lastObservation = { faceCount: count, yawDeg, pitchDeg, ...gaze }
+
+    if (count > 1) {
+      this.multiPersonStreak += 1
+      this.noFaceStreak = 0
+    } else if (count === 0) {
+      this.noFaceStreak += 1
+      this.multiPersonStreak = 0
+    } else {
+      this.multiPersonStreak = 0
+      this.noFaceStreak = 0
+    }
+
+    if (count === 0) return buildStatus(0)
+    const bestArea = Math.max(...areas)
+    if (count === 1 && bestArea < TOO_FAR_RATIO) {
+      return unable('Move closer and center your face')
+    }
+    const yaw = Math.max(-1, Math.min(1, yawDeg / YAW_FULL_SCALE_DEG))
+    return buildStatus(count, { yaw, area: bestArea, lookingForward: Math.abs(yaw) < YAW_WARN })
   }
 
   dispose() {
     this.disposed = true
+    this.lastObservation = null
   }
 }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from app.db.finders import find_user, memberships_for_user, remove_vault_item, vault_for_org
 import re
 import secrets
@@ -36,6 +38,22 @@ from app.services.storage import interview_recording_storage as rec_store
 from app.services.storage.s3_storage import s3_storage_configured
 from app.services.vendor.candidate_documents import assert_vendor_may_view_candidate_documents
 from app.services.vendor.jobs import get_org_application_for_recruiter, get_org_job_for_recruiter
+
+
+def _mark_invite_email_sent(pool, token: str) -> None:
+    """Blocking (run via asyncio.to_thread)."""
+    if database_provider() == "dynamodb":
+        dr.update_invite_email_sent_dynamo(token)
+        return
+    with pool.connection() as conn:
+        conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
+        conn.commit()
+
+
+def _load_session_row(pool, session_id: str):
+    """Blocking (run via asyncio.to_thread)."""
+    with pool.connection() as conn:
+        return conn.execute("SELECT email, data FROM interview_sessions WHERE session_id = %s", (session_id,)).fetchone()
 
 
 async def try_extended_routes(
@@ -200,12 +218,7 @@ async def try_extended_routes(
                     durationMinutes=int(duration),
                     inviteUrl=invite_url,
                 )
-                if database_provider() == "dynamodb":
-                    dr.update_invite_email_sent_dynamo(token)
-                else:
-                    with pool.connection() as conn:
-                        conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                        conn.commit()
+                await asyncio.to_thread(_mark_invite_email_sent, pool, token)
                 email_sent = True
             except Exception as err:
                 email_error = str(err)
@@ -321,12 +334,7 @@ async def try_extended_routes(
                         inviteUrl=invite_url,
                         openInvite=True,
                     )
-                    if database_provider() == "dynamodb":
-                        dr.update_invite_email_sent_dynamo(token)
-                    else:
-                        with pool.connection() as conn:
-                            conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                            conn.commit()
+                    await asyncio.to_thread(_mark_invite_email_sent, pool, token)
                     sent = True
                 except Exception as err:
                     err_text = str(err)
@@ -401,12 +409,7 @@ async def try_extended_routes(
         email_error = None
         try:
             await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))
-            if database_provider() == "dynamodb":
-                dr.update_invite_email_sent_dynamo(token)
-            else:
-                with pool.connection() as conn:
-                    conn.execute("UPDATE interview_invites SET email_sent_at = NOW() WHERE token = %s", (token,))
-                    conn.commit()
+            await asyncio.to_thread(_mark_invite_email_sent, pool, token)
             email_sent = True
         except Exception as err:
             email_error = str(err)
@@ -523,8 +526,7 @@ async def try_extended_routes(
                 db.setdefault("interviewSessions", {})[session_id] = session
         elif not session and persistence_ready(config.database_url):
             pool = db_store.db_pool(config.database_url or "dynamodb")
-            with pool.connection() as conn:
-                row = conn.execute("SELECT email, data FROM interview_sessions WHERE session_id = %s", (session_id,)).fetchone()
+            row = await asyncio.to_thread(_load_session_row, pool, session_id)
             if row:
                 session = row_value(row, "data", 1) or {}
                 session.setdefault("email", row_value(row, "email", 0))

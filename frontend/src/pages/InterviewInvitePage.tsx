@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { moonshineStt } from '../lib/moonshineStt'
 import { PageLoader } from '../components/SignalLoader'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
@@ -66,6 +67,11 @@ export function InterviewInvitePage() {
   const isInvitee = Boolean(signedInEmail) && signedInEmail === invitedEmail
   const wrongAccount = Boolean(signedInEmail) && Boolean(invitedEmail) && !isInvitee
   const needsSignIn = Boolean(invite) && !signedInEmail
+
+  // The invited candidate is about to start the interview: warm the speech-to-text model.
+  useEffect(() => {
+    if (isInvitee) moonshineStt.preloadWhenIdle(1500)
+  }, [isInvitee])
 
   // Remember the link so sign-in / sign-up brings the candidate straight back here.
   useEffect(() => {
@@ -252,6 +258,9 @@ export function InterviewInvitePage() {
   const resumeReady = Boolean(invite?.resumeReady || (invite?.resumeText && invite.resumeText.trim().length > 20))
   const jdReady = Boolean(invite?.jobDescription && invite.jobDescription.trim().length > 20)
 
+  const istTime: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+  const istDay: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' }
+
   return (
     <div className={styles.page}>
       <MarketingNavBar />
@@ -262,174 +271,190 @@ export function InterviewInvitePage() {
         </header>
 
         {loading && <PageLoader label="Loading your interview…" />}
-        {error && <div role="alert"><p className={styles.error}>{error}</p><button type="button" className={styles.secondaryBtn} onClick={() => setRetry(value => value + 1)}>Try again</button></div>}
+        {error && (
+          <div className={`ds-alert ds-alert--error ${styles.errorAlert}`} role="alert">
+            <p className={styles.alertText}>{error}</p>
+            <button type="button" className={styles.secondaryBtn} onClick={() => setRetry((value) => value + 1)}>
+              Try again
+            </button>
+          </div>
+        )}
 
         {invite && start && end && (
-          <div className={styles.card}>
-            <div className={styles.grid}>
-              <div>
-                <span className={styles.label}>Candidate</span>
-                <p className={styles.value}>
-                  {invite.candidateName || 'Candidate'}{' '}
-                  <span className={styles.mutedInline}>({invite.candidateEmail})</span>
-                </p>
+          <section className={styles.card} aria-label="Interview details">
+            <dl className={styles.details}>
+              <div className={styles.detailRow}>
+                <dt className={styles.label}>Candidate</dt>
+                <dd className={styles.value}>
+                  {invite.candidateName || 'Candidate'}
+                  <span className={styles.valueMeta}>{invite.candidateEmail}</span>
+                </dd>
               </div>
-              <div>
-                <span className={styles.label}>{isOpenLink ? 'Link active until (IST)' : 'Join window (IST)'}</span>
-                <p className={styles.value}>
+              {invite.company && (
+                <div className={styles.detailRow}>
+                  <dt className={styles.label}>Company</dt>
+                  <dd className={styles.value}>{invite.company}</dd>
+                </div>
+              )}
+              <div className={styles.detailRow}>
+                <dt className={styles.label}>{isOpenLink ? 'Link active until' : 'Join window'}</dt>
+                <dd className={styles.value}>
                   {isOpenLink ? (
-                    formatIst(invite.scheduledEnd, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                    <>{formatIst(invite.scheduledEnd, { ...istDay, ...istTime })} IST</>
                   ) : (
-                  <>Opens{' '}
-                  {formatIst(invite.scheduledStart, {
-                    weekday: 'short',
-                    day: 'numeric',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}{' '}
-                  · join by{' '}
-                  {formatIst(invite.scheduledEnd, { hour: '2-digit', minute: '2-digit' })}</>
+                    <>
+                      Opens {formatIst(invite.scheduledStart, { ...istDay, ...istTime })} · join by{' '}
+                      {formatIst(invite.scheduledEnd, istTime)} IST
+                    </>
                   )}
-                </p>
+                </dd>
               </div>
-            </div>
+              <div className={styles.detailRow}>
+                <dt className={styles.label}>Interview context</dt>
+                <dd className={styles.contextRow}>
+                  <span className={resumeReady ? styles.chipOn : styles.chipOff}>
+                    Resume context {resumeReady ? 'ready' : 'pending'}
+                  </span>
+                  {hasEmployerContext && (
+                    <span className={jdReady ? styles.chipOn : styles.chipOff}>
+                      Job description {jdReady ? 'included' : 'pending'}
+                    </span>
+                  )}
+                </dd>
+              </div>
+              {invite.primarySkills && invite.primarySkills.length > 0 && (
+                <div className={styles.detailRow}>
+                  <dt className={styles.label}>Skills covered</dt>
+                  <dd className={styles.skills}>
+                    {invite.primarySkills.slice(0, 8).map((sk) => (
+                      <span key={sk} className={styles.skill}>
+                        {sk}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              )}
+            </dl>
 
-            <div className={styles.contextRow}>
-              <span className={resumeReady ? styles.chipOn : styles.chipOff}>
-                Resume context {resumeReady ? 'ready' : 'pending'}
-              </span>
-              {hasEmployerContext && (
-                <span className={jdReady ? styles.chipOn : styles.chipOff}>
-                  Job description {jdReady ? 'included' : 'pending'}
-                </span>
+            <div className={styles.status}>
+              {status === 'too_early' && (
+                <div className={styles.noticeWarn}>
+                  <p className={styles.noticeTitle}>Your interview opens at the exact scheduled time.</p>
+                  <p className={styles.noticeText}>
+                    When the countdown hits zero, you will be taken straight into the AI interview.
+                  </p>
+                  {countdown && <p className={styles.countdown}>Starts in {countdown}</p>}
+                  {isImmediateInterviewTestEnabled() && (
+                    <button
+                      type="button"
+                      className={`${styles.secondaryBtn} ${styles.noticeAction}`}
+                      onClick={() => beginImmediateInterviewTest(navigate)}
+                    >
+                      Test: start interview now
+                    </button>
+                  )}
+                </div>
+              )}
+              {(status === 'expired' || status === 'invalid') && !invite.canReschedule && (
+                <p className={`ds-alert ds-alert--warning ${styles.alertBlock}`}>
+                  This interview window has ended. Contact your recruiter for a new link.
+                </p>
+              )}
+              {isInvitee && invite.canReschedule && (status === 'too_early' || status === 'expired') && (
+                <div className={styles.noticePanel}>
+                  <p className={styles.noticeTitle}>
+                    {status === 'expired' ? 'Missed your slot? Pick a new time.' : 'Need a different time?'}
+                  </p>
+                  <p className={styles.noticeText}>Choose a new slot; we will email you the updated link details.</p>
+                  <div className={styles.rescheduleRow}>
+                    <label className="ds-sr-only" htmlFor="invite-new-slot">
+                      New interview date and time
+                    </label>
+                    <input
+                      id="invite-new-slot"
+                      type="datetime-local"
+                      min={minSlot}
+                      value={newSlot}
+                      onChange={(e) => setNewSlot(e.target.value)}
+                      className={styles.input}
+                    />
+                    <button
+                      type="button"
+                      className={styles.primaryBtnMd}
+                      onClick={() => void reschedule()}
+                      disabled={!newSlot || rescheduling}
+                      aria-busy={rescheduling || undefined}
+                    >
+                      {rescheduling ? 'Moving…' : 'Move my interview'}
+                    </button>
+                  </div>
+                  {rescheduleMsg && (
+                    <p className={styles.noticeText} role="status">
+                      {rescheduleMsg}
+                    </p>
+                  )}
+                </div>
+              )}
+              {canStart && needsSignIn && (
+                <div className={styles.noticePanel}>
+                  <p className={styles.noticeTitle}>Sign in to begin.</p>
+                  <p className={styles.noticeText}>
+                    Use <strong className={styles.email}>{invite.candidateEmail}</strong> so this invitation matches
+                    you. Your interview questions are built from your own resume, and you will be brought straight
+                    back here.
+                  </p>
+                  <div className={styles.actions}>
+                    <Link
+                      to={`/signup?email=${encodeURIComponent(invite.candidateEmail)}`}
+                      state={{ from: `/interview/invite/${token}` }}
+                      className={styles.secondaryBtn}
+                    >
+                      Create account
+                    </Link>
+                    <Link
+                      to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
+                      state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
+                      className={styles.primaryBtn}
+                    >
+                      Sign in
+                    </Link>
+                  </div>
+                </div>
+              )}
+              {canStart && wrongAccount && (
+                <div className={styles.noticeWarn}>
+                  <p className={styles.noticeTitle}>This invitation is for {invite.candidateEmail}.</p>
+                  <p className={styles.noticeText}>
+                    You are signed in as {me?.email}. Sign out and sign in with the invited address to continue.
+                  </p>
+                  <Link to="/logout" className={`${styles.secondaryBtn} ${styles.noticeAction}`}>
+                    Switch account
+                  </Link>
+                </div>
+              )}
+              {canStart && isInvitee && (
+                <>
+                  <p className={styles.noticeOk}>
+                    Your interview is open. Ava will use your resume
+                    {hasEmployerContext && jdReady ? ' and this job description' : ''} for personalized questions.
+                    {!resumeReady ? ' You will be asked to add your resume first.' : ''}
+                  </p>
+                  <button type="button" className={`${styles.primaryBtn} ${styles.fullBtn}`} onClick={startInterview}>
+                    Start AI interview
+                  </button>
+                </>
+              )}
+              {!canStart && status !== 'expired' && needsSignIn && (
+                <Link
+                  to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
+                  state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
+                  className={`${styles.secondaryBtn} ${styles.fullBtn}`}
+                >
+                  Sign in to prepare your profile
+                </Link>
               )}
             </div>
-
-            {invite.primarySkills && invite.primarySkills.length > 0 && (
-              <div className={styles.skills}>
-                {invite.primarySkills.slice(0, 8).map((sk) => (
-                  <span key={sk} className={styles.skill}>
-                    {sk}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {status === 'too_early' && (
-              <div className={styles.noticeWarn}>
-                <strong>Your interview opens at the exact scheduled time.</strong>
-                <p className={styles.mutedInline}>
-                  When the countdown hits zero, you will be taken straight into the AI interview.
-                </p>
-                {countdown && <p className={styles.countdown}>Starts in {countdown}</p>}
-                {isImmediateInterviewTestEnabled() && (
-                  <button
-                    type="button"
-                    className={styles.primaryBtn}
-                    style={{ marginTop: '12px' }}
-                    onClick={() => beginImmediateInterviewTest(navigate)}
-                  >
-                    Test: start interview now
-                  </button>
-                )}
-              </div>
-            )}
-            {(status === 'expired' || status === 'invalid') && !invite.canReschedule && (
-              <p className={styles.error}>
-                This interview window has ended. Contact your recruiter for a new link.
-              </p>
-            )}
-            {isInvitee && invite.canReschedule && (status === 'too_early' || status === 'expired') && (
-              <div className={styles.noticeWarn}>
-                <strong>{status === 'expired' ? 'Missed your slot? Pick a new time.' : 'Need a different time?'}</strong>
-                <p className={styles.mutedInline}>Choose a new slot; we will email you the updated link details.</p>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
-                  <label className="ds-sr-only" htmlFor="invite-new-slot">
-                    New interview date and time
-                  </label>
-                  <input
-                    id="invite-new-slot"
-                    type="datetime-local"
-                    min={minSlot}
-                    value={newSlot}
-                    onChange={(e) => setNewSlot(e.target.value)}
-                    style={{ minHeight: 42, padding: '0 10px', borderRadius: 10, border: '1px solid #d6d7e5' }}
-                  />
-                  <button
-                    type="button"
-                    className={styles.primaryBtn}
-                    onClick={() => void reschedule()}
-                    disabled={!newSlot || rescheduling}
-                  >
-                    {rescheduling ? 'Moving…' : 'Move my interview'}
-                  </button>
-                </div>
-                {rescheduleMsg && (
-                  <p className={styles.mutedInline} role="status" style={{ marginTop: 8 }}>
-                    {rescheduleMsg}
-                  </p>
-                )}
-              </div>
-            )}
-            {canStart && needsSignIn && (
-              <div className={styles.noticeOk}>
-                <strong>Sign in to begin.</strong>
-                <p className={styles.mutedInline}>
-                  Use <b>{invite.candidateEmail}</b> so this invitation matches you. Your interview questions are built
-                  from your own resume, and you will be brought straight back here.
-                </p>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
-                  <Link
-                    to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
-                    state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
-                    className={styles.primaryBtn}
-                  >
-                    I have an account — sign in
-                  </Link>
-                  <Link
-                    to={`/signup?email=${encodeURIComponent(invite.candidateEmail)}`}
-                    state={{ from: `/interview/invite/${token}` }}
-                    className={styles.secondaryBtn}
-                  >
-                    Create my account
-                  </Link>
-                </div>
-              </div>
-            )}
-            {canStart && wrongAccount && (
-              <div className={styles.noticeWarn}>
-                <strong>This invitation is for {invite.candidateEmail}.</strong>
-                <p className={styles.mutedInline}>
-                  You are signed in as {me?.email}. Sign out and sign in with the invited address to continue.
-                </p>
-                <Link to="/logout" className={styles.secondaryBtn}>
-                  Switch account
-                </Link>
-              </div>
-            )}
-            {canStart && isInvitee && (
-              <>
-                <p className={styles.noticeOk}>
-                  Your interview is open — Ava will use your resume
-                  {hasEmployerContext && jdReady ? ' and this job description' : ''} for personalized questions.
-                  {!resumeReady ? ' You will be asked to add your resume first.' : ''}
-                </p>
-                <button type="button" className={styles.primaryBtn} onClick={startInterview}>
-                  Start AI interview
-                </button>
-              </>
-            )}
-            {!canStart && status !== 'expired' && needsSignIn && (
-              <Link
-                to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
-                state={{ explicitLogin: true, from: `/interview/invite/${token}` }}
-                className={styles.secondaryBtn}
-              >
-                Sign in to prepare your profile
-              </Link>
-            )}
-          </div>
+          </section>
         )}
       </main>
       <MarketingFooter />

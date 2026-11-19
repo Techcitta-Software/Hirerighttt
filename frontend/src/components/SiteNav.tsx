@@ -14,13 +14,13 @@ const MARKETING_NAV = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/career-view', label: '360° report' },
-  { to: '/solutions', label: 'Organisations' },
+  { to: '/for-recruiters', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
 ]
 
 const LANDING_NAV = [
   { to: '/jobs', label: 'Find jobs' },
-  { to: '/solutions', label: 'Organisations' },
+  { to: '/for-recruiters', label: 'Organisations' },
   { to: '/why', label: 'Why us?' },
 ]
 
@@ -50,7 +50,8 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   const [open, setOpen] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const profileMenuRef = useRef<HTMLDivElement>(null)
-  const [loggedIn, setLoggedIn] = useState(false)
+  // Start from the stored session so the notification bell mounts once, not after the first auth sync.
+  const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
   const user = getUser()
   const initials = useMemo(() => {
     const raw = (user?.name || user?.companyName || '').trim()
@@ -87,7 +88,17 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
 
   useEffect(() => {
     setProfileMenuOpen(false)
+    setOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open])
 
   useEffect(() => {
     if (!profileMenuOpen) return
@@ -419,24 +430,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                 <>
                   {user?.role === 'employer' ? (
                     <>
-                      <NavLink
-                        to="/employer/jobs"
-                        onClick={() => setOpen(false)}
-                        className={({ isActive }) =>
-                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
-                        }
-                      >
-                        Jobs &amp; openings
-                      </NavLink>
-                      <NavLink
-                        to="/employer/candidates"
-                        onClick={() => setOpen(false)}
-                        className={({ isActive }) =>
-                          isActive ? `${styles.mobileLink} ${styles.mobileActive}` : styles.mobileLink
-                        }
-                      >
-                        Candidates
-                      </NavLink>
                       <NavLink
                         to="/settings"
                         onClick={() => setOpen(false)}

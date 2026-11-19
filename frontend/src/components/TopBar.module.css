@@ -1,30 +1,198 @@
-.topbar { display:flex; align-items:center; justify-content:flex-end; gap:28px; min-height:72px; margin:0 -38px; padding:0 38px; border-bottom:1px solid #eaebf2; }
-.safe { display:inline-flex; align-items:center; gap:8px; font-size:14px; color:#5f6686; font-weight:500; }
-.shield { color:var(--hr-brand-solid, #5046e5); display:grid; place-items:center; }
-.shield svg { width:20px; height:20px; }
-.userWrap { position:relative; border-left:1px solid #e8e9f1; padding-left:28px; }
-.userBtn { display:inline-flex; align-items:center; gap:10px; padding:0; background:transparent; border:0; font-size:15px; font-weight:600; color:#141638; cursor:pointer; }
-.avatar { width:38px; height:38px; border-radius:50%; display:grid; place-items:center; background:#eef2ff; color:var(--hr-brand-solid, #5046e5); font-size:14px; font-weight:700; }
-.chevron { width:16px; height:16px; color:#252a4b; }
-.open { transform:rotate(180deg); }
-.menu { position:absolute; right:0; top:calc(100% + 14px); min-width:230px; z-index:70; background:white; border:1px solid #e8e9f1; border-radius:10px; box-shadow:0 8px 30px #14163815; padding:8px; }
-.menuHeader { padding:8px 10px; }
-.menuName { font-size:15px; font-weight:600; }
-.menuRole { font-size:13px; color:#606786; text-transform:capitalize; }
-.divider { height:1px; background:#e8e9f1; margin:6px 0; }
-.menuItem { width:100%; padding:10px 12px; display:flex; gap:10px; align-items:center; border:0; border-radius:6px; background:white; color:#141638; text-align:left; cursor:pointer; font-size:14px; font-weight:500; }
-.menuItem svg { width:17px; height:17px; }
-.menuItem:hover { background:#eef2ff; color:var(--hr-brand-solid, #5046e5); }
-.danger { color:#e13a50; }
-@media(min-width:1440px) { .topbar { margin-inline:-48px; padding-inline:48px; } }
-@media(max-width:760px) { .topbar { margin-inline:-16px; padding-inline:16px; } }
-@media(max-width:480px) { .safe { font-size:12px; } .topbar { gap:12px; } .userWrap { padding-left:12px; } }
-
-/* Redesign: phones lose the sidebar, so the brand moves into the top bar. */
-.mobileBrand { display: none; margin-right: auto; }
-@media (max-width: 760px) {
-  .mobileBrand { display: inline-flex; }
+/* Onboarding top bar: reassurance + account menu. Height matches --nav-height. Menu §2.18. */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  min-height: var(--nav-height, 64px);
+  padding: 0 var(--layout-gutter, 32px);
+  border-bottom: 1px solid var(--ds-border, #e5e5ef);
+  background: var(--ds-surface, #ffffff);
 }
-@media (max-width: 480px) {
-  .safe { display: none; }
+
+.mobileBrand {
+  display: none;
+  margin-right: auto;
+}
+
+.safe {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.shield {
+  display: grid;
+  place-items: center;
+  color: var(--ds-success, #047857);
+}
+
+.shield svg {
+  width: 18px;
+  height: 18px;
+}
+
+.userWrap {
+  position: relative;
+  padding-left: var(--space-6);
+  border-left: 1px solid var(--ds-border, #e5e5ef);
+}
+
+.userBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md, 10px);
+  background: transparent;
+  color: var(--ds-text, #141638);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.userBtn:hover {
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.userName {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Initials avatar, 32px (§2.17). */
+.avatar {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--ds-brand-soft, #eef2ff);
+  color: var(--ds-brand-hover, #4338ca);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+}
+
+.chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.open {
+  color: var(--ds-brand, #5046e5);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-dropdown, 200);
+  box-sizing: border-box;
+  width: min(240px, calc(100vw - 32px));
+  padding: var(--space-2);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-surface, #ffffff);
+  box-shadow: var(--shadow-lg);
+}
+
+.menuHeader {
+  padding: var(--space-2) var(--space-3);
+}
+
+.menuName {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ds-text, #141638);
+  overflow-wrap: anywhere;
+}
+
+.menuRole {
+  margin: var(--space-0-5) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.divider {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--ds-border, #e5e5ef);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--ds-text, #141638);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.menuItem svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.menuItem:hover {
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.danger,
+.danger svg {
+  color: var(--ds-danger, #be123c);
+}
+
+.danger:hover {
+  background: var(--ds-danger-soft, #fff1f2);
+}
+
+/* The sidebar collapses at 900px, so the logo moves into the top bar. */
+@media (max-width: 900px) {
+  .mobileBrand {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    gap: var(--space-3);
+  }
+
+  .safe {
+    display: none;
+  }
+
+  .userWrap {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .userName {
+    max-width: 8rem;
+  }
 }

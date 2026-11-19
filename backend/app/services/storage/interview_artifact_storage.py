@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -39,7 +40,8 @@ def _assert_bucket(row: dict) -> None:
 
 async def _presign_artifact_row(row: dict, artifact_type: str, *, inline: bool = False) -> dict[str, Any]:
     _assert_bucket(row)
-    head = head_object(str(row["s3_object_key"]))
+    # HEAD kept (a missing file must stay an API 404), but on the shared client and off the event loop.
+    head = await asyncio.to_thread(head_object, str(row["s3_object_key"]))
     if not head:
         raise ArtifactStorageError("Artifact file is missing from storage.", status=404)
     name = "interview_report.pdf" if artifact_type == "report" else "transcript.json"
@@ -73,9 +75,10 @@ async def persist_interview_report_pdf_to_s3(**opts: Any) -> dict[str, Any]:
     candidate_id = resolve_candidate_storage_id(account=opts.get("account"), session=session, email=email)
     object_key = build_interview_report_object_key(tenant_id=tenant_id, interview_id=session_id, candidate_id=candidate_id)
     bucket = s3_env()["bucket"]
-    upload_object(key=object_key, body=buf, content_type="application/pdf")
+    await asyncio.to_thread(upload_object, key=object_key, body=buf, content_type="application/pdf")
     try:
-        art_repo.upsert_interview_artifact(
+        await asyncio.to_thread(
+            art_repo.upsert_interview_artifact,
             opts["pool"],
             {
                 "tenantId": tenant_id,
@@ -123,10 +126,11 @@ async def persist_interview_transcript_to_s3(**opts: Any) -> dict[str, Any] | No
     }
     buf = json.dumps(payload, default=str).encode("utf-8")
     bucket = s3_env()["bucket"]
-    upload_object(key=object_key, body=buf, content_type="application/json")
+    await asyncio.to_thread(upload_object, key=object_key, body=buf, content_type="application/json")
     if opts.get("pool"):
         try:
-            art_repo.upsert_interview_artifact(
+            await asyncio.to_thread(
+                art_repo.upsert_interview_artifact,
                 opts["pool"],
                 {
                     "tenantId": tenant_id,
@@ -146,7 +150,9 @@ async def persist_interview_transcript_to_s3(**opts: Any) -> dict[str, Any] | No
 
 async def resolve_interview_artifact_download(**opts: Any) -> dict[str, Any]:
     bucket = active_s3_bucket_name()
-    row = art_repo.get_interview_artifact(opts["pool"], str(opts["sessionId"]), str(opts["artifactType"]), bucket)
+    row = await asyncio.to_thread(
+        art_repo.get_interview_artifact, opts["pool"], str(opts["sessionId"]), str(opts["artifactType"]), bucket
+    )
     if not art_repo.can_access_interview_artifact(opts["requesterEmail"], row):
         raise ArtifactStorageError("Artifact not found.", status=404)
     return await _presign_artifact_row(row, str(opts["artifactType"]), inline=bool(opts.get("inline")))
@@ -154,7 +160,9 @@ async def resolve_interview_artifact_download(**opts: Any) -> dict[str, Any]:
 
 async def resolve_candidate_interview_report_download(**opts: Any) -> dict[str, Any]:
     bucket = active_s3_bucket_name()
-    row = art_repo.get_latest_interview_artifact_for_candidate(opts["pool"], opts["candidateEmail"], "report", bucket)
+    row = await asyncio.to_thread(
+        art_repo.get_latest_interview_artifact_for_candidate, opts["pool"], opts["candidateEmail"], "report", bucket
+    )
     if not row:
         raise ArtifactStorageError("Interview report not found in storage.", status=404)
     return await _presign_artifact_row(row, "report", inline=opts.get("inline") is not False)

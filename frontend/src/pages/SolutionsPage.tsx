@@ -1,10 +1,8 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
 import styles from './SolutionsPage.module.css'
-import { fadeUp, staggerContainer } from '../motion/variants'
 
 // 4 main solution cards matching reference image with neon circular icons
 const SOLUTION_CARDS = [
@@ -82,7 +80,7 @@ const WHY_FEATURES = [
     id: 'interviews',
     title: 'AI-Powered Interviews',
     desc: 'Conduct live and async AI interviews with real-time skill evaluation.',
-    image: '/Solutions/AI Interview.png',
+    image: '/Solutions/ai-interview.webp',
     alt: 'AI Interview in Action',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -96,7 +94,7 @@ const WHY_FEATURES = [
     id: 'resume',
     title: 'Intelligent Resume Scanning',
     desc: 'Extract, parse and rank resumes automatically with 95%+ accuracy.',
-    image: '/Solutions/Intelligent.png',
+    image: '/Solutions/intelligent.webp',
     alt: 'Intelligent Resume Scanning',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -111,7 +109,7 @@ const WHY_FEATURES = [
     id: 'workflows',
     title: 'Automated Workflows',
     desc: 'Reduce manual work with smart automations and approvals.',
-    image: '/Solutions/Automated.png',
+    image: '/Solutions/automated.webp',
     alt: 'Automated Workflows',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -123,7 +121,7 @@ const WHY_FEATURES = [
     id: 'analytics',
     title: 'Advanced Analytics',
     desc: 'Track performance, pipeline health, and hiring metrics.',
-    image: '/Solutions/Advanced.png',
+    image: '/Solutions/advanced.webp',
     alt: 'Advanced Analytics',
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -266,15 +264,12 @@ const BADGES = [
 
 export function SolutionsPage() {
   const [activeWhy, setActiveWhy] = useState('interviews')
-  const [ctaMousePos, setCtaMousePos] = useState({ x: 0, y: 0 })
-  const [ctaHovered, setCtaHovered] = useState(false)
 
-  const handleCtaMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  // The CTA glow follows the cursor through CSS variables, so moving the mouse never re-renders the page.
+  const handleCtaMouseMove = (e: MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    setCtaMousePos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    })
+    e.currentTarget.style.setProperty('--glow-x', `${e.clientX - rect.left - 160}px`)
+    e.currentTarget.style.setProperty('--glow-y', `${e.clientY - rect.top - 160}px`)
   }
 
   const activeWhyData = WHY_FEATURES.find((f) => f.id === activeWhy) || WHY_FEATURES[0]
@@ -288,51 +283,38 @@ export function SolutionsPage() {
         <div className={styles.glowBottomLeft} />
       </div>
 
-      {/* Navigation in 85% Shell */}
-      <div className={styles.shell}>
-        <MarketingNavBar />
-      </div>
+      <MarketingNavBar />
 
       {/* Hero Section */}
       <div className={styles.shell}>
         <section className={styles.heroSection}>
-          <motion.div
-            className={styles.heroContent}
-            initial="initial"
-            animate="animate"
-            variants={staggerContainer}
-          >
-            <motion.div className={styles.kickerPill} variants={fadeUp}>
+          <div className={styles.heroContent}>
+            <div className={styles.kickerPill}>
               <span>HOW IT WORKS</span>
-            </motion.div>
+            </div>
 
-            <motion.h1 className={styles.heroTitle} variants={fadeUp}>
+            <h1 className={styles.heroTitle}>
               How HireRighttt <br />
               <span className={styles.highlightText}>works for modern</span> hiring teams
-            </motion.h1>
+            </h1>
 
-            <motion.p className={styles.heroSubtitle} variants={fadeUp}>
+            <p className={styles.heroSubtitle}>
               HireRighttt helps staffing and recruitment teams streamline every step of the hiring
               process with AI-powered matching, automation, and intelligent insights.
-            </motion.p>
+            </p>
 
-            <motion.div className={styles.heroActions} variants={fadeUp}>
-              <Link to="/signup" className={styles.btnPrimary}>
-                Explore Solutions <span>→</span>
-              </Link>
-              <Link to="/signup" className={styles.btnSecondary}>
+            <div className={styles.heroActions}>
+              <a href="#solutions" className={styles.btnPrimary}>
+                Explore Solutions <span aria-hidden="true">→</span>
+              </a>
+              <Link to="/contact?demo=1" className={styles.btnSecondary}>
                 Book a Demo
               </Link>
-            </motion.div>
-          </motion.div>
+            </div>
+          </div>
 
           {/* Hero Studio Interactive Graphic */}
-          <motion.div
-            className={styles.studioCardWrapper}
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-          >
+          <div className={styles.studioCardWrapper}>
             <div className={styles.studioCard}>
               <div className={styles.studioCardHeader}>
                 <div className={styles.studioTitle}>AI Interview Studio</div>
@@ -452,13 +434,13 @@ export function SolutionsPage() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         </section>
       </div>
 
       {/* Solutions Grid Section WITH NEON GLOW CONTAINER */}
       <div className={styles.shell}>
-        <section className={styles.tabbedSection}>
+        <section className={styles.tabbedSection} id="solutions">
           <div className={styles.solutionsOuterContainer}>
             <h2 className={styles.sectionHeading}>Solutions for every hiring need</h2>
 
@@ -474,13 +456,7 @@ export function SolutionsPage() {
                     : styles.iconCyan
 
                 return (
-                  <motion.div
-                    key={card.id}
-                    className={styles.solutionCard}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
+                  <div key={card.id} className={styles.solutionCard}>
                     <div>
                       <div className={`${styles.cardIcon} ${iconClass}`}>{card.icon}</div>
                       <h3 className={styles.cardTitle}>{card.title}</h3>
@@ -489,7 +465,7 @@ export function SolutionsPage() {
                     <Link to={card.link} className={styles.cardLink}>
                       Explore Solution <span>→</span>
                     </Link>
-                  </motion.div>
+                  </div>
                 )
               })}
             </div>
@@ -531,18 +507,16 @@ export function SolutionsPage() {
 
             {/* Right dynamic image display frame */}
             <div className={styles.whyVisualCard}>
-              <AnimatePresence mode="wait">
-                <motion.img
-                  key={activeWhyData.id}
-                  src={activeWhyData.image}
-                  alt={activeWhyData.alt}
-                  className={styles.whyFeatureImg}
-                  initial={{ opacity: 0, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  transition={{ duration: 0.35, ease: 'easeOut' }}
-                />
-              </AnimatePresence>
+              <img
+                key={activeWhyData.id}
+                src={activeWhyData.image}
+                alt={activeWhyData.alt}
+                className={styles.whyFeatureImg}
+                width={1000}
+                height={667}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
         </section>
@@ -575,7 +549,7 @@ export function SolutionsPage() {
               <div key={item.name} className={styles.testimonialCard}>
                 <p className={styles.quoteText}>"{item.quote}"</p>
                 <div className={styles.authorMeta}>
-                  <img src={item.avatar} alt={item.name} className={styles.authorAvatar} />
+                  <img src={item.avatar} alt={item.name} className={styles.authorAvatar} width={120} height={120} loading="lazy" decoding="async" />
                   <div className={styles.authorDetails}>
                     <span className={styles.authorName}>{item.name}</span>
                     <span className={styles.authorRole}>
@@ -611,12 +585,7 @@ export function SolutionsPage() {
       {/* CTA Banner with cursor-following orange glow */}
       <div className={styles.shell}>
         <section className={styles.ctaSection}>
-          <div
-            className={styles.ctaCard}
-            onMouseMove={handleCtaMouseMove}
-            onMouseEnter={() => setCtaHovered(true)}
-            onMouseLeave={() => setCtaHovered(false)}
-          >
+          <div className={styles.ctaCard} onMouseMove={handleCtaMouseMove}>
             <div className={styles.ctaLeft}>
               <div className={styles.ctaIconContainer}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -639,20 +608,12 @@ export function SolutionsPage() {
               <Link to="/signup" className={styles.btnPrimary}>
                 Get Started Free
               </Link>
-              <Link to="/signup" className={styles.btnSecondary}>
+              <Link to="/contact?demo=1" className={styles.btnSecondary}>
                 Book a Demo
               </Link>
             </div>
 
-            <motion.div
-              className={styles.ctaCursorGlow}
-              animate={{
-                x: ctaMousePos.x - 160,
-                y: ctaMousePos.y - 160,
-                opacity: ctaHovered ? 1 : 0,
-              }}
-              transition={{ type: 'spring', damping: 25, stiffness: 220, mass: 0.3 }}
-            />
+            <div className={styles.ctaCursorGlow} aria-hidden="true" />
           </div>
         </section>
       </div>

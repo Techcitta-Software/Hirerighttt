@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import re
 from typing import Any
@@ -70,7 +71,8 @@ async def upload_resume_to_object_storage(**opts) -> dict[str, Any]:
     account = {"id": opts.get("ownerUserId")} if opts.get("ownerUserId") else None
     candidate_id = resolve_candidate_storage_id(account=account, email=email)
     key = build_candidate_resume_object_key(candidate_id=candidate_id, filename=filename)
-    uploaded = upload_object(key=key, body=buf, content_type=content_type)
+    # S3 PUT off the event loop (a 0.3-1 s network call)
+    uploaded = await asyncio.to_thread(upload_object, key=key, body=buf, content_type=content_type)
     return {
         "storageProvider": "s3",
         "bucket": uploaded["bucket"],

@@ -72,14 +72,14 @@ export function AboutYouStep({
   const narrativeSection = showNarrativeSection ? (
     <MotionItem as="section" className={styles.card}>
       <div className={styles.sectionHead}>
-        <h2>Tell Us About Yourself</h2>
-        <h3>Help us know you better in a few words.</h3>
+        <h2>About you</h2>
+        <h3>A few lines in your own words. Ava uses this to tailor your interview.</h3>
       </div>
 
       <div className={styles.twoCol}>
         <CharacterTextarea
-          label="What I know about you"
-          sublabel="Introduce yourself in a few lines."
+          label="Short introduction"
+          sublabel="Who you are and what you do."
           value={data.whoAreYou}
           maxLength={300}
           showCounter={false}
@@ -87,18 +87,18 @@ export function AboutYouStep({
           onChange={(value) => onChange('whoAreYou', value)}
         />
         <CharacterTextarea
-          label="Can you brief me more?"
-          sublabel="Add a little more detail about your background and goals."
+          label="Background and goals"
+          sublabel="What you have worked on and what you want next."
           value={data.whatDrivesYou}
           maxLength={300}
           showCounter={false}
-          placeholder="Type your answer here…"
+          placeholder="E.g. I build checkout flows for fintech apps and want to grow into a lead role."
           onChange={(value) => onChange('whatDrivesYou', value)}
         />
       </div>
 
       <CharacterTextarea
-        label="What are your key strengths?"
+        label="Key strengths"
         sublabel="Share your top 3-5 strengths."
         value={data.keyStrengths}
         maxLength={250}
@@ -113,25 +113,25 @@ export function AboutYouStep({
   const snapshotSection = showSnapshotSection ? (
     <MotionItem as="section" className={styles.card}>
       <div className={styles.sectionHead}>
-        <h2>Your Current Snapshot</h2>
+        <h2>Current snapshot</h2>
       </div>
       <div className={styles.threeCol}>
         <SelectField
-          label="Current Role"
+          label="Current role"
           value={data.currentRole}
           options={roleOptions}
           placeholder="Select your role"
           onChange={(value) => onChange('currentRole', value)}
         />
         <SelectField
-          label="Current Location"
+          label="Current location"
           value={data.currentLocation}
           options={locationOptions}
           placeholder="Select location"
           onChange={(value) => onChange('currentLocation', value)}
         />
         <SelectField
-          label="Notice Period"
+          label="Notice period"
           value={data.noticePeriod}
           options={NOTICE_OPTIONS}
           placeholder="Select notice period"

@@ -5,6 +5,7 @@ import { apiConnectionHint, apiHealth, apiSignup, setApiToken } from '../lib/api
 import { stashSignupLoginHandoff } from '../lib/authHandoff'
 import { requireApiForAuth } from '../lib/authConfig'
 import { clearSessionValidationCache } from '../lib/authSession'
+import { passwordRuleError, PASSWORD_RULE_TEXT } from '../lib/passwordRules'
 import { isValidPhone, normalizePhone } from '../lib/phone'
 import { isSupabaseEnabled } from '../lib/supabaseClient'
 import { clearProfileForEmail, logout, saveUser } from '../lib/store'
@@ -63,8 +64,9 @@ function OrganizationSignupForm() {
       setError('Enter a valid mobile number (10–15 digits).')
       return
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+    const passwordError = passwordRuleError(password)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (!agreed) {
@@ -115,25 +117,31 @@ function OrganizationSignupForm() {
   return (
     <div className={styles.page}>
       <header className={styles.top}>
-        <BrandLogo to="/" size="md" />
-        <Link to="/login" state={{ explicitLogin: true }} className={styles.topLink}>
-          Log in
-        </Link>
+        <div className={styles.topInner}>
+          <BrandLogo to="/" size="md" />
+          <Link to="/login" state={{ explicitLogin: true }} className={styles.topLink}>
+            Sign in
+          </Link>
+        </div>
       </header>
 
       <main className={styles.main}>
-        <section className={styles.intro}>
-          <h1>Screen every candidate with an AI interview.</h1>
+        <section className={styles.intro} aria-labelledby="org-intro-title">
+          <h1 id="org-intro-title" className={styles.title}>
+            Screen every candidate with an AI interview
+          </h1>
           <p className={styles.lead}>
             For hiring teams: post a role, share a link, and review scored interviews instead of sorting resumes.
           </p>
           <ol className={styles.steps}>
             {OFFERINGS.map((o, i) => (
               <li key={o.title}>
-                <span className={styles.num}>{i + 1}</span>
+                <span className={styles.num} aria-hidden="true">
+                  {i + 1}
+                </span>
                 <div>
-                  <h2>{o.title}</h2>
-                  <p>{o.desc}</p>
+                  <h2 className={styles.stepTitle}>{o.title}</h2>
+                  <p className={styles.stepText}>{o.desc}</p>
                 </div>
               </li>
             ))}
@@ -141,33 +149,51 @@ function OrganizationSignupForm() {
         </section>
 
         <section className={styles.card} aria-labelledby="org-signup-title">
-          <h2 id="org-signup-title">Create your organisation account</h2>
-          <form onSubmit={handleSubmit} noValidate>
-            <label>
-              Your name
-              <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-            </label>
-            <label>
-              Organisation name
-              <input value={company} onChange={(e) => setCompany(e.target.value)} autoComplete="organization" />
-            </label>
-            <label>
-              Work email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-            </label>
-            <label>
-              Mobile number
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
-            </label>
-            <label>
-              Password
+          <h2 id="org-signup-title" className={styles.cardTitle}>
+            Create your organisation account
+          </h2>
+          <form className={styles.form} onSubmit={handleSubmit} noValidate aria-describedby={error ? 'org-signup-error' : undefined}>
+            <div className={styles.field}>
+              <label htmlFor="org-name">Your name</label>
+              <input id="org-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="org-company">Organisation name</label>
               <input
+                id="org-company"
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                autoComplete="organization"
+              />
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="org-email">Work email</label>
+              <input
+                id="org-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="org-phone">Mobile number</label>
+              <input id="org-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="org-password">Password</label>
+              <input
+                id="org-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
+                aria-describedby="org-password-help"
               />
-            </label>
+              <p id="org-password-help" className={styles.help}>
+                {PASSWORD_RULE_TEXT}.
+              </p>
+            </div>
             <label className={styles.check}>
               <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
               <span>
@@ -175,18 +201,24 @@ function OrganizationSignupForm() {
               </span>
             </label>
             {error && (
-              <p className={styles.error} role="alert" id="org-signup-error">
+              <p className={`ds-alert ds-alert--error ${styles.error}`} role="alert" id="org-signup-error">
                 {error}
               </p>
             )}
-            <button type="submit" disabled={loading}>
-              {loading ? 'Creating account…' : 'Create account'}
+            <button type="submit" className={styles.submit} disabled={loading} aria-busy={loading}>
+              {loading ? (
+                <>
+                  <span className="ds-spinner" aria-hidden="true" /> Creating account…
+                </>
+              ) : (
+                'Create account'
+              )}
             </button>
           </form>
           <p className={styles.alt}>
             Already have an account?{' '}
             <Link to="/login" state={{ explicitLogin: true }}>
-              Log in
+              Sign in
             </Link>
           </p>
         </section>

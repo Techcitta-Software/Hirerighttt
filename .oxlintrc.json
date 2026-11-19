@@ -8,8 +8,7 @@
   "overrides": [
     {
       "files": [
-        "frontend/src/components/PlatformWorkflowSection.tsx",
-        "frontend/src/components/SharePlatformIcon.tsx"
+        "frontend/src/components/PlatformWorkflowSection.tsx"
       ],
       "rules": {
         "react/only-export-components": "off"

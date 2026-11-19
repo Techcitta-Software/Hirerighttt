@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import os
+import threading
 from typing import Any
 
 import boto3
@@ -18,14 +20,50 @@ def object_storage_configured() -> bool:
     return s3_storage_configured()
 
 
-def _client():
-    return boto3.client(
-        "s3",
-        region_name=os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION"),
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID") or None,
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY") or None,
-        config=Config(signature_version="s3v4"),
+# One S3 client per process. Building a client resolves credentials and opens a new TLS connection (0.5-1 s per call
+# measured); boto3 clients are thread-safe, so the request handlers (which call these helpers via asyncio.to_thread)
+# share it. Timeouts are explicit: botocore's defaults (60 s connect + 60 s read, legacy retries) could hold a request
+# for minutes on a stuck connection.
+_client_lock = threading.Lock()
+_client_cache: dict[str, Any] = {"key": None, "client": None}
+
+
+def _client_config() -> Config:
+    return Config(
+        signature_version="s3v4",
+        connect_timeout=float(os.environ.get("S3_CONNECT_TIMEOUT_SECONDS") or 3),
+        read_timeout=float(os.environ.get("S3_READ_TIMEOUT_SECONDS") or 30),
+        retries={"max_attempts": int(os.environ.get("S3_MAX_ATTEMPTS") or 3), "mode": "adaptive"},
+        max_pool_connections=int(os.environ.get("S3_MAX_POOL_CONNECTIONS") or 32),
     )
+
+
+def _client():
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    key_id = os.environ.get("AWS_ACCESS_KEY_ID") or None
+    secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or None
+    # Rebuild only when the settings change (tests / local .env reloads); credentials are hashed, not stored.
+    cache_key = (region, key_id, hashlib.sha256((secret or "").encode()).hexdigest())
+    cached = _client_cache["client"]
+    if cached is not None and _client_cache["key"] == cache_key:
+        return cached
+    with _client_lock:
+        if _client_cache["client"] is None or _client_cache["key"] != cache_key:
+            _client_cache["client"] = boto3.session.Session().client(
+                "s3",
+                region_name=region,
+                aws_access_key_id=key_id,
+                aws_secret_access_key=secret,
+                config=_client_config(),
+            )
+            _client_cache["key"] = cache_key
+        return _client_cache["client"]
+
+
+def reset_client_cache() -> None:
+    with _client_lock:
+        _client_cache["client"] = None
+        _client_cache["key"] = None
 
 
 def s3_env() -> dict[str, Any]:

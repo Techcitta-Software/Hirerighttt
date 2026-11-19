@@ -334,7 +334,8 @@ export const initialFormData: ProfileFormData = {
   totalExperience: 'Fresher / 0 years',
   currentLocation: '',
   noticePeriod: '',
-  skills: [...DEFAULT_SKILLS],
+  // New candidates start with no skills: DEFAULT_SKILLS are offered as one-tap suggestions in SkillsStep.
+  skills: [],
   experienceSummary: '',
   workExperiences: [],
   noPriorWorkExperience: false,

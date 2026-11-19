@@ -4,9 +4,10 @@
    ========================================================================== */
 
 .page {
-  --ink: #091b41;
-  --blue: #235ce5;
-  --muted: #62718c;
+  /* Home keeps its own editorial palette, mapped onto the shared tokens where they exist. */
+  --ink: var(--ds-text, #141638);
+  --blue: var(--ds-brand, #5046e5);
+  --muted: var(--ds-text-muted, #5f6686);
   --paper: #fbfcfe;
   --soft: #edf3ff;
   --line: #dce5f6;
@@ -19,7 +20,7 @@
   font-family: var(--font-sans, 'Nunito', 'Segoe UI', Arial, sans-serif);
   font-size: 16px;
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip; /* clip, not hidden, so the sticky header keeps sticking */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -139,19 +140,6 @@
   transform: translateX(4px);
 }
 
-/* ---- scroll reveal ---- */
-.reveal {
-  opacity: 0;
-  transform: translateY(35px);
-  transition: opacity 0.8s ease, transform 0.8s ease;
-}
-
-.reveal.visible,
-.visible {
-  opacity: 1;
-  transform: none;
-}
-
 /* ---- hero ---- */
 .hero {
   min-height: calc(100svh - var(--nav-h));
@@ -188,13 +176,13 @@
 .heroLines path {
   stroke-dasharray: 1400;
   stroke-dashoffset: 1400;
-  animation: drawLine 3.6s ease-out forwards;
+  animation: drawLine 1.2s ease-out forwards;
 }
 
-.heroLines path:nth-child(2) { animation-delay: 0.25s; }
-.heroLines path:nth-child(3) { animation-delay: 0.5s; }
-.heroLines path:nth-child(4) { animation-delay: 1.2s; }
-.heroLines path:nth-child(5) { animation-delay: 1.5s; }
+.heroLines path:nth-child(2) { animation-delay: 0.08s; }
+.heroLines path:nth-child(3) { animation-delay: 0.16s; }
+.heroLines path:nth-child(4) { animation-delay: 0.24s; }
+.heroLines path:nth-child(5) { animation-delay: 0.32s; }
 
 @keyframes drawLine {
   to { stroke-dashoffset: 0; }
@@ -290,7 +278,7 @@
 .down {
   font-size: 21px;
   line-height: 1.2;
-  animation: bob 2s ease-in-out infinite;
+  animation: bob 2s ease-in-out 3;
 }
 
 @keyframes bob {
@@ -1333,59 +1321,6 @@
   color: #94c0ff;
 }
 
-/* ---- footer ---- */
-.footer {
-  padding: 37px 0;
-  background: #071530;
-  color: #bcc9e3;
-}
-
-.footerRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 30px;
-  flex-wrap: wrap;
-}
-
-.footerBrand {
-  color: #fff;
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.05em;
-}
-
-.footerBrand span {
-  margin-left: 12px;
-  font-size: 9px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: #86aaff;
-}
-
-.footerLinks {
-  display: flex;
-  gap: 23px;
-  flex-wrap: wrap;
-  font-size: 12px;
-}
-
-.footerLinks a {
-  color: #bac8e4;
-}
-
-.footerLinks a:hover {
-  color: #fff;
-}
-
-.footerLegal {
-  font-size: 11px;
-  color: #8b9bbb;
-  margin: 25px 0 0;
-  line-height: 1.6;
-}
-
 /* ---- dialog ---- */
 .dialogBackdrop {
   position: fixed;
@@ -1594,7 +1529,6 @@
   .deepDesc { font-size: 12px; }
   .closing { padding: 105px 0; }
   .closing p { font-size: 15px; }
-  .footerRow { align-items: flex-start; flex-direction: column; }
   .dialog { padding: 31px 23px; }
   .dialog h3 { font-size: 28px; }
 }
@@ -1602,7 +1536,6 @@
 @media (prefers-reduced-motion: reduce) {
   .heroLines path { animation: none; stroke-dashoffset: 0; }
   .down { animation: none; }
-  .reveal { opacity: 1; transform: none; transition: none; }
   .button,
   .deepTitle,
   .railDot,

@@ -197,6 +197,8 @@ export async function startInterviewSession(
   try {
     const res = await apiFetch('/api/interview/start', {
       method: 'POST',
+      // The lobby shows its own join progress.
+      background: true,
       // LLM question generation + session save can outlast apiFetch's default timeout; aborting
       // early drops the candidate into an offline session that cannot save review events or video.
       signal: AbortSignal.timeout(INTERVIEW_START_TIMEOUT_MS),
@@ -355,6 +357,7 @@ export async function pingInterviewIntegrity(
   try {
     await apiFetch('/api/interview/integrity', {
       method: 'POST',
+      background: true,
       body: JSON.stringify({ sessionId, faceCount }),
     })
   } catch {
@@ -505,7 +508,7 @@ Return ONLY valid JSON. Use candidate-facing category labels (NOT internal rubri
         answer: answerText,
         score: typeof fb?.score === 'number' ? fb.score : overall,
         wordCount: answerText.split(/\s+/).filter(Boolean).length,
-        keywordsHit: q.keywords.filter((k) => answerText.toLowerCase().includes(k.toLowerCase())),
+        keywordsHit: (q.keywords ?? []).filter((k) => answerText.toLowerCase().includes(k.toLowerCase())),
         feedback: fb?.feedback || (answerText.length > 20 ? 'Solid response provided.' : 'Too brief.'),
       }
     })
@@ -557,6 +560,8 @@ export async function scoreInterviewRemote(options: {
   try {
     const res = await apiFetch('/api/interview/score', {
       method: 'POST',
+      // Runs after the candidate has left the room; /interview/complete shows its own "Scoring…" state.
+      background: true,
       body: JSON.stringify({
         sessionId: options.sessionId,
         role: options.role,

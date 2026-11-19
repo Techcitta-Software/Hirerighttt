@@ -874,6 +874,7 @@ class UnitOfWork(dict):
         self.database_url = database_url
         self._lock = threading.RLock()
         self.fetched: dict[tuple, list[dict]] = {}  # finder query -> objects, so a request never repeats a query
+        self.last_flushed: set[str] = set()  # collections the last flush wrote (read-cache invalidation)
 
     # dict API ------------------------------------------------------------------------------------------------------
     def _collection(self, name: str) -> Any:
@@ -946,7 +947,9 @@ class UnitOfWork(dict):
         from app.db.store import _ensure_pool, _ensure_schema
 
         with self._lock:
+            self.last_flushed = set()
             plan: list[tuple[Callable, Any]] = []
+            names: set[str] = set()
             touched: list[Any] = []
             # parents before children (foreign keys)
             order = [
@@ -963,11 +966,13 @@ class UnitOfWork(dict):
                 if changed and spec.writer:
                     plan.append((spec.writer, changed))
                     count += len(changed)
+                    names.add(name)
                 if deleted and spec.deleter:
                     keys = [spec.delete_key(o) for o in deleted if spec.delete_key(o)]
                     if keys:
                         plan.append((spec.deleter, keys))
                         count += len(keys)
+                        names.add(name)
                 touched.append(coll)
             for name, spec in KEYED_SPECS.items():
                 coll = dict.get(self, name)
@@ -977,12 +982,15 @@ class UnitOfWork(dict):
                 if changed:
                     plan.append((spec.upsert, changed))
                     count += len(changed)
+                    names.add(name)
                 if deleted:
                     plan.append((_deleter(spec.delete_sql), deleted))
                     count += len(deleted)
+                    names.add(name)
                 touched.append(coll)
             if not plan:
                 return 0
+            self.last_flushed = names  # set before writing: a failed write still invalidates what it touched
             _ensure_schema(self.database_url)
             pool = _ensure_pool(self.database_url)
             with pool.connection() as conn:

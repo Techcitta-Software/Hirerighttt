@@ -2,13 +2,29 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 2rem;
-  background: var(--hr-bg, #faf9ff);
+  padding: var(--space-8) var(--layout-gutter, 32px);
+  box-sizing: border-box;
+  background: var(--ds-bg, #faf9ff);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  color: var(--ds-brand, #5046e5);
 }
 
 .text {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-body-lg);
   font-weight: 600;
-  color: var(--hr-navy, #141638);
+  line-height: 1.6;
+  color: var(--ds-text, #141638);
 }

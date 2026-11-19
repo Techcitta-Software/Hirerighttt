@@ -6,7 +6,6 @@ import { OnboardingProfileStep } from '../components/OnboardingProfileStep'
 import { AiInterviewStep } from '../components/AiInterviewStep'
 import { CompleteStep } from '../components/CompleteStep'
 import { Sidebar } from '../components/Sidebar'
-import { Stepper } from '../components/Stepper'
 import { TopBar } from '../components/TopBar'
 import {
   initialFormData,
@@ -28,13 +27,12 @@ import { apiHealth, apiSaveProfile } from '../lib/api'
 import { sendOnboardingConfirmationEmail } from '../lib/scheduleInterviewConfirmation'
 import { beginImmediateInterview } from '../lib/interviewTestMode'
 import { consumeInviteReturn } from '../lib/inviteReturn'
-import { MotionButton } from '../motion/MotionButton'
 import { easeOut, fadeUp, stepPanel } from '../motion/variants'
 import styles from './ProfileWizard.module.css'
 
 const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
   1: {
-    title: "Let's Build Your Profile",
+    title: 'Let’s build your profile',
     subtitle:
       'Upload your resume — we’ll extract your details so you can review and continue in one step.',
   },
@@ -44,7 +42,7 @@ const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
       'Ava will ask about the role and skills you just added — then score you live on camera.',
   },
   3: {
-    title: 'All Set!',
+    title: 'All set',
     subtitle: 'Your profile and talent score are ready. Explore matched roles next.',
   },
 }
@@ -100,17 +98,27 @@ export function ProfileWizard() {
       setCompletedThrough(uiCompletedThrough(saved.completedSteps))
     }
     const hasStepParam = Number.isFinite(stepParam) && stepParam > 0
-    if (!hasStepParam && saved) {
-      const resume = onboardingResumeStep(saved)
-      setStep(resume)
-      setCompletedThrough(uiCompletedThrough(saved.completedSteps ?? 0))
-    }
     if (sessionStorage.getItem('hireright.wizardStep') === '5') {
       sessionStorage.removeItem('hireright.wizardStep')
-      setStep(3)
       setCompletedThrough((prev) => Math.max(prev, 2))
+      goToStep(3, { replace: true })
+      return
     }
+    if (hasStepParam) {
+      // The URL is the source of truth: refresh and the browser's Back/Forward land on the right step.
+      setStep(parseOnboardingStepParam(stepParam))
+    } else {
+      if (saved) setCompletedThrough(uiCompletedThrough(saved.completedSteps ?? 0))
+      goToStep(saved ? onboardingResumeStep(saved) : 1, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate, stepParam])
+
+  /** Moves to a wizard step and records it in the URL (?step=N) so refresh and browser Back keep the step. */
+  function goToStep(next: WizardStep, opts: { replace?: boolean } = {}) {
+    setStep(next)
+    navigate({ search: `?step=${next}` }, { replace: Boolean(opts.replace) })
+  }
 
   useEffect(() => {
     if (!toast) return
@@ -137,7 +145,8 @@ export function ProfileWizard() {
     setSaving(true)
     const saved = saveProfile(data, nextCompleted ?? completedThrough)
     try {
-      if (await apiHealth()) await apiSaveProfile(saved)
+      // The button shows "Saving…" itself: never raise the full-page loading veil for this.
+      if (await apiHealth()) await apiSaveProfile(saved, { background: true })
     } catch {
       // local save is enough when API is offline
     }
@@ -206,7 +215,7 @@ export function ProfileWizard() {
     }
 
     if (step < 3) {
-      setStep((prev) => (prev + 1) as WizardStep)
+      goToStep((step + 1) as WizardStep)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
       navigate('/dashboard', { replace: true })
@@ -217,6 +226,23 @@ export function ProfileWizard() {
   const showAutoSaveFooter = step >= 2
   const isScheduled = Boolean(data.interviewNotes?.startsWith('Scheduled:'))
 
+  const arrowIcon = (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M4 10H16M16 10L11 5M16 10L11 15"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+  const stepCount = (
+    <span className={styles.stepCount}>
+      Step {step} of {STEPS.length}
+    </span>
+  )
+
   return (
     <motion.div
       className={styles.layout}
@@ -224,27 +250,27 @@ export function ProfileWizard() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.35, ease: easeOut }}
     >
-      <Sidebar step={step} />
+      <div className={styles.topbarSlot}>
+        <TopBar userName={userName} />
+      </div>
+
+      <Sidebar
+        step={step}
+        completedThrough={completedThrough}
+        onStepClick={(next) => goToStep(next)}
+      />
 
       <div className={styles.main}>
-        <TopBar userName={userName} />
-
         <motion.header
           className={styles.pageHeader}
           key={`header-${step}`}
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: easeOut }}
+          transition={{ duration: 0.3, ease: easeOut }}
         >
           <h1>{meta.title}</h1>
           <p>{meta.subtitle}</p>
         </motion.header>
-
-        <Stepper
-          current={step}
-          completedThrough={completedThrough}
-          onStepClick={(next) => setStep(next)}
-        />
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -275,25 +301,19 @@ export function ProfileWizard() {
             {step === 3 && (
               <CompleteStep
                 data={data}
-                onEditStep={(next) => setStep(next === 4 ? 2 : 3)}
+                onEditStep={(next) => goToStep(next === 4 ? 2 : 3)}
               />
             )}
           </motion.div>
         </AnimatePresence>
 
-
-        <motion.footer
-          className={`${styles.actions} ${showAutoSaveFooter ? styles.actionsSplit : ''}`}
-          layout
-          transition={{ duration: 0.25, ease: easeOut }}
-        >
+        <footer className={styles.actions}>
           {showAutoSaveFooter ? (
             <>
-              <MotionButton
+              <button
                 type="button"
-                className={styles.backBtn}
-                onClick={() => setStep((prev) => (prev - 1) as WizardStep)}
-                lift
+                className={styles.secondaryBtn}
+                onClick={() => goToStep((step - 1) as WizardStep)}
               >
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path
@@ -305,100 +325,83 @@ export function ProfileWizard() {
                   />
                 </svg>
                 Back
-              </MotionButton>
+              </button>
 
-              <p className={styles.autoSave}>
-                <span className={styles.autoSaveDot} aria-hidden="true">
-                  <svg viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M3.5 8.5L6.5 11.5L12.5 4.5"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                All changes are saved automatically
-              </p>
+              <div className={styles.actionMeta}>
+                {stepCount}
+                <p className={styles.autoSave}>
+                  <span className={styles.autoSaveDot} aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M3.5 8.5L6.5 11.5L12.5 4.5"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  All changes are saved automatically
+                </p>
+              </div>
 
-              <MotionButton
+              <button
                 type="button"
                 className={styles.primaryBtn}
                 onClick={handleContinue}
-                disabled={saving}
-                lift
+                // Step 2: booking needs a chosen time ("Take interview immediately" above starts right away).
+                disabled={saving || (step === 2 && !isScheduled)}
+                aria-busy={saving || undefined}
               >
                 {saving
                   ? 'Saving…'
                   : step === 2
                     ? isScheduled
-                      ? 'Save & Submit'
-                      : 'Save & Start AI Interview'
+                      ? 'Confirm slot'
+                      : 'Pick a time to book'
                     : step === 3
                       ? 'Explore matched roles'
-                      : 'Save & Continue'}
-                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path
-                    d="M4 10H16M16 10L11 5M16 10L11 15"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </MotionButton>
+                      : 'Save and continue'}
+                {arrowIcon}
+              </button>
             </>
           ) : (
             <>
-              <MotionButton
+              <button
                 type="button"
                 className={styles.secondaryBtn}
                 onClick={handleSaveExit}
                 disabled={saving}
-                lift
               >
-                Save & Exit
-              </MotionButton>
+                Save and exit
+              </button>
+
+              <div className={styles.actionMeta}>{stepCount}</div>
 
               <div className={styles.actionRight}>
                 {step > 1 && (
-                  <MotionButton
+                  <button
                     type="button"
                     className={styles.ghostBtn}
-                    onClick={() => setStep((prev) => (prev - 1) as WizardStep)}
+                    onClick={() => goToStep((step - 1) as WizardStep)}
                   >
                     Back
-                  </MotionButton>
+                  </button>
                 )}
-                <MotionButton
+                <button
                   type="button"
                   className={styles.primaryBtn}
                   onClick={handleContinue}
                   disabled={saving}
-                  lift
+                  aria-busy={saving || undefined}
                 >
-                  {saving ? 'Saving…' : step === 3 ? 'Finish' : 'Save & Continue'}
-                  {step < 3 && (
-                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                      <path
-                        d="M4 10H16M16 10L11 5M16 10L11 15"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </MotionButton>
+                  {saving ? 'Saving…' : step === 3 ? 'Finish' : 'Save and continue'}
+                  {step < 3 && arrowIcon}
+                </button>
               </div>
             </>
           )}
-        </motion.footer>
-
-        <p className={styles.stepHint}>
-          Step {step} of {STEPS.length}
-        </p>
+        </footer>
       </div>
 
       <OnboardingExtractModal

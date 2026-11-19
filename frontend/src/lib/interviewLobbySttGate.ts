@@ -25,6 +25,12 @@ export function lobbyEnterButtonLabel(params: { starting: boolean }): string {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * Longest the lobby waits for the on-device voice model after "Enter interview room". The interview session is
+ * requested in parallel; past this cap the room opens with the browser's speech recognition instead.
+ */
+export const LOBBY_STT_WAIT_CAP_MS = 12_000
+
+/**
  * Wait until Moonshine + Silero VAD are ready in the lobby (candidate stays on setup stage).
  */
 export async function waitForLobbyLocalStt(
@@ -38,8 +44,8 @@ export async function waitForLobbyLocalStt(
     onPoll?: (snapshot: LobbySttSnapshot) => void
   },
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const moonshineMaxMs = options.moonshineMaxMs ?? 300_000
-  const vadMaxMs = options.vadMaxMs ?? 90_000
+  const moonshineMaxMs = options.moonshineMaxMs ?? LOBBY_STT_WAIT_CAP_MS
+  const vadMaxMs = options.vadMaxMs ?? LOBBY_STT_WAIT_CAP_MS
   const pollMs = options.pollMs ?? 200
 
   const initial = readSnapshot()

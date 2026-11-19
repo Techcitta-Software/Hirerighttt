@@ -3,15 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
 import { apiRequestPasswordReset, apiResetPassword } from '../lib/api'
+import { MIN_PASSWORD_LENGTH } from '../lib/passwordRules'
 import styles from './AuthPages.module.css'
 
-const MIN_PASSWORD_LENGTH = 8
 
 function ResetShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={styles.page}>
       <MarketingNavBar />
-      <div className={styles.shell} style={{ paddingTop: '2rem' }}>
+      <div className={`${styles.shell} ${styles.authStage}`}>
         <div className={styles.card}>{children}</div>
       </div>
       <MarketingFooter />
@@ -52,16 +52,16 @@ export function ForgotPasswordPage() {
           <p className={styles.success} role="status">
             {sentMessage}
           </p>
-          <p style={{ marginTop: '1rem' }}>
+          <p className={styles.cardNote}>
             Didn’t get it? Check your spam folder, or{' '}
             <button type="button" className={styles.switchModeLink} onClick={() => setSentMessage('')}>
               try again
             </button>
             .
           </p>
-          <p style={{ marginTop: '0.75rem' }}>
+          <p className={styles.cardNote}>
             <Link to="/login" state={{ explicitLogin: true }} className={styles.switchModeLink}>
-              Back to log in
+              Back to sign in
             </Link>
           </p>
         </>
@@ -88,7 +88,7 @@ export function ForgotPasswordPage() {
                 autoFocus
               />
             </label>
-            <button type="submit" className={styles.submit} disabled={sending}>
+            <button type="submit" className={styles.submit} disabled={sending} aria-busy={sending || undefined}>
               {sending ? (
                 <>
                   <span className="ds-spinner" aria-hidden="true" /> Sending link…
@@ -98,10 +98,10 @@ export function ForgotPasswordPage() {
               )}
             </button>
           </form>
-          <p style={{ marginTop: '1rem' }}>
+          <p className={styles.cardNote}>
             Remembered it?{' '}
             <Link to="/login" state={{ explicitLogin: true }} className={styles.switchModeLink}>
-              Back to log in
+              Back to sign in
             </Link>
           </p>
         </>
@@ -136,7 +136,7 @@ export function ResetPasswordPage() {
     setError('')
     try {
       const message = await apiResetPassword(token, password)
-      setDone(message || 'Your password has been reset. Log in with your new password.')
+      setDone(message || 'Your password has been reset. Sign in with your new password.')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reset your password. Please try again.')
     } finally {
@@ -149,7 +149,7 @@ export function ResetPasswordPage() {
       <ResetShell>
         <h1>Reset link missing</h1>
         <p>This page needs the link from your reset email. Request a new link and open it from your inbox.</p>
-        <p style={{ marginTop: '1.25rem' }}>
+        <p className={styles.cardNote}>
           <Link to="/forgot-password" className={styles.switchModeLink}>
             Request a new reset link
           </Link>
@@ -166,16 +166,15 @@ export function ResetPasswordPage() {
           <p className={styles.success} role="status">
             {done}
           </p>
-          <p style={{ marginTop: '0.75rem', color: '#5f6686' }}>
+          <p className={styles.cardNote}>
             For your security, you’ve been signed out on all devices.
           </p>
           <button
             type="button"
-            className={styles.submit}
-            style={{ marginTop: '1.25rem' }}
+            className={`${styles.submit} ${styles.cardAction}`}
             onClick={() => navigate('/login', { replace: true, state: { explicitLogin: true } })}
           >
-            Go to log in
+            Go to sign in
           </button>
         </>
       ) : (
@@ -222,7 +221,7 @@ export function ResetPasswordPage() {
                 required
               />
             </label>
-            <button type="submit" className={styles.submit} disabled={saving}>
+            <button type="submit" className={styles.submit} disabled={saving} aria-busy={saving || undefined}>
               {saving ? (
                 <>
                   <span className="ds-spinner" aria-hidden="true" /> Saving…

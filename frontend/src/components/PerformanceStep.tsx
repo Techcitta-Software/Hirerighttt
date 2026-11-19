@@ -5,7 +5,7 @@ import {
   mentionedInResume,
   type ProfileFormData,
 } from '../data/wizard'
-import { MotionItem, MotionStack } from '../motion/MotionStack'
+import { MotionStack } from '../motion/MotionStack'
 import { SelectField } from './SelectField'
 import { toMonthInputValue } from '../lib/resumeExperience'
 import styles from './PerformanceStep.module.css'
@@ -129,27 +129,39 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
     )
   }
 
+  const trashIcon = (
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M5 6.5H15M8 6.5V5H12V6.5M8.5 9V14M11.5 9V14M6.5 6.5L7 15.5H13L13.5 6.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+  const plusIcon = (
+    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  )
+
   return (
     <MotionStack className={styles.stack}>
-      <MotionItem as="section" className={styles.card}>
+      <section className={styles.card} aria-labelledby="perf-achievements-title">
         <div className={styles.sectionHead}>
           <div>
-            <h2>Key Achievements</h2>
-            <h3>Share your top achievements that you&apos;re proud of.</h3>
+            <h2 id="perf-achievements-title">Key achievements</h2>
+            <p>Share your top achievements that you&apos;re proud of.</p>
           </div>
-          <span className={styles.helper}>
-            Add up to {MAX_ACHIEVEMENTS} achievements
-            <span className={styles.info} title="Share outcomes you are proud of">
-              i
-            </span>
-          </span>
+          <span className={styles.helper}>Up to {MAX_ACHIEVEMENTS} achievements</span>
         </div>
 
         <div className={styles.list}>
           {data.achievements.map((achievement, index) => (
-            <div key={`ach-${index}`} className={styles.textareaBlock}>
+            <div key={`ach-${index}`} className={styles.field}>
               <div className={styles.rowTop}>
-                <label>Achievement {index + 1}</label>
+                <label htmlFor={`ach-${index}`}>Achievement {index + 1}</label>
                 {data.achievements.length > 1 && (
                   <button
                     type="button"
@@ -160,18 +172,21 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                   </button>
                 )}
               </div>
-              <div className={styles.textareaWrap}>
-                <textarea
-                  className={styles.textarea}
-                  rows={4}
-                  maxLength={500}
-                  value={achievement}
-                  placeholder="E.g. Led a team of 5 developers to build a scalable SaaS platform that increased user engagement by 40%..."
-                  onChange={(event) =>
-                    updateAchievement(index, event.target.value)
-                  }
-                />
-              </div>
+              <textarea
+                id={`ach-${index}`}
+                className={styles.textarea}
+                rows={4}
+                maxLength={500}
+                value={achievement}
+                placeholder="e.g. Led a team of 5 developers to build a SaaS platform that increased user engagement by 40%"
+                aria-describedby={`ach-${index}-count`}
+                onChange={(event) =>
+                  updateAchievement(index, event.target.value)
+                }
+              />
+              <span id={`ach-${index}-count`} className={styles.counter}>
+                {achievement.length}/500
+              </span>
             </div>
           ))}
         </div>
@@ -182,33 +197,36 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
           onClick={addAchievement}
           disabled={data.achievements.length >= MAX_ACHIEVEMENTS}
         >
-          + Add Another Achievement
+          {plusIcon}
+          Add another achievement
         </button>
-      </MotionItem>
-      <MotionItem as="section" className={styles.card}>
+      </section>
+
+      <section className={styles.card} aria-labelledby="perf-metrics-title">
         <div className={styles.sectionHead}>
           <div>
-            <h2>Performance Metrics</h2>
-            <h3>Highlight your impact using numbers and results.</h3>
+            <h2 id="perf-metrics-title">Performance metrics</h2>
+            <p>Highlight your impact using numbers and results.</p>
           </div>
           <span className={styles.helper}>Add measurable results</span>
         </div>
 
         <div className={styles.metricsTable}>
           <div className={styles.metricsHeader} aria-hidden="true">
-            <span>Metric / KPI</span>
-            <span>Your Contribution</span>
-            <span>Impact / Result</span>
-            <span>Time Period</span>
+            <span>Metric or KPI</span>
+            <span>Your contribution</span>
+            <span>Impact or result</span>
+            <span>Time period</span>
             <span />
           </div>
 
-          {data.metrics.map((row) => (
+          {data.metrics.map((row, index) => (
             <div key={row.id} className={styles.metricsRow}>
               <input
                 className={styles.textInput}
                 value={row.metric}
-                placeholder="e.g. Increased Application Speed"
+                aria-label={`Metric ${index + 1}: metric or KPI`}
+                placeholder="e.g. Application speed"
                 onChange={(event) =>
                   updateMetric(row.id, 'metric', event.target.value)
                 }
@@ -216,7 +234,8 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
               <input
                 className={styles.textInput}
                 value={row.contribution}
-                placeholder="e.g. Optimized queries & caching"
+                aria-label={`Metric ${index + 1}: your contribution`}
+                placeholder="e.g. Optimised queries and caching"
                 onChange={(event) =>
                   updateMetric(row.id, 'contribution', event.target.value)
                 }
@@ -224,6 +243,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
               <input
                 className={styles.textInput}
                 value={row.impact}
+                aria-label={`Metric ${index + 1}: impact or result`}
                 placeholder="e.g. Improved by 35%"
                 onChange={(event) =>
                   updateMetric(row.id, 'impact', event.target.value)
@@ -241,18 +261,10 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
               <button
                 type="button"
                 className={styles.trashBtn}
-                aria-label="Remove metric"
+                aria-label={`Remove metric ${index + 1}`}
                 onClick={() => removeMetric(row.id)}
               >
-                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path
-                    d="M5 6.5H15M8 6.5V5H12V6.5M8.5 9V14M11.5 9V14M6.5 6.5L7 15.5H13L13.5 6.5"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                {trashIcon}
               </button>
             </div>
           ))}
@@ -264,19 +276,18 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
           onClick={addMetric}
           disabled={data.metrics.length >= MAX_METRICS}
         >
-          + Add Another Metric
+          {plusIcon}
+          Add another metric
         </button>
-      </MotionItem>
-      <MotionItem as="section" className={styles.card}>
+      </section>
+
+      <section className={styles.card} aria-labelledby="perf-awards-title">
         <div className={styles.sectionHead}>
           <div>
-            <h2>Awards & Recognitions</h2>
-            <h3>
-              List any awards, certifications, or recognitions you&apos;ve
-              received.
-            </h3>
+            <h2 id="perf-awards-title">Awards and recognitions</h2>
+            <p>List any awards, certifications or recognitions you&apos;ve received.</p>
           </div>
-          <span className={styles.helper}>Add up to {MAX_AWARDS} items</span>
+          <span className={styles.helper}>Up to {MAX_AWARDS} items</span>
         </div>
 
         <div className={styles.list}>
@@ -285,25 +296,18 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
               <input
                 className={styles.textInput}
                 value={award}
-                placeholder="E.g. Best Performer Award (Q4 2023) or Hackathon Winner"
+                aria-label={`Award ${index + 1}`}
+                placeholder="e.g. Best Performer Award (Q4 2023) or Hackathon Winner"
                 onChange={(event) => updateAward(index, event.target.value)}
               />
               {data.awards.length > 1 && (
                 <button
                   type="button"
                   className={styles.trashBtn}
-                  aria-label="Remove award"
+                  aria-label={`Remove award ${index + 1}`}
                   onClick={() => removeAward(index)}
                 >
-                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                    <path
-                      d="M5 6.5H15M8 6.5V5H12V6.5M8.5 9V14M11.5 9V14M6.5 6.5L7 15.5H13L13.5 6.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+                  {trashIcon}
                 </button>
               )}
             </div>
@@ -316,18 +320,18 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
           onClick={addAward}
           disabled={data.awards.length >= MAX_AWARDS}
         >
-          + Add Another Award
+          {plusIcon}
+          Add another award
         </button>
-      </MotionItem>
-      <MotionItem as="section" className={styles.card}>
+      </section>
+
+      <section className={styles.card} aria-labelledby="perf-certs-title">
         <div className={styles.sectionHead}>
           <div>
-            <h2>Certifications</h2>
-            <h3>Add relevant certifications that strengthen your profile.</h3>
+            <h2 id="perf-certs-title">Certifications</h2>
+            <p>Add relevant certifications that strengthen your profile.</p>
           </div>
-          <span className={styles.helper}>
-            Add up to {MAX_CERTS} certifications
-          </span>
+          <span className={styles.helper}>Up to {MAX_CERTS} certifications</span>
         </div>
 
         <div className={styles.list}>
@@ -337,14 +341,15 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                 mentionedInResume(data.resumeText, cert.name) ||
                 mentionedInResume(data.resumeText, cert.organization),
             )
+            const fid = `cert-${cert.id}`
             return (
               <div key={cert.id} className={styles.certCard}>
                 <div className={styles.rowTop}>
                   <div className={styles.certHeaderLeft}>
-                    <p className={styles.certLabel}>Certification {index + 1}</p>
+                    <h3 className={styles.certLabel}>Certification {index + 1}</h3>
                     {isScraped && (
                       <span className={styles.scrapedBadge}>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
                           <path
                             d="M2.5 6.5L4.5 8.5L9.5 3.5"
                             stroke="currentColor"
@@ -353,7 +358,7 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                             strokeLinejoin="round"
                           />
                         </svg>
-                        Scraped from resume
+                        From your resume
                       </span>
                     )}
                   </div>
@@ -367,55 +372,61 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
                     </button>
                   )}
                 </div>
-              <div className={styles.certGrid}>
-                <div className={styles.field}>
-                  <label>Certification Name</label>
-                  <input
-                    className={styles.textInput}
-                    value={cert.name}
-                    placeholder="e.g. AWS Solutions Architect"
-                    onChange={(event) =>
-                      updateCert(cert.id, 'name', event.target.value)
-                    }
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label>Issuing Organization</label>
-                  <input
-                    className={styles.textInput}
-                    value={cert.organization}
-                    placeholder="e.g. Amazon Web Services"
-                    onChange={(event) =>
-                      updateCert(cert.id, 'organization', event.target.value)
-                    }
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label>Date Earned</label>
-                  <input
-                    className={styles.textInput}
-                    type="month"
-                    value={toMonthInputValue(cert.dateEarned)}
-                    onChange={(event) =>
-                      updateCert(cert.id, 'dateEarned', event.target.value)
-                    }
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label>Credential ID (Optional)</label>
-                  <input
-                    className={styles.textInput}
-                    value={cert.credentialId}
-                    placeholder="e.g. AWS-1234-XYZ"
-                    onChange={(event) =>
-                      updateCert(cert.id, 'credentialId', event.target.value)
-                    }
-                  />
+                <div className={styles.certGrid}>
+                  <div className={styles.field}>
+                    <label htmlFor={`${fid}-name`}>Certification name</label>
+                    <input
+                      id={`${fid}-name`}
+                      className={styles.textInput}
+                      value={cert.name}
+                      placeholder="e.g. AWS Solutions Architect"
+                      onChange={(event) =>
+                        updateCert(cert.id, 'name', event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label htmlFor={`${fid}-org`}>Issuing organisation</label>
+                    <input
+                      id={`${fid}-org`}
+                      className={styles.textInput}
+                      value={cert.organization}
+                      placeholder="e.g. Amazon Web Services"
+                      onChange={(event) =>
+                        updateCert(cert.id, 'organization', event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label htmlFor={`${fid}-date`}>Date earned</label>
+                    <input
+                      id={`${fid}-date`}
+                      className={styles.textInput}
+                      type="month"
+                      value={toMonthInputValue(cert.dateEarned)}
+                      onChange={(event) =>
+                        updateCert(cert.id, 'dateEarned', event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label htmlFor={`${fid}-cred`}>
+                      Credential ID <span className={styles.optional}>(optional)</span>
+                    </label>
+                    <input
+                      id={`${fid}-cred`}
+                      className={styles.textInput}
+                      value={cert.credentialId}
+                      placeholder="e.g. AWS-1234-XYZ"
+                      onChange={(event) =>
+                        updateCert(cert.id, 'credentialId', event.target.value)
+                      }
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
         </div>
 
         <button
@@ -424,9 +435,10 @@ export function PerformanceStep({ data, onChange }: PerformanceStepProps) {
           onClick={addCert}
           disabled={data.certifications.length >= MAX_CERTS}
         >
-          + Add Another Certification
+          {plusIcon}
+          Add another certification
         </button>
-      </MotionItem>
+      </section>
     </MotionStack>
   )
 }

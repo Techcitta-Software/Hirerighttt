@@ -107,9 +107,13 @@ def _record_from_profile(db: dict, user: dict, profile: dict, interview: dict | 
     }
 
 
-def _record_from_talent_hit(db: dict, hit: dict) -> dict:
+_LOOKUP = object()
+
+
+def _record_from_talent_hit(db: dict, hit: dict, user: Any = _LOOKUP) -> dict:
     email = str(hit.get("email") or "").lower()
-    user = find_user(db, email=email) or (find_user(db, user_id=hit.get("userId")) if hit.get("userId") else None)
+    if user is _LOOKUP:
+        user = find_user(db, email=email) or (find_user(db, user_id=hit.get("userId")) if hit.get("userId") else None)
     profile = (db.get("profiles") or {}).get(user.get("email") if user else email) or {}
     interview = (db.get("interviews") or {}).get(email) if user else None
     if not interview and isinstance(hit.get("interviewScore"), (int, float)):
@@ -299,7 +303,10 @@ def _load_all_job_seeker_roster_from_postgres(database_url: str, db: dict, filte
                     "limit": ROSTER_LIMIT,
                 },
             ).fetchall()
-        return [_record_from_postgres_job_seeker_row(db, dict(r)) for r in rows]
+        rows = [dict(r) for r in rows]
+        # One query for the rows without a joined interview (each used to be its own SELECT).
+        interviews_for_emails(db, [r.get("email") for r in rows if not isinstance(r.get("interview_data"), dict)])
+        return [_record_from_postgres_job_seeker_row(db, r) for r in rows]
     except Exception:
         return [
             _with_stored_interview(
@@ -347,10 +354,35 @@ async def _merge_talent_search(database_url: str, organization_id: str, filters:
                 "offset": 0,
             },
         )
-        for hit in talent.get("candidates") or []:
-            add(_with_stored_interview(db, _record_from_talent_hit(db, hit)))
+        hits = [h for h in talent.get("candidates") or [] if isinstance(h, dict)]
+        # Batch the per-hit lookups (user by email, then by id; profile; stored interview): a handful of
+        # ANY(...) queries instead of 3-4 SELECTs per hit (36-250 hits).
+        emails = [str(h.get("email") or "").lower() for h in hits if h.get("email")]
+        by_email = find_users_by_emails(db, emails)
+        by_id = {
+            str(u.get("id")): u
+            for u in find_users_by_ids(
+                db, [h.get("userId") for h in hits if h.get("userId") and str(h.get("email") or "").lower() not in by_email]
+            )
+        }
+        profiles_for_emails(db, emails + [u.get("email") for u in by_id.values()])
+        interviews_for_emails(db, emails)
+        for hit in hits:
+            email = str(hit.get("email") or "").lower()
+            user = by_email.get(email) or (by_id.get(str(hit.get("userId"))) if hit.get("userId") else None)
+            add(_with_stored_interview(db, _record_from_talent_hit(db, hit, user)))
     except Exception:
         pass
+
+
+LIST_RESUME_TEXT_CHARS = 4000  # list rows in the "org" view carry a preview; full text via the resume endpoints
+
+
+def _cap_resume_text(row: dict, limit: int) -> dict:
+    full = str(row.get("resumeText") or "")
+    if len(full) <= limit:
+        return row
+    return {**row, "resumeText": full[:limit], "resumeTextTruncated": True, "resumeTextLength": len(full)}
 
 
 def list_job_candidates(db: dict, organization_id: str, job_id: str, filters: dict | None = None) -> dict[str, Any]:
@@ -403,6 +435,9 @@ async def list_organization_candidates(
     recruiter_scope: dict | None = None,
 ) -> dict[str, Any]:
     filters = filters or {}
+    # scope="org": only the organisation's own candidates (applications, shared interviews, vault, interview
+    # reports) - the platform-wide roster and talent search (sources "platform" / "talent") are skipped entirely.
+    org_only = str(filters.get("scope") or "").strip().lower() == "org"
     recruiter_job_ids = None
     if recruiter_scope and recruiter_scope.get("createdByUserId"):
         recruiter_job_ids = {j["id"] for j in list_org_jobs(db, organization_id, recruiter_scope)}
@@ -510,11 +545,12 @@ async def list_organization_candidates(
             )
         )
 
-    for row in await asyncio.to_thread(_all_job_seeker_roster_cached, database_url, db, filters):
-        add(row)
+    if not org_only:
+        for row in await asyncio.to_thread(_all_job_seeker_roster_cached, database_url, db, filters):
+            add(row)
 
-    if database_url.strip():
-        await _merge_talent_search(database_url, organization_id, filters, db, add)
+        if database_url.strip():
+            await _merge_talent_search(database_url, organization_id, filters, db, add)
 
     rows = list(by_key.values())
     flagged = await asyncio.to_thread(_recruiter_account_keys, db, rows)
@@ -528,4 +564,6 @@ async def list_organization_candidates(
         and _matches_filters(row, filters)
     ]
     candidates.sort(key=lambda r: str(r.get("appliedAt") or ""), reverse=True)
+    if org_only:
+        candidates = [_cap_resume_text(r, LIST_RESUME_TEXT_CHARS) for r in candidates]
     return {"total": len(candidates), "candidates": candidates}

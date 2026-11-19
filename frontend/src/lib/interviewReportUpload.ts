@@ -8,6 +8,8 @@ export async function fetchStoredReportDownloadUrl(sessionId: string): Promise<s
   try {
     const res = await apiFetch(
       `/api/interview/artifacts/${encodeURIComponent(sessionId)}/report/download?format=json`,
+      // Polled in the background while the PDF is generated.
+      { background: true },
     )
     if (!res.ok) return null
     const data = (await res.json().catch(() => ({}))) as { downloadUrl?: string }
@@ -42,6 +44,7 @@ export async function uploadInterviewReportPdfToS3(sessionId: string): Promise<b
     const file_base64 = await buildScorecardPdfBase64()
     const res = await apiFetch('/api/interview/artifacts/report', {
       method: 'POST',
+      background: true,
       body: JSON.stringify({ sessionId, file_base64 }),
     })
     if (!res.ok) {

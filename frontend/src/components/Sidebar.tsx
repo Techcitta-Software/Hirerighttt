@@ -1,170 +1,117 @@
 import { Link } from 'react-router-dom'
-import type { WizardStep } from '../data/wizard'
+import { STEPS, type WizardStep } from '../data/wizard'
 import { BrandLogo } from './BrandLogo'
+import { Stepper } from './Stepper'
 import styles from './Sidebar.module.css'
 
 const WHY_ITEMS = [
   'AI-powered matching with the right roles',
   'Verified by top employers globally',
-  '100% secure & privacy-first',
+  '100% secure and privacy-first',
   'Helping talent grow, one connection at a time',
 ]
 const CONFIRM_ITEMS = [
-  'AI-Powered Matching',
-  'Fair & Unbiased',
-  'Trusted by Top Companies',
-  '100% Secure & Private',
+  'AI-powered matching',
+  'Fair and unbiased',
+  'Trusted by top companies',
+  '100% secure and private',
 ]
 
-export function Sidebar({ step = 1 }: { step?: WizardStep }) {
-  const later = step >= 2
+/** One encouraging line per step: why it matters. */
+const STEP_HINTS: Record<WizardStep, string> = {
+  1: 'Your resume fills in the details, so you only review and confirm.',
+  2: 'A 15-minute conversation shows employers what you can really do.',
+  3: 'Your profile and score unlock roles that fit you.',
+}
+
+const STEP_NAMES: Record<WizardStep, string> = {
+  1: 'Your profile',
+  2: 'AI interview',
+  3: 'All set',
+}
+
+interface SidebarProps {
+  step?: WizardStep
+  completedThrough?: number
+  onStepClick?: (step: WizardStep) => void
+}
+
+export function Sidebar({ step = 1, completedThrough = 0, onStepClick }: SidebarProps) {
+  const total = STEPS.length
+  const progress = Math.round((step / total) * 100)
+  const whyItems =
+    step === 3
+      ? CONFIRM_ITEMS
+      : step === 2
+        ? [WHY_ITEMS[0], 'Interview with confidence', 'Trusted by top companies globally', ...WHY_ITEMS.slice(2)]
+        : WHY_ITEMS
 
   return (
-    <aside className={`${styles.sidebar} ${later ? styles.later : ''}`} aria-label="HireRight introduction">
-      {/* Background constellation network */}
-      <svg className={styles.constellation} viewBox="0 0 320 380" fill="none" aria-hidden="true">
-        <line x1="28" y1="78" x2="105" y2="35" stroke="#7952f5" strokeOpacity="0.22" strokeWidth="1" />
-        <line x1="105" y1="35" x2="200" y2="28" stroke="#7952f5" strokeOpacity="0.22" strokeWidth="1" />
-        <line x1="200" y1="28" x2="278" y2="72" stroke="#7952f5" strokeOpacity="0.22" strokeWidth="1" />
-        <line x1="105" y1="35" x2="160" y2="148" stroke="#7952f5" strokeOpacity="0.18" strokeWidth="1" />
-        <line x1="200" y1="28" x2="252" y2="162" stroke="#7952f5" strokeOpacity="0.2" strokeWidth="1" />
-        <line x1="278" y1="72" x2="252" y2="162" stroke="#7952f5" strokeOpacity="0.22" strokeWidth="1" />
-        <line x1="252" y1="162" x2="288" y2="275" stroke="#7952f5" strokeOpacity="0.18" strokeWidth="1" />
-        <line x1="160" y1="148" x2="252" y2="162" stroke="#7952f5" strokeOpacity="0.16" strokeWidth="1" />
-        <line x1="160" y1="148" x2="124" y2="228" stroke="#7952f5" strokeOpacity="0.15" strokeWidth="1" />
-        <line x1="124" y1="228" x2="265" y2="315" stroke="#7952f5" strokeOpacity="0.15" strokeWidth="1" />
-        <line x1="252" y1="162" x2="265" y2="315" stroke="#7952f5" strokeOpacity="0.2" strokeWidth="1" />
+    <aside className={styles.sidebar} aria-label="Onboarding progress">
+      <div className={styles.glow} aria-hidden="true" />
 
-        <circle cx="28" cy="78" r="3.5" fill="#7952f5" fillOpacity="0.35" />
-        <circle cx="105" cy="35" r="4" fill="#6d42f8" fillOpacity="0.45" />
-        <circle cx="200" cy="28" r="3.5" fill="#7952f5" fillOpacity="0.35" />
-        <circle cx="278" cy="72" r="4.5" fill="#6d42f8" fillOpacity="0.45" />
-        <circle cx="160" cy="148" r="4" fill="#7952f5" fillOpacity="0.4" />
-        <circle cx="252" cy="162" r="4.5" fill="#6d42f8" fillOpacity="0.5" />
-        <circle cx="124" cy="228" r="3.5" fill="#7952f5" fillOpacity="0.3" />
-        <circle cx="288" cy="275" r="4" fill="#7952f5" fillOpacity="0.35" />
-        <circle cx="265" cy="315" r="4" fill="#6d42f8" fillOpacity="0.4" />
-      </svg>
-
-      <div style={{ marginBottom: '1.25rem', position: 'relative', zIndex: 2 }}>
-        <BrandLogo size="lg" />
+      <div className={styles.brand}>
+        <BrandLogo size="lg" dark />
       </div>
 
-      {later && (
-        <div
-          className={`${styles.character} ${step === 3 ? styles.confirmCharacter : ''}`}
-          role="img"
-          aria-label="A professional with a laptop sitting in a purple chair"
-        />
-      )}
-
       <div className={styles.hero}>
-        <h2>
-          {step === 3 ? (
-            <>
-              You're on the
-              <br />
-              <span className={styles.redWord}>Right</span> Path!
-            </>
-          ) : step === 2 ? (
-            <>
-              You've taken
-              <br />
-              the <span className={styles.redWord}>Right</span> Step!
-            </>
-          ) : (
-            <>
-              Your Journey
-              <br />
-              to the <span className={styles.redWord}>Right</span>
-              <br />
-              Opportunity
-              <br />
-              Starts Here.
-            </>
-          )}
-        </h2>
-        <p>
+        <p className={styles.heroTitle}>
           {step === 3
-            ? "We're excited to have you with us. Our AI interview will help you showcase your skills and connect you with the best opportunities."
+            ? 'You’re on the right path'
             : step === 2
-              ? "We're excited to learn more about you and help you connect with the right opportunities."
-              : "We're here to understand you better, so we can connect you with opportunities that truly fit your potential."}
+              ? 'You’ve taken the right step'
+              : 'Your journey to the right opportunity starts here'}
+        </p>
+        <p className={styles.heroText}>
+          {step === 3
+            ? 'We’re excited to have you with us. Your AI interview helps you showcase your skills and connect with the best opportunities.'
+            : step === 2
+              ? 'We’re excited to learn more about you and help you connect with the right opportunities.'
+              : 'We’re here to understand you better, so we can connect you with opportunities that truly fit your potential.'}
         </p>
       </div>
 
-      {!later && (
-        <div className={styles.featureCard}>
-          <svg className={styles.featureCardSvg} viewBox="0 0 280 160" preserveAspectRatio="none" aria-hidden="true">
-            <defs>
-              <linearGradient id="sidebarCardSky" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#15173c" />
-                <stop offset="50%" stopColor="#1e224e" />
-                <stop offset="78%" stopColor="#3d2a58" />
-                <stop offset="100%" stopColor="#7a4666" />
-              </linearGradient>
-              <radialGradient id="sidebarCardSun" cx="75%" cy="66%" r="28%">
-                <stop offset="0%" stopColor="#fab197" stopOpacity="0.95" />
-                <stop offset="50%" stopColor="#e4827d" stopOpacity="0.65" />
-                <stop offset="100%" stopColor="#3d2a58" stopOpacity="0" />
-              </radialGradient>
-            </defs>
-            <rect width="280" height="160" fill="url(#sidebarCardSky)" />
-            <circle cx="210" cy="98" r="28" fill="url(#sidebarCardSun)" />
-            <circle cx="210" cy="98" r="14" fill="#fed6c3" />
-            <polygon points="35,160 110,95 190,160" fill="#2d254d" opacity="0.85" />
-            <polygon points="0,160 28,126 85,160" fill="#221e42" />
-            <polygon points="105,160 182,88 280,160" fill="#1b1c3e" />
-            <polygon points="135,160 215,84 280,140 280,160" fill="#141530" />
-            {/* Climber on summit with flag */}
-            <circle cx="183" cy="80" r="2.8" fill="#141530" />
-            <path
-              d="M183 83 L183 89 L180 94 M183 89 L186 94 M183 85 L180 88 M183 85 L187 81"
-              stroke="#141530"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <line x1="187" y1="88" x2="194" y2="72" stroke="#141530" strokeWidth="1.4" strokeLinecap="round" />
-            <polygon points="194,72 205,74 198,79" fill="#141530" />
-          </svg>
-          <div className={styles.featureCardContent}>
-            <strong>
-              One profile.
-              <br />
-              Unlimited
-              <br />
-              possibilities.
-            </strong>
-            <small>Built on trust. Powered by AI.</small>
-          </div>
+      <div className={styles.progress}>
+        <div className={styles.progressHead}>
+          <span className={styles.progressLabel}>
+            Step {step} of {total}
+          </span>
+          <span className={styles.progressCurrent}>{STEP_NAMES[step]}</span>
         </div>
-      )}
+        <div
+          className={styles.progressTrack}
+          role="progressbar"
+          aria-label="Onboarding progress"
+          aria-valuemin={1}
+          aria-valuemax={total}
+          aria-valuenow={step}
+          aria-valuetext={`Step ${step} of ${total}`}
+        >
+          <span className={styles.progressFill} style={{ width: `${progress}%` }} />
+        </div>
+      </div>
 
-      <div className={`${styles.why} ${step === 3 ? styles.trustCard : ''}`}>
-        <h3>
-          {step === 3 ? (
-            'Your journey is in safe hands.'
-          ) : (
-            <>Why HireRight{step === 2 ? ' ?' : ''}</>
-          )}
-        </h3>
+      <div className={styles.steps}>
+        <Stepper
+          current={step}
+          completedThrough={completedThrough}
+          onStepClick={(next) => onStepClick?.(next)}
+          hints={STEP_HINTS}
+        />
+      </div>
+
+      <p className={styles.compactHint}>{STEP_HINTS[step]}</p>
+
+      <div className={styles.why}>
+        <p className={styles.whyTitle}>
+          {step === 3 ? 'Your journey is in safe hands' : 'Why HireRight'}
+        </p>
         <ul>
-          {(step === 3
-            ? CONFIRM_ITEMS
-            : step === 2
-              ? [
-                  WHY_ITEMS[0],
-                  'Interview with confidence',
-                  'Trusted by top companies globally',
-                  ...WHY_ITEMS.slice(2),
-                ]
-              : WHY_ITEMS
-          ).map((item) => (
+          {whyItems.map((item) => (
             <li key={item}>
               <span className={styles.check} aria-hidden="true">
-                <svg viewBox="0 0 16 16" width="11" height="11" fill="none">
-                  <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                <svg viewBox="0 0 16 16" fill="none">
+                  <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
               <span>{item}</span>
@@ -173,10 +120,9 @@ export function Sidebar({ step = 1 }: { step?: WizardStep }) {
         </ul>
       </div>
 
-      <div className={styles.help}>
-        <span>Need help?</span>{' '}
-        <Link to="/contact">Talk to us</Link>
-      </div>
+      <p className={styles.help}>
+        Need help? <Link to="/contact">Talk to us</Link>
+      </p>
     </aside>
   )
 }

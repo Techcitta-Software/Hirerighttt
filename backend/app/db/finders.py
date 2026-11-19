@@ -34,7 +34,8 @@ def _fetch(db: UnitOfWork, name: str, sql: str, params: tuple) -> list[dict]:
         return []  # caller falls back to the in-memory list
     memo_key = (name, sql, repr(params))
     if memo_key in db.fetched:
-        return [o for o in db.fetched[memo_key] if any(o is x for x in coll.tracked())]
+        live = {id(x) for x in coll.tracked()}  # one pass (was a scan of every tracked row per remembered row)
+        return [o for o in db.fetched[memo_key] if id(o) in live]
     rows = coll.track_rows(db.query(sql, params))
     db.fetched[memo_key] = rows
     return rows
@@ -456,3 +457,22 @@ def interviews_for_emails(db: Any, emails: list[Any]) -> dict[str, dict]:
             if e not in table._values:
                 table._missing.add(e)
     return {e: table._values[e] for e in wanted if e in table._values}
+
+
+def employer_app_counts_for_org(db: Any, org_id: Any) -> dict[str, int]:
+    """{job_id: number of applications} for one organization, in one grouped query (no rows loaded)."""
+    oid = str(org_id or "")
+    if not oid:
+        return {}
+    uow = _uow(db)
+    if uow is None or uow.list("employerApplications").is_fully_loaded():
+        counts: dict[str, int] = {}
+        for a in db.get("employerApplications") or []:
+            if a.get("organizationId") == oid:
+                jid = str(a.get("jobId") or "")
+                counts[jid] = counts.get(jid, 0) + 1
+        return counts
+    rows = uow.query(
+        "SELECT job_id, COUNT(*) AS n FROM employer_applications WHERE organization_id = %s GROUP BY job_id", (oid,)
+    )
+    return {str(r["job_id"]): int(r["n"]) for r in rows}

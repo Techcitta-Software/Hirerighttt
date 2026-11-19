@@ -3,7 +3,8 @@
   background-color: #faf9ff;
   color: #141638;
   font-family: var(--font);
-  overflow-x: hidden;
+  /* clip (not hidden) so the sticky header still sticks */
+  overflow-x: clip;
   position: relative;
 }
 
@@ -653,7 +654,7 @@
   color: #6036eb;
 }
 
-/* Why HireRight Showcase */
+/* Why HireRighttt Showcase */
 .whySection {
   padding: 4rem 0;
 }
@@ -1031,4 +1032,32 @@
   filter: blur(40px);
   pointer-events: none;
   z-index: 1;
+  opacity: 0;
+  transform: translate(var(--glow-x, 0px), var(--glow-y, 0px));
+  transition: opacity 0.3s ease;
+}
+
+.ctaCard:hover .ctaCursorGlow {
+  opacity: 1;
+}
+
+/* A quick cross-fade when switching the "Why" tab; the image is never hidden for long. */
+.whyFeatureImg {
+  animation: whyImgIn 0.25s ease-out;
+}
+
+@keyframes whyImgIn {
+  from {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whyFeatureImg {
+    animation: none;
+  }
+
+  .ctaCursorGlow {
+    display: none;
+  }
 }

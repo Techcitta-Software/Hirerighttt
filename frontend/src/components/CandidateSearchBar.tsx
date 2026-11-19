@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { highlightSegments, type CandidateQuickFilter, type CandidateSort } from '../lib/candidateSearch'
 import { HrIcon } from './HrIcon'
 import styles from './CandidateSearchBar.module.css'
 
 /** Wraps the words the recruiter searched in <mark> so it is obvious why a candidate matched. */
 export function HighlightText({ text, query }: { text: string; query: string }) {
+  // No query: plain text, no extra nodes per row.
+  if (!query.trim()) return <>{text}</>
   return (
     <>
       {highlightSegments(text, query).map((part, i) =>
@@ -13,7 +15,7 @@ export function HighlightText({ text, query }: { text: string; query: string }) 
             {part.text}
           </mark>
         ) : (
-          <span key={i}>{part.text}</span>
+          <Fragment key={i}>{part.text}</Fragment>
         ),
       )}
     </>

@@ -5,6 +5,7 @@ Mirrors the frontend/local agent so scoring stays consistent server-side.
 
 from __future__ import annotations
 
+import functools
 import logging
 
 import re
@@ -314,15 +315,23 @@ def _normalize_role_name(value: str) -> str:
     return re.sub(r"\s+", " ", v).strip()
 
 
-def _load_required_role_skills(role: str, profile: dict[str, Any] | None) -> list[str]:
+@functools.lru_cache(maxsize=1)
+def _role_skills_catalog() -> dict | None:
+    """data/roleSkills.json, read once per process (it was re-read and re-parsed on every scoring call)."""
     import json
     from pathlib import Path
 
-    exact = _clean((profile or {}).get("currentRole")) or _clean(role)
     path = Path(__file__).resolve().parents[2] / "data" / "roleSkills.json"
     try:
-        catalog = json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except OSError:
+        return None
+
+
+def _load_required_role_skills(role: str, profile: dict[str, Any] | None) -> list[str]:
+    exact = _clean((profile or {}).get("currentRole")) or _clean(role)
+    catalog = _role_skills_catalog()
+    if catalog is None:
         return []
     for candidate in (_clean(role), exact):
         if candidate in catalog and isinstance(catalog[candidate], list):

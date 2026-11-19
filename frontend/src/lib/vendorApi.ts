@@ -1,4 +1,5 @@
 import { apiFetch } from './api'
+import { cachedRequest, peekCachedRequest } from './requestCache'
 import type { IntegrityLogEvent } from './store'
 
 export type VendorJob = {
@@ -15,6 +16,8 @@ export type VendorJob = {
   shareableCode: string
   status?: string
   createdAt: string
+  /** Number of applications, when the API sends it (saves one applicants request per job). */
+  applicantCount?: number
 }
 
 export type VendorApplicant = {
@@ -104,8 +107,8 @@ export type EmployerApplicationAlert = {
   read: boolean
 }
 
-export async function fetchEmployerApplicationAlerts() {
-  const res = await apiFetch('/api/vendor/application-alerts')
+export async function fetchEmployerApplicationAlerts(opts?: { background?: boolean }) {
+  const res = await apiFetch('/api/vendor/application-alerts', { background: opts?.background })
   return parse<{ alerts: EmployerApplicationAlert[]; total: number }>(res)
 }
 
@@ -133,8 +136,32 @@ export async function fetchOpenJobs(options?: {
   if (options?.limit != null) qs.set('limit', String(options.limit))
   if (options?.offset != null) qs.set('offset', String(options.offset))
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
-  const res = await apiFetch(`/api/jobs${suffix}`, { background: options?.background })
-  return parse<OpenJobsResponse>(res)
+  const path = `/api/jobs${suffix}`
+  // Several components load the same list on mount (page + nav bell): share one request.
+  return cachedRequest(path, OPEN_JOBS_SHARE_MS, async () =>
+    parse<OpenJobsResponse>(await apiFetch(path, { background: options?.background })),
+  )
+}
+
+const OPEN_JOBS_SHARE_MS = 5_000
+const MATCHED_SUMMARY_PATH = '/api/jobs?summary=1&scope=matched'
+
+/**
+ * Matched jobs for the candidate notification bell (first `limit`). Reuses the full matched list
+ * when a page has just loaded it (same order, so its first `limit` jobs are the same) instead of
+ * sending a second /api/jobs request.
+ */
+export async function fetchMatchedJobsForAlerts(limit = 30): Promise<VendorJob[]> {
+  const shared = peekCachedRequest<OpenJobsResponse>(MATCHED_SUMMARY_PATH)
+  if (shared) {
+    try {
+      return ((await shared).jobs ?? []).slice(0, limit)
+    } catch {
+      /* fall through to the bell's own small request */
+    }
+  }
+  const res = await fetchOpenJobs({ summary: true, scope: 'matched', limit, background: true })
+  return res.jobs ?? []
 }
 
 export async function fetchVendorJobs() {
@@ -272,8 +299,11 @@ export async function fetchOrganizationCandidates(params?: {
   experienceYears?: string
   keywords?: string
   jobId?: string
+  /** 'org' = only this organisation's own candidates (no platform roster / talent pool). Default: all. */
+  scope?: 'org' | 'all'
 }, opts?: { background?: boolean }) {
   const qs = new URLSearchParams()
+  if (params?.scope === 'org') qs.set('scope', 'org')
   if (params?.name) qs.set('name', params.name)
   if (params?.job) qs.set('job', params.job)
   if (params?.experienceYears) qs.set('experienceYears', params.experienceYears)

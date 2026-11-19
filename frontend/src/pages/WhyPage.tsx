@@ -274,7 +274,7 @@ export function WhyPage() {
               <Link to="/signup" state={{ explicitSignup: true }} className={styles.cta}>
                 Start my conversation <span aria-hidden="true">↗</span>
               </Link>
-              <Link to="/organizations/signup" state={{ explicitSignup: true }} className={`${styles.cta} ${styles.outline}`}>
+              <Link to="/for-recruiters" className={`${styles.cta} ${styles.outline}`}>
                 I&apos;m hiring <span aria-hidden="true">↗</span>
               </Link>
             </div>

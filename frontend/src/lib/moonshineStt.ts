@@ -46,6 +46,29 @@ class MoonshineSttService {
     }, delayMs)
   }
 
+  /**
+   * Warm the model while the candidate is about to start an interview (invite page, onboarding
+   * interview step): after a short delay, when the browser is idle, and never on Save-Data connections.
+   * Normal pages never call this, so the worker and model files are not fetched there.
+   */
+  preloadWhenIdle(delayMs = 1500) {
+    if (typeof window === 'undefined') return
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+    if (connection?.saveData) return
+    if (this.state.status === 'ready' || this.state.status === 'downloading') return
+    if (this.preloadTimer) return
+    this.preloadTimer = window.setTimeout(() => {
+      const start = () => {
+        this.preloadTimer = null
+        this.preloadNow()
+      }
+      const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback
+      if (idle) idle(start, { timeout: 4000 })
+      else start()
+    }, delayMs)
+  }
+
   private ensureWorker() {
     if (this.worker) return
 

@@ -95,12 +95,74 @@ const VALUES = [
   },
 ]
 
+/**
+ * The hero "film": three cards that cycle every 2s. It lives in its own component so the tick re-renders only
+ * this card, and it pauses while it is off-screen or the tab is hidden. Reduced motion starts it paused.
+ */
+function HeroFilm() {
+  const ref = useRef<HTMLDivElement>(null)
+  const [playing, setPlaying] = useState(
+    () => !(typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+  )
+  const [frame, setFrame] = useState(0)
+  const [onScreen, setOnScreen] = useState(true)
+  const [tabVisible, setTabVisible] = useState(() => typeof document === 'undefined' || !document.hidden)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !('IntersectionObserver' in window)) return
+    const io = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting))
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const onVisibility = () => setTabVisible(!document.hidden)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  const running = playing && onScreen && tabVisible
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => setFrame((f) => (f + 1) % FILM.length), 2000)
+    return () => window.clearInterval(id)
+  }, [running])
+
+  return (
+    <div ref={ref} className={styles.film} aria-label="Animated preview of how a conversation adds context to a resume">
+      <div className={styles.filmGlow} aria-hidden="true" />
+      <div className={styles.filmGhost} aria-hidden="true">
+        “
+      </div>
+      <div className={styles.filmTop}>
+        <span>HireRighttt / A closer look</span>
+        <span className={styles.spark} aria-hidden="true">
+          ✳
+        </span>
+      </div>
+      <div className={styles.filmData}>
+        <span className={styles.filmKicker}>{FILM[frame][0]}</span>
+        <div className={styles.filmQuote} key={frame} aria-live="off">
+          {FILM[frame][1]}
+        </div>
+        <div className={styles.filmProgress} aria-hidden="true">
+          <span key={`${frame}-${running}`} data-paused={!running} />
+        </div>
+        <div className={styles.filmControls}>
+          <span>Conversations reveal the details.</span>
+          <button type="button" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause animation' : 'Play animation'}>
+            {playing ? 'Pause motion ‖' : 'Play motion ▶'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RecruiterPage() {
-  const rootRef = useRef<HTMLDivElement>(null)
   const [role, setRole] = useState<RoleKey>('engineer')
   const [step, setStep] = useState<StepKey>('resume')
-  const [playing, setPlaying] = useState(true)
-  const [frame, setFrame] = useState(0)
   const [calcOpen, setCalcOpen] = useState(false)
   const [count, setCount] = useState(60)
   const [before, setBefore] = useState(30)
@@ -108,39 +170,6 @@ export function RecruiterPage() {
 
   const c = CASES[role]
   const hours = Math.max(0, (count * (before - after)) / 60)
-
-  // reduced motion: start paused
-  useEffect(() => {
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) setPlaying(false)
-  }, [])
-
-  // hero card cycles every 2s
-  useEffect(() => {
-    if (!playing) return
-    const id = window.setInterval(() => setFrame((f) => (f + 1) % FILM.length), 2000)
-    return () => window.clearInterval(id)
-  }, [playing])
-
-  // reveal on scroll
-  useEffect(() => {
-    const els = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-reveal]') ?? [])
-    if (!('IntersectionObserver' in window) || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      els.forEach((el) => el.classList.add(styles.isVisible))
-      return
-    }
-    const ob = new IntersectionObserver(
-      (entries) =>
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            e.target.classList.add(styles.isVisible)
-            ob.unobserve(e.target)
-          }
-        }),
-      { threshold: 0.08 },
-    )
-    els.forEach((el) => ob.observe(el))
-    return () => ob.disconnect()
-  }, [])
 
   function stepKeys(e: KeyboardEvent<HTMLButtonElement>, i: number) {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
@@ -153,13 +182,13 @@ export function RecruiterPage() {
   const currentStep = STEPS.find((s) => s.key === step)!
 
   return (
-    <div className={styles.page} ref={rootRef}>
+    <div className={styles.page}>
       <MarketingNavBar />
       <main>
         {/* hero */}
         <section className={styles.hero}>
           <div className={`${styles.container} ${styles.heroGrid}`}>
-            <div data-reveal className={styles.reveal}>
+            <div>
               <div className={styles.eyebrow}>For the people doing the hiring</div>
               <h1 className={styles.h1}>
                 A resume can’t answer your <span className={styles.italic}>follow-up question.</span>
@@ -169,7 +198,7 @@ export function RecruiterPage() {
                 deciding who to meet.
               </p>
               <div className={styles.actions}>
-                <Link to="/organizations/signup" state={{ explicitSignup: true, orgForm: true }} className={styles.btn}>
+                <Link to="/organizations/signup" className={styles.btn}>
                   Start hiring <span aria-hidden="true">↗</span>
                 </Link>
                 <a href="#experience" className={styles.textLink}>
@@ -183,40 +212,14 @@ export function RecruiterPage() {
               </div>
             </div>
 
-            <div data-reveal className={`${styles.reveal} ${styles.film}`} aria-label="Animated preview of how a conversation adds context to a resume">
-              <div className={styles.filmGlow} aria-hidden="true" />
-              <div className={styles.filmGhost} aria-hidden="true">
-                “
-              </div>
-              <div className={styles.filmTop}>
-                <span>HireRighttt / A closer look</span>
-                <span className={styles.spark} aria-hidden="true">
-                  ✳
-                </span>
-              </div>
-              <div className={styles.filmData}>
-                <span className={styles.filmKicker}>{FILM[frame][0]}</span>
-                <div className={styles.filmQuote} key={frame} aria-live="off">
-                  {FILM[frame][1]}
-                </div>
-                <div className={styles.filmProgress} aria-hidden="true">
-                  <span key={`${frame}-${playing}`} data-paused={!playing} />
-                </div>
-                <div className={styles.filmControls}>
-                  <span>Conversations reveal the details.</span>
-                  <button type="button" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause animation' : 'Play animation'}>
-                    {playing ? 'Pause motion ‖' : 'Play motion ▶'}
-                  </button>
-                </div>
-              </div>
-            </div>
+            <HeroFilm />
           </div>
         </section>
 
         {/* gap */}
         <section className={styles.statement}>
           <div className={`${styles.container} ${styles.statementGrid}`}>
-            <div data-reveal className={styles.reveal}>
+            <div>
               <div className={styles.eyebrow}>The gap</div>
               <h2 className={styles.h2}>
                 The resume tells you <span className={styles.italic}>what.</span>
@@ -224,7 +227,7 @@ export function RecruiterPage() {
                 Not always <span className={styles.italic}>how.</span>
               </h2>
             </div>
-            <div data-reveal className={styles.reveal}>
+            <div>
               <p>
                 Someone writes “led a project.” Another writes “strong problem-solving skills.” Maybe both are true. But what happened when
                 things went wrong? What did they decide? How did they work with others?
@@ -240,7 +243,7 @@ export function RecruiterPage() {
         {/* interactive demo */}
         <section className={styles.story} id="experience">
           <div className={styles.container}>
-            <div data-reveal className={`${styles.reveal} ${styles.storyTop}`}>
+            <div className={styles.storyTop}>
               <div>
                 <div className={`${styles.eyebrow} ${styles.eyebrowLight}`}>A closer look</div>
                 <h2 className={styles.h2}>
@@ -252,7 +255,7 @@ export function RecruiterPage() {
               <p>Pick a role. Then move from the resume to an interview answer and the hiring team’s notes.</p>
             </div>
 
-            <div data-reveal className={`${styles.reveal} ${styles.demo}`} aria-label="Interactive example of how candidate interviews add context">
+            <div className={styles.demo} aria-label="Interactive example of how candidate interviews add context">
               <div className={styles.demoSide}>
                 <div className={styles.hint}>Choose a role</div>
                 {ROLES.map((r) => (
@@ -334,7 +337,7 @@ export function RecruiterPage() {
         {/* workflow */}
         <section className={styles.workflow}>
           <div className={styles.container}>
-            <div data-reveal className={`${styles.reveal} ${styles.workflowHead}`}>
+            <div className={styles.workflowHead}>
               <div>
                 <div className={styles.eyebrow}>The workflow</div>
                 <h2 className={styles.h2}>
@@ -345,7 +348,7 @@ export function RecruiterPage() {
               </div>
               <p>You keep the hiring process. HireRighttt helps you learn more between the application and the first call.</p>
             </div>
-            <div data-reveal className={`${styles.reveal} ${styles.process}`}>
+            <div className={styles.process}>
               {PROCESS.map((p) => (
                 <div key={p.n} className={styles.processItem}>
                   <div className={styles.bullet}>{p.n}</div>
@@ -360,7 +363,7 @@ export function RecruiterPage() {
         {/* principles */}
         <section className={styles.principles}>
           <div className={styles.container}>
-            <div data-reveal className={`${styles.reveal} ${styles.valuesHead}`}>
+            <div className={styles.valuesHead}>
               <div>
                 <div className={styles.eyebrow}>What matters here</div>
                 <h2 className={styles.h2}>
@@ -369,7 +372,7 @@ export function RecruiterPage() {
               </div>
               <p>Technology should help recruiters ask better questions, not quietly make hiring decisions for them.</p>
             </div>
-            <div data-reveal className={`${styles.reveal} ${styles.valueList}`}>
+            <div className={styles.valueList}>
               {VALUES.map((v) => (
                 <div key={v.t} className={styles.value}>
                   <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -386,7 +389,7 @@ export function RecruiterPage() {
         {/* estimate */}
         <section className={styles.estimate}>
           <div className={styles.container}>
-            <div data-reveal className={`${styles.reveal} ${styles.estimateInner}`}>
+            <div className={styles.estimateInner}>
               <div>
                 <div className={styles.eyebrow}>Time to spend where it matters</div>
                 <h2 className={styles.h2}>
@@ -419,7 +422,7 @@ export function RecruiterPage() {
                   </div>
                   <input aria-label="Illustrative review time" type="range" min={3} max={30} step={1} value={after} onChange={(e) => setAfter(Number(e.target.value))} />
                   <div className={styles.calcNumber}>
-                    <span>{hours.toLocaleString('en-US', { maximumFractionDigits: 1 })}</span> hours / month
+                    <span>{hours.toLocaleString('en-IN', { maximumFractionDigits: 1 })}</span> hours / month
                   </div>
                   <div className={styles.fine}>
                     Illustrative hours saved = applicants × (current minutes − review minutes) ÷ 60. Actual results depend on workflows and
@@ -442,7 +445,7 @@ export function RecruiterPage() {
                 </h2>
                 <p>Set up a workspace. Post a role. Start meeting applicants with more context.</p>
               </div>
-              <Link to="/organizations/signup" state={{ explicitSignup: true, orgForm: true }} className={styles.lastBtn}>
+              <Link to="/organizations/signup" className={styles.lastBtn}>
                 Create an organisation account <span aria-hidden="true">↗</span>
               </Link>
             </div>

@@ -40,6 +40,8 @@ export async function uploadInterviewRecordingToS3(opts: {
   const initRes = await apiFetch('/api/interview/recordings/upload', {
     method: 'POST',
     body: form,
+    // Uploads after the candidate has left the room.
+    background: true,
     signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120_000) : undefined,
   })
   const init = (await initRes.json().catch(() => ({}))) as {

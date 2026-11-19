@@ -19,7 +19,10 @@ import {
   speakText,
 } from '../lib/speech'
 import {
+  FACE_SAMPLE_INTERVAL_MS,
   FaceTracker,
+  faceStatusKey,
+  preloadFaceTracker,
   type FaceTrackStatus,
 } from '../lib/faceTracker'
 import { InterviewProctorEngine } from '../lib/interviewProctorEngine'
@@ -69,17 +72,18 @@ import {
   goToInterviewReportAfterCompletion,
   leaveInterviewRoom,
   markCandidateOnboardingCompleteAfterInterview,
+  PENDING_REPORT_UPLOAD_KEY,
 } from '../lib/completeOnboardingAfterInterview'
 import {
   createMoonshineVadSttController,
   type MoonshineVadSttController,
 } from '../lib/moonshineVadStt'
 import { shouldStickToWebSpeechFallback } from '../lib/interviewSttFallback'
-import { moonshineStt, type MoonshineState } from '../lib/moonshineStt'
+import { moonshineStt, type MoonshineStatus } from '../lib/moonshineStt'
 import {
   isLobbyLocalSttReady,
+  LOBBY_STT_WAIT_CAP_MS,
   lobbyEnterButtonLabel,
-  lobbyLocalSttBlockedReason,
   waitForLobbyLocalStt,
   type LobbySttSnapshot,
 } from '../lib/interviewLobbySttGate'
@@ -93,12 +97,7 @@ import {
   type InterviewFocusViolation,
 } from '../lib/interviewRoomLock'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
-import {
-  InterviewCompletionPanel,
-  defaultAnalysisSteps,
-  setAnalysisStep,
-  type AnalysisStep,
-} from '../components/InterviewCompletionPanel'
+import { startInterviewFinishJob } from '../lib/interviewFinishJob'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
 import { easeOut } from '../motion/variants'
@@ -117,15 +116,21 @@ const NO_ANSWER_SKIP_MS = 10_000
 const MIN_ANSWER_CHARS = 10
 
 const LOBBY_TIPS = [
-  'Only you in frame — extra people bans the interview',
-  'Fullscreen is required. Leaving fullscreen, switching tabs or apps, or trying to navigate away immediately ends the interview.',
-  'Brief glances are fine. Poor frames are marked unable to assess. Scores are unaffected.',
-  'Questions follow your resume and the role on your profile',
-  'It works for any field — engineering, healthcare, oil & gas, and more',
-  'Talk over Ava to interrupt — only your voice stops her (not background noise)',
-  'When you finish, pause for a moment or say "next question" — the next one starts automatically',
-  'Say "end the interview" when you want to finish (after 2+ answers)',
+  'Only you on camera, facing the screen. Brief glances away are fine.',
+  'Stay in fullscreen. Leaving it or switching tabs ends the interview.',
+  'Answer out loud and pause when you’re done. Say “end the interview” to finish early.',
 ]
+
+const INITIAL_FACE_STATUS: FaceTrackStatus = {
+  faceCount: 0,
+  ok: false,
+  label: 'Waiting for your camera…',
+  severity: 'warn',
+  issue: 'no_face',
+  faceAreaRatio: 0,
+  yaw: 0,
+  lookingForward: false,
+}
 
 function Waveform({ active }: { active: boolean }) {
   return (
@@ -189,10 +194,15 @@ export function InterviewPage() {
   const [skipCamera, setSkipCamera] = useState(false)
   const [showTypeFallback, setShowTypeFallback] = useState(false)
   const [mediaBusy, setMediaBusy] = useState(false)
-  const [checklist, setChecklist] = useState([false, false, false, false])
+  const [checklist, setChecklist] = useState([false])
   const interviewLockRequireFullscreenRef = useRef(false)
   const roomGuardDetachRef = useRef<(() => void) | null>(null)
   const [starting, setStarting] = useState(false)
+  /** What "Enter interview room" is waiting on (null when not joining). */
+  const [joinProgress, setJoinProgress] = useState<{
+    questions: 'pending' | 'done'
+    voice: 'pending' | 'done' | 'fallback'
+  } | null>(null)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const sttPhaseRef = useRef(sttPhase)
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
@@ -293,6 +303,8 @@ export function InterviewPage() {
   }, [])
 
   useEffect(() => {
+    // Only a scheduled invite needs a live clock (countdown to the slot); otherwise don't re-render every second.
+    if (isImmediateInterviewAllowed() || !readStoredInterviewInvite()) return
     const id = window.setInterval(() => setScheduleClock(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
@@ -310,23 +322,14 @@ export function InterviewPage() {
   )
   const [roleTrackExplicit] = useState(() => Boolean(targetJobRaw))
   const roleTrackExplicitRef = useRef(roleTrackExplicit)
-  const [faceStatus, setFaceStatus] = useState<FaceTrackStatus>({
-    faceCount: 0,
-    ok: false,
-    label: 'Waiting for camera…',
-    severity: 'warn',
-    issue: 'no_face',
-    faceAreaRatio: 0,
-    yaw: 0,
-    lookingForward: false,
-  })
+  const [faceStatus, setFaceStatus] = useState<FaceTrackStatus>(INITIAL_FACE_STATUS)
+  /** Latest status from every tick (state only follows visible changes). */
+  const faceStatusRef = useRef<FaceTrackStatus>(INITIAL_FACE_STATUS)
+  const faceStatusKeyRef = useRef('')
   const [interviewBanned, setInterviewBanned] = useState(false)
   const [banMessage, setBanMessage] = useState('')
   const [isRecording, setIsRecording] = useState(false)
-  const [recordingNote, setRecordingNote] = useState('')
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
-  const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>(() => defaultAnalysisSteps())
-  const [analysisIntegrityEnded, setAnalysisIntegrityEnded] = useState(false)
   const reviewRef = useRef(new ReviewEventTracker())
   const [guardNotice, setGuardNotice] = useState('')
   const guardNoticeTimer = useRef<number | undefined>(undefined)
@@ -370,7 +373,7 @@ export function InterviewPage() {
   })
   const [moonshineVadReady, setMoonshineVadReady] = useState(false)
   const [moonshineInitFailed, setMoonshineInitFailed] = useState(false)
-  const [sttState, setSttState] = useState<MoonshineState>(() => moonshineStt.getState())
+  const [sttStatus, setSttStatus] = useState<MoonshineStatus>(() => moonshineStt.getState().status)
   /** Moonshine path: idle | capturing (Silero) | transcribing (local WASM). Web Speech fallback when init fails. */
   const baseDraftRef = useRef('')
   const transcriptCommittedRef = useRef('')
@@ -410,24 +413,24 @@ export function InterviewPage() {
 
   const question = questions[current]
   const webSpeechSupported = isSpeechRecognitionSupported()
-  const moonshineSttReady = sttState.status === 'ready'
+  const moonshineSttReady = sttStatus === 'ready'
   const useSileroMoonshineStt =
     moonshineVadReady &&
     moonshineSttReady &&
     !moonshineInitFailed &&
-    sttState.status !== 'error' &&
     !webSpeechFallback
   const speechSupported = useSileroMoonshineStt || webSpeechSupported
   const moonshineSttLoading =
     streamReady &&
     !moonshineInitFailed &&
     !webSpeechFallback &&
-    sttState.status !== 'error' &&
-    (!moonshineVadReady || sttState.status === 'downloading' || sttState.status === 'idle')
+    sttStatus !== 'error' &&
+    (!moonshineVadReady || sttStatus === 'downloading' || sttStatus === 'idle')
   const ttsSupported = isSpeechSynthesisSupported()
   const [candidateDisplayName, setCandidateDisplayName] = useState(() => candidateFullName())
   const [savedReport] = useState<InterviewResult | null>(() => getInterviewResult())
   const name = candidateDisplayName && candidateDisplayName !== 'Candidate' ? candidateDisplayName.trim().replace(/\s+/g, ' ') : 'there'
+  const firstName = name.split(' ')[0] || name
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -472,7 +475,7 @@ export function InterviewPage() {
     moonshineStt.preloadNow()
     return moonshineStt.subscribe((s) => {
       sttReadyRef.current = s.status === 'ready'
-      setSttState(s)
+      setSttStatus(s.status) // progress ticks do not re-render the page
       if (s.status === 'error' && stageRef.current === 'interview') {
         markWebSpeechFallback()
       }
@@ -481,10 +484,10 @@ export function InterviewPage() {
 
   useEffect(() => {
     lobbySttSnapshotRef.current = {
-      moonshineStatus: sttState.status,
+      moonshineStatus: sttStatus,
       vadReady: moonshineVadReady,
     }
-  }, [sttState.status, moonshineVadReady])
+  }, [sttStatus, moonshineVadReady])
 
   useEffect(() => {
     if (stage !== 'results' || !result || !sessionIdRef.current) return
@@ -585,59 +588,66 @@ export function InterviewPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamReady])
 
-  // Continuous face tracking in lobby + full interview room
+  // Face tracking for the lobby and the whole interview. One model (FaceTracker) at ~3 Hz feeds the on-screen
+  // status, the review-event log and the proctoring engine. React state only changes when what the candidate sees
+  // changes, so typing and speech are never competing with a re-render every tick.
   useEffect(() => {
     if (stage === 'setup' && (skipCamera || !streamReady)) return
     if (stage === 'analyzing' || stage === 'results') return
     const tracker = new FaceTracker()
     faceTrackerRef.current = tracker
     let alive = true
-    let busy = false
-    const id = window.setInterval(() => {
-      if (busy) return
-      busy = true
-      void (async () => {
-        if (!alive || interviewBanned) return
-        const video =
-          stageRef.current === 'interview' ? roomVideoRef.current : lobbyVideoRef.current
-        const status = await tracker.detect(video)
-        if (!alive) return
+    let timer: number | undefined
+    const tick = async () => {
+      if (!alive || interviewBanned) return
+      const video =
+        stageRef.current === 'interview' ? roomVideoRef.current : lobbyVideoRef.current
+      const status = await tracker.detect(video)
+      if (!alive) return
+      faceStatusRef.current = status
+      const key = faceStatusKey(status)
+      if (key !== faceStatusKeyRef.current) {
+        faceStatusKeyRef.current = key
         setFaceStatus(status)
+      }
 
-        if (stageRef.current === 'interview' && !pendingClipRef.current) {
-          reviewRef.current.sample(status, Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000))
-          integrityRef.current.logs = reviewRef.current.events
-        }
-      })().finally(() => { busy = false })
-    }, 350)
+      if (stageRef.current === 'interview' && !pendingClipRef.current) {
+        reviewRef.current.sample(status, Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000))
+        integrityRef.current.logs = reviewRef.current.events
+        proctorRef.current?.observe(tracker.lastObservation)
+      }
+    }
+    const loop = () => {
+      void tick().finally(() => {
+        if (alive) timer = window.setTimeout(loop, FACE_SAMPLE_INTERVAL_MS)
+      })
+    }
+    loop()
     return () => {
       alive = false
-      window.clearInterval(id)
+      window.clearTimeout(timer)
       tracker.dispose()
       faceTrackerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamReady, skipCamera, stage, interviewBanned])
 
-  // Section-level proctoring (debounced flags for employer review — not shown on candidate scorecard).
+  // Even when the lobby face check is skipped, the room tracks faces: load the model before the candidate joins.
+  useEffect(() => {
+    if (streamReady) preloadFaceTracker()
+  }, [streamReady])
+
+  // Section-level proctoring (debounced flags for employer review — not shown on candidate scorecard). It has no
+  // model of its own; the face-tracking loop above feeds it.
   useEffect(() => {
     if (stage !== 'interview' || interviewBanned) return
-    let cancelled = false
     proctorStoppedRef.current = false
-    void (async () => {
-      const engine = new InterviewProctorEngine()
-      await engine.init()
-      if (cancelled || !engine) return
-      proctorRef.current = engine
-      const q = questions[currentRef.current]
-      engine.setTurnContext(currentRef.current + 1, q?.text ?? '')
-      const video = roomVideoRef.current
-      if (video) {
-        engine.start(video, interviewStartedAtRef.current)
-      }
-    })()
+    const engine = new InterviewProctorEngine()
+    const q = questions[currentRef.current]
+    engine.setTurnContext(currentRef.current + 1, q?.text ?? '')
+    engine.start(interviewStartedAtRef.current || Date.now())
+    proctorRef.current = engine
     return () => {
-      cancelled = true
       if (!proctorStoppedRef.current) {
         proctorRef.current?.stop()
       }
@@ -666,9 +676,6 @@ export function InterviewPage() {
     roomVideoRef.current = el
     if (el && streamRef.current && stageRef.current === 'interview') {
       attachStream(el)
-      if (proctorRef.current && interviewStartedAtRef.current) {
-        proctorRef.current.start(el, interviewStartedAtRef.current)
-      }
     }
   }, [])
 
@@ -892,7 +899,7 @@ export function InterviewPage() {
         })
         .catch(() => {
           markWebSpeechFallback()
-          setDeviceError('Silero voice detection failed — using browser speech instead.')
+          setDeviceError('Switched to your browser’s speech recognition for voice answers.')
           startWebSpeechListening()
         })
       return
@@ -933,7 +940,7 @@ export function InterviewPage() {
     const intro =
       bridge ||
       (current === 0
-        ? `Hello ${name}. I am Ava, your interviewer. I will ask clear questions about your ${role} background. Please listen fully, then answer in your own words. `
+        ? `Hello ${firstName}. I am Ava, your interviewer. I will ask clear questions about your ${role} background. Please listen fully, then answer in your own words. `
         : '')
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
@@ -1130,30 +1137,10 @@ export function InterviewPage() {
       banned: false,
     }
     stopAllSpeech()
+    const voiceAlreadyReady =
+      webSpeechFallbackRef.current || isLobbyLocalSttReady(lobbySttSnapshotRef.current)
+    setJoinProgress({ questions: 'pending', voice: voiceAlreadyReady ? 'done' : 'pending' })
     try {
-      const lobbySttReady = isLobbyLocalSttReady(lobbySttSnapshotRef.current)
-      if (!lobbySttReady) {
-        const gate = await waitForLobbyLocalStt(
-          () => lobbySttSnapshotRef.current,
-          {
-            waitMoonshine: (maxMs) => moonshineStt.waitUntilReady(maxMs),
-            waitVad: async (maxMs) => {
-              const deadline = Date.now() + maxMs
-              while (Date.now() < deadline) {
-                if (lobbySttSnapshotRef.current.vadReady) return true
-                await new Promise((r) => setTimeout(r, 200))
-              }
-              return lobbySttSnapshotRef.current.vadReady
-            },
-            pollMs: 250,
-          },
-        )
-        if (!gate.ok) {
-          setDeviceError(gate.reason)
-          return
-        }
-      }
-
       const freshProfile = getProfile()
       const inviteCtx = readInviteInterviewContext()
       const baseProfile = freshProfile ?? profile
@@ -1175,7 +1162,13 @@ export function InterviewPage() {
         roleTrackExplicitRef.current ||
         Boolean(targetJobRaw) ||
         effectiveJd.length >= 40
-      const started = await startInterviewSession(role, level, mergedProfile, {
+      // The session request and the on-device voice model run in parallel; the voice wait is capped and falls back
+      // to the browser's own speech recognition, so joining never hangs on a slow model download.
+      const voicePromise = prepareVoiceForRoom().then((outcome) => {
+        setJoinProgress((p) => (p ? { ...p, voice: outcome } : p))
+        return outcome
+      })
+      const startPromise = startInterviewSession(role, level, mergedProfile, {
         jobDescription: effectiveJd,
         explicitRoleTrack: explicitTrack,
         jobId: targetJobRaw?.jobId,
@@ -1192,6 +1185,11 @@ export function InterviewPage() {
         jdMatchScore: targetJobRaw?.jdMatchScore,
         consent: interviewConsent ?? undefined,
       })
+      void startPromise.then(
+        () => setJoinProgress((p) => (p ? { ...p, questions: 'done' } : p)),
+        () => undefined,
+      )
+      const [started, voice] = await Promise.all([startPromise, voicePromise])
       adaptiveRef.current = started.adaptive !== false
       sessionIdRef.current = started.sessionId
       varietySeedRef.current = started.varietySeed || varietySeedRef.current
@@ -1204,9 +1202,9 @@ export function InterviewPage() {
       setCurrent(0)
       setDraft('')
       setResult(null)
-      setRecordingNote('')
       setRecordingUrl(null)
-      setShowTypeFallback(!speechSupported)
+      // Without browser speech, a still-loading voice model means typed answers until it is ready.
+      setShowTypeFallback(!speechSupported || (voice === 'fallback' && !webSpeechSupported))
       if (recordingConsent && !sessionIdRef.current) throw new Error('We could not connect to your interview. Please reconnect before starting a recording.')
 
       setStage('interview')
@@ -1217,19 +1215,54 @@ export function InterviewPage() {
         const ok = recorderRef.current.start(streamRef.current)
         setIsRecording(ok)
         if (!ok) {
-          setRecordingNote('Recording unavailable in this browser — answers still score.')
+          console.warn('[InterviewPage] recording unavailable in this browser — answers still score')
         }
       } else if (streamRef.current && recordingConsent) {
-        setRecordingNote('Interview server unreachable — this session will not be recorded, answers still score.')
+        console.warn('[InterviewPage] interview server unreachable — session not recorded, answers still score')
       }
 
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
       window.setTimeout(() => attachStream(roomVideoRef.current), 300)
     } catch (err) {
-      setDeviceError(err instanceof Error ? err.message : 'Could not start interview agent.')
+      setDeviceError(err instanceof Error ? err.message : 'We couldn’t start your interview. Please try again.')
     } finally {
       setStarting(false)
+      setJoinProgress(null)
     }
+  }
+
+  /**
+   * Waits (at most LOBBY_STT_WAIT_CAP_MS) for the on-device voice model. If it is not ready by then, or failed,
+   * the session switches to the browser's speech recognition (the same fallback used when a transcription fails).
+   */
+  async function prepareVoiceForRoom(): Promise<'done' | 'fallback'> {
+    if (webSpeechFallbackRef.current) return 'done'
+    if (isLobbyLocalSttReady(lobbySttSnapshotRef.current)) return 'done'
+    const fallBack = (): 'fallback' => {
+      if (webSpeechSupported) markWebSpeechFallback()
+      return 'fallback'
+    }
+    if (moonshineInitFailed || lobbySttSnapshotRef.current.moonshineStatus === 'error') return fallBack()
+    const gate = await Promise.race([
+      waitForLobbyLocalStt(() => lobbySttSnapshotRef.current, {
+        waitMoonshine: (maxMs) => moonshineStt.waitUntilReady(maxMs),
+        waitVad: async (maxMs) => {
+          const deadline = Date.now() + maxMs
+          while (Date.now() < deadline) {
+            if (lobbySttSnapshotRef.current.vadReady) return true
+            await new Promise((r) => setTimeout(r, 200))
+          }
+          return lobbySttSnapshotRef.current.vadReady
+        },
+        moonshineMaxMs: LOBBY_STT_WAIT_CAP_MS,
+        vadMaxMs: LOBBY_STT_WAIT_CAP_MS,
+        pollMs: 250,
+      }),
+      new Promise<{ ok: false; reason: string }>((resolve) =>
+        window.setTimeout(() => resolve({ ok: false, reason: 'timeout' }), LOBBY_STT_WAIT_CAP_MS),
+      ),
+    ])
+    return gate.ok ? 'done' : fallBack()
   }
 
   function endInterviewEarly() {
@@ -1324,7 +1357,7 @@ export function InterviewPage() {
       })
       bridgeRef.current = turn.spoken?.trim() ? `${turn.spoken.trim()} ` : ''
     } catch {
-      bridgeRef.current = `Thanks ${name}. Let's continue. `
+      bridgeRef.current = `Thanks ${firstName}. Let's continue. `
     }
 
     if (finishingRef.current || stageRef.current !== 'interview') return
@@ -1414,16 +1447,19 @@ export function InterviewPage() {
     void submitAnswer()
   }
 
-  function attachRecordingPreview(blob: Blob) {
-    if (recordingBlobUrlRef.current) {
-      URL.revokeObjectURL(recordingBlobUrlRef.current)
-    }
-    const url = URL.createObjectURL(blob)
-    recordingBlobUrlRef.current = url
-    setRecordingUrl(url)
-  }
-
+  /**
+   * Ends the interview and sends the candidate straight to the completion page. Everything after that — syncing the
+   * integrity log, uploading the recording, scoring the answers and saving the report — runs in the background; the
+   * completion page waits on the scoring job (see lib/interviewFinishJob).
+   */
   function finish(finalAnswers: string[], banned: boolean, banReason?: string) {
+    const paired = collectInterviewPairs(questions, finalAnswers, historyRef.current)
+    if (!paired.questions.length) {
+      finishingRef.current = false
+      setDeviceError('No answered questions to score yet. Answer at least one question, or use Leave to exit.')
+      return
+    }
+
     stageRef.current = 'analyzing'
     reviewRef.current.finish((Date.now() - interviewStartedAtRef.current) / 1000)
     integrityRef.current.logs = reviewRef.current.events
@@ -1441,157 +1477,93 @@ export function InterviewPage() {
         questions,
       )
     }
-    setAnalysisIntegrityEnded(banned)
-    setAnalysisSteps(
-      setAnalysisStep(defaultAnalysisSteps(), 'wrap_up', 'done').map((step) =>
-        step.id === 'save_integrity' ? { ...step, status: 'active' as const } : step,
-      ),
-    )
     setStage('analyzing')
     setIsRecording(false)
     exitInterviewFullscreen()
-    const reason =
-      banReason ||
-      banMessage ||
-      integrityRef.current.banReason ||
-      'Interview banned: more than one person was detected on camera.'
     if (banned) {
       integrityRef.current.banned = true
-      integrityRef.current.banReason = reason
+      integrityRef.current.banReason =
+        banReason ||
+        banMessage ||
+        integrityRef.current.banReason ||
+        'Interview banned: more than one person was detected on camera.'
       integrityRef.current.singlePersonOk = false
     }
+
+    // Snapshot everything the background work needs: this component unmounts as soon as we navigate.
+    const sessionId = sessionIdRef.current
+    const serverSessionId = isServerInterviewSession(sessionId) ? sessionId : null
+    const reviewEvents = [...reviewRef.current.events]
+    const integrity = { ...integrityRef.current, logs: reviewEvents }
+    const targetJob = targetJobRaw
+    const scoreProfile = getProfile() ?? profile
+
+    const clipPromise = pendingClipRef.current
+      ? Promise.resolve(pendingClipRef.current)
+      : recorderRef.current.stop().catch(() => null)
+
+    // Background: integrity log + recording. Never blocks the candidate or the score.
     void (async () => {
-      const clip = pendingClipRef.current || (await recorderRef.current.stop())
-      pendingClipRef.current = clip
-      if (clip?.blob) {
-        attachRecordingPreview(clip.blob)
-        setRecordingNote('Preparing your interview recording…')
+      if (serverSessionId) {
+        try {
+          await saveReviewEvents(serverSessionId, reviewEvents)
+        } catch (syncErr) {
+          // Review events also ride along on the score payload.
+          console.warn('[InterviewPage] final review-event sync failed', syncErr)
+        }
+      }
+      try {
+        const clip = await clipPromise
+        pendingClipRef.current = clip
+        if (!clip || !serverSessionId) return
+        const { uploadInterviewRecordingToS3 } = await import('../lib/interviewRecordingUpload')
+        const cloud = await uploadInterviewRecordingToS3({
+          sessionId: serverSessionId,
+          blob: clip.blob,
+          durationMs: clip.durationMs,
+        })
+        if (!cloud.ok && !cloud.skipped) {
+          console.warn('[InterviewPage] recording upload failed:', cloud.error)
+        }
+      } catch (error) {
+        console.warn('[InterviewPage] recording upload error', error)
       }
     })()
-    window.setTimeout(() => {
-      void (async () => {
-        const integrity = { ...integrityRef.current }
-        const serverSessionId = isServerInterviewSession(sessionIdRef.current) ? sessionIdRef.current : null
-        if (serverSessionId) {
-          try {
-            await saveReviewEvents(serverSessionId, reviewRef.current.events)
-          } catch (syncErr) {
-            // Review events also ride along on the score payload; never block finishing on this sync.
-            console.warn('[InterviewPage] final review-event sync failed', syncErr)
-          }
-        }
-        setAnalysisSteps((prev) =>
-          setAnalysisStep(setAnalysisStep(prev, 'save_integrity', 'done'), 'store_recording', 'active'),
-        )
-        let recordingNoteLocal = ''
 
-        try {
-          const clip = pendingClipRef.current || (await recorderRef.current.stop())
-          pendingClipRef.current = clip
-          if (clip?.blob && !recordingBlobUrlRef.current) {
-            attachRecordingPreview(clip.blob)
-          }
-          if (clip && serverSessionId) {
-            recordingNoteLocal = 'Uploading interview video to secure storage…'
-            setRecordingNote(recordingNoteLocal)
-            const { uploadInterviewRecordingToS3, fetchInterviewRecordingPlayback } =
-              await import('../lib/interviewRecordingUpload')
-            const cloud = await uploadInterviewRecordingToS3({
-              sessionId: serverSessionId,
-              blob: clip.blob,
-              durationMs: clip.durationMs,
-            })
-            if (cloud.ok) {
-              recordingNoteLocal = 'Interview recording saved securely.'
-              try {
-                const playback = await fetchInterviewRecordingPlayback(serverSessionId)
-                if (playback?.playbackUrl) {
-                  setRecordingUrl(playback.playbackUrl)
-                  if (recordingBlobUrlRef.current) {
-                    URL.revokeObjectURL(recordingBlobUrlRef.current)
-                    recordingBlobUrlRef.current = null
-                  }
-                }
-              } catch {
-                /* local preview remains */
-              }
-            } else if (cloud.skipped) {
-              recordingNoteLocal =
-                'Cloud recording is not configured for this environment. Your scorecard will still be ready.'
-            } else {
-              console.warn('[InterviewPage] recording upload failed:', cloud.error)
-              recordingNoteLocal = `${cloud.error || 'Recording upload failed.'} Your answers will still be scored.`
-            }
-          } else if (!clip) {
-            recordingNoteLocal = 'No recording was captured for this session. Answers are still scored.'
-            setAnalysisSteps((prev) => setAnalysisStep(prev, 'store_recording', 'skipped'))
-          } else {
-            recordingNoteLocal = 'Recording kept on this device for preview. Scoring continues.'
-          }
-        } catch (error) {
-          console.warn('[InterviewPage] recording upload error', error)
-          recordingNoteLocal =
-            error instanceof Error
-              ? `${error.message} Your answers will still be scored.`
-              : 'Recording upload had a problem. Your answers will still be scored.'
+    // Background: score the answers and save the report. The completion page waits on this job.
+    startInterviewFinishJob(
+      { role, level, startedAt: new Date(interviewStartedAtRef.current || Date.now()).toISOString() },
+      async () => {
+        const request = {
+          role,
+          level,
+          questions: paired.questions,
+          answers: paired.answers,
+          profile: scoreProfile,
+          integrity,
         }
-        setRecordingNote(recordingNoteLocal)
-        setAnalysisSteps((prev) => {
-          const afterStore =
-            prev.find((s) => s.id === 'store_recording')?.status === 'skipped'
-              ? prev
-              : setAnalysisStep(prev, 'store_recording', 'done')
-          return setAnalysisStep(afterStore, 'score_answers', 'active')
-        })
-
-        const paired = collectInterviewPairs(
-          questions,
-          finalAnswers,
-          historyRef.current,
-        )
-        if (!paired.questions.length) {
-          throw new Error('No answered questions to score.')
-        }
-
         let scored: InterviewResult
         try {
-          scored = await scoreInterviewRemote({
-            sessionId: sessionIdRef.current,
-            role,
-            level,
-            questions: paired.questions,
-            answers: paired.answers,
-            profile: getProfile() ?? profile,
-            integrity,
-          })
+          scored = await scoreInterviewRemote({ ...request, sessionId })
         } catch (scoreErr) {
           console.warn('[InterviewPage] score failed, retrying local score', scoreErr)
-          scored = await scoreInterviewRemote({
-            sessionId: null,
-            role,
-            level,
-            questions: paired.questions,
-            answers: paired.answers,
-            profile: getProfile() ?? profile,
-            integrity,
-          })
+          scored = await scoreInterviewRemote({ ...request, sessionId: null })
         }
-        setAnalysisSteps((prev) =>
-          setAnalysisStep(setAnalysisStep(prev, 'score_answers', 'done'), 'prepare_report', 'active'),
-        )
-        scored.sessionId = sessionIdRef.current || undefined
-        scored.integrity = { ...integrity, logs: reviewRef.current.events }
-        const candidateResult = stripProctoringForCandidateView(scored)
-        saveInterviewResult(candidateResult)
-        await markCandidateOnboardingCompleteAfterInterview()
-        if (targetJobRaw?.applicationId) {
-          attachInterviewToApplicant(targetJobRaw.applicationId, scored)
+        scored.sessionId = sessionId || undefined
+        scored.integrity = integrity
+        saveInterviewResult(stripProctoringForCandidateView(scored))
+        if (sessionId) {
+          sessionStorage.setItem('hireright.lastInterviewSessionId', sessionId)
         }
-        if (targetJobRaw && !integrity.banned) {
+        sessionStorage.setItem(PENDING_REPORT_UPLOAD_KEY, '1')
+        if (targetJob?.applicationId) {
+          attachInterviewToApplicant(targetJob.applicationId, scored)
+        }
+        if (targetJob && !integrity.banned) {
           try {
             applyToJob({
-              title: targetJobRaw.title,
-              company: targetJobRaw.company,
+              title: targetJob.title,
+              company: targetJob.company,
               location: 'Remote',
               match: scored.overall,
             })
@@ -1600,21 +1572,21 @@ export function InterviewPage() {
           }
           sessionStorage.removeItem('hireright.targetJob')
         }
-        finishingRef.current = false
-        if (sessionIdRef.current) {
-          sessionStorage.setItem('hireright.lastInterviewSessionId', sessionIdRef.current)
+        try {
+          await markCandidateOnboardingCompleteAfterInterview()
+        } catch (err) {
+          // The completion page retries this before opening the dashboard.
+          console.warn('[InterviewPage] onboarding completion sync failed', err)
         }
-        setResult(candidateResult)
-        setAnalysisSteps((prev) => setAnalysisStep(prev, 'prepare_report', 'done'))
-        goToInterviewReportAfterCompletion(navigate, { uploadReport: true })
-      })().catch((err) => {
-        finishingRef.current = false
-        setStage('interview')
-        setDeviceError(
-          err instanceof Error ? err.message : 'Could not finish the interview. Try Leave again.',
-        )
-      })
-    }, 700)
+      },
+    )
+
+    // Give the recorder a brief moment to hand over the clip (it needs the camera tracks we stop on unmount),
+    // then go straight to the next page.
+    void Promise.race([clipPromise, new Promise((resolve) => window.setTimeout(resolve, 1500))]).then(() => {
+      finishingRef.current = false
+      goToInterviewReportAfterCompletion(navigate)
+    })
   }
 
   function retake() {
@@ -1626,9 +1598,6 @@ export function InterviewPage() {
     setInterviewBanned(false)
     setBanMessage('')
     setIsRecording(false)
-    setRecordingNote('')
-    setAnalysisIntegrityEnded(false)
-    setAnalysisSteps(defaultAnalysisSteps())
     void recorderRef.current.stop()
     if (recordingBlobUrlRef.current) {
       URL.revokeObjectURL(recordingBlobUrlRef.current)
@@ -1641,7 +1610,7 @@ export function InterviewPage() {
     setDraft('')
     setResult(null)
     setSecondsLeft(QUESTION_SECONDS)
-    setChecklist([false, false, false, false])
+    setChecklist([false])
     setDeviceError('')
     setSkipCamera(false)
     setStage('setup')
@@ -1745,7 +1714,7 @@ export function InterviewPage() {
         )}
       </header>
 
-      {reviewSyncError && <p role="alert">{reviewSyncError}</p>}
+      {reviewSyncError && <p role="alert" className="ds-alert ds-alert--warning">{reviewSyncError}</p>}
       <AnimatePresence mode="wait">
         {stage === 'setup' && (
           <motion.section
@@ -1759,16 +1728,14 @@ export function InterviewPage() {
             <div className={styles.lobbyHero}>
               <p className={styles.eyebrow}>Waiting room</p>
               <h1>
-                Hi {name}, meet your interviewer <em>Ava</em>
+                Hi {firstName}, meet your interviewer <em>Ava</em>
               </h1>
               <p className={styles.sub}>
-                A live call with Ava — software, civil, mechanical, healthcare, oil &amp; gas,
-                and more. Speak anytime; she stops when you talk. Pause briefly when you are done
-                and the next question flows automatically.
+                A live voice call. Speak naturally — Ava stops when you talk, and the next question starts when you
+                pause.
               </p>
             </div>
 
-            {(
             <div className={styles.lobbyGrid}>
               <div className={styles.previewCard}>
                 <div className={styles.previewFrame}>
@@ -1783,7 +1750,7 @@ export function InterviewPage() {
                   ) : (
                     <div className={styles.previewEmpty}>
                       <div className={styles.emptyOrb}>You</div>
-                      <p>Enable camera to preview how you&apos;ll appear</p>
+                      <p>Turn on your camera to see how you&apos;ll appear</p>
                     </div>
                   )}
                   <div className={styles.previewOverlay}>
@@ -1798,15 +1765,9 @@ export function InterviewPage() {
                   </span>
                   <span className={streamReady && micOn ? styles.ok : styles.off}>Mic</span>
                   <span className={speechSupported || moonshineSttLoading ? styles.ok : styles.warn}>
-                    {webSpeechFallback
-                      ? 'Browser speech'
-                      : useSileroMoonshineStt
-                        ? 'Silero + Moonshine'
-                        : speechSupported
-                            ? 'Browser speech'
-                            : 'Speech unavailable'}
+                    {speechSupported || moonshineSttLoading ? 'Voice answers' : 'Typed answers'}
                   </span>
-                  <span className={ttsSupported ? styles.ok : styles.warn}>AI voice</span>
+                  <span className={ttsSupported ? styles.ok : styles.warn}>Ava&apos;s voice</span>
                 </div>
 
                 <div className={styles.lobbyActions}>
@@ -1830,22 +1791,26 @@ export function InterviewPage() {
                   </button>
                 </div>
                 <p className={styles.joinHint}>
-                  Camera is required. Face tracking runs for the full interview — one person, facing forward.
+                  {skipCamera
+                    ? 'Without the camera check, your interview may be flagged for the recruiter to review.'
+                    : 'Your camera stays on for the whole interview.'}
                 </p>
                 {deviceError && <p className={styles.deviceError}>{deviceError}</p>}
-                <div
-                  className={`${styles.faceBadge} ${
-                    faceStatus.severity === 'ok'
-                      ? styles.faceOk
-                      : faceStatus.severity === 'warn'
-                        ? styles.faceWarn
-                        : styles.faceBlock
-                  }`}
-                  role="status"
-                >
-                  <span className={styles.faceDot} aria-hidden="true" />
-                  {faceStatus.label}
-                </div>
+                {!skipCamera && (
+                  <div
+                    className={`${styles.faceBadge} ${
+                      faceStatus.severity === 'ok'
+                        ? styles.faceOk
+                        : faceStatus.severity === 'warn'
+                          ? styles.faceWarn
+                          : styles.faceBlock
+                    }`}
+                    role="status"
+                  >
+                    <span className={styles.faceDot} aria-hidden="true" />
+                    {faceStatus.label}
+                  </div>
+                )}
               </div>
 
               <div className={styles.lobbySide}>
@@ -1856,20 +1821,17 @@ export function InterviewPage() {
                         <HrIcon name="target" size={20} />
                       </span>
                       <div>
-                        <strong>Auto-Selected for Job Application</strong>
+                        <strong>Interview for this job</strong>
                         <p>
-                          Targeting: <strong>{targetJobRaw.title}</strong> at <strong>{targetJobRaw.company}</strong>
+                          <strong>{targetJobRaw.title}</strong> at <strong>{targetJobRaw.company}</strong>
                         </p>
                       </div>
                     </div>
-                    <span className={styles.autoConfigPill}>
-                      {role} · {level}
-                    </span>
                   </div>
                 )}
 
                 <div className={styles.tips}>
-                  <h4>Before you join</h4>
+                  <h2>Before you join</h2>
                   <ul>
                     {LOBBY_TIPS.map((tip) => (
                       <li key={tip}>{tip}</li>
@@ -1878,25 +1840,14 @@ export function InterviewPage() {
                 </div>
 
                 <div className={styles.checkList}>
-                  {[
-                    'I am alone in a quiet place',
-                    'My face is visible and facing the camera',
-                    'I will answer out loud',
-                    'I agree to stay in fullscreen. Leaving or trying to switch tabs, apps, or pages immediately ends my interview.',
-                  ].map((label, i) => (
-                    <label key={label} className={styles.checkItem}>
-                      <input
-                        type="checkbox"
-                        checked={checklist[i]}
-                        onChange={(e) => {
-                          const next = [...checklist]
-                          next[i] = e.target.checked
-                          setChecklist(next)
-                        }}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
+                  <label className={styles.checkItem}>
+                    <input
+                      type="checkbox"
+                      checked={checklist[0]}
+                      onChange={(e) => setChecklist([e.target.checked])}
+                    />
+                    <span>I&apos;m alone in a quiet place and I&apos;ll stay in fullscreen until I finish.</span>
+                  </label>
                 </div>
 
                 <motion.button
@@ -1904,64 +1855,54 @@ export function InterviewPage() {
                   className={styles.joinBtn}
                   onClick={() => void joinInterviewRoom()}
                   disabled={!canStart}
-                  whileHover={canStart ? { scale: 1.02 } : undefined}
-                  whileTap={canStart ? { scale: 0.98 } : undefined}
                 >
                   {lobbyEnterButtonLabel({ starting })}
                 </motion.button>
-                {savedReport && (
+                {joinProgress && (
+                  <ul className={styles.joinSteps} aria-live="polite">
+                    <li data-state={joinProgress.questions}>
+                      {joinProgress.questions === 'done' ? 'Questions ready' : 'Preparing your questions…'}
+                    </li>
+                    <li data-state={joinProgress.voice === 'pending' ? 'pending' : 'done'}>
+                      {joinProgress.voice === 'pending'
+                        ? 'Setting up voice answers…'
+                        : joinProgress.voice === 'fallback'
+                          ? 'Voice answers ready (browser speech)'
+                          : 'Voice answers ready'}
+                    </li>
+                  </ul>
+                )}
+                {savedReport && !starting && (
                   <button
                     type="button"
                     id="view-saved-report-btn"
-                    style={{
-                      marginTop: '12px',
-                      width: '100%',
-                      padding: '12px 18px',
-                      borderRadius: '12px',
-                      background: '#eff6ff',
-                      border: '1px solid #bfdbfe',
-                      color: '#1d4ed8',
-                      fontWeight: 700,
-                      fontSize: '0.88rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                    }}
-                    onClick={() => {
-                      setResult(savedReport)
-                      setStage('results')
-                    }}
+                    className={styles.savedReportBtn}
+                    onClick={() => navigate('/dashboard/report')}
                   >
-                    <HrIcon name="chart" size={18} /> View Last 360° Career Intelligence Report
+                    <HrIcon name="chart" size={18} /> View your last report
                   </button>
                 )}
-                {!canStart && (
+                {!canStart && !starting && (
                   <p className={styles.joinHint}>
                     {scheduledInviteAccess?.status === 'too_early'
-                      ? 'Your scheduled link opens at the exact slot start time. Use the email link when the countdown reaches zero.'
+                      ? 'Your link opens at your scheduled time. Come back when the countdown reaches zero.'
                       : scheduledInviteAccess?.status === 'expired'
                         ? 'Your interview window has ended. Ask your recruiter for a new invite link.'
-                        : sttState.status === 'error'
-                          ? lobbyLocalSttBlockedReason({
-                              moonshineStatus: sttState.status,
-                              vadReady: moonshineVadReady,
-                            })
-                          : faceBlocks
-                            ? faceStatus.issue === 'multi_person'
-                              ? 'Only one person may be in the camera — clear others to join.'
-                              : faceStatus.issue === 'looking_away'
-                                ? 'Face the camera straight-on before joining.'
-                                : faceStatus.issue === 'no_face'
-                                  ? 'Move into view (closer if you are far) so your face is detected.'
-                                  : 'Fix the face check to join.'
-                            : `Complete the checklist${!streamReady ? ' and enable camera' : ''} to join.`}
+                        : faceBlocks
+                          ? faceStatus.issue === 'multi_person'
+                            ? 'Only you should be on camera.'
+                            : faceStatus.issue === 'looking_away'
+                              ? 'Face the camera to join.'
+                              : 'Sit in front of the camera so we can see your face.'
+                          : !streamReady
+                            ? 'Allow your camera and microphone to join.'
+                            : !skipCamera && faceStatus.faceCount !== 1
+                              ? 'Sit in front of the camera so we can see your face.'
+                              : 'Tick the box above to join.'}
                   </p>
                 )}
               </div>
             </div>
-            )}
           </motion.section>
         )}
 
@@ -1997,14 +1938,14 @@ export function InterviewPage() {
                           ? 'Move closer'
                           : faceStatus.issue === 'no_face'
                             ? 'Face not detected'
-                            : 'Proctoring alert'}
+                            : 'Camera check'}
                 </strong>
                 <span>{interviewBanned ? banMessage : faceStatus.label}</span>
               </div>
             )}
 
             <div className={styles.callStage}>
-              {(webSpeechFallback || sttState.status === 'error') && (
+              {(webSpeechFallback || sttStatus === 'error') && (
                 <div className={styles.moonshineSttPill} aria-live="polite">
                   {webSpeechFallback && webSpeechSupported
                     ? 'Using browser speech for captions.'
@@ -2039,9 +1980,9 @@ export function InterviewPage() {
                     />
                   </div>
                   <span>
-                    {question.topic || question.category} · Q{current + 1}
-                    {adaptiveRef.current ? ' · adaptive' : `/${questions.length}`}
-                    {isRecording ? ' · Recording' : ''}
+                    Question {current + 1}
+                    {adaptiveRef.current ? '' : ` of ${questions.length}`}
+                    {question.topic || question.category ? ` · ${question.topic || question.category}` : ''}
                   </span>
                 </div>
 
@@ -2169,8 +2110,6 @@ export function InterviewPage() {
                 className={styles.nextBtnSecondary}
                 onClick={() => submitAnswer()}
                 disabled={!canSubmit}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
               >
                 {faceBlocks ? 'Fix face check' : 'Submit answer now'}
               </motion.button>
@@ -2182,43 +2121,8 @@ export function InterviewPage() {
           </motion.section>
         )}
 
-        {stage === 'analyzing' && (
-          <motion.div
-            key="analyzing"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35, ease: easeOut }}
-          >
-            <InterviewCompletionPanel
-              steps={analysisSteps}
-              summary={{
-                candidateName: name,
-                role,
-                level,
-                answeredCount: answersRef.current.filter((a) => a && a.trim()).length ||
-                  historyRef.current.length,
-                totalQuestions: Math.max(
-                  totalTurnsRef.current,
-                  questions.length,
-                  historyRef.current.length,
-                ),
-                durationLabel: (() => {
-                  const sec = Math.max(
-                    0,
-                    Math.round((Date.now() - interviewStartedAtRef.current) / 1000),
-                  )
-                  const m = Math.floor(sec / 60)
-                  const s = sec % 60
-                  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`
-                })(),
-                integrityEnded: analysisIntegrityEnded,
-                recordingUrl,
-                recordingNote,
-              }}
-            />
-          </motion.div>
-        )}
+        {/* stage === 'analyzing' renders nothing: finish() hands off to /interview/complete within ~1.5s and the
+            scoring, recording upload and report work continue in the background. */}
 
         {stage === 'results' && result && (
           <motion.section
@@ -2227,7 +2131,6 @@ export function InterviewPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, ease: easeOut }}
-            style={{ width: '100%', maxWidth: '1280px', margin: '0 auto', padding: '0 0 48px' }}
           >
             {/* 360° AI Persona & Career Intelligence Dashboard */}
             <CareerIntelligenceDashboard

@@ -1,11 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { BrandLogo } from '../components/BrandLogo'
 import { HrIcon } from '../components/HrIcon'
 import { PageLoader } from '../components/SignalLoader'
-import { MotionButton } from '../motion/MotionButton'
-import { easeOut, fadeUp } from '../motion/variants'
+import { MIN_PASSWORD_LENGTH, PASSWORD_RULE_TEXT, passwordRuleError } from '../lib/passwordRules'
 import {
   clearProfileForEmail,
   findUserByEmail,
@@ -412,12 +410,12 @@ export function LoginPage({
         loginExpectedRole,
       )
       if (!user) {
-        setError(authError ?? 'Login failed.')
+        setError(authError ?? 'Sign-in failed.')
         return
       }
       navigateAfterLogin(user, isAdminUser() ? '/admin' : undefined)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please check details.')
+      setError(err instanceof Error ? err.message : 'Sign-in failed. Check your details and try again.')
     } finally {
       setLoading(false)
     }
@@ -437,8 +435,9 @@ export function LoginPage({
       setError('Enter a valid email address.')
       return
     }
-    if (signupPassword.length < 6) {
-      setError('Password must be at least 6 characters.')
+    const passwordError = passwordRuleError(signupPassword)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (!isValidPhone(signupPhone)) {
@@ -625,7 +624,7 @@ export function LoginPage({
                   left off.
                 </p>
                 <p className={styles.leftSubtitle}>
-                  Log in to see your 360° Career View, your next steps and your progress.
+                  Sign in to see your 360° Career View, your next steps and your progress.
                 </p>
               </>
             )}
@@ -636,25 +635,20 @@ export function LoginPage({
               ? signupRole === 'employer'
                 ? 'Built for hiring teams, agencies and vendors'
                 : 'No resume required to get started'
-              : 'Your Personal AI Career Companion'}
+              : 'Your personal AI career companion'}
           </p>
         </div>
       </aside>
 
       {/* RIGHT COLUMN: PDF Page 1 Form + Image 2 Quick Demo Access */}
-      <motion.main
-        className={styles.splitRight}
-        initial={{ opacity: 0, x: 16 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.4, ease: easeOut }}
-      >
+      <main className={styles.splitRight}>
         <div className={styles.splitFormWrap}>
           {authMode === 'login' ? (
             /* LOGIN VIEW */
             <div className={styles.authContainer}>
               <header className={styles.formHeader}>
                 <h1 className={styles.welcomeTitle}>Welcome</h1>
-                <p className={styles.welcomeSub}>Log in to continue your career journey.</p>
+                <p className={styles.welcomeSub}>Sign in to continue your career journey.</p>
               </header>
 
               <form className={styles.loginForm} onSubmit={handleLoginSubmit}>
@@ -666,7 +660,7 @@ export function LoginPage({
                 ) : sessionStorage.getItem('hireright.intent') === 'upload_resume' ? (
                   <div className={styles.successBanner} role="status">
                     <HrIcon name="document" size={16} />
-                    <span>Resume saved! Log in to automatically attach it to your profile.</span>
+                    <span>Resume saved. Sign in to attach it to your profile automatically.</span>
                   </div>
                 ) : null}
 
@@ -714,13 +708,18 @@ export function LoginPage({
                   />
                 </div>
 
-                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
+                <button
+                  type="submit"
+                  className={styles.loginPillBtn}
+                  disabled={loading}
+                  aria-busy={loading || undefined}
+                >
                   {loading ? (
                     <>
-                      <span className="ds-spinner" aria-hidden="true" /> Logging in…
+                      <span className="ds-spinner" aria-hidden="true" /> Signing in…
                     </>
                   ) : (
-                    'Log in'
+                    'Sign in'
                   )}
                 </button>
 
@@ -744,7 +743,7 @@ export function LoginPage({
                   <p className={styles.subLinkLine}>
                     Just exploring?{' '}
                     <Link to="/career-view" className={styles.discoveryLink}>
-                      Start My Career Discovery
+                      Start my career discovery
                     </Link>{' '}
                     <span className={styles.noResumeText}>— no resume required.</span>
                   </p>
@@ -767,9 +766,9 @@ export function LoginPage({
 
               <form className={styles.loginForm} onSubmit={handleSignupSubmit}>
                 {sessionStorage.getItem('hireright.intent') === 'upload_resume' && (
-                  <div className={styles.successBanner} role="status" style={{ marginBottom: 16 }}>
+                  <div className={styles.successBanner} role="status">
                     <HrIcon name="document" size={16} />
-                    <span>Resume selected! Create your account to automatically analyze your profile.</span>
+                    <span>Resume selected. Create your account to analyze your profile automatically.</span>
                   </div>
                 )}
 
@@ -858,9 +857,10 @@ export function LoginPage({
                     id="signup-pwd"
                     type="password"
                     value={signupPassword}
-                    placeholder="At least 8 characters"
+                    placeholder={PASSWORD_RULE_TEXT}
                     onChange={(event) => setSignupPassword(event.target.value)}
                     autoComplete="new-password"
+                    minLength={MIN_PASSWORD_LENGTH}
                     required
                     className={styles.formInput}
                   />
@@ -886,7 +886,12 @@ export function LoginPage({
                   </span>
                 </label>
 
-                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
+                <button
+                  type="submit"
+                  className={styles.loginPillBtn}
+                  disabled={loading}
+                  aria-busy={loading || undefined}
+                >
                   {loading ? (
                     <>
                       <span className="ds-spinner" aria-hidden="true" /> Creating account…
@@ -904,12 +909,9 @@ export function LoginPage({
                       className={styles.switchModeLink}
                       onClick={() => switchMode('login')}
                     >
-                      Log in
+                      Sign in
                     </button>
                   </p>
-                </div>
-
-                <div className={styles.authLinksBelow}>
                   <p className={styles.subLinkLine}>
                     {signupRole === 'employer' ? (
                       <>
@@ -932,7 +934,7 @@ export function LoginPage({
             </div>
           )}
         </div>
-      </motion.main>
+      </main>
     </div>
   )
 }
@@ -991,6 +993,11 @@ export function SettingsPage() {
         setError('New password and confirmation do not match.')
         return
       }
+      const passwordError = passwordRuleError(newPassword)
+      if (passwordError) {
+        setError(passwordError)
+        return
+      }
       const result = updateUserPassword(currentPassword, newPassword)
       if (!result.ok) {
         setError(result.error)
@@ -1020,179 +1027,219 @@ export function SettingsPage() {
 
   return (
     <div className={styles.settingsAppWrap}>
-        <motion.div
-          className={`${styles.card} ${styles.settingsCard}`}
-          variants={fadeUp}
-          initial="hidden"
-          animate="show"
-        >
-          <h1>Account settings</h1>
-          <p>
+      <div className={styles.settingsBody}>
+        <header className={styles.settingsHeader}>
+          <h1 className={styles.settingsTitle}>Account settings</h1>
+          <p className={styles.settingsSub}>
             Signed in as <strong>{user?.email ?? 'guest'}</strong>
             {user?.name ? ` · ${user.name}` : ''}
           </p>
+        </header>
 
-          {message && <p className={styles.success}>{message}</p>}
-          {error && <p className={styles.error}>{error}</p>}
+        {message && (
+          <p className={styles.success} role="status">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
 
-          {panel === 'menu' && (
-            <div className={styles.settingsList}>
-              <button type="button" className={styles.settingsRow} onClick={() => setPanel('security')}>
-                <span>Email & password</span>
-                <HrIcon name="arrow-right" size={16} />
-              </button>
-              <button type="button" className={styles.settingsRow} onClick={() => setPanel('notifications')}>
-                <span>Notification preferences</span>
-                <HrIcon name="arrow-right" size={16} />
-              </button>
-              <button type="button" className={styles.settingsRow} onClick={() => setPanel('privacy')}>
-                <span>Privacy & visibility</span>
-                <HrIcon name="arrow-right" size={16} />
-              </button>
-              <MotionButton
-                type="button"
-                className={styles.submit}
-                onClick={() => navigate('/profile')}
-                lift
-              >
-                View profile
-              </MotionButton>
-              <MotionButton
-                type="button"
-                className={styles.ghost}
-                onClick={openSignOutModal}
-              >
-                Sign out
-              </MotionButton>
+        {panel === 'menu' && (
+          <>
+            <div className={styles.settingsCard}>
+              <div className={styles.settingsList}>
+                <button type="button" className={styles.settingsRow} onClick={() => setPanel('security')}>
+                  <span className={styles.settingsRowText}>
+                    <span className={styles.settingsRowTitle}>Email &amp; password</span>
+                    <span className={styles.settingsRowMeta}>Change your sign-in email or password</span>
+                  </span>
+                  <HrIcon name="arrow-right" size={16} />
+                </button>
+                <button type="button" className={styles.settingsRow} onClick={() => setPanel('notifications')}>
+                  <span className={styles.settingsRowText}>
+                    <span className={styles.settingsRowTitle}>Notification preferences</span>
+                    <span className={styles.settingsRowMeta}>Choose which emails we send you</span>
+                  </span>
+                  <HrIcon name="arrow-right" size={16} />
+                </button>
+                <button type="button" className={styles.settingsRow} onClick={() => setPanel('privacy')}>
+                  <span className={styles.settingsRowText}>
+                    <span className={styles.settingsRowTitle}>Privacy &amp; visibility</span>
+                    <span className={styles.settingsRowMeta}>Control what employers and recruiters can see</span>
+                  </span>
+                  <HrIcon name="arrow-right" size={16} />
+                </button>
+              </div>
             </div>
-          )}
+            <div className={styles.settingsActions}>
+              <button type="button" className={styles.btnSecondary} onClick={() => navigate('/profile')}>
+                View profile
+              </button>
+              <button type="button" className={styles.btnSecondary} onClick={openSignOutModal}>
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
 
-          {panel === 'security' && (
-            <form className={styles.form} onSubmit={saveSecurity}>
-              <label>
-                Email
-                <input
-                  type="email"
-                  spellCheck={false}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                />
-              </label>
-              <label>
-                Current password
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
-              <label>
-                New password
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  autoComplete="new-password"
-                  placeholder="Leave blank to keep current"
-                />
-              </label>
-              <label>
-                Confirm new password
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-              </label>
-              <MotionButton type="submit" className={styles.submit} lift>
-                Save changes
-              </MotionButton>
-              <MotionButton
-                type="button"
-                className={styles.ghost}
-                onClick={() => {
-                  setPanel('menu')
-                  setError('')
-                }}
-              >
-                Back
-              </MotionButton>
-            </form>
-          )}
-
-          {panel === 'notifications' && (
-            <form className={styles.form} onSubmit={saveNotifications}>
-              {(
-                [
-                  ['emailMatchAlerts', 'Email me about new role matches'],
-                  ['interviewReminders', 'Remind me to retake / finish interviews'],
-                  ['productTips', 'Send product tips and updates'],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className={styles.checkRow}>
+        {panel === 'security' && (
+          <section className={styles.settingsCard} aria-labelledby="settings-security-title">
+            <header className={styles.settingsCardHeader}>
+              <h2 id="settings-security-title" className={styles.settingsCardTitle}>
+                Email &amp; password
+              </h2>
+              <p className={styles.settingsCardSub}>Enter your current password to save any change.</p>
+            </header>
+            <form onSubmit={saveSecurity}>
+              <div className={styles.settingsFields}>
+                <label>
+                  Email
                   <input
-                    type="checkbox"
-                    checked={prefs[key]}
-                    onChange={(e) =>
-                      setPrefs((prev) => ({ ...prev, [key]: e.target.checked }))
-                    }
+                    type="email"
+                    spellCheck={false}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
                   />
-                  <span>{label}</span>
                 </label>
-              ))}
-              <MotionButton type="submit" className={styles.submit} lift>
-                Save preferences
-              </MotionButton>
-              <MotionButton
-                type="button"
-                className={styles.ghost}
-                onClick={() => setPanel('menu')}
-              >
-                Back
-              </MotionButton>
-            </form>
-          )}
-
-          {panel === 'privacy' && (
-            <form className={styles.form} onSubmit={savePrivacy}>
-              {(
-                [
-                  ['profileVisibleToEmployers', 'Make my profile visible to employers'],
-                  ['shareScoreOnApplications', 'Share AI interview score on applications'],
-                  ['showOnlineStatus', 'Show online status to recruiters'],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className={styles.checkRow}>
+                <label>
+                  Current password
                   <input
-                    type="checkbox"
-                    checked={prefs[key]}
-                    onChange={(e) =>
-                      setPrefs((prev) => ({ ...prev, [key]: e.target.checked }))
-                    }
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
                   />
-                  <span>{label}</span>
                 </label>
-              ))}
-              <MotionButton type="submit" className={styles.submit} lift>
-                Save privacy settings
-              </MotionButton>
-              <MotionButton
-                type="button"
-                className={styles.ghost}
-                onClick={() => setPanel('menu')}
-              >
-                Back
-              </MotionButton>
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="Leave blank to keep current"
+                  />
+                </label>
+                <label>
+                  Confirm new password
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+              <div className={styles.settingsFooter}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => {
+                    setPanel('menu')
+                    setError('')
+                  }}
+                >
+                  Back
+                </button>
+                <button type="submit" className={styles.btnPrimary}>
+                  Save changes
+                </button>
+              </div>
             </form>
-          )}
-        </motion.div>
+          </section>
+        )}
+
+        {panel === 'notifications' && (
+          <section className={styles.settingsCard} aria-labelledby="settings-notifications-title">
+            <header className={styles.settingsCardHeader}>
+              <h2 id="settings-notifications-title" className={styles.settingsCardTitle}>
+                Notification preferences
+              </h2>
+              <p className={styles.settingsCardSub}>Choose which emails we send you.</p>
+            </header>
+            <form onSubmit={saveNotifications}>
+              <div className={styles.settingsFields}>
+                {(
+                  [
+                    ['emailMatchAlerts', 'Email me about new role matches'],
+                    ['interviewReminders', 'Remind me to finish or retake interviews'],
+                    ['productTips', 'Send product tips and updates'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className={styles.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={prefs[key]}
+                      onChange={(e) =>
+                        setPrefs((prev) => ({ ...prev, [key]: e.target.checked }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className={styles.settingsFooter}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setPanel('menu')}>
+                  Back
+                </button>
+                <button type="submit" className={styles.btnPrimary}>
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {panel === 'privacy' && (
+          <section className={styles.settingsCard} aria-labelledby="settings-privacy-title">
+            <header className={styles.settingsCardHeader}>
+              <h2 id="settings-privacy-title" className={styles.settingsCardTitle}>
+                Privacy &amp; visibility
+              </h2>
+              <p className={styles.settingsCardSub}>Control what employers and recruiters can see.</p>
+            </header>
+            <form onSubmit={savePrivacy}>
+              <div className={styles.settingsFields}>
+                {(
+                  [
+                    ['profileVisibleToEmployers', 'Make my profile visible to employers'],
+                    ['shareScoreOnApplications', 'Share AI interview score on applications'],
+                    ['showOnlineStatus', 'Show online status to recruiters'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className={styles.checkRow}>
+                    <input
+                      type="checkbox"
+                      checked={prefs[key]}
+                      onChange={(e) =>
+                        setPrefs((prev) => ({ ...prev, [key]: e.target.checked }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className={styles.settingsFooter}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setPanel('menu')}>
+                  Back
+                </button>
+                <button type="submit" className={styles.btnPrimary}>
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </section>
+        )}
+      </div>
     </div>
   )
 }
+
 
 export function LogoutPage() {
   const navigate = useNavigate()

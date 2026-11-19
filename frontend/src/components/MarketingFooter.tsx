@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { prefetchOnIntent } from '../routeImports'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingFooter.module.css'
 
@@ -7,7 +8,7 @@ const FOOTER_LINKS = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/career-view', label: '360° Report' },
-  { to: '/solutions', label: 'Organisations' },
+  { to: '/for-recruiters', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
   { to: '/privacy', label: 'Privacy Policy' },
   { to: '/terms', label: 'Terms & Conditions' },
@@ -29,7 +30,7 @@ export function MarketingFooter() {
 
           <nav className={styles.nav} aria-label="Footer">
             {FOOTER_LINKS.map((item) => (
-              <Link key={item.to} to={item.to} className={styles.link}>
+              <Link key={item.to} to={item.to} className={styles.link} {...prefetchOnIntent(item.to)}>
                 {item.label}
               </Link>
             ))}

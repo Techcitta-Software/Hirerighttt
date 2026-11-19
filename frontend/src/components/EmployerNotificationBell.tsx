@@ -7,14 +7,9 @@ import {
   markNotificationsRead,
   type AppNotification,
 } from '../lib/store'
-import {
-  rememberEmployerApplicationAlertIds,
-  syncEmployerApplicationNotifications,
-} from '../lib/employerApplicationNotifications'
-import {
-  fetchEmployerApplicationAlerts,
-  markEmployerApplicationAlertsRead,
-} from '../lib/vendorApi'
+import { rememberEmployerApplicationAlertIds } from '../lib/employerApplicationNotifications'
+import { subscribeEmployerApplicationAlerts } from '../lib/employerAlertsFeed'
+import { markEmployerApplicationAlertsRead } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
 import styles from './CandidateNotificationBell.module.css'
 
@@ -63,26 +58,9 @@ export function EmployerNotificationBell() {
     return () => window.removeEventListener('hireright-auth', onSync)
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    async function poll() {
-      try {
-        const ok = await ensureApiSession()
-        if (!ok || cancelled) return
-        const { alerts } = await fetchEmployerApplicationAlerts()
-        if (cancelled) return
-        syncEmployerApplicationNotifications(alerts)
-      } catch {
-        /* bell still shows stored notifications */
-      }
-    }
-    void poll()
-    const timer = window.setInterval(() => void poll(), 30_000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [])
+  // Shared 30 s poll (the employer dashboard listens to the same one); each poll already feeds the
+  // stored inbox, so the bell only needs to keep the feed running.
+  useEffect(() => subscribeEmployerApplicationAlerts(() => {}), [])
 
   useEffect(() => {
     if (!open) return

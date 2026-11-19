@@ -1,28 +1,580 @@
-.stack{display:flex;flex-direction:column;gap:26px;color:#10143c;font-size:15.5px}
-.stack h1,.stack h2,.stack h3,.stack h4,.stack p{margin:0}.stack button,.stack a{font:inherit}.stack button{cursor:pointer}.stack svg{width:24px;height:24px;flex-shrink:0}.stack button:focus-visible,.stack a:focus-visible{outline:3px solid #ac98ff;outline-offset:3px}
-.headerBanner{position:relative;display:flex;align-items:center;gap:26px;min-height:172px;padding:28px;overflow:hidden;border:1px solid #bae2d2;border-radius:12px;background:linear-gradient(105deg,#f1faf6,#f4faf8)}
-.successSeal{flex-shrink:0;display:grid;place-items:center;width:76px;height:76px;border-radius:50%;background:linear-gradient(135deg,#47c789,#12a35d);border:7px solid #dff4e9;box-shadow:0 0 0 7px #edf8f2;color:white;font-size:48px;font-weight:700}.bannerText{position:relative;z-index:1;max-width:calc(100% - 190px)}.bannerText h1{color:#117336;font-size:28px;font-weight:700;margin-bottom:8px}.bannerText h2{font-size:22px;line-height:1.35;font-weight:700;margin-bottom:8px}.bannerText h3,.bannerText p,.bannerText h4{font-size:16px;font-weight:400;color:#494d7a;line-height:1.7}.robotAvatarImg{position:absolute;right:24px;bottom:-17px;width:155px;height:155px;object-fit:contain}
-.detailsCard{padding:28px 26px;border:1px solid #e4e5ee;border-radius:12px;background:#fff;box-shadow:0 3px 8px #17194108}.detailsCard>h2,.detailsCard>h3{font-size:21px;font-weight:650;margin-bottom:22px}.detailsGrid{display:grid;grid-template-columns:1fr 1fr;gap:26px}.infoList{display:flex;flex-direction:column;gap:24px;padding:2px 22px 14px 0;border-right:1px solid #e0dfeb}.infoItem{display:flex;align-items:center;gap:20px}.infoItem>svg{color:#7147ff}.infoItem span{display:block;font-size:13px;margin-bottom:5px}.infoItem strong{display:block;font-size:15.5px;font-weight:600;line-height:1.5}.infoItem small{display:inline-block;vertical-align:middle;margin-left:8px;color:#6540ee;font-size:12.5px;font-weight:400;padding:3px 10px;background:#ede8ff;border:1px solid #e0d8ff;border-radius:5px}.nextCard{align-self:center;padding:24px 22px;background:#f8f6ff;border:1px solid #e1dcff;border-radius:10px}.nextCard h3{font-size:17px;font-weight:650;margin-bottom:16px}.nextCard h4{font-size:15px;margin-bottom:16px}.nextCard ul{list-style:none;margin:0;padding:0;display:grid;gap:14px}.nextCard li{position:relative;padding-left:22px;color:#3e4172;font-size:14px;line-height:1.65}.nextCard li:before{content:'✓';position:absolute;left:0;color:#3c3981}.detailsActions{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}.outlineButton,.primaryButton,.whatsappButton{display:flex;align-items:center;justify-content:center;gap:12px;min-height:46px;padding:10px 18px;border-radius:8px;text-decoration:none;text-align:center;line-height:1.4;font-size:15px;font-weight:600!important}.outlineButton{border:1px solid #a28bff;background:#fff;color:#6844ff}.primaryButton{border:1px solid #744aff;background:linear-gradient(100deg,#7144ff,#754cff);color:#fff}.primaryButton span{font-size:25px;line-height:15px}.outlineButton svg{width:20px;height:20px}.outlineButton:hover{background:#eef2ff}.primaryButton:hover{background:#6338ed}.guide{margin-top:22px;padding:20px;background:#f7f5ff;border-radius:10px}.guide h4{margin-bottom:8px;font-size:15px}.guide p{line-height:1.7;font-size:14px}.guide>div{display:flex;gap:20px;margin-top:14px}.guide button{padding:0;border:0;background:none;color:#6945e6;text-decoration:underline;font-size:14px}
-.section>h2{font-size:21px;font-weight:650;margin-bottom:8px}.section>h3{color:#535681;font-size:15px;font-weight:400;line-height:1.6;margin-bottom:16px}.section>p,.section>h4{color:#535681;font-size:14px;font-weight:400;line-height:1.6;margin-bottom:16px}.notifGrid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.emailCard,.whatsappCard{padding:18px 16px 14px;border:1px solid #d4defa;border-radius:10px;background:linear-gradient(135deg,#f3f7ff,#fdfdff);display:flex;flex-direction:column;gap:8px;min-width:0}.whatsappCard{background:linear-gradient(135deg,#f0faf6,#f7fbf9);border-color:#d4e9de}.emailCard header,.whatsappCard header{display:flex;align-items:center;gap:12px;margin-bottom:8px}.emailCard header>svg{color:#6866f3;width:30px;height:30px}.whatsappCard header>svg{color:#fff;background:linear-gradient(135deg,#64d295,#14a561);border-radius:50%;padding:4px;width:30px;height:30px}.notifGrid h3{font-size:16px;font-weight:600}.notifGrid h4{font-size:15px;font-weight:600}.previewBadge{font-size:11.5px;margin-left:auto;padding:4px 9px;background:#e5f4ed;border:1px solid #d5ede0;color:#188c4d;border-radius:5px}.notifGrid article>p{font-size:13px;line-height:1.55;overflow-wrap:anywhere}.message{flex:1;margin-top:4px;padding:14px 12px;border:1px solid #dfe1e9;border-radius:8px;background:#ffffffd9;font-size:13px;line-height:1.6;display:flex;flex-direction:column;gap:8px}.message strong{font-weight:600}.notifGrid a{min-height:38px;padding:8px 12px;margin-top:8px;font-size:14px}.whatsappButton{background:#24b166;border:1px solid #20a961;color:#fff}.whatsappButton:hover{background:#169b55}.section .deliveryNote{font-size:12px;margin-top:8px;margin-bottom:0;color:#717594}
-.timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:24px 18px;border:1px solid #e4e5ef;border-radius:11px;background:#fff}.timelineItem{display:flex;align-items:flex-start;gap:11px;position:relative}.timelineIcon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#f0ebff;color:#7751ff;flex-shrink:0}.timelineIcon svg{width:25px;height:25px}.timelineItem h3{font-size:14px;font-weight:600;margin:4px 0 8px}.timelineItem h4{font-size:12.5px;font-weight:600;margin:4px 0 8px}.timelineItem p{font-size:12px;color:#35356c;line-height:1.65}.timelineItem:not(:last-child):after{content:'';height:1px;width:22px;position:absolute;right:0;top:18px;background:#d6cdf6}.trophyBanner{position:relative;display:flex;align-items:center;gap:30px;overflow:hidden;padding:30px 32px;min-height:156px;border:1px solid #dfd5ff;border-radius:12px;background:linear-gradient(110deg,#fcfaff 0%,#f9f7ff 66%,#e6dcff 100%)}.star{width:80px;height:80px;display:grid;place-items:center;border-radius:50%;border:1px solid #e0d4ff;background:white;font-size:44px;flex-shrink:0}.trophyBanner h2{font-size:23px;margin-bottom:10px;font-weight:650}.trophyBanner h3{font-size:15.5px;font-weight:400;color:#4c4d7f;line-height:1.6;margin-bottom:6px}.trophyBanner em{font-style:normal;color:#7546ff}.trophyBanner p,.trophyBanner h4{font-size:14px;font-weight:400;color:#4c4d7f;line-height:1.6}.trophyBanner strong{display:block;font-size:13.5px;font-weight:550;color:#7444ff;margin-top:4px}.trophyBanner .helpText{font-size:12.5px;margin-top:12px}.trophy{font-size:80px;margin-left:auto;filter:grayscale(1) sepia(1) saturate(7) hue-rotate(208deg);text-shadow:0 8px 15px #8960d347;flex-shrink:0}.dossierButton{border:1px solid #ddd5f8;background:#eef2ff;color:#6044bf;border-radius:8px;padding:12px 16px;font-size:14px}
-@media(min-width:1400px){.headerBanner{min-height:178px}.bannerText h1{font-size:26px}.bannerText h2{font-size:22px}.bannerText h3{font-size:15px}.detailsCard{padding:26px}.notifGrid{gap:20px}.message{font-size:12px;min-height:152px}.timelineItem h3{font-size:13px}.timelineItem h4{font-size:12px}.timelineItem p{font-size:11px}}
-@media(max-width:1000px){.bannerText{max-width:calc(100% - 120px)}.bannerText h1{font-size:21px}.bannerText h2{font-size:18px}.bannerText h3{font-size:13px}.robotAvatarImg{width:125px;right:7px}.headerBanner{gap:18px;padding:22px 18px}.successSeal{width:60px;height:60px;font-size:35px}.detailsGrid{gap:18px}.infoList{padding-right:12px}.infoItem{gap:12px}.infoItem small{margin-left:0}.nextCard{padding:16px}.trophy{font-size:60px}.trophyBanner{gap:18px;padding:24px 20px}.trophyBanner h2{font-size:19px}.timelineItem:not(:last-child):after{display:none}.timeline{gap:14px;grid-template-columns:repeat(2,1fr)}}
-@media(max-width:640px){.stack{gap:20px}.headerBanner{min-height:172px;padding:20px 16px;gap:13px;align-items:flex-start}.successSeal{width:43px;height:43px;font-size:27px;border-width:4px;box-shadow:0 0 0 4px #e6f6ed;margin-top:4px}.bannerText{max-width:none;padding-right:20px}.bannerText h1{font-size:20px}.bannerText h2{font-size:17px}.bannerText h3{font-size:12.5px;padding-right:45px}.bannerText p{font-size:11px;padding-right:50px}.robotAvatarImg{width:94px;height:105px;right:-4px;bottom:-10px;opacity:.9}.desktopBreak{display:none}.detailsCard{padding:20px 16px}.detailsGrid{grid-template-columns:1fr;gap:15px}.infoList{border-right:0;padding-right:0;gap:18px}.infoItem small{margin-left:7px}.nextCard{padding:18px}.detailsActions{gap:10px;grid-template-columns:1fr}.notifGrid{grid-template-columns:1fr}.notifGrid article{padding:16px}.timeline{grid-template-columns:1fr 1fr;gap:20px 12px;padding:18px 12px}.timelineItem{gap:7px}.timelineIcon{width:31px;height:31px}.timelineIcon svg{width:20px;height:20px}.trophyBanner{align-items:flex-start;gap:12px;padding:20px 14px}.star{width:45px;height:45px;font-size:29px}.trophyBanner h2{font-size:18px}.trophyBanner h3{font-size:12px}.trophyBanner p{font-size:11px}.trophy{display:none}.guide>div{flex-direction:column;gap:12px;align-items:flex-start}}
-/* The artwork is displayed from the supplied reference, preserving its exact design. */
-.robotAvatarImg { width:166px; height:144px; right:16px; bottom:0; background:url('/assets/reference-confirmation.png') -795px -195px / 1024px 1536px no-repeat; mix-blend-mode:multiply; }
-.trophy { width:170px; height:144px; background:url('/assets/reference-confirmation.png') -818px -1364px / 1024px 1536px no-repeat; filter:none; mix-blend-mode:multiply; }
-@media(max-width:640px) { .robotAvatarImg { width:100px; height:94px; background-size:666px 998px; background-position:-517px -127px; right:0; bottom:0; } }
-.robotAvatarImg { mask-image:linear-gradient(to right,transparent,#000 15%,#000 92%,transparent); }
-.applyNote{margin-top:12px;font-size:14px;font-weight:600;color:#6036eb}
-.trophy { mask-image:linear-gradient(to right,transparent,#000 17%,#000 80%,transparent); }
-@media(min-width:761px) { .trophyBanner { min-height:152px; padding:20px 32px; z-index:2; } .trophy { position:absolute; right:0; bottom:0; } .trophyBanner>div:nth-child(2) { padding-right:155px; } }
+/* Onboarding step 3: confirmation. Cards §2.4, buttons §2.2, type §1.3. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+  color: var(--ds-text, #141638);
+  font-size: var(--fs-body);
+}
 
-/* Candidate redesign: flat success state, brand colour for icons, no decorative gradients. */
-.headerBanner { background:#f1faf6; }
-.successSeal { background:#12a35d; }
-.emailCard,.whatsappCard { background:#ffffff; }
-.infoItem>svg { color:var(--hr-brand-solid, #5046e5); }
-.timelineIcon { background:var(--brand-light, #eef2ff); color:var(--hr-brand-solid, #5046e5); }
-.applyNote { color:var(--hr-brand-solid-hover, #4338ca); }
-.detailsCard { box-shadow:none; border-color:var(--hr-border, #e5e5ef); }
-.stack button:focus-visible,.stack a:focus-visible { outline:2px solid var(--hr-brand-solid, #5046e5); outline-offset:2px; }
+.stack :where(h2, h3, p, dl, dd, ul, ol) {
+  margin: 0;
+}
+
+.stack svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+/* Success summary: the one tinted card on this step. */
+.headerBanner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 144px;
+  padding: var(--space-6);
+  overflow: hidden;
+  border: 1px solid var(--ds-success-border, #a7f3d0);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-success-soft, #ecfdf5);
+}
+
+.successSeal {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  background: var(--ds-success, #047857);
+  color: var(--ds-surface, #ffffff);
+}
+
+.stack .successSeal svg {
+  width: 28px;
+  height: 28px;
+}
+
+.bannerText {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  padding-right: 160px;
+}
+
+.bannerText h2 {
+  font-size: var(--fs-section-title);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.bannerLead {
+  margin-top: var(--space-1);
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.bannerSub {
+  margin-top: var(--space-1);
+  max-width: 60ch;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.applyNote {
+  margin-top: var(--space-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ds-success, #047857);
+}
+
+/* Ava artwork, cropped from the supplied confirmation reference. */
+.robotAvatarImg {
+  position: absolute;
+  right: var(--space-4);
+  bottom: 0;
+  width: 166px;
+  height: 144px;
+  background: url('/assets/reference-confirmation.png') -795px -195px / 1024px 1536px no-repeat;
+  mix-blend-mode: multiply;
+  mask-image: linear-gradient(to right, transparent, black 15%, black 92%, transparent);
+}
+
+/* Details card */
+.detailsCard {
+  padding: var(--space-6);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-surface, #ffffff);
+}
+
+.detailsCard > h2,
+.section > h2 {
+  font-size: var(--fs-section-title);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.detailsCard > h2 {
+  margin-bottom: var(--space-5);
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+}
+
+.infoList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.infoItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.infoIcon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-brand-soft, #eef2ff);
+  color: var(--ds-brand, #5046e5);
+}
+
+.infoItem dt {
+  font-size: var(--fs-xs);
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.infoItem dd {
+  margin-top: var(--space-0-5);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.durationTag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--ds-neutral-soft, #f1f1f7);
+  color: var(--ds-text-secondary, #363b5c);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.nextCard {
+  align-self: start;
+  padding: var(--space-4);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.nextCard h3 {
+  margin-bottom: var(--space-3);
+  font-size: var(--fs-card-title);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.nextCard ul {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.nextCard li {
+  position: relative;
+  padding-left: var(--space-6);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+/* Check mark drawn in CSS (no glyph). */
+.nextCard li::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: var(--space-1);
+  width: 6px;
+  height: 10px;
+  border: solid var(--ds-success, #047857);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.detailsActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+}
+
+/* Secondary md button (§2.2). */
+.outlineButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--ds-border-strong, #d6d7e5);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface, #ffffff);
+  color: var(--ds-text, #141638);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.outlineButton:hover {
+  border-color: var(--ds-brand, #5046e5);
+  color: var(--ds-brand-hover, #4338ca);
+}
+
+.stack .outlineButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.guide {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.guide h3 {
+  margin-bottom: var(--space-1);
+  font-size: var(--fs-card-title);
+  font-weight: 700;
+}
+
+.guide p {
+  max-width: 70ch;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.guideActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin-top: var(--space-3);
+}
+
+/* Link buttons. */
+.guideActions button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-brand, #5046e5);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guideActions button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Confirmation + timeline sections */
+.sectionSub {
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.notifGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.channelCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-5);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-surface, #ffffff);
+}
+
+.channelCard header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.channelIcon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--ds-brand-soft, #eef2ff);
+  color: var(--ds-brand, #5046e5);
+}
+
+.stack .channelIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.channelCard h3 {
+  font-size: var(--fs-card-title);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.previewBadge {
+  margin-left: auto;
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--ds-neutral-soft, #f1f1f7);
+  color: var(--ds-text-secondary, #363b5c);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+.metaLine {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--ds-text-muted, #5f6686);
+  overflow-wrap: anywhere;
+}
+
+.message {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface-subtle, #f6f6fb);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+  overflow-wrap: anywhere;
+}
+
+.message strong {
+  font-weight: 600;
+  color: var(--ds-text, #141638);
+}
+
+.channelCard .outlineButton {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+}
+
+.deliveryNote {
+  margin-top: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.timeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-surface, #ffffff);
+  list-style: none;
+}
+
+.timelineItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.timelineIcon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+  border-radius: var(--radius-full);
+  background: var(--ds-brand-soft, #eef2ff);
+  color: var(--ds-brand, #5046e5);
+}
+
+.timelineItem h3 {
+  margin: var(--space-0-5) 0 var(--space-1);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.timelineItem p {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+/* Closing encouragement: the one brand-soft "next step" card. */
+.trophyBanner {
+  padding: var(--space-6);
+  border: 1px solid var(--ds-brand-border, #c7d2fe);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-brand-soft, #eef2ff);
+}
+
+.trophyBanner h2 {
+  font-size: var(--fs-section-title);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.trophyBanner p {
+  margin-top: var(--space-1);
+  max-width: 64ch;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.trophyBanner .trophyStrong {
+  font-weight: 600;
+  color: var(--ds-brand-hover, #4338ca);
+}
+
+.trophyBanner .helpText {
+  margin-top: var(--space-3);
+  font-size: var(--fs-xs);
+  color: var(--ds-text-muted, #5f6686);
+}
+
+/* Secondary md button, full width. */
+.dossierButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-md);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--ds-border-strong, #d6d7e5);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface, #ffffff);
+  color: var(--ds-text, #141638);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--ds-duration-fast) var(--ds-ease-out),
+    color var(--ds-duration-fast) var(--ds-ease-out);
+}
+
+.dossierButton:hover {
+  border-color: var(--ds-brand, #5046e5);
+  color: var(--ds-brand-hover, #4338ca);
+}
+
+.stack .dossierChevron {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--ds-duration) var(--ds-ease-out);
+}
+
+.dossierChevronOpen {
+  transform: rotate(180deg);
+}
+
+@media (max-width: 1024px) {
+  .timeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .detailsGrid,
+  .notifGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .stack {
+    gap: var(--space-4);
+  }
+
+  .headerBanner {
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .successSeal {
+    width: var(--control-h-md);
+    height: var(--control-h-md);
+  }
+
+  .stack .successSeal svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .bannerText {
+    padding-right: 0;
+  }
+
+  .robotAvatarImg {
+    display: none;
+  }
+
+  .detailsCard,
+  .channelCard,
+  .trophyBanner {
+    padding: var(--space-4);
+  }
+
+  .detailsActions .outlineButton,
+  .channelCard .outlineButton,
+  .dossierButton {
+    width: 100%;
+  }
+
+  .timeline {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-4);
+  }
+}

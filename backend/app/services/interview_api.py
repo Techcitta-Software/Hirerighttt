@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import os
 import re
+import threading
+import time
+from collections import OrderedDict
 from typing import Any
 
 from app.services.interview_agent import (
@@ -350,6 +355,41 @@ def _resume_fallback_extract(text: str) -> dict:
     }
 
 
+# The onboarding flow parses the same resume more than once (upload, then the profile step). A successful AI extract
+# is remembered per process for an hour, keyed by a hash of the resume text (bounded LRU).
+_RESUME_PARSE_CACHE_TTL_S = 3600.0
+_RESUME_PARSE_CACHE_MAX = 256
+_resume_parse_cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_resume_parse_lock = threading.Lock()
+
+
+def _resume_cache_get(key: str) -> dict | None:
+    with _resume_parse_lock:
+        hit = _resume_parse_cache.get(key)
+        if not hit:
+            return None
+        at, value = hit
+        if time.monotonic() - at > _RESUME_PARSE_CACHE_TTL_S:
+            _resume_parse_cache.pop(key, None)
+            return None
+        _resume_parse_cache.move_to_end(key)
+        return copy.deepcopy(value)
+
+
+def _resume_cache_put(key: str, value: dict) -> None:
+    with _resume_parse_lock:
+        _resume_parse_cache[key] = (time.monotonic(), copy.deepcopy(value))
+        _resume_parse_cache.move_to_end(key)
+        while len(_resume_parse_cache) > _RESUME_PARSE_CACHE_MAX:
+            _resume_parse_cache.popitem(last=False)
+
+
+def _resume_parse_thinking() -> str | None:
+    """Field extraction needs no deep reasoning. RESUME_PARSE_THINKING=low|medium|high raises it, =off removes it."""
+    value = (os.environ.get("RESUME_PARSE_THINKING") or "minimal").strip().lower()
+    return None if value in ("", "off", "default", "none") else value
+
+
 async def parse_resume_with_ai(text: str) -> dict | None:
     """Structured resume extraction with Gemini (key rotation + model fallback). Falls back to a minimal extract."""
     import json
@@ -363,6 +403,11 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     if not gemini_configured():
         return _resume_fallback_extract(clean)
 
+    cache_key = hashlib.sha256(clean[:50000].encode("utf-8", "ignore")).hexdigest()
+    cached = _resume_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         result = await generate_content(
             system=RESUME_PARSE_SYSTEM,
@@ -372,6 +417,7 @@ async def parse_resume_with_ai(text: str) -> dict | None:
             json_mode=True,
             timeout=9.0,
             total_budget=10.0,  # the browser stops waiting at 12s
+            thinking=_resume_parse_thinking(),
         )
         match = re.search(r"\{[\s\S]*\}", result.text) if result else None
         data = json.loads(match.group(0)) if match else None
@@ -388,6 +434,7 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     extract = {k: v for k, v in data.items() if k in allowed}
     extract["resumeText"] = clean[:50000]
     extract["source"] = "gemini"
+    _resume_cache_put(cache_key, extract)  # only real AI extracts are cached; a fallback retries the model next time
     return extract
 
 

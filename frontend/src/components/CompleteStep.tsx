@@ -21,6 +21,14 @@ function Icon({ kind }: { kind: 'calendar' | 'clock' | 'video' | 'info' | 'bell'
     {kind === 'phone' && <><path d="M21 11.5a9 9 0 0 1-13 8L3 21l1.5-5A9 9 0 1 1 21 11.5Z" /><path d="m8 7 2 3-1 1c1 2 2 3 4 3l1-1 3 2c-3 4-11-3-9-8Z" /></>}
   </svg>
 }
+
+const TIMELINE = [
+  { icon: 'bell', title: '24 hours before', copy: 'Review your experience and prepare a few examples.' },
+  { icon: 'clock', title: '1 hour before', copy: 'Check your camera, microphone and connection.' },
+  { icon: 'bell', title: '15 minutes before', copy: 'Find a quiet space and get ready.' },
+  { icon: 'video', title: 'Interview time', copy: 'Join and ace your AI interview.' },
+] as const
+
 export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   const navigate = useNavigate()
   const name = firstName()
@@ -58,31 +66,181 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  return <div className={styles.stack}>
-    <section className={styles.headerBanner}>
-      <div className={styles.successSeal} aria-hidden="true"><svg viewBox="0 0 16 16" width="32" height="32" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg></div>
-      <div className={styles.bannerText}><h1>All set, {name}</h1><h2>{scheduled ? 'Your 15-Minute AI Interview is Confirmed!' : 'You’re Ready for Your AI Interview!'}</h2><h3>We’re excited to connect with you and help you take the next step<br className={styles.desktopBreak} /> in your career journey.</h3>{applyNote && <p className={styles.applyNote}>{applyNote}</p>}</div>
-      <div role="img" aria-label="Ava, your friendly AI interviewer" className={styles.robotAvatarImg} />
-    </section>
-    <section className={styles.detailsCard}>
-      <h2>Your Interview Details</h2>
-      <div className={styles.detailsGrid}><div className={styles.infoList}>
-        <div className={styles.infoItem}><Icon kind="calendar" /><div><span>Date</span><strong>{dateText}</strong></div></div>
-        <div className={styles.infoItem}><Icon kind="clock" /><div><span>Time</span><strong>{timeText} <small>15 Min Interview</small></strong></div></div>
-        <div className={styles.infoItem}><Icon kind="video" /><div><span>Interview Mode</span><strong>AI Video Interview</strong></div></div>
-        <div className={styles.infoItem}><Icon kind="info" /><div><span>Interview Type</span><strong>Technical + Behavioral Assessment</strong></div></div>
-      </div><div className={styles.nextCard}><h3>What’s Next?</h3><ul><li>Our AI will conduct a fair and personalized conversation to understand you better.</li><li>Showcase your skills, experiences and problem-solving approach.</li><li>Get matched with opportunities that are the right fit for you.</li></ul></div></div>
-      <div className={styles.detailsActions}><button className={styles.outlineButton} onClick={downloadCalendar}><Icon kind="calendar" />Add to Calendar</button><button className={styles.primaryButton} onClick={() => setShowGuide(!showGuide)} aria-expanded={showGuide}>View Interview Guide <span>→</span></button></div>
-      {showGuide && <div className={styles.guide}><h4>Your interview checklist</h4><p>Choose a quiet, well-lit space. Check your camera, microphone and internet connection. Have examples of your work ready and answer in your own words.</p><div><button onClick={() => onEditStep(4)}>Change interview time</button><button type="button" onClick={() => { const link = localStorage.getItem('hireright.lastInviteUrl'); if (link) window.location.href = link; else navigate('/interview/now') }}>Open interview link →</button></div></div>}
-    </section>
-    <section className={styles.section}><h2>Your Confirmation Details</h2><h3>Keep your interview details handy with email and WhatsApp.</h3><div className={styles.notifGrid}>
-      <article className={styles.emailCard}><header><Icon kind="mail" /><h3>Email Confirmation</h3><span className={styles.previewBadge}>Preview</span></header><p>To: {getUser()?.email || 'Your email address'}</p><p>Subject: Your AI Interview {scheduled ? 'is Confirmed' : 'Details'}</p><div className={styles.message}><p>Hi {name},</p><p>{scheduled ? 'Great news! Your 15-minute AI interview is confirmed.' : 'Your 15-minute AI interview is ready to schedule.'}</p><p>♧ &nbsp;Date: {dateText}<br />◷ &nbsp;Time: {timeText}</p><p>We look forward to meeting you!</p><p>– Team HireRight</p></div><a className={styles.outlineButton} href={`mailto:${encodeURIComponent(getUser()?.email || '')}?subject=${encodeURIComponent('Your AI Interview Details')}&body=${encodeURIComponent(message)}`}>Open Email</a></article>
-      <article className={styles.whatsappCard}><header><Icon kind="phone" /><h3>WhatsApp Confirmation</h3><span className={styles.previewBadge}>Preview</span></header><p>Your interview details, ready to share</p><div className={styles.message}><p>Hi {name}! 👋</p><p>Your 15-minute AI interview {scheduled ? 'is confirmed.' : 'is ready to schedule.'}</p><p>🗓 &nbsp;<strong>{dateText}</strong><br />◷ &nbsp;{timeText}</p><p>We’re excited to connect with you and help you<br className={styles.desktopBreak} /> find the right opportunities.</p><p>– Team HireRight</p></div><a className={styles.whatsappButton} href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">Open WhatsApp</a></article>
-    </div><p className={styles.deliveryNote}>Message previews only. Open your preferred app to send or save the details.</p></section>
-    <section className={styles.section}><h2>Get Ready for Your Interview!</h2><h3>Add the event to your calendar for a 15-minute reminder.</h3><div className={styles.timeline}>
-      {([{ icon: 'bell', title: '24 Hours Before', copy: 'Review your experience and prepare a few examples.' }, { icon: 'clock', title: '1 Hour Before', copy: 'Check your camera, microphone and connection.' }, { icon: 'bell', title: '15 Minutes Before', copy: 'Find a quiet space and get ready.' }, { icon: 'video', title: 'Interview Time', copy: 'Join and ace your AI interview!' }] as const).map(item => <div className={styles.timelineItem} key={item.title}><div className={styles.timelineIcon}><Icon kind={item.icon} /></div><div><h3>{item.title}</h3><p>{item.copy}</p></div></div>)}
-    </div></section>
-    <section className={styles.trophyBanner}><div><h2>You’ve Taken the <em>Right Step!</em></h2><h3>Believe in yourself. Showcase your best. Opportunities are waiting for you!</h3><strong>We’re with you, every step of the way.</strong><p className={styles.helpText}>Keep your profile up to date to discover your next opportunity.</p></div><div className={styles.trophy} aria-hidden="true" /></section>
-    {interview && <><button className={styles.dossierButton} onClick={() => setShowDossier(!showDossier)} aria-expanded={showDossier}>{showDossier ? 'Hide' : 'View'} Your Career Intelligence Report {showDossier ? '−' : '+'}</button>{showDossier && <CareerIntelligenceDashboard result={interview} candidateName={candidateFullName()} candidateRole={data.currentRole} candidateExperience={data.totalExperience} skills={data.skills} onRetake={() => navigate('/interview')} onContinue={() => navigate('/jobs')} />}</>}
-  </div>
+  function openInviteLink() {
+    const link = localStorage.getItem('hireright.lastInviteUrl')
+    if (link) window.location.href = link
+    else navigate('/interview/now')
+  }
+  const userEmail = getUser()?.email
+
+  return (
+    <div className={styles.stack}>
+      <section className={styles.headerBanner} aria-labelledby="complete-title">
+        <div className={styles.successSeal} aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <div className={styles.bannerText}>
+          <h2 id="complete-title">All set, {name}</h2>
+          <p className={styles.bannerLead}>
+            {scheduled ? 'Your 15-minute AI interview is confirmed.' : 'You’re ready for your AI interview.'}
+          </p>
+          <p className={styles.bannerSub}>
+            We’re excited to connect with you and help you take the next step in your career journey.
+          </p>
+          {applyNote && <p className={styles.applyNote} role="status">{applyNote}</p>}
+        </div>
+        <div role="img" aria-label="Ava, your friendly AI interviewer" className={styles.robotAvatarImg} />
+      </section>
+
+      <section className={styles.detailsCard} aria-labelledby="complete-details-title">
+        <h2 id="complete-details-title">Your interview details</h2>
+        <div className={styles.detailsGrid}>
+          <dl className={styles.infoList}>
+            <div className={styles.infoItem}>
+              <span className={styles.infoIcon}><Icon kind="calendar" /></span>
+              <div><dt>Date</dt><dd>{dateText}</dd></div>
+            </div>
+            <div className={styles.infoItem}>
+              <span className={styles.infoIcon}><Icon kind="clock" /></span>
+              <div><dt>Time</dt><dd>{timeText} <small className={styles.durationTag}>15 min</small></dd></div>
+            </div>
+            <div className={styles.infoItem}>
+              <span className={styles.infoIcon}><Icon kind="video" /></span>
+              <div><dt>Interview mode</dt><dd>AI video interview</dd></div>
+            </div>
+            <div className={styles.infoItem}>
+              <span className={styles.infoIcon}><Icon kind="info" /></span>
+              <div><dt>Interview type</dt><dd>Technical and behavioural assessment</dd></div>
+            </div>
+          </dl>
+          <div className={styles.nextCard}>
+            <h3>What’s next</h3>
+            <ul>
+              <li>Our AI will conduct a fair and personalised conversation to understand you better.</li>
+              <li>Showcase your skills, experience and problem-solving approach.</li>
+              <li>Get matched with opportunities that are the right fit for you.</li>
+            </ul>
+          </div>
+        </div>
+        <div className={styles.detailsActions}>
+          <button type="button" className={styles.outlineButton} onClick={downloadCalendar}>
+            <Icon kind="calendar" />
+            Add to calendar
+          </button>
+          <button type="button" className={styles.outlineButton} onClick={() => setShowGuide(!showGuide)} aria-expanded={showGuide}>
+            {showGuide ? 'Hide interview guide' : 'View interview guide'}
+          </button>
+        </div>
+        {showGuide && (
+          <div className={styles.guide}>
+            <h3>Your interview checklist</h3>
+            <p>
+              Choose a quiet, well-lit space. Check your camera, microphone and internet connection. Have examples of
+              your work ready and answer in your own words.
+            </p>
+            <div className={styles.guideActions}>
+              <button type="button" onClick={() => onEditStep(4)}>Change interview time</button>
+              <button type="button" onClick={openInviteLink}>Open interview link</button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="complete-confirm-title">
+        <h2 id="complete-confirm-title">Your confirmation details</h2>
+        <p className={styles.sectionSub}>Keep your interview details handy with email and WhatsApp.</p>
+        <div className={styles.notifGrid}>
+          <article className={styles.channelCard}>
+            <header>
+              <span className={styles.channelIcon}><Icon kind="mail" /></span>
+              <h3>Email confirmation</h3>
+              <span className={styles.previewBadge}>Preview</span>
+            </header>
+            <p className={styles.metaLine}>To: {userEmail || 'Your email address'}</p>
+            <p className={styles.metaLine}>Subject: Your AI interview {scheduled ? 'is confirmed' : 'details'}</p>
+            <div className={styles.message}>
+              <p>Hi {name},</p>
+              <p>{scheduled ? 'Great news! Your 15-minute AI interview is confirmed.' : 'Your 15-minute AI interview is ready to schedule.'}</p>
+              <p>Date: {dateText}<br />Time: {timeText}</p>
+              <p>We look forward to meeting you!</p>
+              <p>– Team HireRight</p>
+            </div>
+            <a
+              className={styles.outlineButton}
+              href={`mailto:${encodeURIComponent(userEmail || '')}?subject=${encodeURIComponent('Your AI Interview Details')}&body=${encodeURIComponent(message)}`}
+            >
+              Open email
+            </a>
+          </article>
+          <article className={styles.channelCard}>
+            <header>
+              <span className={styles.channelIcon}><Icon kind="phone" /></span>
+              <h3>WhatsApp confirmation</h3>
+              <span className={styles.previewBadge}>Preview</span>
+            </header>
+            <p className={styles.metaLine}>Your interview details, ready to share</p>
+            <div className={styles.message}>
+              <p>Hi {name},</p>
+              <p>Your 15-minute AI interview {scheduled ? 'is confirmed.' : 'is ready to schedule.'}</p>
+              <p><strong>{dateText}</strong><br />{timeText}</p>
+              <p>We’re excited to connect with you and help you find the right opportunities.</p>
+              <p>– Team HireRight</p>
+            </div>
+            <a className={styles.outlineButton} href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">
+              Open WhatsApp
+            </a>
+          </article>
+        </div>
+        <p className={styles.deliveryNote}>Message previews only. Open your preferred app to send or save the details.</p>
+      </section>
+
+      <section className={styles.section} aria-labelledby="complete-ready-title">
+        <h2 id="complete-ready-title">Get ready for your interview</h2>
+        <p className={styles.sectionSub}>Add the event to your calendar for a 15-minute reminder.</p>
+        <ol className={styles.timeline}>
+          {TIMELINE.map((item) => (
+            <li className={styles.timelineItem} key={item.title}>
+              <span className={styles.timelineIcon}><Icon kind={item.icon} /></span>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.copy}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className={styles.trophyBanner} aria-labelledby="complete-encourage-title">
+        <h2 id="complete-encourage-title">You’ve taken the right step</h2>
+        <p>Believe in yourself and showcase your best. Opportunities are waiting for you.</p>
+        <p className={styles.trophyStrong}>We’re with you, every step of the way.</p>
+        <p className={styles.helpText}>Keep your profile up to date to discover your next opportunity.</p>
+      </section>
+
+      {interview && (
+        <>
+          <button type="button" className={styles.dossierButton} onClick={() => setShowDossier(!showDossier)} aria-expanded={showDossier}>
+            {showDossier ? 'Hide' : 'View'} your career intelligence report
+            <svg className={`${styles.dossierChevron} ${showDossier ? styles.dossierChevronOpen : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {showDossier && (
+            <CareerIntelligenceDashboard
+              embedded
+              result={interview}
+              candidateName={candidateFullName()}
+              candidateRole={data.currentRole}
+              candidateExperience={data.totalExperience}
+              skills={data.skills}
+              onRetake={() => navigate('/interview')}
+              onContinue={() => navigate('/jobs')}
+            />
+          )}
+        </>
+      )}
+    </div>
+  )
 }

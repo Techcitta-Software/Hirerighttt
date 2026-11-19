@@ -12,6 +12,7 @@ import {
 import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
 import { canViewInterviewVideo } from '../lib/adminAccess'
 import { HrIcon } from './HrIcon'
+import { useDialog } from './useDialog'
 import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
 import { downloadScorecardPdf } from '../lib/printScorecard'
 import { docxToSafeHtml, isDocxDocument } from '../lib/docxPreview'
@@ -59,14 +60,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     ? `Resume — ${applicant.candidateName}`
     : `HireRighttt report — ${applicant.candidateName}`
 
-  // Escape closes the viewer, like every other dialog in the app.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc closes, Tab stays inside, focus moves in and page scroll is locked, like every other dialog.
+  const dialog = useDialog(true, onClose)
 
   useEffect(() => {
     let cancelled = false
@@ -236,12 +231,21 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
   const playbackUrl = recordingLink?.playbackUrl || recordingLink?.viewUrl
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" aria-labelledby="employer-doc-title">
-      <div className={styles.modalWide}>
+    <div
+      className={styles.overlay}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="employer-doc-title"
+      onKeyDown={dialog.onKeyDown}
+    >
+      <div ref={dialog.ref} tabIndex={-1} className={styles.modalWide}>
         <div className={styles.header}>
-          <div>
+          <div className={styles.headerText}>
             <h2 id="employer-doc-title">
-              <HrIcon name={isResume ? 'document' : 'sparkle'} size={18} /> {title}
+              <span className={styles.titleIcon} aria-hidden="true">
+                <HrIcon name={isResume ? 'document' : 'sparkle'} size={18} />
+              </span>
+              <span>{title}</span>
             </h2>
             {!isResume && (
               <p className={styles.subtitle}>
@@ -253,16 +257,19 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
               <p className={styles.subtitle}>{documentLink.filename}</p>
             ) : null}
           </div>
-          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close">
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close" data-autofocus>
             <HrIcon name="close" size={16} />
           </button>
         </div>
 
         <div className={styles.bodyScroll}>
           {loading ? (
-            <p className={styles.loading}>Loading document from secure storage…</p>
+            <p className={styles.loading} role="status">
+              <span className="ds-spinner" aria-hidden="true" />
+              Loading document from secure storage…
+            </p>
           ) : loadError && !documentLink ? (
-            <p className={styles.empty} role="alert">
+            <p className="ds-alert ds-alert--error" role="alert">
               {loadError}
             </p>
           ) : (
@@ -270,6 +277,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
               {inlineReport ? (
                 <section className={styles.reportSection} aria-label="HireRighttt report">
                   <CareerIntelligenceDashboard
+                    embedded
                     result={applicant.interviewResult!}
                     candidateName={applicant.candidateName}
                     candidateRole={applicant.role || applicant.jobTitle}
@@ -278,50 +286,59 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   />
                 </section>
               ) : (
-              <section className={styles.resumeSection} aria-label={isResume ? 'Resume preview' : 'Report preview'}>
-                {pdfReady ? (
-                  <>
-                    <p className={styles.sectionHint}>
-                      {isResume
-                        ? 'Resume preview.'
-                        : 'HireRighttt scorecard PDF.'}
-                    </p>
-                    <iframe
-                      className={styles.docFrameTwoPage}
-                      title={title}
-                      src={pdfViewUrl(documentLink!.viewUrl)}
-                    />
-                  </>
-                ) : isDocx && (docxLoading || docxHtml) ? (
-                  <>
-                    <p className={styles.sectionHint}>Resume preview (Word document).</p>
-                    {docxLoading ? (
-                      <p className={styles.loading}>Preparing the Word document…</p>
-                    ) : (
-                      <div className={styles.docxFrame}>
-                        {/* sanitizeDocxHtml keeps document markup only: no scripts, handlers, styles or unsafe URLs */}
-                        <article className={styles.docxPage} dangerouslySetInnerHTML={{ __html: docxHtml }} />
-                      </div>
-                    )}
-                  </>
-                ) : documentLink ? (
-                  <div className={styles.fallbackLink}>
-                    {docxError ? <p role="alert">{docxError}</p> : null}
-                    <p>This file is not a PDF preview in the browser.</p>
-                    <button type="button" className={styles.primaryBtn} onClick={handleDownload}>
-                      Open {documentLink.filename || 'file'}
-                    </button>
-                  </div>
-                ) : !loadError ? (
-                  <p className={styles.empty}>No document available.</p>
-                ) : null}
-              </section>
+                <section className={styles.resumeSection} aria-label={isResume ? 'Resume preview' : 'Report preview'}>
+                  {pdfReady ? (
+                    <>
+                      <p className={styles.sectionHint}>
+                        {isResume
+                          ? 'Resume preview.'
+                          : 'HireRighttt scorecard PDF.'}
+                      </p>
+                      <iframe
+                        className={styles.docFrameTwoPage}
+                        title={title}
+                        src={pdfViewUrl(documentLink!.viewUrl)}
+                      />
+                    </>
+                  ) : isDocx && (docxLoading || docxHtml) ? (
+                    <>
+                      <p className={styles.sectionHint}>Resume preview (Word document).</p>
+                      {docxLoading ? (
+                        <p className={styles.loading} role="status">
+                          <span className="ds-spinner" aria-hidden="true" />
+                          Preparing the Word document…
+                        </p>
+                      ) : (
+                        <div className={styles.docxFrame}>
+                          {/* sanitizeDocxHtml keeps document markup only: no scripts, handlers, styles or unsafe URLs */}
+                          <article className={styles.docxPage} dangerouslySetInnerHTML={{ __html: docxHtml }} />
+                        </div>
+                      )}
+                    </>
+                  ) : documentLink ? (
+                    <div className={styles.fallbackLink}>
+                      {docxError ? (
+                        <p className={styles.fallbackError} role="alert">
+                          {docxError}
+                        </p>
+                      ) : null}
+                      <p>This file type can’t be previewed in the browser. Open it to view it.</p>
+                      <button type="button" className={styles.secondaryBtn} onClick={handleDownload}>
+                        Open {documentLink.filename || 'file'}
+                      </button>
+                    </div>
+                  ) : !loadError ? (
+                    <p className={styles.empty}>No document available.</p>
+                  ) : null}
+                </section>
               )}
 
               {!isResume && canViewInterviewVideo() ? (
                 <section className={styles.videoSection} aria-label="Interview video">
                   <div className={styles.videoSectionHeader}>
-                    <HrIcon name="video" size={18} />
+                    <span className={styles.titleIcon} aria-hidden="true">
+                      <HrIcon name="video" size={18} />
+                    </span>
                     <h3 className={styles.videoTitle}>Interview recording</h3>
                   </div>
                   <p className={styles.sectionHint}>
@@ -329,7 +346,10 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                   </p>
 
                   {recordingLoading ? (
-                    <p className={styles.loading}>Loading interview video…</p>
+                    <p className={styles.loading} role="status">
+                      <span className="ds-spinner" aria-hidden="true" />
+                      Loading interview video…
+                    </p>
                   ) : playbackUrl ? (
                     <InterviewRecordingPlayer
                       playbackUrl={playbackUrl}

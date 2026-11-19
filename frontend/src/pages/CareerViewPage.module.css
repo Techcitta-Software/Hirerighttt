@@ -25,7 +25,7 @@
   color: var(--ink);
   font-family: var(--font-sans);
   line-height: 1.58;
-  overflow-x: hidden;
+  overflow-x: clip; /* clip, not hidden, so the sticky header keeps sticking */
 }
 
 .page main {
@@ -1112,26 +1112,6 @@
   border-color: #e9e6ff;
 }
 
-/* ── Reveal on scroll ── */
-[data-reveal] {
-  opacity: 1;
-  transform: none;
-}
-
-.isVisible {
-  animation: risein 0.7s var(--ease) both;
-}
-
-@keyframes risein {
-  from {
-    opacity: 0.55;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 @keyframes spin {
   to {
@@ -1581,8 +1561,7 @@
   .ring,
   .artOrbit,
   .floatNote span,
-  .bounce,
-  .isVisible {
+  .bounce {
     animation: none !important;
   }
 

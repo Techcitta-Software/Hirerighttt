@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { subscribePending } from '../lib/loadingTracker'
 import { SignalLoader } from './SignalLoader'
 import styles from './GlobalLoadingIndicator.module.css'
@@ -26,7 +25,6 @@ const MAX_VISIBLE_MS = 12000
  */
 export function GlobalLoadingIndicator() {
   const { pathname } = useLocation()
-  const reduceMotion = useReducedMotion()
   const [pending, setPending] = useState(0)
   const [barOn, setBarOn] = useState(false)
   const [veilOn, setVeilOn] = useState(false)
@@ -72,46 +70,18 @@ export function GlobalLoadingIndicator() {
   const allowed = !EXCLUDED.some((re) => re.test(pathname))
   const showBar = barOn && allowed
   const showVeil = veilOn && !timedOut && allowed
-  const fade = { duration: reduceMotion ? 0 : 0.22, ease: [0.16, 1, 0.3, 1] as const }
 
+  // Both layers fade in with CSS (see the module); reduced motion turns the fade off there.
   return (
     <>
-      <AnimatePresence>
-        {showBar ? (
-          <motion.div
-            key="bar"
-            className={styles.bar}
-            data-testid="global-loading-bar"
-            aria-hidden="true"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={fade}
-          />
-        ) : null}
-      </AnimatePresence>
-      <AnimatePresence>
-        {showVeil ? (
-          <motion.div
-            key="veil"
-            className={styles.veil}
-            data-testid="global-loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={fade}
-          >
-            <motion.div
-              className={styles.tile}
-              initial={{ opacity: 0, scale: 0.96, y: 6 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={fade}
-            >
-              <SignalLoader label="Loading" />
-            </motion.div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {showBar ? <div className={styles.bar} data-testid="global-loading-bar" aria-hidden="true" /> : null}
+      {showVeil ? (
+        <div className={styles.veil} data-testid="global-loading">
+          <div className={styles.tile}>
+            <SignalLoader label="Loading" />
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }

@@ -10,7 +10,7 @@ import {
   type ResumeExtract,
 } from '../lib/resumeParser'
 import { updateUserName } from '../lib/store'
-import { MotionItem, MotionStack } from '../motion/MotionStack'
+import { MotionStack } from '../motion/MotionStack'
 import { easeOut } from '../motion/variants'
 import styles from './OnboardingProfileStep.module.css'
 
@@ -49,6 +49,22 @@ export function OnboardingProfileStep({
   }
 
   const hasResume = Boolean(data.resumeFile || data.resumeName || data.resumeText?.trim())
+  const filledJobs = data.workExperiences.filter((w) => w.jobTitle.trim() || w.company.trim())
+  const summaryRows: Array<[string, string]> = [
+    ['Current role', data.currentRole.trim()],
+    ['Experience', data.totalExperience.trim()],
+    ['Location', data.currentLocation.trim()],
+    [
+      'Skills',
+      data.skills.length
+        ? `${data.skills.slice(0, 5).join(', ')}${data.skills.length > 5 ? ` +${data.skills.length - 5} more` : ''}`
+        : '',
+    ],
+    [
+      'Work history',
+      filledJobs.length ? `${filledJobs.length} ${filledJobs.length === 1 ? 'role' : 'roles'}` : '',
+    ],
+  ]
 
   const narrativeBlock = (
     <AboutYouStep
@@ -83,7 +99,7 @@ export function OnboardingProfileStep({
 
   return (
     <MotionStack className={styles.stack}>
-      <MotionItem>
+      <div>
         <ResumeUpload
           file={data.resumeFile}
           existingFileName={data.resumeFile ? data.resumeName : null}
@@ -101,13 +117,10 @@ export function OnboardingProfileStep({
             })
           }}
         />
-      </MotionItem>
+      </div>
 
       {hasResume ? (
         <>
-          {narrativeBlock}
-          {snapshotBlock}
-
           {detailsOpen ? (
             <div className={styles.detailsToolbar}>
               <button
@@ -119,19 +132,28 @@ export function OnboardingProfileStep({
               </button>
             </div>
           ) : (
-            <MotionItem className={styles.collapsedBar}>
-              <p className={styles.collapsedHint}>
-                We&apos;ve pre-filled your profile from your resume. Review or edit any field
-                before you continue.
-              </p>
+            <div className={styles.collapsedBar}>
+              <div className={styles.collapsedCopy}>
+                <p className={styles.collapsedHint}>
+                  We&apos;ve pre-filled your profile from your resume. Check it looks right, or edit any field.
+                </p>
+                <dl className={styles.summaryList}>
+                  {summaryRows.map(([label, value]) => (
+                    <div key={label} className={styles.summaryRow}>
+                      <dt>{label}</dt>
+                      <dd className={value ? undefined : styles.summaryMissing}>{value || 'Not found — add it'}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
               <button
                 type="button"
                 className={styles.detailsToggle}
                 onClick={() => setDetailsOpen(true)}
               >
-                Update / review details
+                Review details
               </button>
-            </MotionItem>
+            </div>
           )}
 
           <AnimatePresence initial={false}>
@@ -144,6 +166,8 @@ export function OnboardingProfileStep({
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.3, ease: easeOut }}
               >
+                {narrativeBlock}
+                {snapshotBlock}
                 {skillsAndPerformance}
               </motion.div>
             ) : null}

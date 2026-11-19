@@ -38,9 +38,11 @@
   }
 }
 
-/* Keeps the page's height while it waits; the visible loader is the global veil. */
+/* Holds a full screen while the page loads so the footer never jumps up and back down (layout shift).
+   The visible loader is the global veil. */
 .page {
-  min-height: 50vh;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Reduced motion: a still waveform, no movement. */

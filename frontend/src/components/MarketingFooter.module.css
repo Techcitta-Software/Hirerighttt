@@ -40,19 +40,6 @@
   flex-shrink: 0;
 }
 
-.logo {
-  height: 32px;
-  width: auto;
-  object-fit: contain;
-  display: block;
-  opacity: 0.95;
-  transition: opacity 0.18s ease;
-}
-
-.brandLink:hover .logo {
-  opacity: 1;
-}
-
 .tagline {
   margin: 0;
   font-size: 0.8125rem;
@@ -108,7 +95,14 @@
 
   .nav {
     justify-content: flex-start;
-    gap: 0.5rem 1rem;
+    gap: 0 1.25rem;
+  }
+
+  /* Comfortable tap targets on touch screens (44px tall). */
+  .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
 
   .tagline {

@@ -1,0 +1,56 @@
+/* Inline score (§2.8): number, /100, band dot */
+.score {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5, 6px);
+  font-size: var(--fs-sm, 0.875rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text);
+  white-space: nowrap;
+}
+
+.value {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.max {
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 600;
+  color: var(--ds-text-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full, 9999px);
+}
+
+.good {
+  background: var(--ds-success);
+}
+
+.mid {
+  background: var(--ds-warning);
+}
+
+.low {
+  background: var(--ds-danger);
+}
+
+/* Summary cards: the big number in a dialog */
+.lg {
+  font-size: var(--fs-2xl, 1.5rem);
+  gap: var(--space-2, 8px);
+}
+
+.lg .max {
+  font-size: var(--fs-sm, 0.875rem);
+}
+
+.lg .dot {
+  width: 10px;
+  height: 10px;
+}

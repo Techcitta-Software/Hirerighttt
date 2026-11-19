@@ -17,7 +17,7 @@ from app.db import db_pool
 from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
-from app.server import runtime
+from app.server import background, runtime
 from app.services import audit, password_reset as pw_reset
 from app.services.interview_invites import public_app_origin
 from app.services.mail_service import send_mail, smtp_configured
@@ -225,7 +225,7 @@ async def forgot_password(request: Request, body: dict) -> dict:
             logger.exception("Failed to send password reset email")
 
     # Deliver in the background so response time does not reveal whether the account exists.
-    asyncio.get_running_loop().create_task(_deliver())
+    background.spawn(_deliver(), "password-reset-email")
     return response
 
 
@@ -255,7 +255,7 @@ async def reset_password(request: Request, body: dict) -> dict:
     user = find_user(db, email=email)
     if not user or user.get("status") != "active":
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
-    user["passwordHash"] = hash_password(password)
+    user["passwordHash"] = await asyncio.to_thread(hash_password, password)  # scrypt (~60 ms): off the event loop
     await runtime.save_db(db)
     runtime.forget_sessions(email=email)
     await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
@@ -279,7 +279,7 @@ async def me(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Unauthorized")
     tenant = runtime.tenant_context_for_user(db, user)
     plan = tenant.get("plan")
-    return {
+    base = {
         "user": {
             "id": user["id"],
             "name": user["name"],
@@ -300,6 +300,13 @@ async def me(request: Request) -> dict:
         }
         if plan
         else None,
+    }
+    if str(request.query_params.get("lite") or "") == "1":
+        # Session check: account, organization and plan only. The profile (with the full resume), interview and
+        # applications are left out (not null) and skip their queries; the full form is unchanged.
+        return {**base, "lite": True}
+    return {
+        **base,
         "profile": (db.get("profiles") or {}).get(email),
         "interview": strip_interview_result_for_candidate((db.get("interviews") or {}).get(email)),
         "applications": (db.get("applications") or {}).get(email) or [],

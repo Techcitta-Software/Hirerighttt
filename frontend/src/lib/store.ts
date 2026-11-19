@@ -1,6 +1,6 @@
 import type { ProfileFormData } from '../data/wizard'
 import { normalizeMetrics } from '../data/wizard'
-import { extractNameFromText } from './resumeParser'
+import { extractNameFromText } from './resumeName'
 
 export type UserRole = 'jobseeker' | 'employer'
 
@@ -897,10 +897,17 @@ export function getRankedJobs(): RankedJob[] {
   )
 }
 
-export function saveInterviewResult(result: InterviewResult) {
+/**
+ * Stores the interview result locally and, by default, pushes it to the server.
+ * `sync: false` is for a copy that just came FROM the server (pullInterviewFromApi): writing it back
+ * would be a pointless write on every page view, and the candidate view has proctoring detail
+ * stripped, so it could overwrite the fuller server record.
+ */
+export function saveInterviewResult(result: InterviewResult, { sync = true }: { sync?: boolean } = {}) {
   const normalized = normalizeInterviewResult(result)
   const key = interviewResultKey()
   localStorage.setItem(key, JSON.stringify(normalized))
+  if (!sync) return
   void import('./supabaseSync').then((m) => m.syncInterviewResultToSupabase(normalized))
   void import('./apiSync').then((m) => m.syncInterviewResultToApi(normalized))
 }

@@ -10,6 +10,7 @@ import { requireApiForAuth } from '../lib/authConfig'
 import { getUser } from '../lib/store'
 import { setPendingResume } from '../lib/pendingResume'
 import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
 import styles from './HomePage.module.css'
 
 type AudienceId = 'student' | 'graduate' | 'professional' | 'switcher'
@@ -144,7 +145,6 @@ const DEEPER_LINKS: {
 
 export function HomePage() {
   const navigate = useNavigate()
-  const pageRef = useRef<HTMLDivElement>(null)
   const resumeFileInputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const lastFocusRef = useRef<HTMLElement | null>(null)
@@ -155,31 +155,6 @@ export function HomePage() {
   const [demoChoice, setDemoChoice] = useState<DemoChoice | null>(null)
   const [activeChapter, setActiveChapter] = useState('why')
   const [railShown, setRailShown] = useState(false)
-
-  // Fade sections in as they scroll into view.
-  useEffect(() => {
-    const root = pageRef.current
-    if (!root) return
-    const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'))
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduce || !('IntersectionObserver' in window)) {
-      items.forEach((el) => el.classList.add(styles.visible))
-      return
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add(styles.visible)
-            io.unobserve(entry.target)
-          }
-        })
-      },
-      { threshold: 0.1 },
-    )
-    items.forEach((el) => io.observe(el))
-    return () => io.disconnect()
-  }, [])
 
   // Side progress rail for the six story chapters.
   useEffect(() => {
@@ -298,7 +273,7 @@ export function HomePage() {
     if (user && user.role === 'employer') {
       navigate('/employer/dashboard')
     } else {
-      navigate('/organizations/signup', { state: { explicitSignup: true } })
+      navigate('/for-recruiters')
     }
   }
 
@@ -307,7 +282,7 @@ export function HomePage() {
   const demo = demoChoice ? DEMO_ANSWERS[demoChoice] : null
 
   return (
-    <div className={styles.page} ref={pageRef}>
+    <div className={styles.page}>
       <input
         ref={resumeFileInputRef}
         type="file"
@@ -363,7 +338,7 @@ export function HomePage() {
 
         {/* ========================= Entry ways ========================= */}
         <section className={styles.entryways} aria-labelledby="entry-heading" id="start-here">
-          <div className={`${styles.container} ${styles.entryGrid} ${styles.reveal}`} data-reveal>
+          <div className={`${styles.container} ${styles.entryGrid}`}>
             <div className={styles.entryCopy}>
               <div className={styles.lineIntro}>a little more than a résumé</div>
               <h2 id="entry-heading">
@@ -411,7 +386,7 @@ export function HomePage() {
 
         {/* ========================== Prelude =========================== */}
         <section className={styles.prelude} id="intro">
-          <div className={`${styles.container} ${styles.preludeGrid} ${styles.reveal}`} data-reveal>
+          <div className={`${styles.container} ${styles.preludeGrid}`}>
             <div>
               <div className={styles.lineIntro}>sound familiar?</div>
               <h2 className={styles.lead}>
@@ -453,7 +428,7 @@ export function HomePage() {
 
           {/* 01 why */}
           <section className={`${styles.container} ${styles.chapter}`} id="why">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>01 /</div>
               <div className={styles.chapterTop}>why · the question behind the question</div>
               <h2>
@@ -470,7 +445,7 @@ export function HomePage() {
                 <span className={styles.blue}>✦</span> you don&apos;t have to figure it out alone
               </span>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.questionArt} role="img" aria-label="Questions about choosing a career">
                   <div className={styles.questionOrbit}>
@@ -492,7 +467,7 @@ export function HomePage() {
 
           {/* 02 who */}
           <section className={`${styles.container} ${styles.chapter}`} id="who">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>02 /</div>
               <div className={styles.chapterTop}>who · maybe this sounds like you</div>
               <h2>
@@ -505,7 +480,7 @@ export function HomePage() {
               <p>which one sounds a little like you?</p>
               <div className={styles.chapterHint}>pick a thought on the right. this bit is yours.</div>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.whoScene}>
                   <div className={styles.whoSceneTop}>
@@ -536,7 +511,7 @@ export function HomePage() {
 
           {/* 03 how */}
           <section className={`${styles.container} ${styles.chapter}`} id="how">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>03 /</div>
               <div className={styles.chapterTop}>how · we start by talking</div>
               <h2>
@@ -555,7 +530,7 @@ export function HomePage() {
               </button>
               <div className={styles.chapterHint}>about 15 minutes to start. you can take it from there.</div>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.chatFrame}>
                   <div className={styles.chatHead}>
@@ -589,7 +564,7 @@ export function HomePage() {
 
           {/* 04 what */}
           <section className={`${styles.container} ${styles.chapter}`} id="report">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>04 /</div>
               <div className={styles.chapterTop}>what · something to take away</div>
               <h2>
@@ -608,7 +583,7 @@ export function HomePage() {
               </button>
               <div className={styles.chapterHint}>six areas of insight. all a starting point, not a verdict.</div>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.reportPaper}>
                   <div className={styles.reportTop}>
@@ -657,7 +632,7 @@ export function HomePage() {
 
           {/* 05 when */}
           <section className={`${styles.container} ${styles.chapter}`} id="when">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>05 /</div>
               <div className={styles.chapterTop}>when · whenever you need a hand</div>
               <h2>
@@ -674,7 +649,7 @@ export function HomePage() {
                 see how the plan can help <span aria-hidden="true" className={styles.arrow}>↗</span>
               </button>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.planning} role="img" aria-label="Example of a personal growth plan">
                   <div className={styles.milestone}>
@@ -705,7 +680,7 @@ export function HomePage() {
 
           {/* 06 where */}
           <section className={`${styles.container} ${styles.chapter}`} id="where">
-            <div className={`${styles.chapterBody} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterBody}>
               <div className={styles.chapterNumber}>06 /</div>
               <div className={styles.chapterTop}>where · the next door you might open</div>
               <h2>
@@ -718,14 +693,14 @@ export function HomePage() {
                 if you want to share your career report with a hiring team, that&apos;s your call.{' '}
                 <strong>it&apos;s yours first.</strong>
               </p>
-              <Link to="/solutions" className={styles.textLink}>
+              <Link to="/for-recruiters" className={styles.textLink}>
                 what do employers see? <span aria-hidden="true" className={styles.arrow}>↗</span>
               </Link>
               <div className={styles.chapterHint}>
                 we can&apos;t promise a job. we can help you feel better prepared to look for one.
               </div>
             </div>
-            <div className={`${styles.chapterVisual} ${styles.reveal}`} data-reveal>
+            <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>
                 <div className={styles.opportunity}>
                   <div className={styles.jobLabel}>a possible next chapter</div>
@@ -763,7 +738,7 @@ export function HomePage() {
         {/* ========================== Deeper ============================ */}
         <section className={styles.deeper} id="deeper">
           <div className={styles.container}>
-            <div className={`${styles.deeperHeader} ${styles.reveal}`} data-reveal>
+            <div className={styles.deeperHeader}>
               <div>
                 <div className={`${styles.smallcaps} ${styles.blue}`}>there&apos;s more, if you&apos;re curious</div>
                 <h2>
@@ -772,7 +747,7 @@ export function HomePage() {
               </div>
               <p>you don&apos;t have to learn everything now. but when you want the details, they&apos;re here.</p>
             </div>
-            <div className={`${styles.deeperLinks} ${styles.reveal}`} data-reveal>
+            <div className={styles.deeperLinks}>
               {DEEPER_LINKS.map((item) => {
                 const inner = (
                   <>
@@ -822,26 +797,7 @@ export function HomePage() {
         </section>
       </main>
 
-      {/* =========================== Footer ============================ */}
-      <footer className={styles.footer}>
-        <div className={styles.container}>
-          <div className={styles.footerRow}>
-            <div className={styles.footerBrand}>
-              HireRighttt <span>Talent to Talent</span>
-            </div>
-            <div className={styles.footerLinks}>
-              <Link to="/why">Why us?</Link>
-              <Link to="/pricing">Pricing</Link>
-              <Link to="/career-view">360° Report</Link>
-              <Link to="/solutions">Organisations</Link>
-              <Link to="/contact">Contact us</Link>
-              <Link to="/privacy">Privacy</Link>
-              <Link to="/terms">Terms</Link>
-            </div>
-          </div>
-          <p className={styles.footerLegal}>© {new Date().getFullYear()} HireRighttt. All rights reserved.</p>
-        </div>
-      </footer>
+      <MarketingFooter />
 
       {/* ============================ Dialog =========================== */}
       {panel && (

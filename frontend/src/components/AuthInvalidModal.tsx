@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import {
   AUTH_INVALID_MSG_KEY,
   consumeAuthInvalidMessage,
   OPEN_AUTH_INVALID_EVENT,
 } from '../lib/authSession'
+import { useDialog } from './useDialog'
 import styles from './SignOutModal.module.css'
 
 /** Small modal when stored auth cookies / token fail server verification. */
@@ -33,44 +33,40 @@ export function AuthInvalidModal() {
     return () => window.removeEventListener(OPEN_AUTH_INVALID_EVENT, onEvent)
   }, [])
 
-  function dismiss() {
+  // Esc, the backdrop and the button all lead to the login page: the session is no longer valid.
+  const dismiss = useCallback(() => {
     setOpen(false)
     sessionStorage.removeItem(AUTH_INVALID_MSG_KEY)
     navigate('/login', { replace: true })
-  }
+  }, [navigate])
+
+  const dialog = useDialog(open, dismiss)
+
+  if (!open) return null
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className={styles.overlay}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={dismiss}
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="auth-invalid-title"
-        >
-          <motion.div
-            className={styles.modalCard}
-            initial={{ opacity: 0, scale: 0.94, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.94, y: 12 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="auth-invalid-title" className={styles.title}>
-              Sign-in not verified
-            </h2>
-            <p className={styles.metaText}>{message}</p>
-            <div className={styles.buttonGroup}>
-              <button type="button" className={styles.confirmBtn} onClick={dismiss}>
-                Go to login
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div
+      className={styles.overlay}
+      onClick={dismiss}
+      onKeyDown={dialog.onKeyDown}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="auth-invalid-title"
+      aria-describedby="auth-invalid-body"
+    >
+      <div ref={dialog.ref} tabIndex={-1} className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <h2 id="auth-invalid-title" className={styles.title}>
+          Sign-in not verified
+        </h2>
+        <p id="auth-invalid-body" className={styles.metaText}>
+          {message}
+        </p>
+        <div className={styles.buttonGroup}>
+          <button type="button" className={styles.confirmBtn} onClick={dismiss} data-autofocus>
+            Go to login
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

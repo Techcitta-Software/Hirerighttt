@@ -83,6 +83,14 @@ def set_db_cache(db: dict[str, Any]) -> None:
     _memory_db_url = config.database_url
 
 
+# Collections that no process-wide read cache is built from (store._cached_rows / _throttled_sync readers and the
+# vendor job-seeker roster read users, profiles, interview results, memberships, jobs and applications). Any other
+# collection, including ones added later, still invalidates on write.
+NO_READ_CACHE_COLLECTIONS = frozenset(
+    {"interviewSessions", "candidateJobAlerts", "employerApplicationAlerts", "contactRequests", "confidentialVault"}
+)
+
+
 def load_db() -> dict[str, Any]:
     """The request's database handle. Postgres: a per-request unit of work. DynamoDB (legacy): the shared dict."""
     if _uses_unit_of_work():
@@ -103,7 +111,10 @@ async def save_db(db: dict[str, Any] | None = None) -> None:
         try:
             await asyncio.to_thread(target.flush)
         finally:
-            invalidate_read_caches()
+            # Only writes that can change a cached read clear the caches: a save with nothing to write, or one that
+            # only touched interview sessions / alerts (every interview turn), used to wipe them for everyone.
+            if target.last_flushed - NO_READ_CACHE_COLLECTIONS:
+                invalidate_read_caches()
         return
     if db is not None:
         _db_cache = db

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -176,6 +177,23 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
         expose_headers=["X-Request-ID"],
     )
+    # Compress JSON responses (the vendor candidate list is ~600 KB of text) for deployments without a compressing
+    # CDN in front (CloudFront already compresses /api/*; compressed origin responses pass through it unchanged).
+    # Streamed TTS audio is left alone. API_GZIP=0 turns it off.
+    if os.environ.get("API_GZIP", "1").strip().lower() not in ("0", "false", "no", "off"):
+        from starlette.middleware.gzip import GZipMiddleware
+
+        class _GzipExceptStreams:
+            def __init__(self, inner) -> None:
+                self.inner = inner
+                self.gzip = GZipMiddleware(inner, minimum_size=1024)
+
+            async def __call__(self, scope, receive, send):
+                if scope.get("type") == "http" and str(scope.get("path") or "").startswith("/api/tts"):
+                    return await self.inner(scope, receive, send)
+                return await self.gzip(scope, receive, send)
+
+        app.add_middleware(_GzipExceptStreams)
     # Outermost of all: each HTTP request gets its own unit of work (app/db/uow.py), so the routes below only load
     # the rows they touch and nothing is shared between requests or API instances.
     from app.db.uow import UnitOfWorkMiddleware

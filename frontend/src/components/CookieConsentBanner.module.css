@@ -1,104 +1,88 @@
+/* A slim notice that never covers more than one line of the page on desktop, two on a phone. */
 .bar {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  padding: 16px 20px;
-  background: #141638;
-  color: #e5e5ef;
-  border-top: 1px solid #363b5c;
-  box-shadow: 0 -8px 32px rgba(15, 23, 42, 0.35);
-}
-
-.inner {
-  max-width: 1100px;
-  margin: 0 auto;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: var(--z-toast, 1200);
+  max-width: 760px;
+  margin-inline: auto;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 16px 24px;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--radius-lg, 14px);
+  background: var(--ds-text, #141638);
+  color: var(--ds-border, #e5e5ef);
+  box-shadow: var(--shadow-lg);
+  font-size: 0.8125rem;
+  line-height: 1.4;
 }
 
-.copy {
-  flex: 1 1 280px;
+.text {
+  flex: 1;
   min-width: 0;
-}
-
-.title {
-  margin: 0 0 6px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #f8fafc;
-}
-
-.body {
   margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: #cbd5e1;
-}
-
-.links {
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 0.78rem;
-}
-
-.links a {
-  color: #c4b5fd;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
   flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
 }
 
-.acceptBtn {
-  border: none;
-  border-radius: 999px;
-  padding: 10px 20px;
-  font-size: 0.82rem;
+.learnMore,
+.okBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-full, 9999px);
+  font: inherit;
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
-  background: var(--hr-brand-solid, #5046e5);
+}
+
+.learnMore {
+  color: var(--ds-accent-soft, #ede9fe);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.learnMore:hover {
   color: #fff;
-  transition: background-color 0.15s ease;
 }
 
-.acceptBtn:hover {
-  background: var(--hr-brand-solid-hover, #4338ca);
+.okBtn {
+  border: none;
+  background: var(--ds-brand, #5046e5);
+  color: #fff;
+  transition: background-color var(--ds-duration-fast, 140ms) ease;
 }
 
-.secondaryBtn {
-  border: 1px solid #475569;
-  border-radius: 999px;
-  padding: 10px 16px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  background: transparent;
-  color: #e2e8f0;
+.okBtn:hover {
+  background: var(--ds-brand-hover, #4338ca);
 }
 
-.secondaryBtn:hover {
-  border-color: #94a3b8;
+.learnMore:focus-visible,
+.okBtn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 @media (max-width: 600px) {
-  .actions {
-    width: 100%;
+  .bar {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 8px 8px 8px 12px;
+    font-size: 0.75rem;
   }
-  .acceptBtn,
-  .secondaryBtn {
-    flex: 1;
-    text-align: center;
+
+  .learnMore {
+    padding: 0 8px;
   }
 }

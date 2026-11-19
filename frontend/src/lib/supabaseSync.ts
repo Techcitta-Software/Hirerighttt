@@ -5,7 +5,7 @@ import { getProfile, getUser, profileKey } from './store'
 /** Pull cloud profile into localStorage (newer wins). */
 export async function pullProfileFromSupabase(): Promise<SavedProfile | null> {
   if (!isSupabaseEnabled()) return getProfile()
-  const sb = getSupabase()
+  const sb = await getSupabase()
   const user = getUser()
   if (!sb || !user?.email) return getProfile()
 
@@ -39,7 +39,7 @@ export async function pullProfileFromSupabase(): Promise<SavedProfile | null> {
 /** Upsert profile JSON to Supabase (RLS: own row only). */
 export async function syncProfileToSupabase(profile: SavedProfile | null): Promise<void> {
   if (!isSupabaseEnabled() || !profile) return
-  const sb = getSupabase()
+  const sb = await getSupabase()
   const user = getUser()
   if (!sb || !user?.email) return
 
@@ -62,7 +62,7 @@ export async function syncProfileToSupabase(profile: SavedProfile | null): Promi
 
 export async function syncInterviewResultToSupabase(result: InterviewResult): Promise<void> {
   if (!isSupabaseEnabled()) return
-  const sb = getSupabase()
+  const sb = await getSupabase()
   const user = getUser()
   if (!sb || !user?.email) return
 
@@ -81,24 +81,31 @@ export async function syncInterviewResultToSupabase(result: InterviewResult): Pr
 /** Subscribe to auth changes — refresh API token + pull profile. */
 export function initSupabaseAuthSync() {
   if (!isSupabaseEnabled()) return () => {}
-  const sb = getSupabase()
-  if (!sb) return () => {}
+  let unsubscribe: (() => void) | null = null
+  let cancelled = false
 
-  const { data: sub } = sb.auth.onAuthStateChange(async (event, session) => {
-    if (session?.access_token) {
-      const { setApiToken } = await import('./api')
-      setApiToken(session.access_token)
-    }
-    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      const { applySupabaseSession } = await import('./supabaseAuth')
-      applySupabaseSession(session, session?.user ?? null)
-      await pullProfileFromSupabase()
-    }
-    if (event === 'SIGNED_OUT') {
-      const { setApiToken } = await import('./api')
-      setApiToken(null)
-    }
+  void getSupabase().then((sb) => {
+    if (!sb || cancelled) return
+    const { data: sub } = sb.auth.onAuthStateChange(async (event, session) => {
+      if (session?.access_token) {
+        const { setApiToken } = await import('./api')
+        setApiToken(session.access_token)
+      }
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        const { applySupabaseSession } = await import('./supabaseAuth')
+        applySupabaseSession(session, session?.user ?? null)
+        await pullProfileFromSupabase()
+      }
+      if (event === 'SIGNED_OUT') {
+        const { setApiToken } = await import('./api')
+        setApiToken(null)
+      }
+    })
+    unsubscribe = () => sub.subscription.unsubscribe()
   })
 
-  return () => sub.subscription.unsubscribe()
+  return () => {
+    cancelled = true
+    unsubscribe?.()
+  }
 }

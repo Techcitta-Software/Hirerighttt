@@ -1,6 +1,8 @@
+import { Suspense } from 'react'
 import { Outlet } from 'react-router-dom'
 import { AppNavBar } from './AppNavBar'
 import { AppFooter } from './AppFooter'
+import { PageLoader } from './SignalLoader'
 import styles from './AppShell.module.css'
 
 /** Wraps authenticated app routes with shared header and footer. */
@@ -12,7 +14,10 @@ export function AppShell() {
       </a>
       <AppNavBar />
       <main className={styles.main} id="app-main" tabIndex={-1}>
-        <Outlet />
+        {/* Keeps the header and footer on screen while a page's code is still loading. */}
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </main>
       <AppFooter />
     </div>

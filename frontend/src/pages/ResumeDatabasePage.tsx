@@ -1,13 +1,13 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
+import { Score } from '../components/Score'
+import { useDialog } from '../components/useDialog'
 import { extractResumeText, parseResumeFile } from '../lib/resumeParser'
 import { getUser, type InterviewResult } from '../lib/store'
 import { ensureApiSession } from '../lib/apiSession'
 import { filterJobSeekerCandidates } from '../lib/employerCandidateUtils'
 import { fetchOrganizationCandidates } from '../lib/vendorApi'
 import type { OrgCandidateRecord } from '../lib/vendorApi'
-import { fadeUp, staggerContainer } from '../motion/variants'
 import { HrIcon } from '../components/HrIcon'
 import ui from './EmployerDashboard.module.css'
 import styles from './ResumeDatabasePage.module.css'
@@ -32,6 +32,8 @@ export type StoredResumeCandidate = {
 }
 
 const VAULT_STORAGE_KEY = 'hireright.talentVault'
+/** Cards or rows rendered at once; "Show more" adds another page. */
+const VAULT_PAGE_SIZE = 24
 
 function orgRecordToVault(c: OrgCandidateRecord): StoredResumeCandidate {
   const interviewResult = c.interviewResult as InterviewResult | undefined
@@ -66,43 +68,55 @@ function loadStoredVault(): StoredResumeCandidate[] {
   }
 }
 
+/** Resumes uploaded in this browser are not on the server, so they are kept when the API list arrives. */
+function isLocalUpload(c: StoredResumeCandidate) {
+  return c.id.startsWith('vault-upload-')
+}
+
 export function ResumeDatabasePage() {
   const [candidates, setCandidates] = useState<StoredResumeCandidate[]>(() => loadStoredVault())
+  const [loading, setLoading] = useState(() => getUser()?.role === 'employer')
   const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     const user = getUser()
     if (user?.role !== 'employer') return
+    let cancelled = false
+    setLoading(true)
+    setLoadError('')
     void (async () => {
       try {
         await ensureApiSession()
         const { candidates: rows } = await fetchOrganizationCandidates()
-        setCandidates(filterJobSeekerCandidates(rows).map(orgRecordToVault))
-        setLoadError('')
+        if (cancelled) return
+        const remote = filterJobSeekerCandidates(rows).map(orgRecordToVault)
+        setCandidates((prev) => [...prev.filter(isLocalUpload), ...remote])
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : 'Could not load talent vault from API.')
+        if (cancelled) return
+        console.warn('[talent-vault] load failed', err)
+        setLoadError('We could not load your talent vault. Check your connection and try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
-  }, [])
+    return () => {
+      cancelled = true
+    }
+  }, [reloadKey])
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedCandidate, setSelectedCandidate] = useState<StoredResumeCandidate | null>(null)
-  const dossierCloseRef = useRef<HTMLButtonElement | null>(null)
-
-  // Dossier modal: Escape closes it, and focus moves into it when it opens.
-  useEffect(() => {
-    if (!selectedCandidate) return
-    dossierCloseRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedCandidate(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [selectedCandidate])
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const closeDossier = useCallback(() => setSelectedCandidate(null), [])
+  const closeUpload = useCallback(() => {
+    if (!uploading) setShowUploadModal(false)
+  }, [uploading])
+  const dossier = useDialog(Boolean(selectedCandidate), closeDossier)
+  const upload = useDialog(showUploadModal, closeUpload)
   const [uploadError, setUploadError] = useState('')
   const [copied, setCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -132,9 +146,18 @@ export function ResumeDatabasePage() {
     })
   }, [candidates, query, roleFilter, statusFilter])
 
+  const [visibleCount, setVisibleCount] = useState(VAULT_PAGE_SIZE)
+  // A new search or filter starts again from the first page.
+  useEffect(() => {
+    setVisibleCount(VAULT_PAGE_SIZE)
+  }, [filtered])
+  const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount])
+
   // KPIs
   const totalResumes = candidates.length
+  const parsedCount = candidates.filter((c) => c.resumeText.trim()).length
   const scoredCount = candidates.filter((c) => typeof c.interviewScore === 'number').length
+  const showSkeleton = loading && candidates.length === 0
   const avgScore = scoredCount
     ? Math.round(
         candidates.reduce((acc, c) => acc + (c.interviewScore || 0), 0) / scoredCount,
@@ -153,15 +176,16 @@ export function ResumeDatabasePage() {
       const newCandidate: StoredResumeCandidate = {
         id: `vault-upload-${Date.now()}`,
         name: parsed.fullName || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-        email: `${(parsed.fullName || 'candidate').toLowerCase().replace(/\s+/g, '.')}@candidate.io`,
-        phone: '+91 98000 12345',
-        currentRole: parsed.currentRole || 'Software Engineer',
-        experienceYears: parsed.totalExperience || '3 years',
-        location: parsed.currentLocation || 'Remote',
-        skills: parsed.skills && parsed.skills.length > 0 ? parsed.skills : ['JavaScript', 'TypeScript', 'React'],
+        // Only what the parser found: missing fields stay empty instead of being invented.
+        email: '',
+        phone: '',
+        currentRole: parsed.currentRole || '',
+        experienceYears: parsed.totalExperience || '',
+        location: parsed.currentLocation || '',
+        skills: parsed.skills ?? [],
         resumeName: file.name,
         resumeText: rawText,
-        summary: parsed.experienceSummary || parsed.whoAreYou || 'Candidate parsed and ingested into Talent Vault.',
+        summary: parsed.experienceSummary || parsed.whoAreYou || '',
         status: 'New',
         source: 'Resume File Upload',
         createdAt: new Date().toISOString(),
@@ -206,57 +230,62 @@ export function ResumeDatabasePage() {
     <div className={ui.pageBleed}>
     <div className={ui.page}>
       <div className={ui.shell}>
-        <motion.header
-          className={ui.pageHeader}
-          initial="hidden"
-          animate="show"
-          variants={staggerContainer}
-        >
+        <header className={ui.pageHeader}>
           <div>
-            <motion.h1 className={ui.pageTitle} variants={fadeUp}>
-              Talent vault
-            </motion.h1>
-            <motion.p className={ui.pageSub} variants={fadeUp}>
+            <h1 className={ui.pageTitle}>Talent vault</h1>
+            <p className={ui.pageSub}>
               Every candidate’s resume, skills, contact details and proctored AI interview scores in one place.
-            </motion.p>
+            </p>
           </div>
 
-          <motion.div className={ui.pageActions} variants={fadeUp}>
+          <div className={ui.pageActions}>
             <button type="button" className={ui.btnSecondary} onClick={exportToJson}>
               <HrIcon name="download" size={16} /> Export JSON
             </button>
             <button type="button" className={ui.btnPrimary} onClick={() => setShowUploadModal(true)}>
               <HrIcon name="upload" size={16} /> Upload resume
             </button>
-          </motion.div>
-        </motion.header>
+          </div>
+        </header>
 
         {loadError ? (
-          <p className={`ds-alert ds-alert--error ${styles.loadError}`} role="alert">
-            {loadError}
-          </p>
+          <div className={`ds-alert ds-alert--error ${styles.loadError}`} role="alert">
+            <span>{loadError}</span>
+            <button type="button" className={`${ui.btnSecondary} ${ui.btnSm}`} onClick={() => setReloadKey((k) => k + 1)}>
+              Try again
+            </button>
+          </div>
         ) : null}
 
         <section className={styles.kpiGrid} aria-label="Vault numbers">
           <div className={styles.kpiCard}>
-            <span>Total candidates</span>
-            <strong>{totalResumes}</strong>
-            <small>Unified across ATS and onboarding</small>
+            <span className={styles.kpiLabel}>Total candidates</span>
+            <strong className={styles.kpiValue}>{totalResumes}</strong>
+            <small className={styles.kpiHelp}>Across applications and onboarding</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>Resumes parsed</span>
-            <strong>{totalResumes}</strong>
-            <small>PDF / DOCX extracted</small>
+            <span className={styles.kpiLabel}>Resumes parsed</span>
+            <strong className={styles.kpiValue}>{parsedCount}</strong>
+            <small className={styles.kpiHelp}>PDF and DOCX text extracted</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>AI interviewed</span>
-            <strong>{scoredCount}</strong>
-            <small>{Math.round((scoredCount / (totalResumes || 1)) * 100)}% completion rate</small>
+            <span className={styles.kpiLabel}>AI interviewed</span>
+            <strong className={styles.kpiValue}>{scoredCount}</strong>
+            <small className={styles.kpiHelp}>{Math.round((scoredCount / (totalResumes || 1)) * 100)}% completion rate</small>
           </div>
           <div className={styles.kpiCard}>
-            <span>Average score</span>
-            <strong>{avgScore}%</strong>
-            <small>Proctored AI interview</small>
+            <span className={styles.kpiLabel}>Average score</span>
+            <strong className={styles.kpiValue}>
+              {scoredCount ? (
+                <>
+                  {avgScore}
+                  <span className={styles.kpiUnit}>/100</span>
+                </>
+              ) : (
+                '—'
+              )}
+            </strong>
+            <small className={styles.kpiHelp}>Proctored AI interview</small>
           </div>
         </section>
 
@@ -317,19 +346,38 @@ export function ResumeDatabasePage() {
                 aria-pressed={viewMode === 'table'}
                 title="Table view"
               >
-                <HrIcon name="menu" size={14} /> Table
+                Table
               </button>
             </div>
           </div>
         </section>
 
         <p className={styles.resultCount} role="status">
-          Showing <strong>{filtered.length}</strong> of {candidates.length} candidates
+          {showSkeleton ? (
+            'Loading candidates…'
+          ) : (
+            <>
+              Showing <strong>{filtered.length}</strong> of {candidates.length} candidates
+            </>
+          )}
         </p>
 
-        {viewMode === 'grid' ? (
+        <h2 className="ds-sr-only">Candidates</h2>
+
+        {showSkeleton ? (
+          <div className={styles.candidateGrid} aria-hidden="true">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className={`${styles.candidateCard} ${styles.cardSkeleton}`}>
+                <span className={`ds-skeleton ds-skeleton-line ${styles.skW55}`} />
+                <span className={`ds-skeleton ds-skeleton-line ${styles.skW35}`} />
+                <span className={`ds-skeleton ds-skeleton-line ${styles.skW90}`} />
+                <span className={`ds-skeleton ds-skeleton-line ${styles.skW70}`} />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? null : viewMode === 'grid' ? (
           <div className={styles.candidateGrid}>
-            {filtered.map((c) => {
+            {visible.map((c) => {
               const initials = c.name
                 .split(' ')
                 .map((n) => n[0])
@@ -338,34 +386,34 @@ export function ResumeDatabasePage() {
                 .toUpperCase()
 
               return (
-                <article
-                  key={c.id}
-                  className={styles.candidateCard}
-                  onClick={() => setSelectedCandidate(c)}
-                >
+                <article key={c.id} className={styles.candidateCard}>
                   <div className={styles.cardTop}>
                     <div className={styles.avatarBox}>
                       <div className={styles.avatar} aria-hidden="true">{initials}</div>
-                      <div style={{ minWidth: 0 }}>
+                      <div className={styles.nameBlock}>
                         <h3 className={styles.candidateName}>{c.name}</h3>
-                        <p className={styles.candidateRole}>{c.currentRole}</p>
+                        <p className={styles.candidateRole}>{c.currentRole || 'Role not listed'}</p>
                       </div>
                     </div>
 
                     {typeof c.interviewScore === 'number' ? (
-                      <ScoreValue value={c.interviewScore} />
+                      <Score value={c.interviewScore} />
                     ) : (
                       <span className={ui.pill}>Pending</span>
                     )}
                   </div>
 
                   <div className={styles.candidateMeta}>
-                    <span>
-                      <HrIcon name="map-pin" size={14} /> {c.location}
-                    </span>
-                    <span>
-                      <HrIcon name="calendar" size={14} /> {c.experienceYears}
-                    </span>
+                    {c.location && c.location !== '—' ? (
+                      <span>
+                        <HrIcon name="map-pin" size={14} /> {c.location}
+                      </span>
+                    ) : null}
+                    {c.experienceYears ? (
+                      <span>
+                        <HrIcon name="calendar" size={14} /> {c.experienceYears}
+                      </span>
+                    ) : null}
                     <span>
                       <HrIcon name="tag" size={14} /> {c.status}
                     </span>
@@ -389,10 +437,8 @@ export function ResumeDatabasePage() {
                     <button
                       type="button"
                       className={`${ui.btnSecondary} ${ui.btnSm}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedCandidate(c)
-                      }}
+                      onClick={() => setSelectedCandidate(c)}
+                      aria-label={`View dossier for ${c.name}`}
                     >
                       View dossier
                     </button>
@@ -410,7 +456,9 @@ export function ResumeDatabasePage() {
                   <th scope="col">Role and experience</th>
                   <th scope="col">Location</th>
                   <th scope="col">Skills</th>
-                  <th scope="col">Score</th>
+                  <th scope="col" className={styles.num}>
+                    Score
+                  </th>
                   <th scope="col">Status</th>
                   <th scope="col">
                     <span className="ds-sr-only">Actions</span>
@@ -418,7 +466,7 @@ export function ResumeDatabasePage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => (
+                {visible.map((c) => (
                   <tr key={c.id}>
                     <td>
                       <div className={ui.candidateName}>{c.name}</div>
@@ -438,9 +486,9 @@ export function ResumeDatabasePage() {
                         ))}
                       </div>
                     </td>
-                    <td data-label="Score">
+                    <td data-label="Score" className={styles.num}>
                       {typeof c.interviewScore === 'number' ? (
-                        <ScoreValue value={c.interviewScore} />
+                        <Score value={c.interviewScore} />
                       ) : (
                         <span className={ui.docMuted}>—</span>
                       )}
@@ -464,31 +512,60 @@ export function ResumeDatabasePage() {
           </div>
         )}
 
-        {filtered.length === 0 && (
-          <div className={`ds-empty ${styles.emptyBlock}`}>
-            <span className="ds-empty__icon" aria-hidden="true">
-              <HrIcon name="search" size={20} />
+        {!showSkeleton && filtered.length > visible.length ? (
+          <div className={styles.showMore}>
+            <span>
+              Showing {visible.length} of {filtered.length}
             </span>
-            <h3 className="ds-empty__title">No candidates found</h3>
-            <p className="ds-empty__body">Try adjusting your search query or filter criteria.</p>
+            <button
+              type="button"
+              className={`${ui.btnSecondary} ${ui.btnSm}`}
+              onClick={() => setVisibleCount((n) => n + VAULT_PAGE_SIZE)}
+            >
+              Show {Math.min(VAULT_PAGE_SIZE, filtered.length - visible.length)} more
+            </button>
           </div>
-        )}
+        ) : null}
+
+        {filtered.length === 0 &&
+          !showSkeleton &&
+          !(loadError && candidates.length === 0) &&
+          (candidates.length === 0 ? (
+            <div className="ds-empty">
+              <span className="ds-empty__icon" aria-hidden="true">
+                <HrIcon name="document" size={20} />
+              </span>
+              <h3 className="ds-empty__title">No candidates yet</h3>
+              <p className="ds-empty__body">
+                Upload a resume, or candidates will appear here once they apply to your jobs.
+              </p>
+            </div>
+          ) : (
+            <div className="ds-empty">
+              <span className="ds-empty__icon" aria-hidden="true">
+                <HrIcon name="search" size={20} />
+              </span>
+              <h3 className="ds-empty__title">No results match these filters</h3>
+              <p className="ds-empty__body">Try a different search term, role or status.</p>
+            </div>
+          ))}
       </div>
 
       {/* Candidate dossier */}
-      <AnimatePresence>
-        {selectedCandidate && (
-          <div className={ui.modalOverlay} onClick={() => setSelectedCandidate(null)}>
-            <motion.div
+      {selectedCandidate && (
+          <div
+            className={ui.modalOverlay}
+            onClick={closeDossier}
+            onKeyDown={dossier.onKeyDown}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dossier-title"
+          >
+            <div
+              ref={dossier.ref}
+              tabIndex={-1}
               className={`${ui.modal} ${ui.modalReport}`}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.18 }}
               onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="dossier-title"
             >
               <div className={ui.modalHeader}>
                 <div>
@@ -500,10 +577,10 @@ export function ResumeDatabasePage() {
                 </div>
                 <button
                   type="button"
-                  ref={dossierCloseRef}
+                  data-autofocus
                   className={ui.closeBtn}
                   aria-label="Close dossier"
-                  onClick={() => setSelectedCandidate(null)}
+                  onClick={closeDossier}
                 >
                   <HrIcon name="close" size={16} />
                 </button>
@@ -514,21 +591,23 @@ export function ResumeDatabasePage() {
                   <div className={ui.summaryCard}>
                     <span className={ui.summaryLabel}>AI interview score</span>
                     <span className={ui.summaryValue}>
-                      {selectedCandidate.interviewScore ? `${selectedCandidate.interviewScore}%` : '—'}
+                      {typeof selectedCandidate.interviewScore === 'number' ? (
+                        <Score value={selectedCandidate.interviewScore} size="lg" />
+                      ) : (
+                        '—'
+                      )}
                     </span>
-                    {!selectedCandidate.interviewScore ? (
+                    {typeof selectedCandidate.interviewScore !== 'number' ? (
                       <span className={ui.modalSub}>Pending interview</span>
                     ) : null}
                   </div>
 
                   <div className={ui.summaryCard}>
-                    <span className={ui.summaryLabel} style={{ marginBottom: 10 }}>
-                      Contact
-                    </span>
+                    <span className={`${ui.summaryLabel} ${styles.summaryLabelGap}`}>Contact</span>
                     <dl className={ui.detailList}>
                       <div>
                         <dt>Email</dt>
-                        <dd>{selectedCandidate.email}</dd>
+                        <dd>{selectedCandidate.email || '—'}</dd>
                       </div>
                       <div>
                         <dt>Phone</dt>
@@ -543,8 +622,7 @@ export function ResumeDatabasePage() {
                     </label>
                     <select
                       id="dossier-status"
-                      className={styles.filterSelect}
-                      style={{ marginTop: 8, width: '100%' }}
+                      className={`${styles.filterSelect} ${styles.dossierSelect}`}
                       value={selectedCandidate.status}
                       onChange={(e) =>
                         updateCandidateStatus(
@@ -616,31 +694,25 @@ export function ResumeDatabasePage() {
               </div>
 
               <div className={ui.modalFooter}>
-                <button type="button" className={ui.btnSecondary} onClick={() => setSelectedCandidate(null)}>
+                <button type="button" className={ui.btnSecondary} onClick={closeDossier}>
                   Close dossier
                 </button>
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
 
       {/* Resume upload */}
-      <AnimatePresence>
-        {showUploadModal && (
-          <div className={ui.modalOverlay} onClick={() => setShowUploadModal(false)}>
-            <motion.div
-              className={ui.modal}
-              style={{ maxWidth: '520px' }}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ duration: 0.18 }}
-              onClick={(e) => e.stopPropagation()}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="upload-title"
-            >
+      {showUploadModal && (
+          <div
+            className={ui.modalOverlay}
+            onClick={closeUpload}
+            onKeyDown={upload.onKeyDown}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-title"
+          >
+            <div ref={upload.ref} tabIndex={-1} className={ui.modal} onClick={(e) => e.stopPropagation()}>
               <div className={ui.modalHeader}>
                 <div>
                   <h2 id="upload-title">Upload resume</h2>
@@ -651,7 +723,8 @@ export function ResumeDatabasePage() {
                 <button
                   type="button"
                   className={ui.closeBtn}
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={closeUpload}
+                  disabled={uploading}
                   aria-label="Close"
                 >
                   <HrIcon name="close" size={16} />
@@ -668,6 +741,7 @@ export function ResumeDatabasePage() {
                 />
                 <button
                   type="button"
+                  data-autofocus
                   className={styles.dropzone}
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
@@ -681,21 +755,20 @@ export function ResumeDatabasePage() {
                 </button>
 
                 {uploadError && (
-                  <p className="ds-alert ds-alert--error" role="alert" style={{ marginTop: 12 }}>
+                  <p className={`ds-alert ds-alert--error ${styles.uploadError}`} role="alert">
                     {uploadError}
                   </p>
                 )}
               </div>
 
               <div className={ui.modalFooter}>
-                <button type="button" className={ui.btnSecondary} onClick={() => setShowUploadModal(false)}>
+                <button type="button" className={ui.btnSecondary} onClick={closeUpload} disabled={uploading}>
                   Cancel
                 </button>
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
     </div>
     </div>
   )
@@ -703,20 +776,8 @@ export function ResumeDatabasePage() {
 
 function statusTone(status: StoredResumeCandidate['status']): string {
   if (status === 'Shortlisted' || status === 'Hired') return ui.pillSuccess
-  if (status === 'Screening' || status === 'Technical') return ui.pillWarning
+  if (status === 'Technical') return ui.pillBrand
+  if (status === 'Screening') return ui.pillWarning
   if (status === 'Rejected') return ui.pillDanger
-  return ui.pillBrand
-}
-
-/** Score as a number with a coloured dot: green 75+, amber 50+, red below. */
-function ScoreValue({ value }: { value: number }) {
-  const rounded = Math.round(value)
-  const tone = rounded >= 75 ? ui.toneGood : rounded >= 50 ? ui.toneMid : ui.toneLow
-  return (
-    <span className={ui.score} title="AI interview score">
-      <span className={`${ui.scoreDot} ${tone}`} aria-hidden="true" />
-      {rounded}
-      <span className={ui.scoreMax}>/100</span>
-    </span>
-  )
+  return ''
 }

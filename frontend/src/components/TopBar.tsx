@@ -58,11 +58,7 @@ export function TopBar({ userName }: TopBarProps) {
       <span className={styles.mobileBrand}>
         <BrandLogo to="/" size="sm" />
       </span>
-      <motion.div
-        className={styles.safe}
-        whileHover={{ scale: 1.01 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-      >
+      <div className={styles.safe}>
         <span className={styles.shield} aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path
@@ -81,7 +77,7 @@ export function TopBar({ userName }: TopBarProps) {
           </svg>
         </span>
         Your data is safe with us
-      </motion.div>
+      </div>
 
       <div className={styles.userWrap} ref={ref}>
         <motion.button
@@ -90,13 +86,11 @@ export function TopBar({ userName }: TopBarProps) {
           onClick={() => setMenuOpen((prev) => !prev)}
           aria-expanded={menuOpen}
           aria-haspopup="menu"
-          whileHover={{ scale: 1.01 }}
-          whileTap={{ scale: 0.98 }}
         >
           <span className={styles.avatar} aria-hidden="true">
             {initials}
           </span>
-          <span>Hi, {name}</span>
+          <span className={styles.userName}>Hi, {name}</span>
           <motion.svg
             className={`${styles.chevron} ${menuOpen ? styles.open : ''}`}
             viewBox="0 0 20 20"
@@ -139,8 +133,6 @@ export function TopBar({ userName }: TopBarProps) {
                 role="menuitem"
                 className={styles.menuItem}
                 onClick={() => go('/profile')}
-                whileHover={{ x: 2 }}
-                whileTap={{ scale: 0.98 }}
               >
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path
@@ -159,8 +151,6 @@ export function TopBar({ userName }: TopBarProps) {
                 role="menuitem"
                 className={styles.menuItem}
                 onClick={() => go('/dashboard')}
-                whileHover={{ x: 2 }}
-                whileTap={{ scale: 0.98 }}
               >
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path
@@ -179,8 +169,6 @@ export function TopBar({ userName }: TopBarProps) {
                 role="menuitem"
                 className={styles.menuItem}
                 onClick={() => go('/settings')}
-                whileHover={{ x: 2 }}
-                whileTap={{ scale: 0.98 }}
               >
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <circle cx="10" cy="10" r="3" stroke="currentColor" strokeWidth="1.6" />
@@ -201,8 +189,6 @@ export function TopBar({ userName }: TopBarProps) {
                 role="menuitem"
                 className={`${styles.menuItem} ${styles.danger}`}
                 onClick={signOut}
-                whileHover={{ x: 2 }}
-                whileTap={{ scale: 0.98 }}
               >
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                   <path

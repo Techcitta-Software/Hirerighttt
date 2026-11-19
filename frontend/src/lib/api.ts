@@ -6,6 +6,7 @@ const DEV_API_FALLBACK = (
 ).replace(/\/$/, '')
 
 import { trackRequest } from './loadingTracker'
+import { cachedRequest, clearRequestCache } from './requestCache'
 
 let runtimeApiBase = ENV_API_BASE
 let resolveApiBasePromise: Promise<string> | null = null
@@ -46,6 +47,9 @@ export async function resolveApiBase(): Promise<string> {
     return runtimeApiBase
   }
   if (runtimeApiBase) return runtimeApiBase
+  // Production builds are served from the same origin as /api: no need to probe for a fallback
+  // (the probe cost a full round trip before the first real request on every page load).
+  if (!import.meta.env.DEV) return runtimeApiBase
   if (resolveApiBasePromise) return resolveApiBasePromise
   resolveApiBasePromise = (async () => {
     if (await pingHealth('')) {
@@ -103,10 +107,37 @@ export async function apiFetch(path: string, { background = false, ...options }:
   const signal =
     options.signal ??
     (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
-  return fetch(apiUrl(path), { ...options, headers, signal }).finally(settled)
+  const pending = fetch(apiUrl(path), { ...options, headers, signal })
+  trackReachability(pending)
+  return pending.finally(settled)
 }
 
-async function request(path: string, options: RequestInit = {}) {
+/**
+ * Any answer from the API (even a 401 or 404) proves it is reachable, so a real request doubles as the
+ * health check: apiHealth() reuses it instead of sending its own /api/health ping. A gateway error
+ * (502-504) or a network failure says nothing, so those leave the cache alone.
+ */
+const inflightRequests = new Set<Promise<boolean>>()
+
+function trackReachability(pending: Promise<Response>) {
+  const probe = pending.then(
+    (res) => {
+      const reachable = res.status < 502 || res.status > 504
+      if (reachable) healthCache = { at: Date.now(), ok: true }
+      return reachable
+    },
+    () => false,
+  )
+  inflightRequests.add(probe)
+  void probe.finally(() => inflightRequests.delete(probe))
+}
+
+function freshHealth(): boolean | null {
+  if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_MS) return healthCache.ok
+  return null
+}
+
+async function request(path: string, options: ApiFetchOptions = {}) {
   const res = await apiFetch(path, options)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
@@ -128,6 +159,8 @@ let meCache: { token: string | null; at: number; data: any } | null = null
 export function invalidateMeCache() {
   meCache = null
   meInFlight = null
+  // Shared GET answers (jobs, alerts, mail status) may be stale after a write or an account switch.
+  clearRequestCache()
 }
 
 export async function apiMe() {
@@ -150,9 +183,8 @@ let healthInFlight: Promise<boolean> | null = null
 
 /** Is the API up? Cached for 20s, and callers that ask at the same moment share one request. */
 export function apiHealth(): Promise<boolean> {
-  if (healthCache && Date.now() - healthCache.at < HEALTH_CACHE_MS) {
-    return Promise.resolve(healthCache.ok)
-  }
+  const cached = freshHealth()
+  if (cached !== null) return Promise.resolve(cached)
   if (!healthInFlight) {
     healthInFlight = checkApiHealth().finally(() => {
       healthInFlight = null
@@ -163,6 +195,30 @@ export function apiHealth(): Promise<boolean> {
 
 async function checkApiHealth(): Promise<boolean> {
   await resolveApiBase()
+  // resolveApiBase() may itself have just pinged /api/health.
+  let cached = freshHealth()
+  if (cached !== null) return cached
+  // A request already on its way answers the question without another ping.
+  // (Bounded: a slow request such as interview start must not hold the health answer.)
+  if (inflightRequests.size) {
+    const probes = [...inflightRequests]
+    const reachable = await new Promise<boolean>((resolve) => {
+      let left = probes.length
+      const timer = setTimeout(() => resolve(false), HEALTH_PING_MS)
+      for (const probe of probes) {
+        void probe.then((ok) => {
+          left -= 1
+          if (ok || left === 0) {
+            clearTimeout(timer)
+            resolve(ok)
+          }
+        })
+      }
+    })
+    if (reachable) return true
+    cached = freshHealth()
+    if (cached !== null) return cached
+  }
   let ok = false
   if (ENV_API_BASE) {
     try {
@@ -251,10 +307,12 @@ export async function apiLogin(
   return data.user as ApiUser
 }
 
-export async function apiSaveProfile(profile: unknown) {
+/** `background: true` for autosaves nobody waits on (wizard step saves, post-interview sync). */
+export async function apiSaveProfile(profile: unknown, opts: { background?: boolean } = {}) {
   return request('/api/profile', {
     method: 'PUT',
     body: JSON.stringify(profile),
+    background: opts.background,
   })
 }
 
@@ -341,7 +399,11 @@ export async function sendInterviewConfirmationEmail(payload: {
 
 export async function fetchMailStatus() {
   try {
-    return (await request('/api/mail/status')) as { smtpConfigured: boolean; inviteJoinWindowMinutes?: number }
+    // Server configuration: the same answer for every component that asks, so share it for a minute.
+    return (await cachedRequest('/api/mail/status', 60_000, () => request('/api/mail/status'))) as {
+      smtpConfigured: boolean
+      inviteJoinWindowMinutes?: number
+    }
   } catch {
     return { smtpConfigured: false }
   }

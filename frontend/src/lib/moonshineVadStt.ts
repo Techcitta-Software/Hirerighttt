@@ -77,15 +77,29 @@ export async function createMoonshineVadSttController(
       },
     })
 
+    let destroyed = false
     return {
       start: async () => {
         await vad.start()
       },
+      // pause/destroy throw "MicVAD has null stream, audio context, or processor adapter" when the stream or audio
+      // context is already gone (leaving the room). Nothing is left to stop then, so swallow it.
       stop: async () => {
-        await vad.pause()
+        if (destroyed) return
+        try {
+          await vad.pause()
+        } catch {
+          // already torn down
+        }
       },
       dispose: async () => {
-        await vad.destroy()
+        if (destroyed) return
+        destroyed = true
+        try {
+          await vad.destroy()
+        } catch {
+          // already torn down
+        }
       },
     }
   } catch (err) {
@@ -97,5 +111,5 @@ export async function createMoonshineVadSttController(
 }
 
 export function moonshineVadSttHint(): string {
-  return 'Voice captions (Silero VAD + Moonshine Tiny) — pause when finished speaking to advance.'
+  return 'Voice answers — pause when you finish speaking to move on.'
 }

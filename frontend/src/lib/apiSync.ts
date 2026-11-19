@@ -115,7 +115,8 @@ export async function pullInterviewFromApi(): Promise<InterviewResult | null> {
     const localTime = local?.date ? Date.parse(local.date) : 0
     if (!local || (Number.isFinite(remoteTime) && remoteTime >= localTime)) {
       const merged = stripProctoringForCandidateView(normalizeInterviewResult(remote))
-      saveInterviewResult(merged)
+      // Came from the server: store locally only, never echo it back (see saveInterviewResult).
+      saveInterviewResult(merged, { sync: false })
       return merged
     }
     return local

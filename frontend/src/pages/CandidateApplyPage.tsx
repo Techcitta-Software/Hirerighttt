@@ -237,10 +237,19 @@ export function CandidateApplyPage() {
   if (loadingJob) {
     return (
       <div className={styles.page}>
-        <div className={styles.shell}>
-          <SiteNav />
-          <p className={styles.loadingText}>Loading job details…</p>
-        </div>
+        <SiteNav />
+        <main className={styles.shell} aria-busy="true">
+          <h1 className="ds-sr-only">Loading job details</h1>
+          <section className={styles.card} aria-hidden="true">
+            <span className={`ds-skeleton ${styles.skeletonTitle}`} />
+            <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonMeta}`} />
+            <span className="ds-skeleton ds-skeleton-line" />
+            <span className="ds-skeleton ds-skeleton-line" />
+          </section>
+          <p className={styles.loadingText} role="status">
+            Loading job details…
+          </p>
+        </main>
       </div>
     )
   }
@@ -248,26 +257,26 @@ export function CandidateApplyPage() {
   if (!job) {
     return (
       <div className={styles.page}>
-        <div className={styles.shell}>
-          <SiteNav />
-          <div className={styles.card} style={{ textAlign: 'center', marginTop: '60px' }}>
-            <h2 className={styles.errorTitle}>
-              <HrIcon name="warning" size={22} /> Job link not found
-            </h2>
+        <SiteNav />
+        <main className={styles.shell}>
+          <section className={`${styles.card} ${styles.notFound}`}>
+            <span className={styles.notFoundIcon} aria-hidden="true">
+              <HrIcon name="warning" size={20} />
+            </span>
+            <h1 className={styles.notFoundTitle}>Job link not found</h1>
             <p className={styles.muted}>
               The job application link you accessed may have expired or been removed by the employer.
             </p>
-            {error && <p className={styles.error}>{error}</p>}
-            <button
-              type="button"
-              className={styles.submitBtn}
-              onClick={() => navigate('/signup')}
-              style={{ maxWidth: '240px', margin: '20px auto 0' }}
-            >
+            {error && (
+              <p className={`ds-alert ds-alert--error ${styles.notFoundAlert}`} role="alert">
+                {error}
+              </p>
+            )}
+            <button type="button" className={styles.primaryBtn} onClick={() => navigate('/signup')}>
               Explore public jobs
             </button>
-          </div>
-        </div>
+          </section>
+        </main>
         <SiteFooter />
       </div>
     )
@@ -275,213 +284,302 @@ export function CandidateApplyPage() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.shell}>
-        <SiteNav />
+      <SiteNav />
+      <motion.main
+        className={styles.shell}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        <section className={styles.card} aria-labelledby="apply-job-title">
+          <header className={styles.jobHeader}>
+            <h1 id="apply-job-title" className={styles.title}>
+              {job.title}
+            </h1>
+            <p className={styles.company}>
+              <HrIcon name="building" size={16} />
+              <span>
+                {job.company} · Private job invitation
+              </span>
+            </p>
+          </header>
 
-        <motion.div
-          className={styles.card}
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <span className={styles.companyBadge}>
-            <HrIcon name="building" size={16} /> Private job invitation · {job.company}
-          </span>
-          <h1 className={styles.title}>{job.title}</h1>
+          <dl className={styles.facts}>
+            <div className={styles.fact}>
+              <dt>
+                <HrIcon name="map-pin" size={16} /> Location
+              </dt>
+              <dd>{job.location || '—'}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt>
+                <HrIcon name="briefcase" size={16} /> Experience
+              </dt>
+              <dd>{job.experienceLevel || '—'}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt>
+                <HrIcon name="target" size={16} /> Track
+              </dt>
+              <dd>{job.roleTrack || '—'}</dd>
+            </div>
+          </dl>
 
-          <div className={styles.metaRow}>
-            <span className={styles.badge}>Track: {job.roleTrack}</span>
-            <span className={styles.badge}>Experience: {job.experienceLevel}</span>
-            <span className={styles.badge}>Location: {job.location}</span>
-          </div>
+          {job.requiredSkills && job.requiredSkills.length > 0 && (
+            <div className={styles.skillsBlock}>
+              <h2 className={styles.subTitle}>Required skills</h2>
+              <ul className={styles.tagList}>
+                {job.requiredSkills.map((sk) => (
+                  <li key={sk} className={styles.tag}>
+                    {sk}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-          <div className={styles.jdBox}>
-            <h2 className={styles.jdHeading}>
-              <HrIcon name="document" size={20} /> Job description and requirements
-            </h2>
-            <p>{job.jobDescription}</p>
+          {job.jobDescription && (
+            <div className={styles.jdBlock}>
+              <h2 className={styles.subTitle}>Job description and requirements</h2>
+              <p className={styles.jdText}>{job.jobDescription}</p>
+            </div>
+          )}
+        </section>
 
-            {job.requiredSkills && job.requiredSkills.length > 0 && (
+        {atsSummary ? (
+          <section className={styles.card} aria-labelledby="apply-result-title">
+            <div className={styles.resultHeader}>
+              <span className={styles.resultIcon} aria-hidden="true">
+                <HrIcon name="check" size={20} />
+              </span>
+              <div>
+                <h2 id="apply-result-title" className={styles.sectionTitle}>
+                  Application submitted
+                </h2>
+                <p className={styles.sectionSub}>
+                  {job.company} has your application. Here is how your resume compares with this role.
+                </p>
+              </div>
+            </div>
+
+            <dl className={styles.scoreGrid}>
+              <div className={styles.scoreTile}>
+                <dt>Resume match</dt>
+                <dd>
+                  <span className={styles.scoreValue}>{Math.round(atsSummary.atsScore)}%</span>
+                </dd>
+              </div>
+              <div className={styles.scoreTile}>
+                <dt>Fit for this role</dt>
+                <dd>
+                  <span className={styles.scoreValue}>{Math.round(atsSummary.jdMatchScore)}%</span>
+                </dd>
+              </div>
+            </dl>
+
+            {atsSummary.summary && <p className={styles.resultSummary}>{atsSummary.summary}</p>}
+
+            {atsSummary.matchedSkills.length > 0 && (
               <div className={styles.skillsBlock}>
-                <strong className={styles.skillsLabel}>Required skills</strong>
-                <div className={styles.skillsRow}>
-                  {job.requiredSkills.map((sk) => (
-                    <span key={sk} className={styles.skillPill}>
+                <h3 className={styles.subTitle}>Matched skills</h3>
+                <ul className={styles.tagList}>
+                  {atsSummary.matchedSkills.map((sk) => (
+                    <li key={sk} className={`${styles.tag} ${styles.tagHave}`}>
                       {sk}
-                    </span>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             )}
-          </div>
-
-          {atsSummary ? (
-            <div className={styles.atsCard}>
-              <h2 className={styles.atsTitle}>Application submitted</h2>
-              <div className={styles.atsScores}>
-                <div>
-                  <span className={styles.atsLabel}>Resume match</span>
-                  <strong>{Math.round(atsSummary.atsScore)}%</strong>
-                </div>
-                <div>
-                  <span className={styles.atsLabel}>Fit for this role</span>
-                  <strong>{Math.round(atsSummary.jdMatchScore)}%</strong>
-                </div>
+            {atsSummary.missingSkills.length > 0 && (
+              <div className={styles.skillsBlock}>
+                <h3 className={styles.subTitle}>Skills to build</h3>
+                <ul className={styles.tagList}>
+                  {atsSummary.missingSkills.map((sk) => (
+                    <li key={sk} className={`${styles.tag} ${styles.tagMissing}`}>
+                      {sk}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              {atsSummary.summary && <p className={styles.muted}>{atsSummary.summary}</p>}
-              {atsSummary.matchedSkills.length > 0 && (
-                <p className={styles.muted}>
-                  <strong>Matched:</strong> {atsSummary.matchedSkills.join(', ')}
-                </p>
-              )}
-              {atsSummary.missingSkills.length > 0 && (
-                <p className={styles.muted}>
-                  <strong>Skills to build:</strong> {atsSummary.missingSkills.join(', ')}
-                </p>
-              )}
-              <button
-                type="button"
-                className={styles.submitBtn}
-                onClick={() => navigate('/interview')}
-              >
+            )}
+
+            <div className={styles.nextStep}>
+              <p className={styles.nextStepText}>
+                Next step: a short AI interview with Ava, built from your resume and this job.
+              </p>
+              <button type="button" className={styles.primaryBtn} onClick={() => navigate('/interview')}>
                 Continue to AI interview
               </button>
             </div>
-          ) : signedInEmployer ? (
-            <div className={styles.error} role="alert">
-              This link is for candidates. Sign out of your employer account and sign in as a candidate to apply.
+          </section>
+        ) : signedInEmployer ? (
+          <p className={`ds-alert ds-alert--warning ${styles.pageAlert}`} role="alert">
+            This link is for candidates. Sign out of your employer account and sign in as a candidate to apply.
+          </p>
+        ) : !signedInCandidate ? (
+          <section className={styles.card} aria-labelledby="apply-gate-title">
+            <h2 id="apply-gate-title" className={styles.sectionTitle}>
+              Sign in to apply
+            </h2>
+            <p className={styles.sectionSub}>
+              Your application, resume and HireRighttt interview stay together in your candidate account. New
+              here? Create a free account; after a short profile setup your application is sent automatically.
+            </p>
+            <div className={styles.actions}>
+              <button type="button" className={styles.secondaryBtn} onClick={() => startAuth('/login')}>
+                I already have an account
+              </button>
+              <button type="button" className={styles.primaryBtn} onClick={() => startAuth('/signup')}>
+                Create a free account
+              </button>
             </div>
-          ) : !signedInCandidate ? (
-            <div className={styles.signInGate}>
-              <h2 className={styles.formSectionTitle}>
-                <HrIcon name="form" size={22} /> Sign in to apply
-              </h2>
-              <p className={styles.muted}>
-                Your application, resume and HireRighttt interview stay together in your candidate account. New
-                here? Create a free account; after a short profile setup your application is sent automatically.
-              </p>
-              <div className={styles.gateActions}>
-                <button type="button" className={styles.submitBtn} onClick={() => startAuth('/signup')}>
-                  Create a free account
-                </button>
-                <button type="button" className={styles.secondaryBtn} onClick={() => startAuth('/login')}>
-                  I already have an account
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <h2 className={styles.formSectionTitle}>
-                <HrIcon name="form" size={22} /> Apply with your resume
-              </h2>
+          </section>
+        ) : (
+          <section className={styles.card} aria-labelledby="apply-form-title">
+            <h2 id="apply-form-title" className={styles.sectionTitle}>
+              Apply with your resume
+            </h2>
+            <p className={styles.sectionSub}>
+              We send your details and resume to {job.company}, then show how well your resume matches this role.
+            </p>
 
-              <form onSubmit={handleSubmit}>
-                <div className={styles.formGrid}>
-                  <div className={styles.formGroup}>
-                    <label htmlFor="apply-name" className={styles.label}>Full name</label>
-                    <input
-                      id="apply-name"
-                      type="text"
-                      required
-                      className={styles.input}
-                      placeholder="e.g. Arjun Sharma"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label htmlFor="apply-email" className={styles.label}>Email address</label>
-                    <input
-                      id="apply-email"
-                      type="email"
-                      required
-                      readOnly
-                      aria-readonly="true"
-                      title="Applications are sent from the account you are signed in with."
-                      className={styles.input}
-                      value={email}
-                    />
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label htmlFor="apply-phone" className={styles.label}>Phone number</label>
-                    <input
-                      id="apply-phone"
-                      type="tel"
-                      required
-                      className={styles.input}
-                      placeholder="+91 98765 43210"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
-                  </div>
-
-                  <div className={styles.formGroup}>
-                    <label htmlFor="apply-experience" className={styles.label}>Years of experience</label>
-                    <input
-                      id="apply-experience"
-                      type="text"
-                      required
-                      className={styles.input}
-                      placeholder="e.g. 4 years"
-                      value={experience}
-                      onChange={(e) => setExperience(e.target.value)}
-                    />
-                  </div>
-
-                  <div className={styles.formGroupFull}>
-                    <span className={styles.label}>Resume (PDF or DOCX)</span>
-                    <label className={styles.fileInputBox}>
-                      <input
-                        type="file"
-                        accept=".pdf,.docx,.txt"
-                        className={styles.fileInputNative}
-                        onChange={handleFileChange}
-                      />
-                      <div className={styles.fileIcon}>
-                        <HrIcon name="folder" size={32} />
-                      </div>
-                      <div style={{ fontWeight: 700, color: '#141638' }}>
-                        {resumeFile ? resumeFile.name : 'Choose your resume file'}
-                      </div>
-                      <div className={styles.muted} style={{ marginTop: '2px', fontSize: '0.8rem' }}>
-                        {resumeFile ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <HrIcon name="check" size={14} /> File attached (
-                            {Math.round(resumeFile.size / 1024)} KB)
-                          </span>
-                        ) : (
-                          'Ava uses your resume for adaptive interview questions'
-                        )}
-                      </div>
-                    </label>
-                  </div>
+            <form className={styles.form} onSubmit={handleSubmit}>
+              <div className={styles.formGrid}>
+                <div className={styles.field}>
+                  <label htmlFor="apply-name" className={styles.label}>
+                    Full name
+                  </label>
+                  <input
+                    id="apply-name"
+                    type="text"
+                    required
+                    autoComplete="name"
+                    className={styles.input}
+                    placeholder="e.g. Arjun Sharma"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
                 </div>
 
-                {error && <div className={styles.error}>{error}</div>}
-
-                <label className={styles.consentRow}>
+                <div className={styles.field}>
+                  <label htmlFor="apply-email" className={styles.label}>
+                    Email address
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={applyConsent}
-                    onChange={(e) => setApplyConsent(e.target.checked)}
+                    id="apply-email"
+                    type="email"
                     required
+                    readOnly
+                    aria-readonly="true"
+                    aria-describedby="apply-email-help"
+                    title="Applications are sent from the account you are signed in with."
+                    className={styles.input}
+                    value={email}
                   />
-                  <span>
-                    I consent to HireRight sharing my name, contact details, and resume with the employer for
-                    this job, and processing my data as described in the{' '}
-                    <Link to="/privacy">Privacy Policy</Link>.
-                  </span>
-                </label>
+                  <p id="apply-email-help" className={styles.help}>
+                    From your signed-in account.
+                  </p>
+                </div>
 
-                <button type="submit" className={styles.submitBtn} disabled={loading || !applyConsent}>
-                  {loading ? 'Submitting application…' : 'Submit and start AI interview'}
+                <div className={styles.field}>
+                  <label htmlFor="apply-phone" className={styles.label}>
+                    Phone number
+                  </label>
+                  <input
+                    id="apply-phone"
+                    type="tel"
+                    required
+                    autoComplete="tel"
+                    className={styles.input}
+                    placeholder="+91 98765 43210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.field}>
+                  <label htmlFor="apply-experience" className={styles.label}>
+                    Years of experience
+                  </label>
+                  <input
+                    id="apply-experience"
+                    type="text"
+                    required
+                    className={styles.input}
+                    placeholder="e.g. 4 years"
+                    value={experience}
+                    onChange={(e) => setExperience(e.target.value)}
+                  />
+                </div>
+
+                <div className={`${styles.field} ${styles.fieldFull}`}>
+                  <span id="apply-resume-label" className={styles.label}>
+                    Resume
+                  </span>
+                  <label className={styles.fileInputBox}>
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,.txt"
+                      className={styles.fileInputNative}
+                      aria-labelledby="apply-resume-label"
+                      aria-describedby="apply-resume-help"
+                      onChange={handleFileChange}
+                    />
+                    <span className={styles.fileIcon} aria-hidden="true">
+                      <HrIcon name={resumeFile ? 'check' : 'upload'} size={20} />
+                    </span>
+                    <span className={styles.fileName}>
+                      {resumeFile ? resumeFile.name : 'Choose your resume file'}
+                    </span>
+                    <span id="apply-resume-help" className={styles.fileHint}>
+                      {resumeFile
+                        ? `File attached (${Math.round(resumeFile.size / 1024)} KB) · choose again to replace`
+                        : 'PDF, DOCX or TXT. Ava uses your resume for adaptive interview questions.'}
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <label className={styles.consentRow}>
+                <input
+                  type="checkbox"
+                  checked={applyConsent}
+                  onChange={(e) => setApplyConsent(e.target.checked)}
+                  required
+                />
+                <span>
+                  I consent to HireRight sharing my name, contact details, and resume with the employer for this
+                  job, and processing my data as described in the <Link to="/privacy">Privacy Policy</Link>.
+                </span>
+              </label>
+
+              {error && (
+                <p className="ds-alert ds-alert--error" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <div className={styles.formActions}>
+                <button
+                  type="submit"
+                  className={styles.primaryBtn}
+                  disabled={loading || !applyConsent}
+                  aria-busy={loading || undefined}
+                >
+                  {loading ? (
+                    <>
+                      <span className="ds-spinner" aria-hidden="true" /> Submitting…
+                    </>
+                  ) : (
+                    'Submit application'
+                  )}
                 </button>
-              </form>
-            </>
-          )}
-        </motion.div>
-      </div>
+              </div>
+            </form>
+          </section>
+        )}
+      </motion.main>
       <SiteFooter />
     </div>
   )

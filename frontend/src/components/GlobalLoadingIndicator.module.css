@@ -13,6 +13,7 @@
   overflow: hidden;
   pointer-events: none;
   background: color-mix(in srgb, var(--hr-brand-solid, #5046e5) 12%, transparent);
+  animation: hr-fade-in 0.22s var(--ds-ease-out, ease-out) both;
 }
 
 .bar::after {
@@ -46,6 +47,7 @@
   backdrop-filter: blur(6px) saturate(1.1);
   -webkit-backdrop-filter: blur(6px) saturate(1.1);
   cursor: progress;
+  animation: hr-fade-in 0.22s var(--ds-ease-out, ease-out) both;
 }
 
 /* The mark sits on a soft white tile so it reads on any page behind the veil. */
@@ -57,6 +59,20 @@
   background: var(--bg-surface, #ffffff);
   border: 1px solid var(--border-subtle, var(--hr-border, #e2e8f0));
   box-shadow: var(--shadow-xl, 0 24px 48px -12px rgba(15, 23, 42, 0.12));
+  animation: hr-tile-in 0.22s var(--ds-ease-out, ease-out) both;
+}
+
+@keyframes hr-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes hr-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -65,6 +81,12 @@
     width: 100%;
     border-radius: 0;
     opacity: 0.7;
+  }
+
+  .bar,
+  .veil,
+  .tile {
+    animation: none;
   }
 
   .veil {

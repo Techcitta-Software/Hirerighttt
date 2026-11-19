@@ -23,6 +23,8 @@ interface Props {
   interviewSessionId?: string | null
   /** Blob URL right after interview while cloud playback is prepared. */
   localPreviewUrl?: string | null
+  /** Embedded under another page's h1 (profile, vendor viewer): render the candidate name as an h2. */
+  embedded?: boolean
 }
 
 function hashString(str: string): number {
@@ -42,7 +44,9 @@ export function CareerIntelligenceDashboard({
   skills = [],
   onRetake,
   onContinue,
+  embedded = false,
 }: Props) {
+  const NameHeading = embedded ? 'h2' : 'h1'
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
   const sc = result.scorecard
@@ -52,9 +56,13 @@ export function CareerIntelligenceDashboard({
 
   const tagFor = (score: number) =>
     score >= 75 ? 'Strong' : score >= 50 ? 'Moderate' : score >= 25 ? 'Developing' : 'Needs work'
-  /* Neutral bands: green for strong, amber for moderate, slate below. No red on candidate reports. */
+  /* Neutral bands: green for strong, amber for moderate, muted below. No red on candidate reports. */
   const colorFor = (score: number) =>
-    score >= 75 ? '#047857' : score >= 50 ? '#b45309' : '#64748b'
+    score >= 75 ? '#047857' : score >= 50 ? '#b45309' : '#5f6686'
+  const toneFor = (score: number) =>
+    score >= 75 ? styles.toneSuccess : score >= 50 ? styles.toneWarning : styles.toneNeutral
+  const fillFor = (score: number) =>
+    score >= 75 ? styles.dotSuccess : score >= 50 ? styles.dotWarning : styles.dotNeutral
 
   const roleKey = candidateRole || result.role || 'Candidate'
   const candidateId = useMemo(() => {
@@ -64,7 +72,7 @@ export function CareerIntelligenceDashboard({
 
   const interviewDate = useMemo(() => {
     const d = result.date ? new Date(result.date) : new Date()
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   }, [result.date])
 
   const displayRole = candidateRole || result.role || 'Candidate'
@@ -170,6 +178,29 @@ export function CareerIntelligenceDashboard({
 
   const qaRows = sc?.qaRows?.length ? sc.qaRows : buildQaRowsFromInterview(result)
 
+  /* Rating by topic is read from the same per-question star ratings the table shows,
+     so the summary can never disagree with the rows below it. */
+  const ratingByTopic = (() => {
+    if (qaRows.length === 0) return starPatterns
+    const groups = new Map<string, { filled: number; score: number; scored: number; n: number }>()
+    for (const q of qaRows) {
+      const key = q.topic || 'Interview'
+      const g = groups.get(key) ?? { filled: 0, score: 0, scored: 0, n: 0 }
+      g.filled += (q.stars.match(/★/g) ?? []).length
+      g.n += 1
+      if (typeof q.questionScore === 'number') {
+        g.score += q.questionScore
+        g.scored += 1
+      }
+      groups.set(key, g)
+    }
+    return [...groups.entries()].map(([name, g]) => {
+      const filled = Math.max(0, Math.min(5, Math.round(g.filled / g.n)))
+      const avg = g.scored > 0 ? g.score / g.scored : filled * 20
+      return { name, stars: '★'.repeat(filled).padEnd(5, '☆'), level: tagFor(avg) }
+    })
+  })()
+
   const radarAxes = useMemo(
     () =>
       result.categories?.length
@@ -214,6 +245,9 @@ export function CareerIntelligenceDashboard({
   const careerScorePct = Math.max(0, Math.min(100, careerScore / 10))
   const separateCategoryScores = Boolean(sc?.healthMetrics) && donuts.length > 0
   const interviewScore = sessionStats?.overallInterviewScore ?? overall
+  const statusTone =
+    careerScore >= 700 ? styles.toneSuccess : careerScore >= 550 ? styles.toneWarning : styles.toneNeutral
+  const starCount = (stars: string) => (stars.match(/★/g) ?? []).length
 
   return (
     <div className={styles.dashboardContainer} id="career-intelligence-dashboard">
@@ -269,7 +303,7 @@ export function CareerIntelligenceDashboard({
               {candidateName.charAt(0).toUpperCase()}
             </div>
             <div className={styles.candidateInfo}>
-              <h1>{candidateName}</h1>
+              <NameHeading className={styles.candidateName}>{candidateName}</NameHeading>
               <p className={styles.candidateSubtitle}>
                 {displayRole} · {displayExperience}
               </p>
@@ -299,7 +333,7 @@ export function CareerIntelligenceDashboard({
             <div className={styles.metaItem}>
               <dt className={styles.metaLabel}>Resume visibility</dt>
               <dd className={`${styles.metaValue} ${styles.metaPrivate}`}>
-                <HrIcon name="lock" size={13} /> Private, not shared
+                <HrIcon name="lock" size={14} /> Private, not shared
               </dd>
             </div>
           </dl>
@@ -312,9 +346,9 @@ export function CareerIntelligenceDashboard({
           <h2 id="report-summary-heading" className={styles.cardTitle}>Career score</h2>
           <div className={styles.scoreLine}>
             <span className={styles.scoreValue}>{careerScore}</span>
-            <span className={styles.scoreOutOf}>/ 1000</span>
+            <span className={styles.scoreOutOf}>/1000</span>
           </div>
-          <span className={styles.scoreBadgeText}>{statusLabel}</span>
+          <span className={`${styles.statusPill} ${statusTone}`}>{statusLabel}</span>
           <p className={styles.scoreSubHint}>{scoreSubHint}</p>
 
           <div className={styles.scoreScale} aria-hidden="true">
@@ -340,7 +374,7 @@ export function CareerIntelligenceDashboard({
               <dt>Interview score</dt>
               <dd>
                 {interviewScore}
-                <small> / 100</small>
+                <small>/100</small>
               </dd>
             </div>
             <div>
@@ -363,20 +397,20 @@ export function CareerIntelligenceDashboard({
           <h3 className={styles.subTitle}>Score bands</h3>
           <ul className={styles.scoreBandList}>
             <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>850 – 1000</span>
-              <span className={styles.bandLabel}>Premium Market-Ready Talent</span>
+              <span className={styles.bandBadge}>850–1000</span>
+              <span className={styles.bandLabel}>Premium market-ready talent</span>
             </li>
             <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>700 – 849</span>
-              <span className={styles.bandLabel}>Industry Ready</span>
+              <span className={styles.bandBadge}>700–849</span>
+              <span className={styles.bandLabel}>Industry ready</span>
             </li>
             <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>550 – 699</span>
-              <span className={styles.bandLabel}>Growth Potential</span>
+              <span className={styles.bandBadge}>550–699</span>
+              <span className={styles.bandLabel}>Growth potential</span>
             </li>
             <li className={styles.bandItem}>
               <span className={styles.bandBadge}>Below 550</span>
-              <span className={styles.bandLabel}>Skill Enhancement Recommended</span>
+              <span className={styles.bandLabel}>Skill enhancement recommended</span>
             </li>
           </ul>
         </div>
@@ -387,9 +421,9 @@ export function CareerIntelligenceDashboard({
         <div className={styles.cardHead}>
           <h2 id="report-areas-heading" className={styles.cardTitle}>Score by area</h2>
           <div className={styles.donutLegend} aria-hidden="true">
-            <span><span className={styles.legendDot} style={{ background: '#047857' }}></span> Strong (75%+)</span>
-            <span><span className={styles.legendDot} style={{ background: '#b45309' }}></span> Moderate (50–74%)</span>
-            <span><span className={styles.legendDot} style={{ background: '#64748b' }}></span> Developing (below 50%)</span>
+            <span><span className={`${styles.legendDot} ${styles.dotSuccess}`} /> Strong (75%+)</span>
+            <span><span className={`${styles.legendDot} ${styles.dotWarning}`} /> Moderate (50–74%)</span>
+            <span><span className={`${styles.legendDot} ${styles.dotNeutral}`} /> Developing (below 50%)</span>
           </div>
         </div>
         <ul className={styles.healthList}>
@@ -397,10 +431,10 @@ export function CareerIntelligenceDashboard({
             <li key={`${hm.label}-${i}`} className={styles.healthRow}>
               <span className={styles.healthCategory}>{hm.label}</span>
               <div className={styles.barTrack} aria-hidden="true">
-                <div className={styles.barFill} style={{ width: `${hm.score}%`, background: hm.color }} />
+                <div className={`${styles.barFill} ${fillFor(hm.score)}`} style={{ width: `${hm.score}%` }} />
               </div>
               <span className={styles.healthScoreNum}>{hm.score}%</span>
-              <span className={styles.healthPerformanceTag} style={{ color: hm.color }}>
+              <span className={`${styles.healthPerformanceTag} ${styles.statusPill} ${toneFor(hm.score)}`}>
                 {hm.tag}
               </span>
             </li>
@@ -415,7 +449,7 @@ export function CareerIntelligenceDashboard({
                 <li key={`${d.label}-${i}`} className={styles.donutCol}>
                   <span className={styles.donutValue}>{d.score}%</span>
                   <span className={styles.donutLabel}>{d.label}</span>
-                  <span className={styles.donutTag} style={{ color: d.color }}>
+                  <span className={`${styles.donutTag} ${styles.statusPill} ${toneFor(d.score)}`}>
                     {d.tag}
                   </span>
                 </li>
@@ -459,7 +493,7 @@ export function CareerIntelligenceDashboard({
         <div className={styles.cardHead}>
           <h2 id="report-questions-heading" className={styles.cardTitle}>Questions and scores</h2>
           <p className={styles.cardNote}>
-            {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI Interview`}
+            {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI interview`}
           </p>
         </div>
         <div className={styles.tableScroll}>
@@ -473,7 +507,7 @@ export function CareerIntelligenceDashboard({
                 <th scope="col" className={styles.scoreCol}>Depth</th>
                 <th scope="col" className={styles.scoreCol}>Clarity</th>
                 <th scope="col" className={styles.scoreCol}>Overall</th>
-                <th scope="col">Rating</th>
+                <th scope="col" className={styles.ratingCol}>Rating</th>
                 <th scope="col">Feedback</th>
               </tr>
             </thead>
@@ -511,7 +545,10 @@ export function CareerIntelligenceDashboard({
                           : '—'}
                     </strong>
                   </td>
-                  <td className={styles.starsCell}>{q.stars}</td>
+                  <td className={styles.starsCell}>
+                    <span aria-hidden="true">{q.stars}</span>
+                    <span className="ds-sr-only">{starCount(q.stars)} of 5 stars</span>
+                  </td>
                   <td className={styles.feedbackCell}>{q.feedback}</td>
                 </tr>
               ))}
@@ -519,14 +556,17 @@ export function CareerIntelligenceDashboard({
           </table>
         </div>
 
-        {starPatterns.length > 0 ? (
+        {ratingByTopic.length > 0 ? (
           <>
-            <h3 className={styles.subTitle}>Answer patterns</h3>
+            <h3 className={styles.subTitle}>Interview performance summary</h3>
             <ul className={styles.starSummaryGrid}>
-              {starPatterns.map((p, i) => (
+              {ratingByTopic.map((p, i) => (
                 <li key={`${p.name}-${i}`} className={styles.starSummaryItem}>
                   <span className={styles.starCategoryName}>{p.name}</span>
-                  <span className={styles.starString}>{p.stars}</span>
+                  <span className={styles.starString}>
+                    <span aria-hidden="true">{p.stars}</span>
+                    <span className="ds-sr-only">{starCount(p.stars)} of 5 stars</span>
+                  </span>
                   <span className={styles.starLevelTag}>{p.level}</span>
                 </li>
               ))}
@@ -609,7 +649,7 @@ export function CareerIntelligenceDashboard({
           <h2 className={styles.cardTitle}>Role fit</h2>
           <ul className={styles.growthList}>
             {careerPaths.map((g, i) => (
-              <li key={`${g.role}-${i}`} className={styles.growthItem}>
+              <li key={`${g.role}-${i}`}>
                 <div className={styles.growthItemHeader}>
                   <span>{g.role}</span>
                   <span>{g.match}%</span>
@@ -632,7 +672,7 @@ export function CareerIntelligenceDashboard({
             <div className={styles.barFill} style={{ width: `${industryAlignment}%` }} />
           </div>
           <p className={styles.privateNote}>
-            <HrIcon name="lock" size={13} /> Your resume is currently kept private and not shared with recruiters.
+            <HrIcon name="lock" size={14} /> Your resume is currently kept private and not shared with recruiters.
           </p>
         </div>
       </section>
@@ -650,7 +690,7 @@ export function CareerIntelligenceDashboard({
           </ul>
         ) : (
           <p className={styles.cardNote}>
-            No positioning gaps flagged — your interview feedback is in the strengths list.
+            No positioning gaps flagged. Your interview feedback is in the strengths list.
           </p>
         )}
         <p className={styles.positioningFooter}>{positioningFooter}</p>
@@ -674,7 +714,7 @@ export function CareerIntelligenceDashboard({
         <div className={styles.footerTopRow}>
           <div className={styles.finalStatusGroup}>
             <span className={styles.footerLabel}>Final career status</span>
-            <span className={styles.finalStatusPill}>
+            <span className={`${styles.statusPill} ${styles.finalStatusPill} ${statusTone}`}>
               <HrIcon name="check" size={14} /> {statusLabel}
             </span>
           </div>

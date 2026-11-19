@@ -11,7 +11,7 @@ export async function supabaseSignUp(options: {
   companyName?: string
   phone?: string
 }) {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) return { error: new Error('Supabase is not configured.') }
 
   const { data, error } = await sb.auth.signUp({
@@ -32,7 +32,7 @@ export async function supabaseSignUp(options: {
 }
 
 export async function supabaseSignIn(email: string, password: string) {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) return { error: new Error('Supabase is not configured.') }
 
   const { data, error } = await sb.auth.signInWithPassword({
@@ -45,7 +45,7 @@ export async function supabaseSignIn(email: string, password: string) {
 }
 
 export async function supabaseSignOut() {
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (sb) await sb.auth.signOut()
   setApiToken(null)
 }
@@ -70,7 +70,7 @@ export function applySupabaseSession(session: Session | null, user: User | null)
 
 export async function refreshSupabaseApiToken(): Promise<boolean> {
   if (!isSupabaseEnabled()) return false
-  const sb = getSupabase()
+  const sb = await getSupabase()
   if (!sb) return false
   const { data, error } = await sb.auth.getSession()
   if (error || !data.session?.access_token) return false

@@ -9,7 +9,6 @@ import {
 } from '../lib/authSession'
 import { ensureApiSession } from '../lib/apiSession'
 import { getUser, type UserRole } from '../lib/store'
-import { moonshineStt } from '../lib/moonshineStt'
 import { PageLoader } from './SignalLoader'
 
 type Props = {
@@ -20,13 +19,23 @@ type Props = {
 const INVALID_MSG =
   'Your session expired or could not be verified. Please sign in again to continue.'
 
+/** Email of the user whose session was last verified in this tab. Lets later pages render straight away. */
+let verifiedEmail: string | null = null
+
+function alreadyVerified(): boolean {
+  const email = getUser()?.email?.trim().toLowerCase()
+  return Boolean(email && email === verifiedEmail)
+}
+
 /**
  * Protected routes: local session + (when VITE_AUTH_PROVIDER=api) valid Bearer token via /api/me.
+ * The first protected page shows a loader while the session is checked; after that, pages render immediately and
+ * the check re-runs in the background (redirecting to login if the session has since expired).
  */
 export function RequireAuth({ children, role }: Props) {
   const location = useLocation()
-  const [ready, setReady] = useState(false)
-  const [allowed, setAllowed] = useState(false)
+  const [ready, setReady] = useState(alreadyVerified)
+  const [allowed, setAllowed] = useState(alreadyVerified)
 
   useEffect(() => {
     let cancelled = false
@@ -34,6 +43,7 @@ export function RequireAuth({ children, role }: Props) {
     ;(async () => {
       const user = getUser()
       if (!user) {
+        verifiedEmail = null
         if (!cancelled) {
           setAllowed(false)
           setReady(true)
@@ -44,6 +54,7 @@ export function RequireAuth({ children, role }: Props) {
       if (requireApiForAuth()) {
         const valid = await isApiSessionValid()
         if (!valid) {
+          verifiedEmail = null
           clearStoredAuth()
           setAuthInvalidMessage(INVALID_MSG)
           if (!cancelled) {
@@ -56,6 +67,7 @@ export function RequireAuth({ children, role }: Props) {
         await ensureApiSession()
       }
 
+      verifiedEmail = user.email?.trim().toLowerCase() || null
       if (!cancelled) {
         setAllowed(true)
         setReady(true)
@@ -67,13 +79,6 @@ export function RequireAuth({ children, role }: Props) {
     }
     // Validate once per mount; route changes reuse cached /api/me when still fresh.
   }, [])
-
-  useEffect(() => {
-    if (!ready || !allowed) return
-    const user = getUser()
-    if (!user || user.role === 'employer') return
-    moonshineStt.startGradualPreloadAfterLogin(3000)
-  }, [ready, allowed])
 
   if (!ready) {
     return (

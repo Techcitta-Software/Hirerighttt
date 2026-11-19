@@ -1,8 +1,4 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
-import { BrandLogo } from '../components/BrandLogo'
-import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
+import { useCallback, useMemo, useState, type KeyboardEvent } from 'react'
 import {
   ADMIN_JOBS,
   MONTHLY_TRENDS,
@@ -16,44 +12,41 @@ import {
   type AdminCandidate,
   type PipelineStage,
 } from '../lib/adminAts'
-import { firstName } from '../lib/store'
-import { easeOut } from '../motion/variants'
+import { useDialog } from '../components/useDialog'
+import shell from './EmployerDashboard.module.css'
 import styles from './AdminDashboard.module.css'
 
-type Tab =
-  | 'overview'
-  | 'candidates'
-  | 'jobs'
-  | 'pipeline'
-  | 'matching'
-  | 'analytics'
+type Tab = 'overview' | 'candidates' | 'jobs' | 'pipeline' | 'matching' | 'analytics'
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview', label: 'Dashboard' },
-  { id: 'candidates', label: 'Candidates' },
-  { id: 'jobs', label: 'Jobs' },
-  { id: 'pipeline', label: 'Pipeline' },
-  { id: 'matching', label: 'AI Matcher' },
-  { id: 'analytics', label: 'Analytics' },
+const TABS: { id: Tab; label: string; title: string }[] = [
+  { id: 'overview', label: 'Dashboard', title: 'Admin dashboard' },
+  { id: 'candidates', label: 'Candidates', title: 'Candidate directory' },
+  { id: 'jobs', label: 'Jobs', title: 'Jobs management' },
+  { id: 'pipeline', label: 'Pipeline', title: 'Kanban pipeline' },
+  { id: 'matching', label: 'AI Matcher', title: 'AI candidate matcher' },
+  { id: 'analytics', label: 'Analytics', title: 'Recruiter analytics' },
 ]
 
+/**
+ * Recruiter admin workspace. Lives inside the app shell (one nav, one brand); the sections are an
+ * in-page tab bar and switch instantly.
+ */
 export function AdminDashboard() {
   const [tab, setTab] = useState<Tab>('overview')
-  const [candidates, setCandidates] = useState<AdminCandidate[]>(() =>
-    loadAdminCandidates(),
-  )
+  const [candidates, setCandidates] = useState<AdminCandidate[]>(() => loadAdminCandidates())
   const [query, setQuery] = useState('')
   const [stageFilter, setStageFilter] = useState<PipelineStage | 'All'>('All')
   const [matchJobId, setMatchJobId] = useState(ADMIN_JOBS[0].id)
   const [selected, setSelected] = useState<AdminCandidate | null>(null)
-  const name = firstName()
+  const closeDrawer = useCallback(() => setSelected(null), [])
+  const drawer = useDialog<HTMLElement>(Boolean(selected), closeDrawer)
 
   const kpis = useMemo(() => adminKpis(candidates, ADMIN_JOBS), [candidates])
   const funnel = useMemo(() => funnelFromCandidates(candidates), [candidates])
 
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
     return candidates.filter((c) => {
-      const q = query.trim().toLowerCase()
       const hit =
         !q ||
         c.name.toLowerCase().includes(q) ||
@@ -80,171 +73,122 @@ export function AdminDashboard() {
     setSelected((prev) => (prev?.id === id ? { ...prev, stage } : prev))
   }
 
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  function onTabKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+    const idx = TABS.findIndex((t) => t.id === tab)
+    const next = TABS[(idx + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]
+    setTab(next.id)
+    e.currentTarget.querySelector<HTMLButtonElement>(`#admin-tab-${next.id}`)?.focus()
+  }
+
   const maxMonthly = Math.max(...MONTHLY_TRENDS.map((m) => m.applications))
+  const maxHired = Math.max(1, ...MONTHLY_TRENDS.map((m) => m.hired))
+  const current = TABS.find((t) => t.id === tab)!
 
   return (
-    <>
-    <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand} style={{ padding: '8px 10px 16px' }}>
-          <BrandLogo size="md" />
-        </div>
-
-
-        <nav className={styles.nav}>
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={tab === item.id ? styles.navActive : styles.navItem}
-              onClick={() => setTab(item.id)}
-            >
-              {item.label}
-              {item.id === 'matching' && <em>AI</em>}
-            </button>
-          ))}
-        </nav>
-
-        <div className={styles.sideFoot}>
-          <div className={styles.engineCard}>
-            <span className={styles.liveDot} />
+    <div className={shell.pageBleed}>
+      <div className={shell.page}>
+        <div className={shell.shell}>
+          <header className={shell.pageHeader}>
             <div>
-              <strong>Ava AI Studio v2.4</strong>
-              <small>Real-time scoring synced</small>
+              <h1 className={shell.pageTitle}>{current.title}</h1>
+              <p className={shell.pageSub}>
+                Applications, AI match scores, interview scores and pipeline progress in one place.
+              </p>
             </div>
-          </div>
-          <Link to="/dashboard" className={styles.backLink}>
-            ← Candidate app
-          </Link>
-          <Link to="/" className={styles.backLink}>
-            Marketing home
-          </Link>
-        </div>
-      </aside>
+          </header>
 
-      <div className={styles.main}>
-        <header className={styles.topbar}>
-          <div>
-            <p className={styles.eyebrow}>Recruiter operations · Sample data workspace</p>
-            <h1>
-              {tab === 'overview' && 'Admin dashboard'}
-              {tab === 'candidates' && 'Candidate directory'}
-              {tab === 'jobs' && 'Jobs management'}
-              {tab === 'pipeline' && 'Kanban pipeline'}
-              {tab === 'matching' && 'AI candidate matcher'}
-              {tab === 'analytics' && 'Recruiter analytics'}
-            </h1>
+          <div className={styles.tabs} role="tablist" aria-label="Admin sections" onKeyDown={onTabKeyDown}>
+            {TABS.map((item) => (
+              <button
+                key={item.id}
+                id={`admin-tab-${item.id}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                aria-controls="admin-panel"
+                tabIndex={tab === item.id ? 0 : -1}
+                className={`${styles.tab} ${tab === item.id ? styles.tabActive : ''}`}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
-          <div className={styles.topActions}>
-            <span className={styles.adminChip}>Hi, {name}</span>
-            <Link to="/interview" className={styles.ghostBtn}>
-              Interview studio
-            </Link>
-            <button
-              type="button"
-              className={styles.primaryBtn}
-              onClick={() => setTab('candidates')}
-            >
-              Review talent
-            </button>
-          </div>
-        </header>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25, ease: easeOut }}
-            className={styles.content}
-          >
+          <div id="admin-panel" role="tabpanel" aria-labelledby={`admin-tab-${tab}`} className={styles.content}>
             {tab === 'overview' && (
               <>
-                <section className={styles.banner}>
-                  <div>
-                    <span className={styles.bannerPill}>Enterprise AI Matcher Active</span>
-                    <h2>Recruiter operations & AI talent pipeline</h2>
-                    <p>
-                      Monitor applications, AI match scores, HIRERIGHT<sup>TT</sup> interview scores, and
-                      pipeline progression — adapted from OpenATS for HIRERIGHT<sup>TT</sup>.
-                    </p>
-                  </div>
-                  <div className={styles.bannerActions}>
-                    <button type="button" className={styles.primaryBtn} onClick={() => setTab('matching')}>
-                      Run AI matcher
-                    </button>
-                    <button type="button" className={styles.ghostBtn} onClick={() => setTab('jobs')}>
-                      Manage jobs
-                    </button>
-                  </div>
-                </section>
-
                 <div className={styles.kpiGrid}>
                   {[
-                    ['Total talent pool', String(kpis.totalTalent), '+12 parsed today'],
-                    ['Active job roles', String(kpis.activeJobs), 'Across departments'],
+                    ['Talent pool', String(kpis.totalTalent), 'Candidates on file'],
+                    ['Active job roles', String(kpis.activeJobs), 'Open across departments'],
                     ['Top AI matches (90%+)', String(kpis.topMatches), 'Ready to fast-track'],
-                    ['In interview stages', String(kpis.interviewsScheduled), 'Technical / HR / Offer'],
+                    ['In interview stages', String(kpis.interviewsScheduled), 'Technical, HR or offer'],
                   ].map(([label, value, note]) => (
                     <article key={label} className={styles.kpiCard}>
-                      <span>{label}</span>
-                      <strong>{value}</strong>
-                      <small>{note}</small>
+                      <span className={styles.kpiLabel}>{label}</span>
+                      <strong className={styles.kpiValue}>{value}</strong>
+                      <small className={styles.kpiNote}>{note}</small>
                     </article>
                   ))}
                 </div>
 
-                <section className={styles.panel}>
-                  <div className={styles.panelHead}>
+                <section className={shell.panel} aria-labelledby="admin-top-candidates">
+                  <div className={shell.panelHeader}>
                     <div>
-                      <h3>Candidate directory & AI ranking</h3>
-                      <p>Interactive table with stage filters and match scores</p>
+                      <h2 id="admin-top-candidates" className={shell.panelTitle}>
+                        Candidates and AI ranking
+                      </h2>
+                      <p className={shell.panelSub}>The latest six. Change a stage right in the table.</p>
                     </div>
-                    <button type="button" className={styles.ghostBtn} onClick={() => setTab('candidates')}>
+                    <button
+                      type="button"
+                      className={`${shell.btnSecondary} ${shell.btnSm}`}
+                      onClick={() => setTab('candidates')}
+                    >
                       Open full directory
                     </button>
                   </div>
-                  <CandidateTable
-                    rows={filtered.slice(0, 6)}
-                    onSelect={setSelected}
-                    onStage={updateStage}
-                  />
+                  <CandidateTable rows={filtered.slice(0, 6)} onSelect={setSelected} onStage={updateStage} />
                 </section>
 
                 <section className={styles.twoCol}>
-                  <article className={styles.panel}>
-                    <h3>Application velocity</h3>
-                    <div className={styles.barChart}>
-                      {MONTHLY_TRENDS.map((m) => (
-                        <div key={m.month} className={styles.barCol}>
-                          <div className={styles.barTrack}>
-                            <motion.div
-                              className={styles.barFill}
-                              initial={{ height: 0 }}
-                              animate={{
-                                height: `${(m.applications / maxMonthly) * 100}%`,
-                              }}
-                              transition={{ duration: 0.5, ease: easeOut }}
-                            />
+                  <article className={shell.panel}>
+                    <div className={shell.panelHeader}>
+                      <h2 className={shell.panelTitle}>Application velocity</h2>
+                    </div>
+                    <div className={shell.panelBody}>
+                      <div className={styles.barChart}>
+                        {MONTHLY_TRENDS.map((m) => (
+                          <div key={m.month} className={styles.barCol}>
+                            <div className={styles.barTrack}>
+                              <div
+                                className={styles.barFill}
+                                style={{ height: `${(m.applications / maxMonthly) * 100}%` }}
+                              />
+                            </div>
+                            <span>{m.month}</span>
+                            <small>{m.applications}</small>
                           </div>
-                          <span>{m.month}</span>
-                          <small>{m.applications}</small>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </article>
-                  <article className={styles.panel}>
-                    <h3>Hiring funnel</h3>
-                    <div className={styles.funnel}>
+                  <article className={shell.panel}>
+                    <div className={shell.panelHeader}>
+                      <h2 className={shell.panelTitle}>Hiring funnel</h2>
+                    </div>
+                    <div className={`${shell.panelBody} ${styles.meterList}`}>
                       {funnel
                         .filter((f) => f.stage !== 'Rejected')
                         .map((f) => (
-                          <div key={f.stage} className={styles.funnelRow}>
+                          <div key={f.stage} className={styles.meterRow}>
                             <span>{f.stage}</span>
-                            <div className={styles.funnelTrack}>
+                            <div className={styles.meterTrack}>
                               <div
-                                className={styles.funnelFill}
+                                className={styles.meterFill}
                                 style={{
                                   width: `${Math.max(8, (f.count / Math.max(1, candidates.length)) * 100)}%`,
                                 }}
@@ -260,20 +204,21 @@ export function AdminDashboard() {
             )}
 
             {tab === 'candidates' && (
-              <section className={styles.panel}>
+              <section className={shell.panel} aria-label="Candidate directory">
                 <div className={styles.toolbar}>
                   <input
                     className={styles.search}
+                    type="search"
+                    aria-label="Search candidates"
                     placeholder="Search name, skill, title…"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
                   <select
                     className={styles.select}
+                    aria-label="Filter by stage"
                     value={stageFilter}
-                    onChange={(e) =>
-                      setStageFilter(e.target.value as PipelineStage | 'All')
-                    }
+                    onChange={(e) => setStageFilter(e.target.value as PipelineStage | 'All')}
                   >
                     <option value="All">All stages</option>
                     {PIPELINE_STAGES.map((s) => (
@@ -283,11 +228,7 @@ export function AdminDashboard() {
                     ))}
                   </select>
                 </div>
-                <CandidateTable
-                  rows={filtered}
-                  onSelect={setSelected}
-                  onStage={updateStage}
-                />
+                <CandidateTable rows={filtered} onSelect={setSelected} onStage={updateStage} />
               </section>
             )}
 
@@ -296,12 +237,8 @@ export function AdminDashboard() {
                 {ADMIN_JOBS.map((job) => (
                   <article key={job.id} className={styles.jobCard}>
                     <div className={styles.jobTop}>
-                      <h3>{job.title}</h3>
-                      <span
-                        className={
-                          job.status === 'Active' ? styles.statusOn : styles.statusOff
-                        }
-                      >
+                      <h2>{job.title}</h2>
+                      <span className={`${shell.pill} ${job.status === 'Active' ? shell.pillSuccess : ''}`}>
                         {job.status}
                       </span>
                     </div>
@@ -318,7 +255,7 @@ export function AdminDashboard() {
                       <b>{job.applicantsCount} applicants</b>
                       <button
                         type="button"
-                        className={styles.ghostBtn}
+                        className={`${shell.btnSecondary} ${shell.btnSm}`}
                         onClick={() => {
                           setMatchJobId(job.id)
                           setTab('matching')
@@ -339,26 +276,21 @@ export function AdminDashboard() {
                   return (
                     <div key={stage} className={styles.kanbanCol}>
                       <header>
-                        <h4>{stage}</h4>
+                        <h2>{stage}</h2>
                         <span>{cards.length}</span>
                       </header>
                       <div className={styles.kanbanCards}>
                         {cards.map((c) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            className={styles.kanbanCard}
-                            onClick={() => setSelected(c)}
-                          >
-                            <strong>{c.name}</strong>
+                          <div key={c.id} className={styles.kanbanCard}>
+                            <button type="button" className={styles.nameBtn} onClick={() => setSelected(c)}>
+                              {c.name}
+                            </button>
                             <span>{c.currentTitle}</span>
                             <em>{c.overallMatchScore}% match</em>
                             <select
+                              aria-label={`Stage for ${c.name}`}
                               value={c.stage}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) =>
-                                updateStage(c.id, e.target.value as PipelineStage)
-                              }
+                              onChange={(e) => updateStage(c.id, e.target.value as PipelineStage)}
                             >
                               {PIPELINE_STAGES.map((s) => (
                                 <option key={s} value={s}>
@@ -366,7 +298,7 @@ export function AdminDashboard() {
                                 </option>
                               ))}
                             </select>
-                          </button>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -376,15 +308,11 @@ export function AdminDashboard() {
             )}
 
             {tab === 'matching' && (
-              <section className={styles.panel}>
+              <section className={shell.panel} aria-label="AI candidate matcher">
                 <div className={styles.toolbar}>
-                  <label className={styles.matchLabel}>
+                  <label className={styles.fieldLabel}>
                     Target role
-                    <select
-                      className={styles.select}
-                      value={matchJobId}
-                      onChange={(e) => setMatchJobId(e.target.value)}
-                    >
+                    <select className={styles.select} value={matchJobId} onChange={(e) => setMatchJobId(e.target.value)}>
                       {ADMIN_JOBS.map((j) => (
                         <option key={j.id} value={j.id}>
                           {j.title}
@@ -392,25 +320,20 @@ export function AdminDashboard() {
                       ))}
                     </select>
                   </label>
-                  <p className={styles.hint}>
-                    Scores combine resume skill match + HireRight AI interview score.
-                  </p>
+                  <p className={styles.hint}>Scores combine resume skill match and the AI interview score.</p>
                 </div>
                 <div className={styles.matchList}>
                   {matchRows.map((c, i) => {
                     const job = ADMIN_JOBS.find((j) => j.id === matchJobId)
                     const missing =
                       job?.requiredSkills.filter(
-                        (s) =>
-                          !c.skills?.some(
-                            (cs) => cs.toLowerCase() === s.toLowerCase(),
-                          ),
+                        (s) => !c.skills?.some((cs) => cs.toLowerCase() === s.toLowerCase()),
                       ) ?? []
                     return (
                       <article key={c.id} className={styles.matchCard}>
                         <div className={styles.matchRank}>#{i + 1}</div>
                         <div>
-                          <h4>{c.name}</h4>
+                          <h2>{c.name}</h2>
                           <p>
                             {c.currentTitle} · {c.totalExperienceYears} yrs
                           </p>
@@ -419,19 +342,15 @@ export function AdminDashboard() {
                               <span key={s}>{s}</span>
                             ))}
                           </div>
-                          {missing.length > 0 && (
-                            <small className={styles.missing}>
-                              Missing: {missing.join(', ')}
-                            </small>
-                          )}
+                          {missing.length > 0 && <small className={styles.missing}>Missing: {missing.join(', ')}</small>}
                         </div>
                         <div className={styles.matchScores}>
                           <strong>{c.overallMatchScore}%</strong>
                           <span>Overall match</span>
-                          <b>Interview {c.interviewScore ?? '—'}</b>
+                          <span>Interview {c.interviewScore ?? '—'}</span>
                           <button
                             type="button"
-                            className={styles.ghostBtn}
+                            className={`${shell.btnSecondary} ${shell.btnSm}`}
                             onClick={() => setSelected(c)}
                           >
                             View
@@ -448,60 +367,52 @@ export function AdminDashboard() {
               <>
                 <div className={styles.kpiGrid}>
                   {[
-                    ['Total applications', kpis.totalApplications.toLocaleString(), '+18.4% this month'],
-                    ['Avg time to hire', `${kpis.avgTimeToHireDays} days`, '4 days faster vs avg'],
+                    ['Total applications', kpis.totalApplications.toLocaleString(), 'All open roles'],
+                    ['Avg time to hire', `${kpis.avgTimeToHireDays} days`, 'Application to offer'],
                     ['AI screening accuracy', `${kpis.aiAccuracy}%`, 'Based on interviews'],
-                    ['Avg interview score', String(kpis.avgInterviewScore), 'HireRight AI studio'],
+                    ['Avg interview score', String(kpis.avgInterviewScore), 'AI interview, out of 100'],
                   ].map(([label, value, note]) => (
                     <article key={label} className={styles.kpiCard}>
-                      <span>{label}</span>
-                      <strong>{value}</strong>
-                      <small>{note}</small>
+                      <span className={styles.kpiLabel}>{label}</span>
+                      <strong className={styles.kpiValue}>{value}</strong>
+                      <small className={styles.kpiNote}>{note}</small>
                     </article>
                   ))}
                 </div>
 
                 <section className={styles.twoCol}>
-                  <article className={styles.panel}>
-                    <h3>Monthly applications vs hires</h3>
-                    <div className={styles.barChart}>
-                      {MONTHLY_TRENDS.map((m) => (
-                        <div key={m.month} className={styles.barCol}>
-                          <div className={styles.barTrack}>
-                            <div
-                              className={styles.barFill}
-                              style={{
-                                height: `${(m.applications / maxMonthly) * 100}%`,
-                              }}
-                            />
-                            <div
-                              className={styles.barFillAlt}
-                              style={{
-                                height: `${(m.hired / 60) * 100}%`,
-                              }}
-                            />
+                  <article className={shell.panel}>
+                    <div className={shell.panelHeader}>
+                      <h2 className={shell.panelTitle}>Monthly applications vs hires</h2>
+                    </div>
+                    <div className={shell.panelBody}>
+                      <div className={styles.barChart}>
+                        {MONTHLY_TRENDS.map((m) => (
+                          <div key={m.month} className={styles.barCol}>
+                            <div className={styles.barTrack}>
+                              <div
+                                className={styles.barFill}
+                                style={{ height: `${(m.applications / maxMonthly) * 100}%` }}
+                              />
+                              <div className={styles.barFillAlt} style={{ height: `${(m.hired / maxHired) * 100}%` }} />
+                            </div>
+                            <span>{m.month}</span>
+                            <small>{m.hired} hired</small>
                           </div>
-                          <span>{m.month}</span>
-                          <small>{m.hired} hired</small>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                   </article>
-                  <article className={styles.panel}>
-                    <h3>Candidate sources</h3>
-                    <div className={styles.sourceList}>
+                  <article className={shell.panel}>
+                    <div className={shell.panelHeader}>
+                      <h2 className={shell.panelTitle}>Candidate sources</h2>
+                    </div>
+                    <div className={`${shell.panelBody} ${styles.meterList}`}>
                       {SOURCE_MIX.map((s) => (
-                        <div key={s.name} className={styles.sourceRow}>
-                          <span
-                            className={styles.sourceDot}
-                            style={{ background: s.color }}
-                          />
+                        <div key={s.name} className={styles.meterRow}>
                           <span>{s.name}</span>
-                          <div className={styles.funnelTrack}>
-                            <div
-                              className={styles.funnelFill}
-                              style={{ width: `${s.value}%`, background: s.color }}
-                            />
+                          <div className={styles.meterTrack}>
+                            <div className={styles.meterFill} style={{ width: `${s.value}%` }} />
                           </div>
                           <b>{s.value}%</b>
                         </div>
@@ -510,32 +421,24 @@ export function AdminDashboard() {
                   </article>
                 </section>
 
-                <section className={styles.panel}>
-                  <h3>Skills demand vs supply</h3>
-                  <div className={styles.skillDemand}>
+                <section className={shell.panel}>
+                  <div className={shell.panelHeader}>
+                    <h2 className={shell.panelTitle}>Skills demand vs supply</h2>
+                  </div>
+                  <div className={`${shell.panelBody} ${styles.skillDemand}`}>
                     {SKILL_DEMAND.map((s) => (
                       <div key={s.skill} className={styles.skillDemandRow}>
                         <span>{s.skill}</span>
                         <div>
                           <small>Candidates {s.candidates}</small>
-                          <div className={styles.funnelTrack}>
-                            <div
-                              className={styles.funnelFill}
-                              style={{ width: `${Math.min(100, s.candidates / 1.6)}%` }}
-                            />
+                          <div className={styles.meterTrack}>
+                            <div className={styles.meterFill} style={{ width: `${Math.min(100, s.candidates / 1.6)}%` }} />
                           </div>
                         </div>
                         <div>
                           <small>Demand {s.demand}</small>
-                          <div className={styles.funnelTrack}>
-                            <div
-                              className={styles.barFillAlt}
-                              style={{
-                                width: `${s.demand}%`,
-                                height: 8,
-                                borderRadius: 999,
-                              }}
-                            />
+                          <div className={styles.meterTrack}>
+                            <div className={styles.meterFillAlt} style={{ width: `${s.demand}%` }} />
                           </div>
                         </div>
                       </div>
@@ -544,112 +447,82 @@ export function AdminDashboard() {
                 </section>
               </>
             )}
-          </motion.div>
-        </AnimatePresence>
+          </div>
+        </div>
       </div>
 
-      <AnimatePresence>
-        {selected && (
-          <motion.div
-            className={styles.drawerBackdrop}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelected(null)}
+      {selected && (
+        <div className={styles.drawerBackdrop} onClick={closeDrawer} onKeyDown={drawer.onKeyDown}>
+          <aside
+            ref={drawer.ref}
+            tabIndex={-1}
+            className={styles.drawer}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-drawer-title"
+            onClick={(e) => e.stopPropagation()}
           >
-            <motion.aside
-              className={styles.drawer}
-              initial={{ x: 40, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 40, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <header>
-                <div>
-                  <h3>{selected.name}</h3>
-                  <p>{selected.currentTitle}</p>
-                </div>
-                <button type="button" className={styles.ghostBtn} onClick={() => setSelected(null)}>
-                  Close
-                </button>
-              </header>
-              <p className={styles.summary}>{selected.aiSummary}</p>
-              <div className={styles.drawerStats}>
-                <div>
-                  <strong>{selected.overallMatchScore}%</strong>
-                  <span>AI match</span>
-                </div>
-                <div>
-                  <strong>{selected.interviewScore ?? '—'}</strong>
-                  <span>Interview</span>
-                </div>
-                <div>
-                  <strong>{selected.totalExperienceYears}y</strong>
-                  <span>Experience</span>
-                </div>
+            <header>
+              <div>
+                <h2 id="admin-drawer-title">{selected.name}</h2>
+                <p>{selected.currentTitle}</p>
               </div>
-              <p>
-                <b>Email</b> {selected.email}
-              </p>
-              <p>
-                <b>Location</b> {selected.location}
-              </p>
-              <p>
-                <b>Source</b> {selected.source}
-              </p>
-              <div className={styles.skillWrap}>
-                {selected.skills.map((s) => (
-                  <span key={s}>{s}</span>
+              <button type="button" className={`${shell.btnSecondary} ${shell.btnSm}`} onClick={closeDrawer} data-autofocus>
+                Close
+              </button>
+            </header>
+            <p className={styles.summary}>{selected.aiSummary}</p>
+            <div className={styles.drawerStats}>
+              <div>
+                <strong>{selected.overallMatchScore}%</strong>
+                <span>AI match</span>
+              </div>
+              <div>
+                <strong>{selected.interviewScore ?? '—'}</strong>
+                <span>Interview</span>
+              </div>
+              <div>
+                <strong>{selected.totalExperienceYears}y</strong>
+                <span>Experience</span>
+              </div>
+            </div>
+            <dl className={styles.drawerDetails}>
+              <div>
+                <dt>Email</dt>
+                <dd>{selected.email}</dd>
+              </div>
+              <div>
+                <dt>Location</dt>
+                <dd>{selected.location}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>{selected.source}</dd>
+              </div>
+            </dl>
+            <div className={styles.skillWrap}>
+              {selected.skills.map((s) => (
+                <span key={s}>{s}</span>
+              ))}
+            </div>
+            <label className={`${styles.fieldLabel} ${styles.drawerField}`}>
+              Pipeline stage
+              <select
+                className={styles.select}
+                value={selected.stage}
+                onChange={(e) => updateStage(selected.id, e.target.value as PipelineStage)}
+              >
+                {PIPELINE_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
-              </div>
-              <label className={styles.matchLabel}>
-                Pipeline stage
-                <select
-                  className={styles.select}
-                  value={selected.stage}
-                  onChange={(e) =>
-                    updateStage(selected.id, e.target.value as PipelineStage)
-                  }
-                >
-                  {PIPELINE_STAGES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/* Real-time Video Timeline & Misbehavior Red Markers */}
-              <div style={{ marginTop: '20px' }}>
-                <VideoProctorTimeline
-                  logs={[
-                    {
-                      id: 'admin-log-1',
-                      timestamp: new Date().toISOString(),
-                      formattedTime: '02:14 PM',
-                      eventType: 'SIDE_GAZE_LOOKING_AWAY',
-                      severity: 'warn',
-                      message: 'Candidate looking away off-screen (Side Gaze: 34°)',
-                      questionIndex: 1,
-                    },
-                    {
-                      id: 'admin-log-2',
-                      timestamp: new Date().toISOString(),
-                      formattedTime: '02:16 PM',
-                      eventType: 'MULTIPLE_FACES_DETECTED',
-                      severity: 'ban',
-                      message: 'MULTIPLE FACES DETECTED: 2 people seen in camera frame',
-                      questionIndex: 3,
-                    },
-                  ]}
-                />
-              </div>
-            </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              </select>
+            </label>
+          </aside>
+        </div>
+      )}
     </div>
-    </>
   )
 }
 
@@ -667,12 +540,12 @@ function CandidateTable({
       <table className={styles.table}>
         <thead>
           <tr>
-            <th>Candidate</th>
-            <th>Title</th>
-            <th>Match</th>
-            <th>Interview</th>
-            <th>Stage</th>
-            <th>Source</th>
+            <th scope="col">Candidate</th>
+            <th scope="col">Title</th>
+            <th scope="col">Match</th>
+            <th scope="col">Interview</th>
+            <th scope="col">Stage</th>
+            <th scope="col">Source</th>
           </tr>
         </thead>
         <tbody>
@@ -686,14 +559,13 @@ function CandidateTable({
               </td>
               <td>{c.currentTitle}</td>
               <td>
-                <b className={c.overallMatchScore >= 90 ? styles.scoreHot : undefined}>
-                  {c.overallMatchScore}%
-                </b>
+                <b className={c.overallMatchScore >= 90 ? styles.scoreHot : undefined}>{c.overallMatchScore}%</b>
               </td>
               <td>{c.interviewScore ?? '—'}</td>
               <td>
                 <select
                   className={styles.stageSelect}
+                  aria-label={`Stage for ${c.name}`}
                   value={c.stage}
                   onChange={(e) => onStage(c.id, e.target.value as PipelineStage)}
                 >

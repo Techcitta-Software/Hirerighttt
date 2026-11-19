@@ -66,19 +66,6 @@ export const staggerFast: Variants = {
   },
 }
 
-/** Route shell — avoid opacity 0 on exit (AnimatePresence mode="wait" caused blank screens). */
-export const pageTransition: Variants = {
-  initial: { opacity: 1 },
-  animate: {
-    opacity: 1,
-    transition: { duration: 0.2, ease: easeOut },
-  },
-  exit: {
-    opacity: 1,
-    transition: { duration: 0.12, ease: easeOut },
-  },
-}
-
 export const stepPanel: Variants = {
   initial: { opacity: 0, x: 28 },
   animate: {

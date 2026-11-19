@@ -46,14 +46,15 @@ import styles from './AppPages.module.css'
 
 export { DashboardPage } from './CandidateDashboard'
 
-/** Full scorecard + PDF download (`/dashboard/report`). */
+/** Dates use one format across candidate pages: "18 Nov 2026". */
 function formatProfileDate(value?: string) {
   const date = value ? new Date(value) : null
   return date && Number.isFinite(date.getTime())
-    ? date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    ? date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
     : null
 }
 
+/** Full scorecard + PDF download (`/dashboard/report`). */
 export function InterviewReportPage() {
   const user = getUser()
   const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
@@ -138,14 +139,21 @@ export function InterviewReportPage() {
   }
 
   if (reportLoading) {
-  return (
-    <div className={styles.page}>
-      <div className={styles.shell}>
-          <main className={styles.main}>
-            <p className={styles.muted} role="status">Loading your interview report…</p>
+    return (
+      <div className={styles.page}>
+        <div className={styles.shell}>
+          <main className={styles.main} aria-busy="true">
+            <p className="ds-sr-only" role="status">
+              Loading your interview report…
+            </p>
+            <div className={styles.skeletonStack} aria-hidden="true">
+              <span className={`ds-skeleton ${styles.skeletonTitle}`} />
+              <span className={`ds-skeleton ${styles.skeletonBlock}`} />
+              <span className={`ds-skeleton ${styles.skeletonBlock}`} />
+            </div>
           </main>
-            </div>
-            </div>
+        </div>
+      </div>
     )
   }
 
@@ -153,8 +161,12 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <main className={styles.main} style={{ paddingTop: 32 }}>
-            <h1 className={styles.reportEmptyTitle}>Interview report</h1>
+          <main className={styles.main}>
+            <header className={styles.head}>
+              <div>
+                <h1>Interview report</h1>
+              </div>
+            </header>
             <div className="ds-empty">
               <span className="ds-empty__icon" aria-hidden="true">
                 <HrIcon name="chart" size={20} />
@@ -162,13 +174,13 @@ export function InterviewReportPage() {
               <p className="ds-empty__title">No report yet</p>
               <p className="ds-empty__body">Complete your AI interview first to generate a career report.</p>
               <div className="ds-empty__actions">
-                <Link to="/interview" className={styles.bannerBtn}>
-                  Start AI interview
+                <Link to="/interview" className="ds-btn ds-btn--primary">
+                  Start interview
                 </Link>
               </div>
             </div>
           </main>
-                  </div>
+        </div>
       </div>
     )
   }
@@ -176,41 +188,44 @@ export function InterviewReportPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <main className={styles.main} style={{ paddingTop: 24 }}>
+        <main className={styles.main}>
           {fromInterview ? (
-            <div style={{ marginBottom: 16 }} role="status">
-                  <p className={styles.muted}>
-                {autoContinueDashboard
-                  ? 'Your immediate interview is complete. Review your report — we’ll open your dashboard shortly.'
-                  : 'Your interview is complete. Review your report below, then continue to your dashboard.'}
-              </p>
-              {autoContinueDashboard && dashboardCountdown != null && dashboardCountdown > 0 && (
-                <p className={styles.muted} style={{ marginTop: 8 }}>
-                  Opening your dashboard in {dashboardCountdown}s…{' '}
-                  <button
-                    type="button"
-                    className={styles.secondary}
-                    style={{ marginLeft: 8 }}
-                    onClick={() => goToCandidateDashboardAfterInterview(navigate)}
-                  >
-                    Go now
-                  </button>
+            <div className={`ds-alert ds-alert--info ${styles.reportNotice}`} role="status">
+              <div className={styles.reportNoticeBody}>
+                <p>
+                  {autoContinueDashboard
+                    ? 'Your interview is complete. Review your report. We’ll open your dashboard shortly.'
+                    : 'Your interview is complete. Review your report below, then continue to your dashboard.'}
                 </p>
-              )}
+                {autoContinueDashboard && dashboardCountdown != null && dashboardCountdown > 0 && (
+                  <p className={styles.reportNoticeMeta}>
+                    Opening your dashboard in {dashboardCountdown}s…
+                  </p>
+                )}
               </div>
+              {autoContinueDashboard && dashboardCountdown != null && dashboardCountdown > 0 && (
+                <button
+                  type="button"
+                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  onClick={() => goToCandidateDashboardAfterInterview(navigate)}
+                >
+                  Go now
+                </button>
+              )}
+            </div>
           ) : (
-            <p style={{ marginBottom: 16 }}>
-              <Link to="/dashboard" className={styles.secondary}>
-                ← Back to dashboard
+            <p className={styles.reportBack}>
+              <Link to="/dashboard" className="ds-btn ds-btn--ghost ds-btn--sm">
+                Back to dashboard
               </Link>
             </p>
           )}
-            <CareerIntelligenceDashboard
-              result={interview}
-              candidateName={user?.name || profile?.fullName || name}
-              candidateRole={profile?.currentRole || interview.role}
-              candidateExperience={profile?.totalExperience || interview.level}
-              skills={profile?.skills ?? []}
+          <CareerIntelligenceDashboard
+            result={interview}
+            candidateName={user?.name || profile?.fullName || name}
+            candidateRole={profile?.currentRole || interview.role}
+            candidateExperience={profile?.totalExperience || interview.level}
+            skills={profile?.skills ?? []}
             interviewSessionId={
               interview.sessionId ||
               (typeof sessionStorage !== 'undefined'
@@ -221,7 +236,7 @@ export function InterviewReportPage() {
             onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
           />
         </main>
-          </div>
+      </div>
     </div>
   )
 }
@@ -264,17 +279,14 @@ interface JobMatchRole {
 
 function formatPostedAgo(iso?: string) {
   if (!iso) return 'Posted recently'
-  const then = new Date(iso).getTime()
-  if (!Number.isFinite(then)) return 'Posted recently'
-  const diffMs = Date.now() - then
-  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000))
-  if (days <= 0) return 'Today'
-  if (days === 1) return '1 day ago'
-  if (days < 7) return `${days} days ago`
-  const weeks = Math.floor(days / 7)
-  if (weeks === 1) return '1 week ago'
-  if (weeks < 5) return `${weeks} weeks ago`
-  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return 'Posted recently'
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return `Posted ${date.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })}`
 }
 
 function companyLogoStyle(name: string) {
@@ -606,79 +618,84 @@ export function JobsPage() {
         : `${sortedRoles.length} job${sortedRoles.length === 1 ? '' : 's'}`
 
   return (
-    <div className={styles.pageCandidateBleed}>
-      <div className={`${styles.page} ${styles.pageCandidate} ${styles.pageJobsBoard}`}>
-        <div className={`${styles.shell} ${styles.jobsBoardShell}`}>
+    <div className={styles.page}>
+      <div className={styles.shell}>
         <motion.main
-            className={`${styles.main} ${styles.jobsBoardMain}`}
+          className={styles.main}
           variants={staggerContainer}
           initial="hidden"
           animate="show"
         >
-            <motion.header className={styles.jobsPageHead} variants={fadeUp}>
+          <motion.header className={styles.head} variants={fadeUp}>
+            <div>
               <h1>Jobs</h1>
               <p>Open roles from employers on HireRighttt. Select a job to see details and apply.</p>
-            </motion.header>
-            <motion.div className={styles.jobsBoardToolbar} variants={fadeUp}>
-              <div className={styles.jobsSearchWrap}>
-                <HrIcon name="search" size={18} className={styles.jobsSearchIcon} />
-                <input
-                  type="search"
-                  className={styles.jobsSearchInput}
-                  placeholder="Search jobs here"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  aria-label="Search jobs"
-                />
             </div>
-              <div className={styles.jobsToolbarFilters}>
-                <select
-                  className={styles.jobsToolbarSelect}
-                  value={locationFilter}
-                  onChange={(e) => setLocationFilter(e.target.value)}
-                  aria-label="Location"
-                >
-                  <option value="Hyderabad">Hyderabad</option>
-                  <option value="Bengaluru">Bengaluru</option>
-                  <option value="Pune">Pune</option>
-                  <option value="Remote">Remote</option>
-                  <option value="Any">Any location</option>
-                </select>
-                <select
-                  className={styles.jobsToolbarSelect}
-                  value={workModeFilter}
-                  onChange={(e) => setWorkModeFilter(e.target.value)}
-                  aria-label="Work mode"
-                >
-                  <option value="Any">Any mode</option>
-                  <option value="Remote">Remote</option>
-                  <option value="Hybrid">Hybrid</option>
-                  <option value="On-site">On-site</option>
-                </select>
-                <select
-                  className={styles.jobsToolbarSelect}
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  aria-label="Sort jobs"
-                >
-                  <option value="Best match">Best match</option>
-                  <option value="Most recent">Most recent</option>
-                  <option value="Highest salary">Salary</option>
-                </select>
-              </div>
-            </motion.div>
+          </motion.header>
 
-            <motion.div className={styles.jobsScopeRow} variants={fadeUp}>
+          <motion.div className={styles.jobsToolbar} variants={fadeUp}>
+            <div className={styles.jobsSearchWrap}>
+              <HrIcon name="search" size={16} className={styles.jobsSearchIcon} />
+              <input
+                type="search"
+                className={styles.jobsSearchInput}
+                placeholder="Search by title, company or skill"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                aria-label="Search jobs"
+              />
+            </div>
+            <div className={styles.jobsToolbarFilters}>
+              <select
+                className={styles.select}
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                aria-label="Location"
+              >
+                <option value="Hyderabad">Hyderabad</option>
+                <option value="Bengaluru">Bengaluru</option>
+                <option value="Pune">Pune</option>
+                <option value="Remote">Remote</option>
+                <option value="Any">Any location</option>
+              </select>
+              <select
+                className={styles.select}
+                value={workModeFilter}
+                onChange={(e) => setWorkModeFilter(e.target.value)}
+                aria-label="Work mode"
+              >
+                <option value="Any">Any mode</option>
+                <option value="Remote">Remote</option>
+                <option value="Hybrid">Hybrid</option>
+                <option value="On-site">On-site</option>
+              </select>
+              <select
+                className={styles.select}
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Sort jobs"
+              >
+                <option value="Best match">Best match</option>
+                <option value="Most recent">Most recent</option>
+                <option value="Highest salary">Salary</option>
+              </select>
+            </div>
+          </motion.div>
+
+          <motion.div className={styles.jobsScopeRow} variants={fadeUp}>
+            <div className={styles.segmented} role="group" aria-label="Which jobs to show">
               <button
                 type="button"
-                className={jobScope === 'matched' ? styles.jobsScopeChipActive : styles.jobsScopeChip}
+                className={styles.segmentedItem}
+                aria-pressed={jobScope === 'matched'}
                 onClick={() => setJobScope('matched')}
               >
                 For you
               </button>
               <button
                 type="button"
-                className={jobScope === 'all' ? styles.jobsScopeChipActive : styles.jobsScopeChip}
+                className={styles.segmentedItem}
+                aria-pressed={jobScope === 'all'}
                 onClick={() => setJobScope('all')}
               >
                 All jobs
@@ -688,198 +705,206 @@ export function JobsPage() {
                     ? ` (${jobsListMeta.totalOpen})`
                     : ''}
               </button>
-              <span className={styles.jobsResultCount}>{jobsHeadline}</span>
-              {!unlocked ? (
-                <span className={styles.jobsScoreHint}>Complete interview to apply with your report</span>
-              ) : (
-                <span className={styles.jobsScoreHint}>Interview score {candidateScoreLabel}</span>
-              )}
-            </motion.div>
+            </div>
+            <p className={styles.jobsScopeMeta}>
+              <span className={styles.jobsResultCount} aria-live="polite">
+                {jobsHeadline}
+              </span>
+              <span aria-hidden="true">·</span>
+              <span>
+                {!unlocked
+                  ? 'Complete interview to apply with your report'
+                  : `Interview score ${candidateScoreLabel}/100`}
+              </span>
+            </p>
+          </motion.div>
 
-            {jobsBoardError ? (
-              <p className={styles.jobsBoardMessage} role="alert">
-                {jobsBoardError}
-              </p>
-            ) : null}
-            {!jobsBoardError && jobScope === 'matched' && jobsListMeta.message ? (
-              <p className={styles.jobsBoardMessage}>{jobsListMeta.message}</p>
-            ) : null}
+          {jobsBoardError ? (
+            <div className={`ds-alert ds-alert--error ${styles.pageAlert}`} role="alert">
+              {jobsBoardError}
+            </div>
+          ) : null}
+          {!jobsBoardError && jobScope === 'matched' && jobsListMeta.message ? (
+            <div className={`ds-alert ds-alert--info ${styles.pageAlert}`}>{jobsListMeta.message}</div>
+          ) : null}
 
-            {toast ? <div className={styles.toast}>{toast}</div> : null}
+          {toast ? (
+            <div className="ds-toast" role="status">
+              {toast}
+            </div>
+          ) : null}
 
-            <motion.div className={styles.jobsFeedList} variants={fadeUp}>
-              {jobsBoardState === 'loading'
-                ? Array.from({ length: 4 }).map((_, i) => (
-                    <div key={`sk-${i}`} className={`${styles.naukriJobCard} ${styles.jobFeedSkeleton}`} />
-                  ))
-                : null}
+          <motion.div
+            className={styles.jobsFeedList}
+            variants={fadeUp}
+            aria-busy={jobsBoardState === 'loading'}
+          >
+            {jobsBoardState === 'loading'
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={`sk-${i}`} className={`${styles.jobCard} ${styles.jobCardSkeleton}`} aria-hidden="true">
+                    <span className={`ds-skeleton ${styles.skeletonTitle}`} />
+                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonShort}`} />
+                    <span className="ds-skeleton ds-skeleton-line" />
+                  </div>
+                ))
+              : null}
 
-              {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
-                <div className={styles.jobsEmptyCard}>
-                  {employerJobs.length > 0 ? (
-                    <>
-                      <strong>No jobs match your filters</strong>
-                      <p>
-                        Try &quot;Any location&quot; in the toolbar, clear search, or switch work mode to
-                        &quot;Any mode&quot;.
-                      </p>
+            {jobsBoardState === 'ready' && visibleRoles.length === 0 && !jobsBoardError ? (
+              employerJobs.length > 0 ? (
+                <div className="ds-empty">
+                  <span className="ds-empty__icon" aria-hidden="true">
+                    <HrIcon name="search" size={20} />
+                  </span>
+                  <p className="ds-empty__title">No results match these filters</p>
+                  <p className="ds-empty__body">
+                    Clear the search, or set location and work mode to “Any” to see more roles.
+                  </p>
+                  <div className="ds-empty__actions">
                     <button
                       type="button"
-                      className={styles.primary}
-                        onClick={() => {
-                          setLocationFilter('Any')
-                          setWorkModeFilter('Any')
-                          setSearchTerm('')
-                        }}
-                      >
-                        Reset filters
-                    </button>
-                    </>
-                  ) : (
-                    <>
-                      <strong>No open roles yet</strong>
-                      <p>
-                        When employers post jobs on HireRighttt, they appear here. Complete your profile
-                        and interview to apply with your AI report.
-                      </p>
-                      {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
-                    <button
-                      type="button"
-                      className={styles.primary}
-                          onClick={() => setJobScope('all')}
+                      className="ds-btn ds-btn--secondary"
+                      onClick={() => {
+                        setLocationFilter('Any')
+                        setWorkModeFilter('Any')
+                        setSearchTerm('')
+                      }}
                     >
-                          Browse all {jobsListMeta.totalOpen} postings
+                      Clear filters
                     </button>
-                      ) : null}
-                    </>
-                  )}
+                  </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="ds-empty">
+                  <span className="ds-empty__icon" aria-hidden="true">
+                    <HrIcon name="briefcase" size={20} />
+                  </span>
+                  <p className="ds-empty__title">No open roles yet</p>
+                  <p className="ds-empty__body">
+                    When employers post jobs on HireRighttt, they appear here. Complete your profile and
+                    interview to apply with your AI report.
+                  </p>
+                  {jobScope === 'matched' && (jobsListMeta.totalOpen ?? 0) > 0 ? (
+                    <div className="ds-empty__actions">
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--secondary"
+                        onClick={() => setJobScope('all')}
+                      >
+                        Browse all {jobsListMeta.totalOpen} jobs
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : null}
 
-              {visibleRoles.map((job) => {
-                const isOpen = selectedJob?.id === job.id
-                const locationLine =
-                  job.mode && job.mode !== 'Hybrid'
-                    ? `${job.mode} · ${job.location}`
-                    : `${job.mode} - ${job.location}`
-                return (
-                  <article
-                    key={job.id}
-                    className={`${styles.naukriJobCard} ${isOpen ? styles.naukriJobCardOpen : ''}`}
+            {visibleRoles.map((job) => {
+              const isOpen = selectedJob?.id === job.id
+              const isSaved = savedJobIds.has(job.id)
+              const locationLine = job.mode ? `${job.mode} · ${job.location}` : job.location
+              return (
+                <article key={job.id} className={`${styles.jobCard} ${isOpen ? styles.jobCardOpen : ''}`}>
+                  <button
+                    type="button"
+                    className={styles.jobCardHit}
+                    onClick={() => setSelectedJobId(isOpen ? null : job.id)}
+                    aria-expanded={isOpen}
                   >
-                    <button
-                      type="button"
-                      className={styles.naukriJobCardHit}
-                      onClick={() => setSelectedJobId(isOpen ? null : job.id)}
-                      aria-expanded={isOpen}
-                    >
-                      <div className={styles.naukriCardTop}>
-                        <div className={styles.naukriCardHeadline}>
-                          <h2 className={styles.naukriJobTitle}>{job.title}</h2>
-                          <div className={styles.naukriCompanyRow}>
-                            <span className={styles.naukriCompanyName}>{job.company}</span>
-                            {unlocked ? (
-                              <span className={styles.naukriRating}>
-                                <HrIcon name="star" size={14} className={styles.naukriStar} />
-                                {job.match}% profile match
-                              </span>
-                            ) : null}
-          </div>
-                        </div>
-                        <div
-                          className={styles.naukriLogoBox}
-                          style={{ background: job.logoBg, color: job.logoColor }}
-                          aria-hidden
-                        >
-                          {job.logo}
-                        </div>
-                      </div>
-
-                      <div className={styles.naukriMetaRow}>
-                        <span className={styles.naukriMetaItem}>
-                          <HrIcon name="briefcase" size={15} />
+                    <span className={styles.jobLogo} aria-hidden="true">
+                      {job.logo}
+                    </span>
+                    <span className={styles.jobCardHeadline}>
+                      <h2 className={styles.jobTitle}>{job.title}</h2>
+                      <span className={styles.jobCompanyRow}>
+                        <span className={styles.jobCompany}>{job.company}</span>
+                        {unlocked ? (
+                          <span className="ds-pill ds-pill--success">{job.match}% profile match</span>
+                        ) : null}
+                      </span>
+                      <span className={styles.jobMetaRow}>
+                        <span className={styles.jobMetaItem}>
+                          <HrIcon name="briefcase" size={16} />
                           {job.experience}
                         </span>
-                        <span className={styles.naukriMetaSep} aria-hidden>
-                          |
-                        </span>
-                        <span className={styles.naukriMetaItem}>
-                          <span className={styles.naukriRupee} aria-hidden>
+                        <span className={styles.jobMetaItem}>
+                          <span className={styles.jobRupee} aria-hidden="true">
                             ₹
                           </span>
                           {job.salary === 'Employer listed' ? 'Not disclosed' : job.salary}
                         </span>
-                        <span className={styles.naukriMetaSep} aria-hidden>
-                          |
-                        </span>
-                        <span className={styles.naukriMetaItem}>
-                          <HrIcon name="map-pin" size={15} />
+                        <span className={styles.jobMetaItem}>
+                          <HrIcon name="map-pin" size={16} />
                           {locationLine}
                         </span>
-                      </div>
-
+                      </span>
                       {job.skillTags.length > 0 ? (
-                        <p className={styles.naukriSkillsLine}>{job.skillTags.join(' · ')}</p>
+                        <span className={styles.jobSkillsLine}>{job.skillTags.join(' · ')}</span>
                       ) : null}
+                    </span>
+                  </button>
+
+                  <div className={styles.jobCardFoot}>
+                    <span className={styles.jobPosted}>{job.posted}</span>
+                    <button
+                      type="button"
+                      className={`ds-btn ds-btn--ghost ds-btn--sm ${isSaved ? styles.jobSaveActive : styles.jobSave}`}
+                      aria-pressed={isSaved}
+                      aria-label={`${isSaved ? 'Saved' : 'Save'}: ${job.title} at ${job.company}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleSave(job)
+                      }}
+                    >
+                      <HrIcon name="document" size={14} />
+                      {isSaved ? 'Saved' : 'Save'}
                     </button>
+                  </div>
 
-                    <div className={styles.naukriCardFoot}>
-                      <span className={styles.naukriPosted}>{job.posted}</span>
-                      <button
-                        type="button"
-                        className={
-                          savedJobIds.has(job.id) ? styles.naukriSaveActive : styles.naukriSave
-                        }
-                        aria-pressed={savedJobIds.has(job.id)}
-                        aria-label={`${savedJobIds.has(job.id) ? 'Saved' : 'Save'}: ${job.title} at ${job.company}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleSave(job)
-                        }}
-                      >
-                        <HrIcon name="document" size={16} />
-                        {savedJobIds.has(job.id) ? 'Saved' : 'Save'}
-                      </button>
-                    </div>
-
-                    {isOpen ? (
-                      <div className={styles.naukriJobExpand}>
-                        <p className={styles.naukriAbout}>{job.about}</p>
-                        {job.bullets.length > 0 ? (
-                          <ul className={styles.naukriBullets}>
-                            {job.bullets.map((b, idx) => (
-                              <li key={idx}>{b}</li>
-                            ))}
-                          </ul>
-                        ) : null}
-                        <div className={styles.naukriExpandActions}>
-                          <button
-                            type="button"
-                            className={styles.naukriApplyBtn}
-                            disabled={applyingJobId === job.id}
-                            onClick={() => void handleApply(job)}
-                          >
-                            {applyingJobId === job.id ? 'Applying…' : 'Apply with my report'}
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.naukriSecondaryBtn}
-                            onClick={() => handleNotForMe(job)}
-                          >
-                            Not for me
-                          </button>
-                        </div>
-                        <p className={styles.naukriApplyNote}>
-                          Applying shares your HireRighttt interview report and resume with this employer.
-                        </p>
+                  {isOpen ? (
+                    <div className={styles.jobExpand}>
+                      <p className={styles.jobAbout}>{job.about}</p>
+                      {job.bullets.length > 0 ? (
+                        <ul className={styles.jobBullets}>
+                          {job.bullets.map((b, idx) => (
+                            <li key={idx}>{b}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <div className={styles.jobExpandActions}>
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--secondary"
+                          onClick={() => handleNotForMe(job)}
+                        >
+                          Not for me
+                        </button>
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--primary"
+                          disabled={applyingJobId === job.id}
+                          aria-busy={applyingJobId === job.id}
+                          onClick={() => void handleApply(job)}
+                        >
+                          {applyingJobId === job.id ? (
+                            <>
+                              <span className="ds-spinner" aria-hidden="true" />
+                              Applying…
+                            </>
+                          ) : (
+                            'Apply with my report'
+                          )}
+                        </button>
                       </div>
-                    ) : null}
-                  </article>
-                )
-              })}
-            </motion.div>
+                      <p className={styles.jobApplyNote}>
+                        Applying shares your HireRighttt interview report and resume with this employer.
+                      </p>
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
+          </motion.div>
         </motion.main>
-      </div>
       </div>
     </div>
   )
@@ -921,26 +946,16 @@ function ProfileSectionHeader({
 }: ProfileSectionHeaderProps) {
   return (
     <>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: 12,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div>
-          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{title}</h2>
-          {subtitle ? (
-            <span style={{ fontSize: '0.78rem', color: '#64748b' }}>{subtitle}</span>
-          ) : null}
+      <div className={styles.sectionHeader}>
+        <div className={styles.sectionHeaderText}>
+          <h2 className={styles.cardTitle}>{title}</h2>
+          {subtitle ? <p className={styles.cardSub}>{subtitle}</p> : null}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className={styles.sectionHeaderActions}>
           {!editing ? (
             <button
               type="button"
-              className={styles.btnOutline}
+              className="ds-btn ds-btn--secondary ds-btn--sm"
               data-testid={editTestId}
               onClick={onEdit}
               disabled={saving}
@@ -951,28 +966,30 @@ function ProfileSectionHeader({
             <>
               <button
                 type="button"
-                className={styles.primary}
-                data-testid={doneTestId}
-                onClick={() => void onDone()}
-                disabled={saving}
-              >
-                Done
-              </button>
-              <button
-                type="button"
-                className={styles.btnOutline}
+                className="ds-btn ds-btn--ghost ds-btn--sm"
                 data-testid={cancelTestId}
                 onClick={onCancel}
                 disabled={saving}
               >
                 Cancel
               </button>
+              <button
+                type="button"
+                className="ds-btn ds-btn--secondary ds-btn--sm"
+                data-testid={doneTestId}
+                onClick={() => void onDone()}
+                disabled={saving}
+                aria-busy={saving}
+              >
+                Done
+              </button>
             </>
           )}
         </div>
       </div>
       {saving ? (
-        <p className={styles.skillsSavingNotice} data-testid={savingTestId} role="status">
+        <p className={`ds-alert ds-alert--info ${styles.savingNotice}`} data-testid={savingTestId} role="status">
+          <span className="ds-spinner" aria-hidden="true" />
           Updating, please wait…
         </p>
       ) : null}
@@ -1348,50 +1365,57 @@ export function ProfilePage() {
   }
   return (
     <div className={styles.page}>
-      <div className={styles.profileShell}>
+      <div className={styles.shell}>
         <motion.main
-          className={`${styles.main} ${styles.profileMainShell}`}
+          className={styles.main}
           variants={staggerContainer}
           initial="hidden"
           animate="show"
         >
-          <div className={styles.profileContentColumn}>
-            {/* Header */}
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
-                <span className={styles.eyebrow}>Profile and preferences</span>
-                <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
-                <p>
-                  {profileLoading
-                    ? 'Loading your saved profile…'
-                    : profileUpdatedLabel
-                      ? `Employers and job matches use this information. Last updated ${profileUpdatedLabel}.`
-                      : 'Employers and job matches use this information from your account.'}
-                  {!profileLoading && completionPct < 100
-                    ? ` ${completionPct}% complete — finish only the sections marked below.`
-                    : ''}
+              <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
+              <p>
+                {profileLoading
+                  ? 'Loading your saved profile…'
+                  : profileUpdatedLabel
+                    ? `Employers and job matches use this information. Last updated ${profileUpdatedLabel}.`
+                    : 'Employers and job matches use this information from your account.'}
+                {!profileLoading && completionPct < 100
+                  ? ` ${completionPct}% complete. Finish only the sections marked below.`
+                  : ''}
               </p>
             </div>
-            </motion.header>
+          </motion.header>
 
-            {profileMissing.length > 0 && !profileLoading ? (
-              <div className={styles.toast} role="status" style={{ border: '1px solid #ddd6fe' }}>
-                <strong style={{ display: 'block', marginBottom: 6 }}>Still needed for better matches</strong>
-                {profileMissing.map((item) => (
-                  <Link
-                    key={item.label}
-                    to={profileCheckHref(item)}
-                    style={{ display: 'inline-block', marginRight: 12, fontWeight: 600 }}
-                  >
-                    {item.label}
-                    {!item.required ? ' (optional)' : ''}
-              </Link>
-                ))}
+          {profileMissing.length > 0 && !profileLoading ? (
+            <div className={`ds-alert ds-alert--info ${styles.pageAlert}`} role="status">
+              <div>
+                <p className={styles.alertTitle}>Still needed for better matches</p>
+                <ul className={styles.missingList}>
+                  {profileMissing.map((item) => (
+                    <li key={item.label}>
+                      <Link to={profileCheckHref(item)} className={styles.inlineLink}>
+                        {item.label}
+                      </Link>
+                      {!item.required ? <span className={styles.optional}> (optional)</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            ) : null}
+          ) : null}
 
-            {toast && <div className={styles.toast}>{toast}</div>}
+          {toast ? (
+            <div className="ds-toast" role="status">
+              {toast}
+            </div>
+          ) : null}
 
+          <section className={styles.profileRegion} aria-labelledby="profile-details-heading">
+            <h2 id="profile-details-heading" className="ds-sr-only">
+              Profile details
+            </h2>
             <div className={styles.profileSectionStack}>
               {/* Card 1: Basics */}
               <section id="basics" className={styles.card} aria-busy={basicsSaving}>
@@ -1408,58 +1432,60 @@ export function ProfilePage() {
                   onDone={handleDoneBasicsEdit}
                   onCancel={cancelBasicsEdit}
                 />
-                <div
-                  className={styles.formGridThree}
-                  style={{ marginTop: 12, opacity: basicsSaving ? 0.65 : 1 }}
-                >
-                  <div className={styles.formFieldBlock}>
+                <div className={`${styles.formGrid} ${basicsSaving ? styles.formBusy : ''}`}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-full-name">Full name</label>
-                    <input id="pf-full-name"
+                    <input
+                      id="pf-full-name"
                       type="text"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       readOnly={!basicsEditing}
                       disabled={basicsSaving}
+                      autoComplete="name"
                       data-testid="basics-full-name"
                     />
-                    </div>
-                  <div className={styles.formFieldBlock}>
+                  </div>
+                  <div className={styles.field}>
                     <label htmlFor="pf-email">Email</label>
-                    <input id="pf-email"
+                    <input
+                      id="pf-email"
                       type="email"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={email}
                       readOnly
                       tabIndex={-1}
                       data-testid="basics-email"
                     />
-                </div>
-                  <div className={styles.formFieldBlock}>
+                  </div>
+                  <div className={styles.field}>
                     <label htmlFor="pf-phone">Phone</label>
-                    <input id="pf-phone"
+                    <input
+                      id="pf-phone"
                       type="tel"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       readOnly={!basicsEditing}
                       disabled={basicsSaving}
+                      autoComplete="tel"
                       data-testid="basics-phone"
                     />
                   </div>
+                  <div className={styles.field}>
+                    <label htmlFor="pf-current-city">Current city</label>
+                    <input
+                      id="pf-current-city"
+                      type="text"
+                      className={styles.input}
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      readOnly={!basicsEditing}
+                      disabled={basicsSaving}
+                      data-testid="basics-city"
+                    />
                   </div>
-
-                <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: basicsSaving ? 0.65 : 1 }}>
-                  <label htmlFor="pf-current-city">Current city</label>
-                  <input id="pf-current-city"
-                    type="text"
-                    className={styles.formInputText}
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    readOnly={!basicsEditing}
-                    disabled={basicsSaving}
-                    data-testid="basics-city"
-                  />
                 </div>
               </section>
 
@@ -1478,26 +1504,25 @@ export function ProfilePage() {
                   onDone={handleDoneRoleEdit}
                   onCancel={cancelRoleEdit}
                 />
-                <div
-                  className={styles.formGridThree}
-                  style={{ marginTop: 12, opacity: roleSaving ? 0.65 : 1 }}
-                >
-                  <div className={styles.formFieldBlock}>
+                <div className={`${styles.formGrid} ${roleSaving ? styles.formBusy : ''}`}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-target-role">Target role</label>
-                    <input id="pf-target-role"
+                    <input
+                      id="pf-target-role"
                       type="text"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={targetRole}
                       onChange={(e) => setTargetRole(e.target.value)}
                       readOnly={!roleEditing}
                       disabled={roleSaving}
                       data-testid="role-target"
                     />
-                </div>
-                  <div className={styles.formFieldBlock}>
+                  </div>
+                  <div className={styles.field}>
                     <label htmlFor="pf-total-experience">Total experience</label>
-                    <select id="pf-total-experience"
-                      className={styles.formInputText}
+                    <select
+                      id="pf-total-experience"
+                      className={styles.select}
                       value={experience}
                       onChange={(e) => setExperience(e.target.value)}
                       disabled={!roleEditing || roleSaving}
@@ -1510,11 +1535,12 @@ export function ProfilePage() {
                       <option value="5+ years">5+ years</option>
                     </select>
                   </div>
-                  <div className={styles.formFieldBlock}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-current-company-and-title">Current company and title</label>
-                    <input id="pf-current-company-and-title"
+                    <input
+                      id="pf-current-company-and-title"
                       type="text"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={companyTitle}
                       onChange={(e) => setCompanyTitle(e.target.value)}
                       readOnly={!roleEditing}
@@ -1522,19 +1548,19 @@ export function ProfilePage() {
                       data-testid="role-company-title"
                     />
                   </div>
-                </div>
-
-                <div className={styles.formFieldBlock} style={{ marginTop: 14, opacity: roleSaving ? 0.65 : 1 }}>
-                  <label htmlFor="pf-highest-education">Highest education</label>
-                  <input id="pf-highest-education"
-                    type="text"
-                    className={styles.formInputText}
-                    value={highestEducation}
-                    onChange={(e) => setHighestEducation(e.target.value)}
-                    readOnly={!roleEditing}
-                    disabled={roleSaving}
-                    data-testid="role-education"
-                  />
+                  <div className={styles.field}>
+                    <label htmlFor="pf-highest-education">Highest education</label>
+                    <input
+                      id="pf-highest-education"
+                      type="text"
+                      className={styles.input}
+                      value={highestEducation}
+                      onChange={(e) => setHighestEducation(e.target.value)}
+                      readOnly={!roleEditing}
+                      disabled={roleSaving}
+                      data-testid="role-education"
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -1555,169 +1581,184 @@ export function ProfilePage() {
                   onCancel={cancelSkillsEdit}
                 />
 
-                <div style={{ marginTop: 16, opacity: skillsSaving ? 0.65 : 1 }}>
+                <div className={`${styles.cardBody} ${skillsSaving ? styles.formBusy : ''}`}>
                   {!skillsList.length && !skillsEditing ? (
-                    <p className={styles.muted} style={{ margin: 0 }}>
+                    <p className={styles.muted}>
                       No skills saved yet. Edit skills to add what matches your target roles.
                     </p>
                   ) : null}
-                  {skillsList.map((skill) => (
-                    <span
-                      key={skill.name}
-                      className={`${styles.skillPillCustom} ${
-                        skill.level === 'Strong'
-                          ? styles.skillPillStrong
-                          : skill.level === 'Good'
-                          ? styles.skillPillGood
-                          : styles.skillPillBasic
-                      }`}
-                      data-testid={`skill-pill-${skill.name.replace(/\s+/g, '-')}`}
-                    >
-                      {skill.name}
-                      <span className={styles.skillTagLevel}>{skill.level}</span>
-                      {skillsEditing && !skillsSaving && (
+                  {skillsList.length ? (
+                    <ul className={styles.tagList}>
+                      {skillsList.map((skill) => (
+                        <li
+                          key={skill.name}
+                          className={styles.tag}
+                          data-testid={`skill-pill-${skill.name.replace(/\s+/g, '-')}`}
+                        >
+                          {skill.name}
+                          <span className={styles.tagLevel}>{skill.level}</span>
+                          {skillsEditing && !skillsSaving && (
+                            <button
+                              type="button"
+                              className={styles.tagRemove}
+                              aria-label={`Remove ${skill.name}`}
+                              onClick={() => handleRemoveSkill(skill.name)}
+                            >
+                              <HrIcon name="close" size={14} />
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {skillsEditing && !skillsSaving && (
+                    <div className={styles.field}>
+                      <label htmlFor="pf-add-skill">Add a skill</label>
+                      <div className={styles.inlineInputRow}>
+                        <input
+                          id="pf-add-skill"
+                          type="text"
+                          className={styles.input}
+                          placeholder="For example: Docker"
+                          value={newSkillInput}
+                          onChange={(e) => setNewSkillInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              handleAddSkill()
+                            }
+                          }}
+                          data-testid="skills-add-input"
+                        />
                         <button
                           type="button"
-                          className={styles.skillPillRemove}
-                          aria-label={`Remove ${skill.name}`}
-                          onClick={() => handleRemoveSkill(skill.name)}
+                          className="ds-btn ds-btn--secondary"
+                          onClick={handleAddSkill}
+                          data-testid="skills-add-btn"
                         >
-                          ×
+                          Add skill
                         </button>
-                      )}
-                    </span>
-              ))}
-            </div>
-
-                {skillsEditing && !skillsSaving && (
-                  <div style={{ marginTop: 16 }}>
-                    <label htmlFor="pf-add-skill" className={styles.filterLabel} style={{ marginBottom: 6, display: 'block' }}>
-                      Add a skill
-                    </label>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <input
-                        id="pf-add-skill"
-                        type="text"
-                        className={styles.formInputText}
-                        placeholder="For example: Docker"
-                        value={newSkillInput}
-                        onChange={(e) => setNewSkillInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            handleAddSkill()
-                          }
-                        }}
-                        style={{ flex: 1 }}
-                        data-testid="skills-add-input"
-                      />
-                      <button
-                        type="button"
-                        className={styles.btnOutline}
-                        onClick={handleAddSkill}
-                        data-testid="skills-add-btn"
-                      >
-                        Add skill
-                      </button>
+                      </div>
                     </div>
-              </div>
-            )}
+                  )}
+                </div>
               </section>
 
               {/* Card 4: Résumé */}
               <section id="resume" className={styles.card} aria-busy={resumeReplaceStatus === 'updating'}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Résumé</h2>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionHeaderText}>
+                    <h2 className={styles.cardTitle}>Résumé</h2>
+                  </div>
+                </div>
                 <input
                   ref={resumeFileInputRef}
                   type="file"
                   accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  style={{ display: 'none' }}
+                  className={styles.hiddenInput}
+                  aria-label="Choose a résumé file"
+                  tabIndex={-1}
                   onChange={(e) => {
                     const file = e.target.files?.[0]
                     if (file) void handleResumeFilePicked(file)
                   }}
                 />
 
-                {profile?.resumeName ? (
-                  <div className={styles.resumeUploadBox}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div className={styles.pdfBadge}>PDF</div>
-                      <div className={styles.resumeFileDetails}>
-                        <span className={styles.resumeFileName}>{profile.resumeName}</span>
-                        <span className={styles.resumeFileMeta}>
-                          {resumeReplaceStatus === 'updating'
-                            ? 'Updating résumé…'
-                            : resumeReplaceStatus === 'updated'
-                              ? 'Updated résumé'
-                              : profileUpdatedLabel
-                                ? `Updated ${profileUpdatedLabel}`
-                                : 'On file in your account'}
-                          {resumeReplaceStatus === 'idle' && profile.resumeText
-                            ? ' · Text extracted for interviews'
-                            : ''}
-                  </span>
+                <div className={styles.cardBody}>
+                  {profile?.resumeName ? (
+                    <div className={styles.resumeRow}>
+                      <div className={styles.resumeFile}>
+                        <span className={styles.fileBadge} aria-hidden="true">
+                          <HrIcon name="document" size={16} />
+                        </span>
+                        <div className={styles.resumeFileDetails}>
+                          <span className={styles.resumeFileName}>{profile.resumeName}</span>
+                          <span className={styles.resumeFileMeta}>
+                            {resumeReplaceStatus === 'updating'
+                              ? 'Updating résumé…'
+                              : resumeReplaceStatus === 'updated'
+                                ? 'Updated résumé'
+                                : profileUpdatedLabel
+                                  ? `Updated ${profileUpdatedLabel}`
+                                  : 'On file in your account'}
+                            {resumeReplaceStatus === 'idle' && profile.resumeText
+                              ? ' · Text extracted for interviews'
+                              : ''}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <div className={styles.resumeActionBtns}>
-                      <button
-                        type="button"
-                        className={styles.btnOutline}
-                        style={{ height: 36, padding: '0 14px', fontSize: '0.8125rem' }}
-                        disabled={resumeReplaceStatus === 'updating'}
-                        onClick={() => resumeFileInputRef.current?.click()}
-                      >
-                        {resumeReplaceStatus === 'updating' ? 'Updating…' : 'Replace'}
-                      </button>
-                      {profile.resumeUrl ? (
-                        <a
-                          href={profile.resumeUrl}
-                          className={styles.btnOutline}
-                          style={{ height: 34, padding: '0 14px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center' }}
-                          target="_blank"
-                          rel="noreferrer"
+                      <div className={styles.resumeActions}>
+                        {profile.resumeUrl ? (
+                          <a
+                            href={profile.resumeUrl}
+                            className="ds-btn ds-btn--ghost ds-btn--sm"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Download
+                          </a>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="ds-btn ds-btn--secondary ds-btn--sm"
+                          disabled={resumeReplaceStatus === 'updating'}
+                          aria-busy={resumeReplaceStatus === 'updating'}
+                          onClick={() => resumeFileInputRef.current?.click()}
                         >
-                          Download
-                        </a>
+                          {resumeReplaceStatus === 'updating' ? 'Updating…' : 'Replace'}
+                        </button>
+                      </div>
+                      {resumeReplaceError ? (
+                        <p className={styles.fieldError} role="alert">
+                          {resumeReplaceError}
+                        </p>
                       ) : null}
                     </div>
-                    {resumeReplaceError ? (
-                      <p className={styles.muted} style={{ margin: '10px 0 0', color: '#b91c1c' }}>
-                        {resumeReplaceError}
+                  ) : (
+                    <div className="ds-empty ds-empty--plain">
+                      <span className="ds-empty__icon" aria-hidden="true">
+                        <HrIcon name="upload" size={20} />
+                      </span>
+                      <p className="ds-empty__title">No résumé on file yet</p>
+                      <p className="ds-empty__body">
+                        Upload one so employers and AI interviews can use your background.
                       </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className={styles.empty} style={{ padding: '12px 0' }}>
-                    <p className={styles.muted} style={{ marginTop: 0 }}>
-                      No résumé on file yet. Upload one so employers and AI interviews can use your background.
-                    </p>
-                    <Link to="/onboarding" className={styles.primary} style={{ marginTop: 8, display: 'inline-flex' }}>
-                      Upload résumé
-                    </Link>
-              </div>
-            )}
+                      <div className="ds-empty__actions">
+                        <Link to="/onboarding" className="ds-btn ds-btn--secondary">
+                          Upload résumé
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
 
               {/* Card 5: Job preferences */}
               <section id="preferences" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>
-                  Job preferences
-                </h2>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionHeaderText}>
+                    <h2 className={styles.cardTitle}>Job preferences</h2>
+                  </div>
+                </div>
 
-                <div className={styles.formGridThree}>
-                  <div className={styles.formFieldBlock}>
+                <div className={styles.formGrid}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-expected-ctc-lpa">Expected CTC (LPA)</label>
-                    <input id="pf-expected-ctc-lpa"
+                    <input
+                      id="pf-expected-ctc-lpa"
                       type="text"
-                      className={styles.formInputText}
+                      inputMode="decimal"
+                      className={styles.input}
                       value={expectedCtc}
                       onChange={(e) => setExpectedCtc(e.target.value)}
                     />
-            </div>
-                  <div className={styles.formFieldBlock}>
+                  </div>
+                  <div className={styles.field}>
                     <label htmlFor="pf-notice-period">Notice period</label>
-                    <select id="pf-notice-period"
-                      className={styles.formInputText}
+                    <select
+                      id="pf-notice-period"
+                      className={styles.select}
                       value={noticePeriod}
                       onChange={(e) => setNoticePeriod(e.target.value)}
                     >
@@ -1728,109 +1769,122 @@ export function ProfilePage() {
                       <option value="90 days">90 days</option>
                     </select>
                   </div>
-                  <div className={styles.formFieldBlock}>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
                     <label htmlFor="pf-preferred-locations">Preferred locations</label>
-                    <input id="pf-preferred-locations"
+                    <input
+                      id="pf-preferred-locations"
                       type="text"
-                      className={styles.formInputText}
+                      className={styles.input}
                       value={prefLocations}
                       onChange={(e) => setPrefLocations(e.target.value)}
+                      aria-describedby="pf-preferred-locations-help"
                     />
+                    <p id="pf-preferred-locations-help" className={styles.helpText}>
+                      Separate cities with commas.
+                    </p>
                   </div>
                 </div>
 
-                <div style={{ marginTop: 16 }}>
-                  <span id="pf-work-mode" className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
-                    Work mode
-                  </span>
-                  <div role="group" aria-labelledby="pf-work-mode" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={workModes.remote}
-                        onChange={(e) => setWorkModes((prev) => ({ ...prev, remote: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>Remote</span>
-                    </label>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={workModes.hybrid}
-                        onChange={(e) => setWorkModes((prev) => ({ ...prev, hybrid: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>Hybrid</span>
-                    </label>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={workModes.onsite}
-                        onChange={(e) => setWorkModes((prev) => ({ ...prev, onsite: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>On-site</span>
-                    </label>
-                  </div>
-                </div>
+                <div className={styles.fieldsetRow}>
+                  <fieldset className={styles.fieldset}>
+                    <legend>Work mode</legend>
+                    <div className={styles.checkGroup}>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={workModes.remote}
+                          onChange={(e) => setWorkModes((prev) => ({ ...prev, remote: e.target.checked }))}
+                        />
+                        <span>Remote</span>
+                      </label>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={workModes.hybrid}
+                          onChange={(e) => setWorkModes((prev) => ({ ...prev, hybrid: e.target.checked }))}
+                        />
+                        <span>Hybrid</span>
+                      </label>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={workModes.onsite}
+                          onChange={(e) => setWorkModes((prev) => ({ ...prev, onsite: e.target.checked }))}
+                        />
+                        <span>On-site</span>
+                      </label>
+                    </div>
+                  </fieldset>
 
-                <div style={{ marginTop: 16 }}>
-                  <span id="pf-job-type" className={styles.filterLabel} style={{ display: 'block', marginBottom: 8 }}>
-                    Job type
-                  </span>
-                  <div role="group" aria-labelledby="pf-job-type" style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={jobTypes.fullTime}
-                        onChange={(e) => setJobTypes((prev) => ({ ...prev, fullTime: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>Full-time</span>
-                    </label>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={jobTypes.contract}
-                        onChange={(e) => setJobTypes((prev) => ({ ...prev, contract: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>Contract</span>
-                    </label>
-                    <label className={styles.checkboxRow} style={{ margin: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={jobTypes.internship}
-                        onChange={(e) => setJobTypes((prev) => ({ ...prev, internship: e.target.checked }))}
-                      />
-                      <span style={{ fontSize: '0.85rem', color: '#1e293b' }}>Internship</span>
-                    </label>
-                  </div>
+                  <fieldset className={styles.fieldset}>
+                    <legend>Job type</legend>
+                    <div className={styles.checkGroup}>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={jobTypes.fullTime}
+                          onChange={(e) => setJobTypes((prev) => ({ ...prev, fullTime: e.target.checked }))}
+                        />
+                        <span>Full-time</span>
+                      </label>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={jobTypes.contract}
+                          onChange={(e) => setJobTypes((prev) => ({ ...prev, contract: e.target.checked }))}
+                        />
+                        <span>Contract</span>
+                      </label>
+                      <label className={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={jobTypes.internship}
+                          onChange={(e) => setJobTypes((prev) => ({ ...prev, internship: e.target.checked }))}
+                        />
+                        <span>Internship</span>
+                      </label>
+                    </div>
+                  </fieldset>
                 </div>
               </section>
 
               {/* Card 6: Links */}
               <section id="links" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>Links</h2>
-                <div className={styles.formGridThree}>
-                  <div className={styles.formFieldBlock}>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionHeaderText}>
+                    <h2 className={styles.cardTitle}>Links</h2>
+                  </div>
+                </div>
+                <div className={styles.formGrid}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-linkedin">LinkedIn</label>
-                    <input id="pf-linkedin"
+                    <input
+                      id="pf-linkedin"
                       type="text"
-                      className={styles.formInputText}
+                      inputMode="url"
+                      className={styles.input}
                       value={linkedin}
                       onChange={(e) => setLinkedin(e.target.value)}
                     />
                   </div>
-                  <div className={styles.formFieldBlock}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-github">GitHub</label>
-                    <input id="pf-github"
+                    <input
+                      id="pf-github"
                       type="text"
-                      className={styles.formInputText}
+                      inputMode="url"
+                      className={styles.input}
                       value={github}
                       onChange={(e) => setGithub(e.target.value)}
                     />
                   </div>
-                  <div className={styles.formFieldBlock}>
+                  <div className={styles.field}>
                     <label htmlFor="pf-portfolio">Portfolio</label>
-                    <input id="pf-portfolio"
+                    <input
+                      id="pf-portfolio"
                       type="text"
-                      className={styles.formInputText}
+                      inputMode="url"
+                      className={styles.input}
                       value={portfolio}
                       onChange={(e) => setPortfolio(e.target.value)}
                     />
@@ -1840,73 +1894,71 @@ export function ProfilePage() {
 
               {/* Card 7: Privacy and consent */}
               <section id="privacy" className={styles.card}>
-                <h2 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700 }}>
-                  Privacy and consent
-                </h2>
-
-                <label className={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={visibleToEmployers}
-                    onChange={(e) => setVisibleToEmployers(e.target.checked)}
-                  />
-                  <div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0f172a' }}>
-                      Visible to employers
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      Employers can find your profile and score in search.
-                    </div>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionHeaderText}>
+                    <h2 className={styles.cardTitle}>Privacy and consent</h2>
                   </div>
-                </label>
+                </div>
 
-                <label className={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={emailAlerts}
-                    onChange={(e) => setEmailAlerts(e.target.checked)}
-                  />
-                  <div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0f172a' }}>
-                      Email me about new matches and updates
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      At most one email a day.
-                    </div>
+                <div className={styles.cardBody}>
+                  <label className={styles.checkboxRow}>
+                    <input
+                      type="checkbox"
+                      checked={visibleToEmployers}
+                      onChange={(e) => setVisibleToEmployers(e.target.checked)}
+                    />
+                    <span className={styles.checkText}>
+                      <span className={styles.checkTitle}>Visible to employers</span>
+                      <span className={styles.checkHelp}>
+                        Employers can find your profile and score in search.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className={styles.checkboxRow}>
+                    <input
+                      type="checkbox"
+                      checked={emailAlerts}
+                      onChange={(e) => setEmailAlerts(e.target.checked)}
+                    />
+                    <span className={styles.checkText}>
+                      <span className={styles.checkTitle}>Email me about new matches and updates</span>
+                      <span className={styles.checkHelp}>At most one email a day.</span>
+                    </span>
+                  </label>
+
+                  <div className={styles.dangerBtnRow}>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--secondary"
+                      onClick={() => {
+                        setToast('Preparing data export…')
+                        setTimeout(() => setToast(''), 2000)
+                      }}
+                    >
+                      Download my data
+                    </button>
+                    <button
+                      type="button"
+                      className="ds-btn ds-btn--danger-ghost"
+                      onClick={() => {
+                        if (window.confirm('Are you sure you want to request account deletion?')) {
+                          setToast('Account deletion request registered.')
+                          setTimeout(() => setToast(''), 2500)
+                        }
+                      }}
+                    >
+                      Delete my account
+                    </button>
                   </div>
-                </label>
-
-                <div className={styles.dangerBtnRow}>
-                  <button
-                    type="button"
-                    className={styles.btnOutline}
-                    onClick={() => {
-                      setToast('Preparing data export...')
-                      setTimeout(() => setToast(''), 2000)
-                    }}
-                  >
-                    Download my data
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.btnDangerOutline}
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to request account deletion?')) {
-                        setToast('Account deletion request registered.')
-                        setTimeout(() => setToast(''), 2500)
-                      }
-                    }}
-                  >
-                    Delete my account
-                  </button>
                 </div>
               </section>
 
-              {/* Bottom Actions */}
+              {/* Bottom actions */}
               <div className={styles.profileBottomBar}>
                 <button
                   type="button"
-                  className={styles.btnOutline}
+                  className="ds-btn ds-btn--secondary"
                   onClick={() => {
                     setToast('Changes reverted.')
                     setTimeout(() => setToast(''), 2000)
@@ -1916,17 +1968,32 @@ export function ProfilePage() {
                 </button>
                 <button
                   type="button"
-                  className={styles.primary}
-                  onClick={() => void handleSaveProfile()} disabled={basicsSaving}
+                  className="ds-btn ds-btn--primary"
+                  onClick={() => void handleSaveProfile()}
+                  disabled={basicsSaving}
+                  aria-busy={basicsSaving}
                 >
                   Save changes
                 </button>
               </div>
+            </div>
+          </section>
 
-              {/* Career Scorecard report if interview taken */}
+          {/* Career report, shown once an interview is taken */}
           {interview && (
-                <div style={{ marginTop: 20 }}>
+            <section className={styles.reportRegion} aria-labelledby="profile-report-heading">
+              <header className={styles.reportRegionHead}>
+                <div>
+                  <h2 id="profile-report-heading" className={styles.sectionTitle}>
+                    Your interview report
+                  </h2>
+                  <p className={styles.sectionSub}>
+                    Your latest AI interview results. Employers see this report when you apply.
+                  </p>
+                </div>
+              </header>
               <CareerIntelligenceDashboard
+                embedded
                 result={interview}
                 candidateName={user?.name ?? profile?.fullName ?? 'Candidate'}
                 candidateRole={profile?.currentRole ?? interview.role}
@@ -1942,10 +2009,8 @@ export function ProfilePage() {
                   window.location.href = '/interview'
                 }}
               />
-                </div>
+            </section>
           )}
-            </div>
-          </div>
         </motion.main>
       </div>
     </div>
@@ -2010,8 +2075,7 @@ export function ApplicationsPage() {
   }
 
   return (
-    <div className={styles.pageCandidateBleed}>
-    <div className={`${styles.page} ${styles.pageCandidate}`}>
+    <div className={styles.page}>
       <div className={styles.shell}>
         <motion.main
           className={styles.main}
@@ -2022,114 +2086,117 @@ export function ApplicationsPage() {
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
               <h1>My applications</h1>
-              <p>
-                Track every role you applied to. Status updates from employers
-                show up here automatically.
-              </p>
+              <p>Track every role you applied to. Status updates from employers show up here automatically.</p>
             </div>
-            <Link to="/jobs" className={styles.secondary}>
+            <Link to="/jobs" className="ds-btn ds-btn--secondary">
               Find more roles
             </Link>
           </motion.header>
 
-          {appsLoading ? (
-            <p className={styles.toast} role="status">
-              Loading your applications…
-            </p>
-          ) : null}
           {appsError ? (
-            <p className={styles.toast} role="alert">
+            <div className={`ds-alert ds-alert--error ${styles.pageAlert}`} role="alert">
               {appsError}
-            </p>
+            </div>
           ) : null}
 
-          {!appsLoading && apps.length === 0 ? (
-            <motion.aside className={styles.unlockBanner} variants={fadeUp}>
-              <div>
-                <strong>No applications yet</strong>
-                <p>
-                  {interview
-                    ? 'Browse ranked matches and apply with your AI score.'
-                    : 'Complete your AI interview first, then apply to unlocked roles.'}
-                </p>
+          {appsLoading ? (
+            <div className={styles.listCard} aria-busy="true">
+              <p className="ds-sr-only" role="status">
+                Loading your applications…
+              </p>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={`sk-${i}`} className={styles.appRow} aria-hidden="true">
+                  <div className={styles.appRowMain}>
+                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonMid}`} />
+                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonShort}`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : apps.length === 0 ? (
+            <motion.div className="ds-empty" variants={fadeUp}>
+              <span className="ds-empty__icon" aria-hidden="true">
+                <HrIcon name="briefcase" size={20} />
+              </span>
+              <p className="ds-empty__title">No applications yet</p>
+              <p className="ds-empty__body">
+                {interview
+                  ? 'Browse ranked matches and apply with your AI score.'
+                  : 'Complete your AI interview first, then apply to unlocked roles.'}
+              </p>
+              <div className="ds-empty__actions">
+                <Link to={interview ? '/jobs' : '/interview'} className="ds-btn ds-btn--primary">
+                  {interview ? 'Browse jobs' : 'Start interview'}
+                </Link>
               </div>
-              <Link to={interview ? '/jobs' : '/interview'} className={styles.primary}>
-                {interview ? 'Browse jobs' : 'Take interview'}
-              </Link>
-            </motion.aside>
-          ) : !appsLoading ? (
-            <div className={styles.jobList}>
+            </motion.div>
+          ) : (
+            <motion.ul className={styles.listCard} variants={fadeUp} aria-label="Your applications">
               {apps.map((app) => {
                 const jobRemoved = app.jobStatus === 'deleted'
+                const status = jobRemoved
+                  ? { label: 'Job removed', tone: 'neutral' }
+                  : app.status === 'Offer'
+                    ? { label: 'Offer', tone: 'success' }
+                    : app.status === 'Interview'
+                      ? { label: 'Interview', tone: 'brand' }
+                      : app.status === 'In Review'
+                        ? { label: 'In review', tone: 'warning' }
+                        : { label: app.status, tone: 'neutral' }
                 return (
-                  <motion.article
-                    key={app.id}
-                    className={`${styles.jobCard} ${jobRemoved ? styles.jobCardEmployerDeleted : ''}`}
-                    variants={fadeUp}
-                  >
-                  <div className={styles.appRowMain}>
-                    <div className={styles.appRowTitle}>
-                      <h2>{app.title}</h2>
-                      <span
-                        className={`${styles.appStatus} ${
-                          jobRemoved
-                            ? styles.appStatusRemoved
-                            : app.status === 'Offer'
-                              ? styles.appStatusOffer
-                              : app.status === 'Interview'
-                                ? styles.appStatusInterview
-                                : app.status === 'In Review'
-                                  ? styles.appStatusReview
-                                  : ''
-                        }`}
-                      >
-                        {jobRemoved ? 'Job deleted' : app.status}
-                      </span>
-                    </div>
-                    <p>
-                      {app.company} · {app.location}
+                  <li key={app.id} className={styles.appRow}>
+                    <div className={styles.appRowMain}>
+                      <h2 className={styles.appRowTitle}>{app.title}</h2>
+                      <p className={styles.appRowSub}>
+                        {app.company} · {app.location}
                         {app.roleTrack ? ` · ${app.roleTrack}` : ''}
-                      </p>
-                    <p className={styles.appRowMeta}>
-                        Applied {new Date(app.appliedAt).toLocaleDateString()}
                         {app.experienceLevel ? ` · ${app.experienceLevel}` : ''}
-                    </p>
+                      </p>
                       {jobRemoved ? (
-                        <p className={styles.jobDeletedBanner} role="status">
+                        <p className={styles.appRowNote} role="status">
                           {app.jobDeletedMessage ||
                             'This job was removed by the employer. You can withdraw this application.'}
                         </p>
                       ) : null}
-                  </div>
-                  <div className={styles.jobRight}>
-                      <span className={styles.appScore}>
-                        {app.interviewScore != null ? (
-                          <>
-                            <strong>{app.interviewScore}%</strong> interview score
-                          </>
-                        ) : (
-                          <>
-                            <strong>{app.match}%</strong> match
-                          </>
-                        )}
-                      </span>
+                    </div>
+                    <span className={`ds-pill ds-pill--dot ds-pill--${status.tone} ${styles.appStatus}`}>
+                      {status.label}
+                    </span>
+                    <span className={styles.appDate}>
+                      <span className={styles.appCellLabel}>Applied </span>
+                      {formatProfileDate(app.appliedAt) ?? '—'}
+                    </span>
+                    <span className={styles.appScore}>
+                      {app.interviewScore != null ? (
+                        <>
+                          <strong>{app.interviewScore}</strong>
+                          <span className={styles.appScoreUnit}>/100</span>
+                          <span className={styles.appScoreLabel}>interview</span>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{app.match}%</strong>
+                          <span className={styles.appScoreLabel}>match</span>
+                        </>
+                      )}
+                    </span>
                     <button
                       type="button"
-                      className={styles.secondary}
-                        disabled={withdrawingId === app.id}
-                        onClick={() => void handleWithdraw(app.id)}
+                      className={`ds-btn ds-btn--secondary ds-btn--sm ${styles.appAction}`}
+                      disabled={withdrawingId === app.id}
+                      aria-busy={withdrawingId === app.id}
+                      aria-label={`Withdraw application for ${app.title} at ${app.company}`}
+                      onClick={() => void handleWithdraw(app.id)}
                     >
-                        {withdrawingId === app.id ? 'Withdrawing…' : 'Withdraw'}
+                      {withdrawingId === app.id ? 'Withdrawing…' : 'Withdraw'}
                     </button>
-                  </div>
-                </motion.article>
+                  </li>
                 )
               })}
-            </div>
-          ) : null}
+            </motion.ul>
+          )}
         </motion.main>
       </div>
-    </div>
     </div>
   )
 }

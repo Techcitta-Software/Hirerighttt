@@ -1,9 +1,7 @@
 import { Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { HrIcon } from '../components/HrIcon'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
-import { fadeUp, staggerContainer } from '../motion/variants'
 import styles from './PricingPage.module.css'
 
 const PLANS = [
@@ -68,36 +66,21 @@ export function PricingPage() {
     <div className={styles.page}>
       <MarketingNavBar />
       <main className={styles.shell}>
-        <motion.header
-          className={styles.header}
-          initial="hidden"
-          animate="show"
-          variants={staggerContainer}
-        >
-          <motion.div className={styles.kicker} variants={fadeUp}>
+        <header className={styles.header}>
+          <div className={styles.kicker}>
             TRANSPARENT PRICING
-          </motion.div>
-          <motion.h1 className={styles.title} variants={fadeUp}>
+          </div>
+          <h1 className={styles.title}>
             Hire the best. <em>Priced for everyone.</em>
-          </motion.h1>
-          <motion.p className={styles.subtitle} variants={fadeUp}>
+          </h1>
+          <p className={styles.subtitle}>
             Whether you are a job seeker proving your skills or an employer screening hundreds of candidates, HireRighttt has the right plan for you.
-          </motion.p>
-        </motion.header>
+          </p>
+        </header>
 
-        <motion.div
-          className={styles.grid}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, amount: 0.1 }}
-          variants={staggerContainer}
-        >
+        <div className={styles.grid}>
           {PLANS.map((plan) => (
-            <motion.div
-              key={plan.name}
-              className={`${styles.card} ${plan.popular ? styles.popularCard : ''}`}
-              variants={fadeUp}
-            >
+            <div key={plan.name} className={`${styles.card} ${plan.popular ? styles.popularCard : ''}`}>
               {plan.popular && <div className={styles.popularBadge}>Most Popular</div>}
               <h2 className={styles.planName}>{plan.name}</h2>
               <p className={styles.planDesc}>{plan.desc}</p>
@@ -121,9 +104,9 @@ export function PricingPage() {
               >
                 {plan.ctaText}
               </Link>
-            </motion.div>
+            </div>
           ))}
-        </motion.div>
+        </div>
       </main>
       <MarketingFooter />
     </div>

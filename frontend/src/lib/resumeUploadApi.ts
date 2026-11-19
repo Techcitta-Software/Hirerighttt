@@ -40,7 +40,10 @@ function sanitizeStorageError(raw: string): string {
 }
 
 /** Upload resume binary to S3 (via Node API) after auth. */
-export async function uploadResumeViaApiWithStatus(file: File): Promise<ResumeUploadOutcome> {
+export async function uploadResumeViaApiWithStatus(
+  file: File,
+  opts: { background?: boolean } = {},
+): Promise<ResumeUploadOutcome> {
   if (file.size > MAX_API_RESUME_BYTES) {
     return {
       ok: false,
@@ -58,6 +61,8 @@ export async function uploadResumeViaApiWithStatus(file: File): Promise<ResumeUp
       file_base64,
       contentType: file.type || undefined,
     }),
+    // The upload card shows its own progress when the caller asks for it.
+    background: opts.background,
   })
   const data = (await res.json().catch(() => ({}))) as {
     storagePath?: string

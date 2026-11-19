@@ -83,8 +83,8 @@ div {
   font-family: var(--font);
 }
 
+/* No global smooth scrolling: page changes jump straight to the top (see ScrollToTop in App.tsx). */
 html {
-  scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
 }
 

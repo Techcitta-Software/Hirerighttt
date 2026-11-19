@@ -11,11 +11,7 @@ export function ContactPage() {
   const [sent, setSent] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [message, setMessage] = useState(() =>
-    new URLSearchParams(window.location.search).get('demo') === '1'
-      ? 'I would like to book a demo of HireRighttt.'
-      : '',
-  )
+  const [message, setMessage] = useState(() => (isDemo ? 'I would like to book a demo of HireRighttt.' : ''))
   const [dataConsent, setDataConsent] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -45,7 +41,7 @@ export function ContactPage() {
   return (
     <div className={styles.page}>
       <MarketingNavBar />
-      <div className={styles.shell} style={{ paddingTop: '2rem' }}>
+      <div className={`${styles.shell} ${styles.authStage}`}>
         <div className={styles.card}>
           <span className={styles.kicker}>{isDemo ? 'BOOK A DEMO' : 'SUPPORT'}</span>
           <h1>{isDemo ? 'See HireRighttt in action' : 'Contact HireRighttt'}</h1>
@@ -116,7 +112,7 @@ export function ContactPage() {
                   {error}
                 </div>
               ) : null}
-              <button type="submit" className={styles.submit} disabled={!dataConsent || sending}>
+              <button type="submit" className={styles.submit} disabled={sending} aria-busy={sending || undefined}>
                 {sending ? (
                   <>
                     <span className="ds-spinner" aria-hidden="true" /> Sending…

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
+import { Score } from '../components/Score'
+import { handleDialogKeyDown, useDialogFocus } from '../components/useDialog'
 import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
 import { JobApplicantsPanel } from '../components/JobApplicantsPanel'
@@ -9,20 +10,18 @@ import { InviteCandidatesPanel } from '../components/InviteCandidatesPanel'
 import { CandidateSearchBar, HighlightText } from '../components/CandidateSearchBar'
 import {
   candidateScore,
-  matchesQuickFilter,
   needsIntegrityReview,
   searchCandidates,
   type CandidateQuickFilter,
   type CandidateSort,
 } from '../lib/candidateSearch'
-import { apiHealth, fetchMailStatus } from '../lib/api'
+import { fetchMailStatus } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
 import {
   filterJobSeekerCandidates,
   hasHireRightReport,
   hasResumeContent,
-  mapApplicantStatusToApi,
   mapOrgCandidate,
   mapVendorApplicant,
   resumeDisplayLabel,
@@ -41,14 +40,14 @@ import {
   createVendorJob,
   deleteVendorJob,
   markVendorJobDeletedForCandidates,
-  fetchEmployerApplicationAlerts,
   fetchJobApplicants,
   fetchOrganizationCandidates,
   fetchVendorJobs,
-  patchApplicantStatus,
   sendApplicantInterviewInvite,
+  type EmployerApplicationAlert,
 } from '../lib/vendorApi'
-import { syncEmployerApplicationNotifications } from '../lib/employerApplicationNotifications'
+import { subscribeEmployerApplicationAlerts } from '../lib/employerAlertsFeed'
+import { mapWithConcurrency } from '../lib/concurrency'
 import styles from './EmployerDashboard.module.css'
 
 function getInitials(name: string): string {
@@ -92,21 +91,24 @@ function formatShortDate(iso: string | undefined): string {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-/** A score as a plain number with a small coloured dot: green 75+, amber 50+, red below. */
-function ScoreBadge({ value, label = 'Interview score' }: { value: number; label?: string }) {
-  const rounded = Math.round(value)
-  const tone = rounded >= 75 ? styles.toneGood : rounded >= 50 ? styles.toneMid : styles.toneLow
+/** One error panel for a failed load, with a way to try again. Replaces the empty state. */
+function LoadErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <span className={styles.score} title={label}>
-      <span className={`${styles.scoreDot} ${tone}`} aria-hidden="true" />
-      {rounded}
-      <span className={styles.scoreMax}>/100</span>
-    </span>
+    <div className={`ds-alert ds-alert--error ${styles.loadError}`} role="alert">
+      <span>{message}</span>
+      <button type="button" className={`${styles.btnSecondary} ${styles.btnSm}`} onClick={onRetry}>
+        Try again
+      </button>
+    </div>
   )
 }
 
+/** Rows rendered at once in the candidate directory; "Show more" adds another page. */
+const DIRECTORY_PAGE_SIZE = 50
+
 type CandidatesDirectoryTableProps = {
   rows: EmployerApplicant[]
+  loading: boolean
   emptyTitle: string
   emptyBody: string
   /** Current search text: used to highlight matches and to explain an empty result. */
@@ -116,8 +118,9 @@ type CandidatesDirectoryTableProps = {
 }
 
 /** Same layout as /employer/candidates — name, role, experience, resume, HireRight report. */
-function CandidatesDirectoryTable({
+const CandidatesDirectoryTable = memo(function CandidatesDirectoryTable({
   rows,
+  loading,
   emptyTitle,
   emptyBody,
   query = '',
@@ -125,7 +128,7 @@ function CandidatesDirectoryTable({
   onViewDocument,
 }: CandidatesDirectoryTableProps) {
   return (
-    <table className={`${styles.candidatesTable} ${styles.stackOnPhone}`}>
+    <table className={`${styles.candidatesTable} ${styles.stackOnPhone}`} aria-busy={loading}>
       <thead>
         <tr>
           <th scope="col" style={{ width: '30%' }}>Candidate</th>
@@ -136,7 +139,25 @@ function CandidatesDirectoryTable({
         </tr>
       </thead>
       <tbody>
-        {rows.length === 0 ? (
+        {loading && rows.length === 0 ? (
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <tr key={i} className={styles.skeletonRow} aria-hidden="true">
+              <td className={styles.directoryNameCell}>
+                <div className={styles.candidateCell}>
+                  <span className={`ds-skeleton ${styles.avatar}`} />
+                  <div className={styles.candidateCellText}>
+                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonName}`} />
+                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonSub}`} />
+                  </div>
+                </div>
+              </td>
+              <td data-label="Role"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
+              <td data-label="Experience"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
+              <td data-label="Resume"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
+              <td data-label="Report"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
+            </tr>
+          ))
+        ) : rows.length === 0 ? (
           <tr>
             <td colSpan={5}>
               <div className={styles.emptyState}>
@@ -175,7 +196,7 @@ function CandidatesDirectoryTable({
                 <td className={styles.directoryNameCell}>
                   <div className={styles.candidateCell}>
                     <div className={styles.avatar} aria-hidden="true">{initials}</div>
-                    <div style={{ minWidth: 0 }}>
+                    <div className={styles.candidateCellText}>
                       <div className={styles.candidateName}>
                         <HighlightText text={cand.candidateName} query={query} />
                       </div>
@@ -215,11 +236,10 @@ function CandidatesDirectoryTable({
                 <td data-label="Report">
                   {reportReady ? (
                     <span className={styles.reportCell}>
-                      {score !== null ? <ScoreBadge value={score} label="Overall interview score" /> : null}
+                      {score !== null ? <Score value={score} label="Overall interview score" /> : null}
                       <button
                         type="button"
-                        className={styles.docLinkBtn}
-                        style={{ whiteSpace: 'nowrap' }}
+                        className={`${styles.docLinkBtn} ${styles.docLinkBtnNoWrap}`}
                         onClick={() => onViewDocument('report', cand)}
                       >
                         View report
@@ -236,7 +256,7 @@ function CandidatesDirectoryTable({
       </tbody>
     </table>
   )
-}
+})
 
 interface EmployerDashboardProps {
   view?: 'dashboard' | 'candidates'
@@ -257,12 +277,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }, [location])
 
   const user = getUser()
+  const navigate = useNavigate()
   const [jobs, setJobs] = useState<EmployerJob[]>([])
   const [applicants, setApplicants] = useState<EmployerApplicant[]>([])
   const [jobCounts, setJobCounts] = useState<Record<string, number>>({})
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
-  const [selectedJobTitle, setSelectedJobTitle] = useState('')
   const [portalLoading, setPortalLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Filters State
   const [searchFilter, setSearchFilter] = useState('')
@@ -275,9 +296,24 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [quickFilter, setQuickFilter] = useState<CandidateQuickFilter>('all')
   const [sortMode, setSortMode] = useState<CandidateSort>('best_match')
   const [showMoreFilters, setShowMoreFilters] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(DIRECTORY_PAGE_SIZE)
 
   // Modals
-  const [showCreateJobModal, setShowCreateJobModal] = useState(false)
+  // The dashboard's "Create job" links here with { createJob: true } so the modal is open on arrival.
+  const [showCreateJobModal, setShowCreateJobModal] = useState(
+    () => Boolean((location.state as { createJob?: boolean } | null)?.createJob),
+  )
+  const [creatingJob, setCreatingJob] = useState(false)
+  const [createJobError, setCreateJobError] = useState('')
+  const [pendingDeleteJob, setPendingDeleteJob] = useState<EmployerJob | null>(null)
+  const [deleteJobError, setDeleteJobError] = useState('')
+
+  useEffect(() => {
+    if (!(location.state as { createJob?: boolean } | null)?.createJob) return
+    setShowCreateJobModal(true)
+    // Drop the flag so a refresh or Back does not reopen the modal.
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.state, location.pathname, navigate])
   const [selectedApplicant, setSelectedApplicant] = useState<EmployerApplicant | null>(null)
   const [documentViewer, setDocumentViewer] = useState<{
     kind: EmployerDocumentKind
@@ -317,6 +353,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [inviteFeedback, setInviteFeedback] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
 
+  // A new applicant starts with a clean invite form.
+  const selectedApplicantId = selectedApplicant?.id
+  useEffect(() => {
+    setInviteStart('')
+    setInviteDuration(60)
+    setInviteFeedback('')
+  }, [selectedApplicantId])
+
   /** Ignore in-flight job list fetches after optimistic create/delete. */
   const jobsLoadSeqRef = useRef(0)
 
@@ -324,45 +368,46 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     jobsLoadSeqRef.current += 1
   }
 
-  async function refreshJobCountsForJobs(mapped: EmployerJob[], loadSeq: number) {
+  async function refreshJobCountsForJobs(
+    mapped: EmployerJob[],
+    loadSeq: number,
+    knownCounts: Record<string, number> = {},
+  ) {
     const counts: Record<string, number> = {}
+    const toFetch: EmployerJob[] = []
     for (const job of mapped) {
+      if (isOptimisticJobId(job.id)) counts[job.id] = 0
+      else if (typeof knownCounts[job.id] === 'number') counts[job.id] = knownCounts[job.id]
+      else toFetch.push(job)
+    }
+    // Older APIs do not send applicantCount: fetch the missing counts, a few at a time instead of one by one.
+    await mapWithConcurrency(toFetch, 4, async (job) => {
       if (loadSeq !== jobsLoadSeqRef.current) return
-      if (isOptimisticJobId(job.id)) {
-        counts[job.id] = 0
-        continue
-      }
       try {
         const { total, applicants } = await fetchJobApplicants(job.id)
         counts[job.id] = total ?? applicants.length
       } catch {
         counts[job.id] = 0
       }
-    }
+    })
     if (loadSeq !== jobsLoadSeqRef.current) return
     setJobCounts((prev) => ({ ...prev, ...counts }))
   }
 
-  async function loadJobsFromApi() {
+  /** Loads the job list. Applicant counts are only needed on the Jobs page, not the candidate directory. */
+  async function loadJobsFromApi({ withCounts }: { withCounts: boolean }) {
     if (!user || user.role !== 'employer') return
     const loadSeq = ++jobsLoadSeqRef.current
-    const online = await apiHealth()
-    if (loadSeq !== jobsLoadSeqRef.current) return
-    if (!online) {
-      setJobs([])
-      return
-    }
-    const sessionOk = await ensureApiSession()
-    if (loadSeq !== jobsLoadSeqRef.current) return
-    if (!sessionOk) {
-      setJobs([])
-      return
-    }
     const { jobs: remoteJobs } = await fetchVendorJobs()
     if (loadSeq !== jobsLoadSeqRef.current) return
     const mapped = remoteJobs.map((j) => vendorJobToEmployerJob(j, user.email))
     setJobs(mapped)
-    void refreshJobCountsForJobs(mapped, loadSeq)
+    if (!withCounts) return
+    const knownCounts: Record<string, number> = {}
+    for (const j of remoteJobs) {
+      if (typeof j.applicantCount === 'number') knownCounts[j.id] = j.applicantCount
+    }
+    void refreshJobCountsForJobs(mapped, loadSeq, knownCounts)
   }
 
   async function loadOrgCandidatesFromApi(
@@ -384,17 +429,24 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     void (async () => {
       if (!user || user.role !== 'employer') return
       setPortalLoading(true)
+      setLoadError('')
       try {
-        await loadJobsFromApi()
-        if (cancelled) return
-        if (isCandidatesView) {
-          await loadOrgCandidatesFromApi()
+        // The session check is itself an API request, so no separate /api/health ping first.
+        if (!(await ensureApiSession())) {
+          throw new Error('Could not reach the server. Check your connection and try again.')
         }
+        if (cancelled) return
+        // Jobs (for the invite panel) and candidates load side by side on the directory.
+        await Promise.all([
+          loadJobsFromApi({ withCounts: !isCandidatesView }),
+          isCandidatesView ? loadOrgCandidatesFromApi() : null,
+        ])
       } catch (err) {
         if (!cancelled) {
           console.warn('[employer-dashboard] load failed', err)
-          setJobs([])
-          setApplicants([])
+          setLoadError(
+            `We could not load ${isCandidatesView ? 'your candidates' : 'your job openings'}. Check your connection and try again.`,
+          )
         }
       } finally {
         if (!cancelled) setPortalLoading(false)
@@ -403,43 +455,43 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [user?.email, user?.role, isCandidatesView])
+  }, [user?.email, user?.role, isCandidatesView, reloadKey])
 
   useEffect(() => {
     if (!user || user.role !== 'employer') return
     let cancelled = false
+    // The page's initial load already fetched every job's count and the roster, so the first batch
+    // of alerts only marks what exists now; only alerts that arrive later trigger a refresh.
+    let seeded = false
 
-    async function pollApplicationAlerts() {
-      try {
-        await ensureApiSession()
-        const { alerts } = await fetchEmployerApplicationAlerts()
-        if (cancelled) return
-        syncEmployerApplicationNotifications(alerts)
-        const fresh = alerts.filter((a) => !seenApplicationAlertIdsRef.current.has(a.id))
-        if (fresh.length) {
-          fresh.forEach((a) => seenApplicationAlertIdsRef.current.add(a.id))
-          for (const alert of fresh) {
-            try {
-              const { total, applicants: roster } = await fetchJobApplicants(alert.jobId, { background: true })
-              setJobCounts((prev) => ({ ...prev, [alert.jobId]: total ?? roster.length }))
-            } catch {
-              /* ignore per-job refresh errors */
-            }
-          }
-          if (isCandidatesView) {
-            void loadOrgCandidatesFromApi(undefined, { background: true })
-          }
+    async function onApplicationAlerts(alerts: EmployerApplicationAlert[]) {
+      if (cancelled) return
+      const fresh = alerts.filter((a) => !seenApplicationAlertIdsRef.current.has(a.id))
+      fresh.forEach((a) => seenApplicationAlertIdsRef.current.add(a.id))
+      if (!seeded) {
+        seeded = true
+        return
+      }
+      if (!fresh.length) return
+      for (const jobId of new Set(fresh.map((a) => a.jobId))) {
+        try {
+          const { total, applicants: roster } = await fetchJobApplicants(jobId, { background: true })
+          if (cancelled) return
+          setJobCounts((prev) => ({ ...prev, [jobId]: total ?? roster.length }))
+        } catch {
+          /* ignore per-job refresh errors */
         }
-      } catch {
-        /* polling is best-effort */
+      }
+      if (isCandidatesView && !cancelled) {
+        void loadOrgCandidatesFromApi(undefined, { background: true })
       }
     }
 
-    void pollApplicationAlerts()
-    const interval = window.setInterval(() => void pollApplicationAlerts(), 30000)
+    // Shared with the nav bell: one request every 30 s for both.
+    const unsubscribe = subscribeEmployerApplicationAlerts((alerts) => void onApplicationAlerts(alerts))
     return () => {
       cancelled = true
-      window.clearInterval(interval)
+      unsubscribe()
     }
   }, [user?.email, user?.role, isCandidatesView])
 
@@ -532,39 +584,57 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     })
   }, [applicants, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
 
+  // The input updates on every keystroke; the (heavier) search and table re-render follow at lower priority.
+  const deferredQuery = useDeferredValue(searchFilter)
+
   // Ranked multi-word search (name, email, phone, role, skills, resume text) + quick filter + sort.
   const filteredApplicants = useMemo(
-    () => searchCandidates(advancedFiltered, { query: searchFilter, quick: quickFilter, sort: sortMode }),
-    [advancedFiltered, searchFilter, quickFilter, sortMode],
+    () => searchCandidates(advancedFiltered, { query: deferredQuery, quick: quickFilter, sort: sortMode }),
+    [advancedFiltered, deferredQuery, quickFilter, sortMode],
   )
 
-  const quickCounts = useMemo<Record<CandidateQuickFilter, number>>(
-    () => ({
-      all: advancedFiltered.length,
-      interviewed: advancedFiltered.filter((c) => matchesQuickFilter(c, 'interviewed')).length,
-      not_interviewed: advancedFiltered.filter((c) => matchesQuickFilter(c, 'not_interviewed')).length,
-      score_70: advancedFiltered.filter((c) => matchesQuickFilter(c, 'score_70')).length,
-      review: advancedFiltered.filter((c) => needsIntegrityReview(c)).length,
-    }),
-    [advancedFiltered],
+  // Any change to the result set starts again from the first page of rows.
+  useEffect(() => {
+    setVisibleCount(DIRECTORY_PAGE_SIZE)
+  }, [filteredApplicants])
+
+  const visibleApplicants = useMemo(
+    () => filteredApplicants.slice(0, visibleCount),
+    [filteredApplicants, visibleCount],
   )
 
-  async function handleStatusChange(id: string, newStatus: EmployerApplicant['status']) {
-    setApplicants((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, status: newStatus } : a)),
-    )
-    try {
-      await ensureApiSession()
-      if (await apiHealth()) {
-        await patchApplicantStatus(id, mapApplicantStatusToApi(newStatus))
-      }
-    } catch (err) {
-      console.warn('[employer-dashboard] status sync failed', err)
+  const quickCounts = useMemo<Record<CandidateQuickFilter, number>>(() => {
+    const counts = { all: advancedFiltered.length, interviewed: 0, not_interviewed: 0, score_70: 0, review: 0 }
+    for (const c of advancedFiltered) {
+      if (c.interviewResult) counts.interviewed += 1
+      else counts.not_interviewed += 1
+      const score = candidateScore(c)
+      if (score !== null && score >= 70) counts.score_70 += 1
+      if (needsIntegrityReview(c)) counts.review += 1
     }
+    return counts
+  }, [advancedFiltered])
+
+  const inviteJobs = useMemo(() => jobs.map((j) => ({ id: j.id, title: j.title })), [jobs])
+  const clearSearch = useCallback(() => setSearchFilter(''), [])
+  const openDocument = useCallback(
+    (kind: EmployerDocumentKind, applicant: EmployerApplicant) => setDocumentViewer({ kind, applicant }),
+    [],
+  )
+
+  function openCreateJob() {
+    setCreateJobError('')
+    setShowCreateJobModal(true)
+  }
+
+  function closeCreateJob() {
+    if (creatingJob) return
+    setShowCreateJobModal(false)
   }
 
   async function handleCreateJob(e: React.FormEvent) {
     e.preventDefault()
+    if (creatingJob) return
     const jd = newJobDescription.trim()
     const title = newJobTitle.trim()
     const location = newJobLocation.trim()
@@ -596,6 +666,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       shareableCode: 'pending',
     }
 
+    setCreatingJob(true)
+    setCreateJobError('')
     bumpJobsLoadGeneration()
     setJobs((prev) => [optimisticJob, ...prev])
     setJobCounts((prev) => ({ ...prev, [optimisticId]: 0 }))
@@ -603,9 +675,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
     try {
       await ensureApiSession()
-      if (!(await apiHealth())) {
-        throw new Error('We cannot create this job right now. Please try again shortly.')
-      }
       const { job } = await createVendorJob({
         title,
         jobDescription: jd,
@@ -640,24 +709,35 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         return next
       })
       setPortalSyncNote('')
+      setCreateJobError(
+        err instanceof Error && err.message
+          ? `The job was not created. ${err.message}`
+          : 'The job was not created. Please try again.',
+      )
+    } finally {
+      setCreatingJob(false)
     }
+  }
+
+  function requestDeleteJob(job: EmployerJob) {
+    if (isOptimisticJobId(job.id) || deletingJobId) return
+    setDeleteJobError('')
+    setPendingDeleteJob(job)
+  }
+
+  function closeDeleteJob() {
+    if (deletingJobId) return
+    setPendingDeleteJob(null)
   }
 
   async function handleDeleteJob(job: EmployerJob) {
     if (isOptimisticJobId(job.id) || deletingJobId) return
-    const ok = window.confirm(
-      `Delete “${job.title}”?\n\nThis removes the job posting from your account. Application links for this opening will stop working.`,
-    )
-    if (!ok) return
-
     setDeletingJobId(job.id)
+    setDeleteJobError('')
     setPortalSyncNote('')
 
     try {
       await ensureApiSession()
-      if (!(await apiHealth())) {
-        throw new Error('We cannot delete this job right now. Please try again shortly.')
-      }
       await markVendorJobDeletedForCandidates(job.id)
       await deleteVendorJob(job.id)
 
@@ -668,16 +748,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         delete next[job.id]
         return next
       })
-      if (selectedJobId === job.id) {
-        setSelectedJobId(null)
-        setSelectedJobTitle('')
-        setApplicants([])
-      } else {
-        setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
-      }
+      setApplicants((prev) => prev.filter((a) => a.jobId !== job.id))
+      setPendingDeleteJob(null)
       setPortalSyncNote(`Job “${job.title}” was deleted.`)
     } catch (err) {
       console.warn('[employer-dashboard] delete job failed', err)
+      setDeleteJobError(
+        err instanceof Error && err.message
+          ? `The job was not deleted. ${err.message}`
+          : 'The job was not deleted. Please try again.',
+      )
     } finally {
       setDeletingJobId(null)
     }
@@ -749,6 +829,15 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }
 
 
+  const createJobDialogRef = useRef<HTMLFormElement>(null)
+  const rosterDialogRef = useRef<HTMLDivElement>(null)
+  const reportDialogRef = useRef<HTMLDivElement>(null)
+  const deleteDialogRef = useRef<HTMLDivElement>(null)
+  useDialogFocus(showCreateJobModal, createJobDialogRef, 'field')
+  useDialogFocus(Boolean(pendingDeleteJob), deleteDialogRef)
+  useDialogFocus(Boolean(jobRosterOpen), rosterDialogRef)
+  useDialogFocus(Boolean(selectedApplicant), reportDialogRef)
+
   const companyName = user?.companyName || 'Your organisation'
   const descLength = newJobDescription.trim().length
 
@@ -775,16 +864,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   interview scores.
                 </p>
               </div>
-              {jobs.length > 0 || portalLoading ? (
+              {jobs.length > 0 || portalLoading || loadError ? (
                 <div className={styles.pageActions}>
-                  <button type="button" className={styles.btnPrimary} onClick={() => setShowCreateJobModal(true)}>
+                  <button type="button" className={styles.btnPrimary} onClick={openCreateJob}>
                     <HrIcon name="plus" size={16} /> Create job
                   </button>
                 </div>
               ) : null}
             </header>
 
-            {portalSyncNote && (
+            {portalSyncNote && !loadError && (
               <p className={styles.syncNote} role="status">
                 {portalSyncNote}
               </p>
@@ -796,26 +885,32 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   <h2 id="jobs-heading" className={styles.panelTitle}>
                     Job openings
                   </h2>
-                  <p className={styles.panelSub}>
-                    {portalLoading && jobs.length === 0
-                      ? 'Loading your openings…'
-                      : `${jobs.length} opening${jobs.length === 1 ? '' : 's'} · each has its own apply link`}
-                  </p>
+                  {loadError ? null : (
+                    <p className={styles.panelSub}>
+                      {portalLoading && jobs.length === 0
+                        ? 'Loading your openings…'
+                        : `${jobs.length} opening${jobs.length === 1 ? '' : 's'} · each has its own apply link`}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              {loadError && !portalLoading ? (
+                <LoadErrorPanel message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />
+              ) : null}
 
               {jobs.length === 0 && portalLoading && (
                 <div className={styles.jobsSkeleton} role="status" aria-label="Loading job openings">
                   {[0, 1, 2].map((i) => (
                     <div key={i} className={styles.jobSkeletonCard}>
-                      <span className="ds-skeleton ds-skeleton-line" style={{ width: '40%' }} />
-                      <span className="ds-skeleton ds-skeleton-line" style={{ width: '25%' }} />
+                      <span className={`ds-skeleton ds-skeleton-line ${styles.jobSkeletonWide}`} />
+                      <span className={`ds-skeleton ds-skeleton-line ${styles.jobSkeletonNarrow}`} />
                     </div>
                   ))}
                 </div>
               )}
 
-              {jobs.length === 0 && !portalLoading && (
+              {jobs.length === 0 && !portalLoading && !loadError && (
                 <div className={`ds-empty ${styles.jobsEmpty}`}>
                   <span className="ds-empty__icon" aria-hidden="true">
                     <HrIcon name="briefcase" size={20} />
@@ -823,7 +918,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   <p className="ds-empty__title">No job openings yet</p>
                   <p className="ds-empty__body">Create an opening and share the link with candidates.</p>
                   <div className="ds-empty__actions">
-                    <button type="button" className={styles.btnPrimary} onClick={() => setShowCreateJobModal(true)}>
+                    <button type="button" className={styles.btnPrimary} onClick={openCreateJob}>
                       <HrIcon name="plus" size={16} /> Create job
                     </button>
                   </div>
@@ -840,7 +935,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                         <th scope="col" className={styles.numCol}>
                           Applicants
                         </th>
-                        <th scope="col">Created</th>
+                        <th scope="col" className={styles.numCol}>
+                          Created
+                        </th>
                         <th scope="col">
                           <span className="ds-sr-only">Actions</span>
                         </th>
@@ -850,11 +947,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                       {jobs.map((job) => {
                         const count = jobCounts[job.id] ?? 0
                         const isCopied = copiedCode === job.shareableCode
-                        const isSelected = selectedJobId === job.id
                         const isPending = isOptimisticJobId(job.id)
                         const isDeleting = deletingJobId === job.id
                         const rowClass = [
-                          isSelected ? styles.rowSelected : '',
                           isPending ? styles.rowPending : '',
                           isDeleting ? styles.rowDeleting : '',
                         ]
@@ -891,26 +986,17 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                               </div>
                             </td>
                             <td data-label="Apply link">
-                              <div className={styles.linkBox}>
-                                <span
-                                  className={styles.linkUrl}
-                                  title={isPending ? undefined : buildApplyUrl(job.company, job.shareableCode)}
-                                >
-                                  {isPending
-                                    ? 'Generating shareable link…'
-                                    : buildApplyUrl(job.company, job.shareableCode)}
-                                </span>
-                                <button
-                                  type="button"
-                                  className={`${styles.copyBtn} ${isCopied ? styles.copyBtnDone : ''}`}
-                                  disabled={isPending || isDeleting}
-                                  onClick={() => handleCopyLink(job)}
-                                  aria-label={`Copy apply link for ${job.title}`}
-                                >
-                                  <HrIcon name={isCopied ? 'check' : 'link'} size={12} />
-                                  {isCopied ? 'Copied' : 'Copy'}
-                                </button>
-                              </div>
+                              <button
+                                type="button"
+                                className={`${styles.copyBtn} ${isCopied ? styles.copyBtnDone : ''}`}
+                                disabled={isPending || isDeleting}
+                                onClick={() => handleCopyLink(job)}
+                                aria-label={`Copy apply link for ${job.title}`}
+                                title={isPending ? 'Generating the apply link…' : buildApplyUrl(job.company, job.shareableCode)}
+                              >
+                                <HrIcon name={isCopied ? 'check' : 'link'} size={14} />
+                                {isPending ? 'Generating…' : isCopied ? 'Copied' : 'Copy link'}
+                              </button>
                             </td>
                             <td data-label="Applicants" className={styles.numCol}>
                               <button
@@ -923,7 +1009,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                                 {count}
                               </button>
                             </td>
-                            <td data-label="Created">
+                            <td data-label="Created" className={styles.numCol}>
                               <span className={styles.mutedCell}>{formatShortDate(job.createdAt)}</span>
                             </td>
                             <td className={styles.rowActions}>
@@ -939,7 +1025,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                                 type="button"
                                 className={`${styles.btnDanger} ${styles.btnSm}`}
                                 disabled={isPending || isDeleting}
-                                onClick={() => void handleDeleteJob(job)}
+                                onClick={() => requestDeleteJob(job)}
                                 aria-label={`Delete job ${job.title}`}
                               >
                                 {isDeleting ? 'Deleting…' : 'Delete'}
@@ -976,13 +1062,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
         {/* Advanced filters (role, job, experience, score, integrity, status) stay one click away */}
         {showMoreFilters && (
-        <motion.section
-          className={styles.filterBarCard}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          aria-labelledby="more-filters-title"
-        >
+        <section className={styles.filterBarCard} aria-labelledby="more-filters-title">
           <div className={styles.filterCardHeader}>
             <div>
               <h2 id="more-filters-title" className={styles.filterCardTitle}>More filters</h2>
@@ -997,7 +1077,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 onClick={handleClearFilters}
                 title="Clear all filters"
               >
-                <HrIcon name="close" size={13} /> Reset filters
+                <HrIcon name="close" size={14} /> Reset filters
               </button>
             )}
           </div>
@@ -1126,7 +1206,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   onClick={handleClearFilters}
                   title="Clear all filters"
                 >
-                  <HrIcon name="close" size={14} /> Clear filters
+                  <HrIcon name="close" size={16} /> Clear filters
                 </button>
               )}
               <button type="button" className={styles.btnPrimary} onClick={handleSearchCandidatesClick}>
@@ -1134,191 +1214,68 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </button>
             </div>
           </div>
-        </motion.section>
+        </section>
         )}
 
-        <InviteCandidatesPanel jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
+        <InviteCandidatesPanel jobs={inviteJobs} />
 
         <section id="candidates-section" className={styles.panel} aria-labelledby="candidates-heading">
           <div className={styles.panelHeader}>
             <div>
               <h2 id="candidates-heading" className={styles.panelTitle}>
-                {isCandidatesView
-                  ? 'All candidates'
-                  : selectedJobTitle
-                    ? `Interviews · ${selectedJobTitle}`
-                    : 'Candidates'}
+                All candidates
               </h2>
-              {!isCandidatesView && (
-                <p className={styles.panelSub}>
-                  Showing {filteredApplicants.length} of {applicants.length} candidates
-                </p>
-              )}
-            </div>
-
-            <div className={styles.pageActions}>
-              {!isCandidatesView && (
-                <button type="button" className={`${styles.btnGhost} ${styles.btnSm}`} onClick={handleClearFilters}>
-                  Clear filters
-                </button>
-              )}
-              <button
-                type="button"
-                className={`${styles.btnSecondary} ${styles.btnSm}`}
-                onClick={() => setShowCreateJobModal(true)}
-              >
-                <HrIcon name="plus" size={14} /> Add candidate
-              </button>
             </div>
           </div>
 
-          <div className={styles.tableContainer}>
-            {isCandidatesView ? (
+          {loadError && !portalLoading ? (
+            <LoadErrorPanel message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />
+          ) : (
+            <div className={styles.tableContainer}>
               <CandidatesDirectoryTable
-                rows={filteredApplicants}
+                rows={visibleApplicants}
+                loading={portalLoading}
                 emptyTitle="No candidates yet"
                 emptyBody="No matching profiles yet. Try search or wait for candidates to complete interviews."
-                query={searchFilter}
-                onClearSearch={() => setSearchFilter('')}
-                onViewDocument={(kind, applicant) => setDocumentViewer({ kind, applicant })}
+                query={deferredQuery}
+                onClearSearch={clearSearch}
+                onViewDocument={openDocument}
               />
-            ) : (
-            <table className={`${styles.candidatesTable} ${styles.candidatesTableWide}`}>
-              <thead>
-                <tr>
-                  <th scope="col" style={{ width: '22%' }}>Candidate</th>
-                  <th scope="col" style={{ width: '13%' }}>Role</th>
-                  <th scope="col" style={{ width: '16%' }}>Target job</th>
-                  <th scope="col" style={{ width: '9%' }}>Experience</th>
-                  <th scope="col" style={{ width: '12%' }}>AI score</th>
-                  <th scope="col" style={{ width: '14%' }}>Integrity</th>
-                  <th scope="col" style={{ width: '10%' }}>Status</th>
-                  <th scope="col" style={{ width: '10%' }}>
-                    <span className="ds-sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredApplicants.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      <div className={styles.emptyState}>
-                        <h3>No candidates yet</h3>
-                        <p>No applicants or interviews linked to this job yet. Share the apply link.</p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredApplicants.map((cand) => {
-                    const initials = getInitials(cand.candidateName)
-                    const score = cand.aiScore ?? cand.interviewResult?.overall
-
-                    const integ =
-                      cand.integrityStatus ??
-                      (cand.interviewResult?.integrity?.proctoring?.status === 'FLAGGED' ||
-                      (cand.interviewResult?.integrity?.faceViolations ?? 0) > 0
-                        ? 'pending'
-                        : 'verified')
-                    const proctorFlagCount =
-                      cand.interviewResult?.integrity?.proctoring?.counts?.total ??
-                      cand.interviewResult?.integrity?.logs?.length ??
-                      0
-
-                    return (
-                      <tr key={cand.id}>
-                        <td>
-                          <div className={styles.candidateCell}>
-                            <div className={styles.avatar} aria-hidden="true">{initials}</div>
-                            <div>
-                              <div className={styles.candidateName}>{cand.candidateName}</div>
-                              <div className={styles.candidateContact}>
-                                {cand.candidateEmail} · {cand.candidatePhone}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={styles.roleTag}>{cand.role || '—'}</span>
-                        </td>
-                        <td>
-                          <div className={styles.targetJobTitle}>{cand.jobTitle}</div>
-                          <div className={styles.targetJobCompany}>{cand.company}</div>
-                        </td>
-                        <td>
-                          <span className={styles.experienceText}>{cand.experienceYears}</span>
-                        </td>
-                        <td>
-                          {score != null ? (
-                            <ScoreBadge value={score} label="Overall fit" />
-                          ) : (
-                            <span className={styles.pill}>No interview yet</span>
-                          )}
-                        </td>
-                        <td>
-                          {integ === 'verified' && (
-                            <span className={`${styles.integrityText} ${styles.integrityVerified}`}>
-                              <HrIcon name="shield-check" size={14} /> Verified candidate
-                            </span>
-                          )}
-                          {integ === 'pending' && (
-                            <span className={`${styles.integrityText} ${styles.integrityPending}`}>
-                              <HrIcon name="shield-check" size={14} /> Verification pending
-                              {proctorFlagCount > 0 ? (
-                                <span className={styles.proctorFlagBadge}>
-                                  {proctorFlagCount} flag{proctorFlagCount === 1 ? '' : 's'}
-                                </span>
-                              ) : null}
-                            </span>
-                          )}
-                          {integ === 'unverified' && (
-                            <span className={`${styles.integrityText} ${styles.integrityUnverified}`}>
-                              <HrIcon name="close" size={13} /> Not verified
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <select
-                            className={styles.statusDropdown}
-                            value={cand.status}
-                            aria-label={`Status for ${cand.candidateName}`}
-                            onChange={(e) =>
-                              handleStatusChange(
-                                cand.id,
-                                e.target.value as EmployerApplicant['status'],
-                              )
-                            }
-                          >
-                            <option value="New">New</option>
-                            <option value="Shortlisted">Shortlisted</option>
-                            <option value="Interviewing">Interviewing</option>
-                            <option value="Rejected">Rejected</option>
-                          </select>
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className={styles.inspectBtn}
-                            onClick={() => setSelectedApplicant(cand)}
-                          >
-                            View report
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-            )}
-          </div>
+              {filteredApplicants.length > visibleApplicants.length ? (
+                <div className={styles.showMoreRow}>
+                  <span className={styles.showMoreCount}>
+                    Showing {visibleApplicants.length} of {filteredApplicants.length}
+                  </span>
+                  <button
+                    type="button"
+                    className={`${styles.btnSecondary} ${styles.btnSm}`}
+                    onClick={() => setVisibleCount((n) => n + DIRECTORY_PAGE_SIZE)}
+                  >
+                    Show {Math.min(DIRECTORY_PAGE_SIZE, filteredApplicants.length - visibleApplicants.length)} more
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </section>
         </>
         )}
 
         {/* Create job modal */}
         {showCreateJobModal && (
-          <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="create-job-title">
-            <form className={styles.modal} onSubmit={handleCreateJob}>
+          <div
+            className={styles.modalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-job-title"
+            onKeyDown={(e) => handleDialogKeyDown(e, closeCreateJob)}
+          >
+            <form
+              ref={createJobDialogRef}
+              tabIndex={-1}
+              className={`${styles.modal} ${styles.modalLg}`}
+              onSubmit={handleCreateJob}
+            >
               <div className={styles.modalHeader}>
                 <div>
                   <h2 id="create-job-title">Create job</h2>
@@ -1330,7 +1287,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <button
                   type="button"
                   className={styles.closeBtn}
-                  onClick={() => setShowCreateJobModal(false)}
+                  onClick={closeCreateJob}
                   aria-label="Close"
                 >
                   <HrIcon name="close" size={16} />
@@ -1415,7 +1372,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   />
                   <span
                     id="employer-job-description-hint"
-                    className={`${styles.fieldHint} ${descLength >= 30 ? styles.fieldHintOk : ''}`}
+                    className={`${styles.fieldHint} ${styles.fieldHintCounter} ${descLength >= 30 ? styles.fieldHintOk : ''}`}
                   >
                     {descLength >= 30
                       ? `${descLength} characters`
@@ -1423,8 +1380,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </span>
                 </div>
 
-                <div className={styles.formGroup} style={{ marginBottom: 0 }}>
-                  <label htmlFor="employer-job-skills">Required skills (optional)</label>
+                <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
+                  <label htmlFor="employer-job-skills">
+                    Required skills <span className={styles.optionalText}>(optional)</span>
+                  </label>
                   <input
                     id="employer-job-skills"
                     type="text"
@@ -1437,27 +1396,89 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     Separate skills with commas.
                   </span>
                 </div>
+
+                {createJobError ? (
+                  <p className={`ds-alert ds-alert--error ${styles.modalError}`} role="alert">
+                    {createJobError}
+                  </p>
+                ) : null}
               </div>
 
               <div className={styles.modalFooter}>
                 <button
                   type="button"
                   className={styles.btnSecondary}
-                  onClick={() => setShowCreateJobModal(false)}
+                  onClick={closeCreateJob}
+                  disabled={creatingJob}
                 >
                   Cancel
                 </button>
-                <button type="submit" className={styles.btnPrimary}>
-                  Create job and get link
+                <button type="submit" className={styles.btnPrimary} disabled={creatingJob} aria-busy={creatingJob}>
+                  {creatingJob ? 'Creating…' : 'Create job'}
                 </button>
               </div>
             </form>
           </div>
         )}
 
+        {pendingDeleteJob && (
+          <div
+            className={styles.modalOverlay}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-job-title"
+            aria-describedby="delete-job-body"
+            onKeyDown={(e) => handleDialogKeyDown(e, closeDeleteJob)}
+          >
+            <div ref={deleteDialogRef} tabIndex={-1} className={`${styles.modal} ${styles.modalSm}`}>
+              <div className={styles.modalHeader}>
+                <h2 id="delete-job-title">Delete “{pendingDeleteJob.title}”?</h2>
+              </div>
+              <div className={styles.modalBody}>
+                <p id="delete-job-body" className={styles.modalSub}>
+                  This removes the opening from your account. Its apply link stops working for candidates.
+                </p>
+                {deleteJobError ? (
+                  <p className={`ds-alert ds-alert--error ${styles.modalError}`} role="alert">
+                    {deleteJobError}
+                  </p>
+                ) : null}
+              </div>
+              <div className={styles.modalFooter}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={closeDeleteJob}
+                  disabled={Boolean(deletingJobId)}
+                  data-autofocus
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnDanger}
+                  disabled={Boolean(deletingJobId)}
+                  aria-busy={Boolean(deletingJobId)}
+                  onClick={() => void handleDeleteJob(pendingDeleteJob)}
+                >
+                  {deletingJobId ? 'Deleting…' : 'Delete job'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {jobRosterOpen && (
-          <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-labelledby="job-roster-title">
-            <div className={`${styles.modal} ${styles.modalWide}`}>
+          <div
+            className={styles.modalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="job-roster-title"
+            onKeyDown={(e) =>
+              handleDialogKeyDown(e, closeJobApplicantsRoster, Boolean(selectedApplicant || documentViewer))
+            }
+          >
+            <div ref={rosterDialogRef} tabIndex={-1} className={`${styles.modal} ${styles.modalWide}`}>
               <div className={styles.modalHeader}>
                 <div>
                   <h2 id="job-roster-title">Applicants · {jobRosterOpen.title}</h2>
@@ -1469,7 +1490,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   type="button"
                   className={styles.closeBtn}
                   onClick={closeJobApplicantsRoster}
-                  aria-label="Close applicants list"
+                  aria-label="Close"
                 >
                   <HrIcon name="close" size={16} />
                 </button>
@@ -1508,8 +1529,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="applicant-report-title"
+            onKeyDown={(e) => handleDialogKeyDown(e, () => setSelectedApplicant(null), Boolean(documentViewer))}
           >
-            <div className={`${styles.modal} ${styles.modalReport}`}>
+            <div ref={reportDialogRef} tabIndex={-1} className={`${styles.modal} ${styles.modalReport}`}>
               <div className={styles.modalHeader}>
                 <div>
                   <h2 id="applicant-report-title">{selectedApplicant.candidateName}</h2>
@@ -1522,7 +1544,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   type="button"
                   className={styles.closeBtn}
                   onClick={() => setSelectedApplicant(null)}
-                  aria-label="Close report"
+                  aria-label="Close"
                 >
                   <HrIcon name="close" size={16} />
                 </button>
@@ -1533,8 +1555,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   <div className={styles.summaryCard}>
                     <span className={styles.summaryLabel}>Interview score</span>
                     <span className={styles.summaryValue}>
-                      {selectedApplicant.aiScore ?? selectedApplicant.interviewResult?.overall ?? '—'}
-                      {selectedApplicant.interviewResult?.overall != null ? '%' : ''}
+                      {candidateScore(selectedApplicant) !== null ? (
+                        <Score value={candidateScore(selectedApplicant)!} label="Interview score" size="lg" />
+                      ) : (
+                        '—'
+                      )}
                     </span>
                     {(selectedApplicant.atsScore != null || selectedApplicant.jdMatchScore != null) && (
                       <dl className={styles.subScores}>
@@ -1557,7 +1582,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </div>
 
                   <div className={styles.summaryCard}>
-                    <span className={styles.summaryLabel} style={{ marginBottom: 10 }}>
+                    <span className={`${styles.summaryLabel} ${styles.summaryLabelSpaced}`}>
                       Candidate details
                     </span>
                     <dl className={styles.detailList}>
@@ -1624,7 +1649,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     <h3 id="answers-title" className={styles.reportSectionTitle}>
                       Answers and scores
                       <span className={styles.reportSectionMeta}>
-                        Overall interview score {selectedApplicant.interviewResult.overall ?? '—'}%
+                        Overall interview score{' '}
+                        {selectedApplicant.interviewResult.overall != null
+                          ? `${selectedApplicant.interviewResult.overall}/100`
+                          : '—'}
                       </span>
                     </h3>
                     {selectedApplicant.interviewResult.answers?.length ? (
@@ -1637,13 +1665,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                             <p className={styles.answerText}>“{ans.answer}”</p>
                             <div className={styles.answerMeta}>
                               <span>
-                                Score <strong>{ans.score}%</strong>
+                                Score <strong>{ans.score}/100</strong>
                               </span>
                               <span>
                                 Words <strong>{ans.wordCount}</strong>
                               </span>
                               <span>
-                                Keywords <strong>{ans.keywordsHit?.join(', ') || 'N/A'}</strong>
+                                Keywords <strong>{ans.keywordsHit?.join(', ') || '—'}</strong>
                               </span>
                             </div>
                           </li>
@@ -1651,7 +1679,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                       </ol>
                     ) : null}
 
-                    <div style={{ marginTop: 20 }}>
+                    <div className={styles.proctorTimeline}>
                       <VideoProctorTimeline
                         sessionId={selectedApplicant.interviewResult.sessionId}
                         candidateEmail={selectedApplicant.candidateEmail}
@@ -1678,7 +1706,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   className={styles.btnSecondary}
                   onClick={() => setSelectedApplicant(null)}
                 >
-                  Close report
+                  Close
                 </button>
               </div>
             </div>

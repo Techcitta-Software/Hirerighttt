@@ -77,7 +77,8 @@ export async function markCandidateOnboardingCompleteAfterInterview(): Promise<S
   }
   const saved = saveProfile(merged, ONBOARDING_STEP_COUNT)
   try {
-    if (await apiHealth()) await apiSaveProfile(saved)
+    // Runs in the interview finish job / before opening the dashboard: never raise the loading veil.
+    if (await apiHealth()) await apiSaveProfile(saved, { background: true })
   } catch {
     // local profile still marks onboarding complete
   }
