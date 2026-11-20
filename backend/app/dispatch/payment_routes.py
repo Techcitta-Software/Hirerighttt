@@ -8,6 +8,7 @@ Routes
 
 from __future__ import annotations
 
+import asyncio
 from typing import Callable
 
 from fastapi import Request
@@ -39,28 +40,49 @@ async def try_payment_routes(
     if not _db_ready():
         return json_fn(503, {"error": "Payments need the database.", "code": "PAYMENTS_NOT_CONFIGURED"})
     pool = db_store.db_pool(config.database_url)
-    try:
-        if method == "GET" and path == "/api/payments/retake/status":
+
+    def _with_conn(fn, *args):
+        # Blocking database work runs in a worker thread, never on the event loop (P-02).
+        def run():
             with pool.connection() as conn:
                 conn.row_factory = dict_row
-                return json_fn(200, rp.retake_status(conn, email))
+                out = fn(conn, *args)
+                conn.commit()
+                return out
+
+        return asyncio.to_thread(run)
+
+    def _conn_factory():
+        conn_cm = pool.connection()
+
+        class _Cm:
+            def __enter__(self_inner):
+                c = conn_cm.__enter__()
+                c.row_factory = dict_row
+                return c
+
+            def __exit__(self_inner, *exc):
+                return conn_cm.__exit__(*exc)
+
+        return _Cm()
+
+    try:
+        if method == "GET" and path == "/api/payments/retake/status":
+            return json_fn(200, await _with_conn(rp.retake_status, email))
         if method == "POST" and path == "/api/payments/retake/order":
             if not ctx.rate_limit(f"retake-order:{email}", 10, 60_000):
                 return json_fn(429, {"error": "Too many payment attempts. Try again in a minute."})
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                return json_fn(201, await rp.create_order(conn, email))
+            # The Razorpay call (up to 15 s) runs first; a connection is only taken for the INSERT afterwards.
+            return json_fn(201, await rp.create_order(_conn_factory, email))
         if method == "POST" and path == "/api/payments/retake/verify":
             body = await runtime.read_json_body(request)
-            with pool.connection() as conn:
-                conn.row_factory = dict_row
-                out = rp.verify_payment(
-                    conn,
-                    email,
-                    str(body.get("razorpay_order_id") or ""),
-                    str(body.get("razorpay_payment_id") or ""),
-                    str(body.get("razorpay_signature") or ""),
-                )
+            out = await _with_conn(
+                rp.verify_payment,
+                email,
+                str(body.get("razorpay_order_id") or "")[:100],
+                str(body.get("razorpay_payment_id") or "")[:100],
+                str(body.get("razorpay_signature") or "")[:200],
+            )
             return json_fn(200, out)
     except rp.RetakePaymentError as err:
         return json_fn(err.status, {"error": str(err), "code": err.code})

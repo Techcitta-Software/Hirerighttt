@@ -74,10 +74,7 @@ import {
   markCandidateOnboardingCompleteAfterInterview,
   PENDING_REPORT_UPLOAD_KEY,
 } from '../lib/completeOnboardingAfterInterview'
-import {
-  createMoonshineVadSttController,
-  type MoonshineVadSttController,
-} from '../lib/moonshineVadStt'
+import type { MoonshineVadSttController } from '../lib/moonshineVadStt'
 import { shouldStickToWebSpeechFallback } from '../lib/interviewSttFallback'
 import { moonshineStt, type MoonshineStatus } from '../lib/moonshineStt'
 import {
@@ -104,6 +101,19 @@ import { easeOut } from '../motion/variants'
 import styles from './InterviewPage.module.css'
 import { answerDoneCommand, silenceAdvanceMs, stripAnswerDoneCommand } from '../lib/answerTiming'
 
+/** Silero VAD + onnxruntime-web JS (~300 KB) load only once the mic stream is ready, not with the page. */
+const createMoonshineVadSttController: typeof import('../lib/moonshineVadStt').createMoonshineVadSttController = async (
+  handlers,
+) => {
+  try {
+    const mod = await import('../lib/moonshineVadStt')
+    return await mod.createMoonshineVadSttController(handlers)
+  } catch (err) {
+    // Same contract as the module itself: report, resolve null, and the page falls back to Web Speech / typing.
+    handlers.onError?.(err instanceof Error ? err.message : 'Voice detection failed to load.')
+    return null
+  }
+}
 
 type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
@@ -1662,7 +1672,7 @@ export function InterviewPage() {
     !advancing &&
     sttPhase !== 'transcribing'
   return (
-    <div className={`${styles.page} ${stage === 'interview' ? styles.pageLocked : ''}`}>
+    <main className={`${styles.page} ${stage === 'interview' ? styles.pageLocked : ''}`}>
       {stage === 'interview' ? (
         <>
           {guardNotice ? (
@@ -1754,7 +1764,7 @@ export function InterviewPage() {
                     </div>
                   )}
                   <div className={styles.previewOverlay}>
-                    <span className={styles.youChip}>{name}</span>
+                    <span className={styles.youChip}>{name === 'there' ? 'You' : name}</span>
                     {streamReady && <span className={styles.liveBadge}>Camera live</span>}
                   </div>
                 </div>
@@ -2155,6 +2165,6 @@ export function InterviewPage() {
           </motion.section>
         )}
       </AnimatePresence>
-    </div>
+    </main>
   )
 }

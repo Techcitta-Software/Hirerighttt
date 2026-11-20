@@ -285,6 +285,7 @@ export function SolutionsPage() {
 
       <MarketingNavBar />
 
+      <main>
       {/* Hero Section */}
       <div className={styles.shell}>
         <section className={styles.heroSection}>
@@ -493,7 +494,13 @@ export function SolutionsPage() {
                     onClick={() => setActiveWhy(feat.id)}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => e.key === 'Enter' && setActiveWhy(feat.id)}
+                    aria-pressed={isActive}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setActiveWhy(feat.id)
+                      }
+                    }}
                   >
                     <div className={styles.itemIconWrapper}>{feat.icon}</div>
                     <div className={styles.itemText}>
@@ -617,6 +624,7 @@ export function SolutionsPage() {
           </div>
         </section>
       </div>
+      </main>
 
       <MarketingFooter />
     </div>

@@ -52,6 +52,32 @@ def _user_folder(user_id: str) -> str:
     return f"{USERS_PREFIX}/{sanitize_path_segment(user_id or 'unknown')}"
 
 
+def candidate_storage_prefixes(*, user_id: str | None = None, email: str = "") -> list[str]:
+    """Every users/<id>/ folder the server may have used for this candidate (account id, or the e-mail based id used
+    before an account id was known)."""
+    out: list[str] = []
+    if user_id:
+        out.append(f"{_user_folder(str(user_id))}/")
+    if email:
+        out.append(f"{_user_folder(resolve_candidate_storage_id(email=email))}/")
+    return out
+
+
+def key_belongs_to_candidate(key: str, *, user_id: str | None = None, email: str = "", kind: str | None = None) -> bool:
+    """True only for a well-formed key inside one of this candidate's own folders (optionally users/<id>/<kind>/).
+
+    Every download / replace / delete of a stored object checks this first (V-02 / V-03): a key that came from the
+    client, or from a profile poisoned before the fix, can never reach another user's files."""
+    k = str(key or "").strip()
+    if not k or ".." in k or "//" in k or "\\" in k or not k.startswith(f"{USERS_PREFIX}/"):
+        return False
+    for prefix in candidate_storage_prefixes(user_id=user_id, email=email):
+        wanted = f"{prefix}{kind}/" if kind else prefix
+        if k.startswith(wanted):
+            return True
+    return False
+
+
 def build_candidate_resume_object_key(*, candidate_id: str, filename: str, version_number: int = 1) -> str:
     ext = extension_from_filename(filename) or ".pdf"
     ver = f"_v{version_number}" if version_number and version_number > 1 else ""

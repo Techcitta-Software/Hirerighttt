@@ -67,8 +67,25 @@ def reset_for_tests() -> None:
     _redis_down_until = 0.0
 
 
-def allow(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
-    """True if this call is within `limit` calls per `window_ms` for `key`."""
+def _worker_count() -> int:
+    try:
+        return max(1, int(os.environ.get("WEB_CONCURRENCY") or 1))
+    except ValueError:
+        return 1
+
+
+def shared_backend_available() -> bool:
+    """True when counters are shared by every worker / instance (Redis configured and not backed off)."""
+    return _client() is not None and time.time() >= _redis_down_until
+
+
+def allow(key: str, limit: int = 30, window_ms: int = 60_000, *, strict: bool = False) -> bool:
+    """True if this call is within `limit` calls per `window_ms` for `key`.
+
+    strict=True is for security-sensitive limits (login, password reset, signup). Without a shared Redis each worker
+    process counts on its own, so N workers would allow N x `limit`; strict limits are divided by WEB_CONCURRENCY in
+    that case, keeping the total across all workers at (about) `limit`.
+    """
     global _redis_down_until
     client = _client()
     if client is not None and time.time() >= _redis_down_until:
@@ -84,4 +101,6 @@ def allow(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
             # Back off for 30s so a dead Redis does not add a timeout to every request.
             _redis_down_until = time.time() + 30
             logger.warning("Redis rate limiter unavailable; falling back to in-memory limits for 30s", exc_info=True)
+    if strict:
+        limit = max(1, limit // _worker_count())
     return _memory_allow(key, limit, window_ms)

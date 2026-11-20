@@ -11,9 +11,9 @@ function ResetShell({ children }: { children: React.ReactNode }) {
   return (
     <div className={styles.page}>
       <MarketingNavBar />
-      <div className={`${styles.shell} ${styles.authStage}`}>
+      <main className={`${styles.shell} ${styles.authStage}`}>
         <div className={styles.card}>{children}</div>
-      </div>
+      </main>
       <MarketingFooter />
     </div>
   )

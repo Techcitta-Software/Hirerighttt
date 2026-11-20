@@ -46,6 +46,12 @@ async def insert_interview_invite(pool, row: dict) -> None:
 
         await asyncio.to_thread(dr.insert_interview_invite_dynamo, row)
         return
+    import asyncio
+
+    await asyncio.to_thread(_insert_invite_sync, pool, row)
+
+
+def _insert_invite_sync(pool, row: dict) -> None:
     with pool.connection() as conn:
         conn.execute(
             """INSERT INTO interview_invites
@@ -78,9 +84,16 @@ async def get_interview_invite_by_token(pool, token: str) -> dict | None:
         from app.db import dynamo_repos as dr
 
         return await asyncio.to_thread(dr.get_interview_invite_dynamo, token)
-    with pool.connection() as conn:
-        row = conn.execute("SELECT * FROM interview_invites WHERE token = %s", (token,)).fetchone()
-    return dict(row) if row else None
+    import asyncio
+
+    token = str(token or "")[:128]
+
+    def _load():
+        with pool.connection() as conn:
+            row = conn.execute("SELECT * FROM interview_invites WHERE token = %s", (token,)).fetchone()
+        return dict(row) if row else None
+
+    return await asyncio.to_thread(_load)
 
 
 def invite_access_state(invite: dict, now: datetime | None = None) -> dict[str, Any]:

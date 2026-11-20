@@ -1,9 +1,11 @@
 """Paid interview retakes with Razorpay.
 
 Rules
-- The first career (practice) interview is free.
+- The first career (practice) interview is free. The free slot is CLAIMED atomically when that interview starts
+  (a 'free_used' row, unique per email: migration 0005), so parallel starts cannot all be free (V-06).
 - Every further career interview needs one paid retake credit (₹89 by default), consumed when that interview starts.
-- Interviews for a vendor's job (application / job / invite) are never charged.
+- Interviews for a vendor's job are never charged, but only when the server resolved the job link itself: an
+  application by this candidate, or a valid invite for them. A bare jobId from the browser is NOT enough (V-06).
 
 Flow (Razorpay Standard Checkout)
 1. POST /api/payments/retake/order  -> the server creates a Razorpay order for the fixed price (the client never sets it).
@@ -125,32 +127,8 @@ def convert_currency(
     return round(base * rate, 2)
 
 
-VALID_COUPONS: dict[str, float] = {
-    "WELCOME10": 10.0,
-    "HIRERIGHT50": 50.0,
-    "FREEPASS": 100.0,
-}
-
-
-def apply_coupon_guard(
-    base_price_inr: int,
-    coupon_code: str | None,
-) -> tuple[int, int, str | None]:
-    """Applies coupon discount with strict guards:
-    Returns (effective_price, discount_amount, applied_code_or_none).
-    Effective price cannot be negative. Discount cannot exceed base price."""
-    base = max(0, int(base_price_inr))
-    if not coupon_code or not isinstance(coupon_code, str):
-        return base, 0, None
-
-    code = coupon_code.strip().upper()
-    percent = VALID_COUPONS.get(code)
-    if percent is None:
-        return base, 0, None
-
-    discount = int(round((base * percent) / 100.0))
-    effective = max(0, base - discount)
-    return effective, discount, code
+# (V-25) The unused hard-coded coupon table, including a 100 % "FREEPASS" code, was removed. Discounts, if ever
+# needed, must live in the database under admin control, never in source.
 
 
 def razorpay_key_id() -> str:
@@ -166,11 +144,20 @@ def payments_configured() -> bool:
 
 
 def is_job_interview(body: dict[str, Any] | None, session: dict[str, Any] | None = None) -> bool:
-    """A vendor's job interview (never charged)."""
+    """Does this request / session CLAIM to be a vendor's job interview (application or invite)?
+
+    A bare jobId no longer counts: any open job id is public, so it made every interview free. Routes must still
+    verify the claim on the server (the application belongs to the candidate, the invite is valid for them) and use
+    `verified_job_interview` with the resolved objects."""
     for src in (body or {}, session or {}):
-        if src.get("applicationId") or src.get("jobId") or src.get("inviteToken"):
+        if src.get("applicationId") or src.get("inviteToken"):
             return True
     return False
+
+
+def verified_job_interview(*, application: dict | None, invite_token: str | None) -> bool:
+    """Free job interview: the server resolved an application owned by the candidate, or a valid invite for them."""
+    return bool(application) or bool(invite_token)
 
 
 def valid_signature(order_id: str, payment_id: str, signature: str, secret: str | None = None) -> bool:
@@ -186,16 +173,48 @@ def valid_signature(order_id: str, payment_id: str, signature: str, secret: str 
 
 
 def completed_career_interviews(conn, email: str) -> int:
+    # Sessions written since V-06 carry careerInterview=true/false (decided on the server). Older sessions fall back
+    # to the link fields. lower(email) is indexed (migration 0005).
     row = conn.execute(
         """SELECT COUNT(*) AS n FROM interview_sessions
            WHERE lower(email) = lower(%s)
              AND data->>'status' = 'completed'
-             AND COALESCE(data->>'applicationId', '') = ''
-             AND COALESCE(data->>'jobId', '') = ''
-             AND COALESCE(data->>'inviteToken', '') = ''""",
+             AND (
+               data->>'careerInterview' = 'true'
+               OR (
+                 NOT (data ? 'careerInterview')
+                 AND COALESCE(data->>'applicationId', '') = ''
+                 AND COALESCE(data->>'jobId', '') = ''
+                 AND COALESCE(data->>'inviteToken', '') = ''
+               )
+             )""",
         (email,),
     ).fetchone()
     return int((row or {}).get("n") or 0)
+
+
+def free_interview_claimed(conn, email: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 AS used FROM interview_retake_payments WHERE lower(email) = lower(%s) AND status = 'free_used' LIMIT 1",
+        (email,),
+    ).fetchone()
+    return bool(row)
+
+
+def claim_free_interview(conn, email: str, session_id: str) -> bool:
+    """Atomically take the one free career interview. False when it is already taken (by this or a parallel start).
+
+    The partial unique index uq_retake_free_claim_email (migration 0005) and the UNIQUE provider_order_id make the
+    INSERT the single point of truth: of N concurrent starts exactly one gets a row back."""
+    row = conn.execute(
+        """INSERT INTO interview_retake_payments
+             (id, email, provider, provider_order_id, amount_paise, currency, status, used_at, used_session_id)
+           VALUES (%s, %s, 'free', %s, 0, 'INR', 'free_used', NOW(), %s)
+           ON CONFLICT DO NOTHING
+           RETURNING id""",
+        (secrets.token_hex(12), email.lower(), f"free:{email.lower()}", session_id),
+    ).fetchone()
+    return bool(row)
 
 
 def unused_credits(conn, email: str) -> int:
@@ -209,11 +228,12 @@ def unused_credits(conn, email: str) -> int:
 def retake_status(conn, email: str) -> dict[str, Any]:
     done = completed_career_interviews(conn, email)
     credits = unused_credits(conn, email)
+    free_left = done == 0 and not free_interview_claimed(conn, email)
     return {
         "completedInterviews": done,
-        "freeInterviewAvailable": done == 0,
+        "freeInterviewAvailable": free_left,
         "retakeCredits": credits,
-        "canStartCareerInterview": done == 0 or credits > 0,
+        "canStartCareerInterview": free_left or credits > 0,
         "priceInr": retake_price_inr(),
         "paymentsConfigured": payments_configured(),
         "razorpayKeyId": razorpay_key_id() or None,
@@ -238,8 +258,9 @@ def consume_credit_for_start(conn, email: str, session_id: str) -> bool:
 
 
 def check_career_interview_allowed(conn, email: str, session_id: str) -> None:
-    """Raise 402 unless this career interview is the free first one or a paid credit is available (and used now)."""
-    if completed_career_interviews(conn, email) == 0:
+    """Raise 402 unless this career interview is the free first one (claimed now, atomically) or a paid credit is
+    available (and used now)."""
+    if completed_career_interviews(conn, email) == 0 and claim_free_interview(conn, email, session_id):
         return
     if consume_credit_for_start(conn, email, session_id):
         return
@@ -255,6 +276,8 @@ def check_career_interview_allowed(conn, email: str, session_id: str) -> None:
 
 
 async def create_order(conn, email: str) -> dict[str, Any]:
+    """`conn` is a connection, or a zero-argument callable returning a context manager that yields one. With the
+    callable form no pooled connection is held while waiting up to 15 s for Razorpay (P-02)."""
     if not payments_configured():
         raise RetakePaymentError(503, "Payments are not set up yet. Please try again later.", "PAYMENTS_NOT_CONFIGURED")
     import httpx
@@ -262,7 +285,7 @@ async def create_order(conn, email: str) -> dict[str, Any]:
     amount_paise = retake_price_inr() * 100
     local_id = secrets.token_hex(12)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as http:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as http:
             res = await http.post(
                 f"{RAZORPAY_API}/orders",
                 auth=(razorpay_key_id(), _razorpay_secret()),
@@ -280,11 +303,25 @@ async def create_order(conn, email: str) -> dict[str, Any]:
         logger.warning("Razorpay order refused (%s): %s", res.status_code, res.text[:300])
         raise RetakePaymentError(502, "The payment provider refused the order. Please try again.")
     order = res.json()
-    conn.execute(
-        """INSERT INTO interview_retake_payments (id, email, provider_order_id, amount_paise, currency)
-           VALUES (%s, %s, %s, %s, 'INR')""",
-        (local_id, email.lower(), order["id"], amount_paise),
-    )
+
+    def _insert(c) -> None:
+        c.execute(
+            """INSERT INTO interview_retake_payments (id, email, provider_order_id, amount_paise, currency)
+               VALUES (%s, %s, %s, %s, 'INR')""",
+            (local_id, email.lower(), order["id"], amount_paise),
+        )
+
+    if callable(conn):
+        import asyncio
+
+        def _write() -> None:
+            with conn() as c:
+                _insert(c)
+                c.commit()
+
+        await asyncio.to_thread(_write)
+    else:
+        _insert(conn)
     return {"orderId": order["id"], "amount": amount_paise, "currency": "INR", "keyId": razorpay_key_id(),
             "priceInr": retake_price_inr()}
 

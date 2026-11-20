@@ -142,7 +142,7 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <main className={styles.main} aria-busy="true">
+          <div className={styles.main} aria-busy="true">
             <p className="ds-sr-only" role="status">
               Loading your interview report…
             </p>
@@ -151,7 +151,7 @@ export function InterviewReportPage() {
               <span className={`ds-skeleton ${styles.skeletonBlock}`} />
               <span className={`ds-skeleton ${styles.skeletonBlock}`} />
             </div>
-          </main>
+          </div>
         </div>
       </div>
     )
@@ -161,7 +161,7 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <main className={styles.main}>
+          <div className={styles.main}>
             <header className={styles.head}>
               <div>
                 <h1>Interview report</h1>
@@ -179,7 +179,7 @@ export function InterviewReportPage() {
                 </Link>
               </div>
             </div>
-          </main>
+          </div>
         </div>
       </div>
     )
@@ -188,7 +188,7 @@ export function InterviewReportPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <main className={styles.main}>
+        <div className={styles.main}>
           {fromInterview ? (
             <div className={`ds-alert ds-alert--info ${styles.reportNotice}`} role="status">
               <div className={styles.reportNoticeBody}>
@@ -235,7 +235,7 @@ export function InterviewReportPage() {
             onRetake={() => navigate('/interview')}
             onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
           />
-        </main>
+        </div>
       </div>
     </div>
   )
@@ -620,7 +620,7 @@ export function JobsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <motion.main
+        <motion.div
           className={styles.main}
           variants={staggerContainer}
           initial="hidden"
@@ -904,7 +904,7 @@ export function JobsPage() {
               )
             })}
           </motion.div>
-        </motion.main>
+        </motion.div>
       </div>
     </div>
   )
@@ -1366,7 +1366,7 @@ export function ProfilePage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <motion.main
+        <motion.div
           className={styles.main}
           variants={staggerContainer}
           initial="hidden"
@@ -2011,7 +2011,7 @@ export function ProfilePage() {
               />
             </section>
           )}
-        </motion.main>
+        </motion.div>
       </div>
     </div>
   )
@@ -2077,7 +2077,7 @@ export function ApplicationsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <motion.main
+        <motion.div
           className={styles.main}
           variants={staggerContainer}
           initial="hidden"
@@ -2195,7 +2195,7 @@ export function ApplicationsPage() {
               })}
             </motion.ul>
           )}
-        </motion.main>
+        </motion.div>
       </div>
     </div>
   )

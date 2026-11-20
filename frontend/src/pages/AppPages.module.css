@@ -1059,13 +1059,18 @@
 
   .jobsToolbarFilters {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+    /* Two per row so "Any location" / "Best match" are readable instead of truncated. */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
   .jobsToolbarFilters .select {
     width: 100%;
     min-width: 0;
+  }
+
+  .jobsToolbarFilters > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 
   .jobsFeedList {

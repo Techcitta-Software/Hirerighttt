@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.db.finders import (
     employer_app_counts_for_org,
     find_employer_app,
+    find_employer_app_for,
     find_job,
     find_user,
     remove_job,
@@ -35,6 +36,7 @@ from app.db.talent_index import (
     search_candidate_talent,
     upsert_candidate_talent,
 )
+from app.db.uow import UnitOfWork
 from app.dispatch.context import DispatchContext
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
@@ -57,7 +59,12 @@ from app.services.interview_invites import (
     validate_invite_start,
 )
 from app.services.interview_consent import parse_interview_consent
-from app.services.interview_integrity import authoritative_answers, invite_attempt_used, session_is_stale
+from app.services.interview_integrity import (
+    authoritative_answers,
+    invite_attempt_used,
+    merge_server_integrity,
+    session_is_stale,
+)
 from app.services.interview_review import vendor_may_view_interview_session
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
@@ -91,6 +98,7 @@ from app.services.vendor.candidate_applications import (
 from app.services.vendor.candidate_documents import (
     assert_vendor_may_view_candidate_documents,
     candidate_profile_for_documents,
+    redact_talent_hits,
 )
 from app.services.vendor.job_role_match import apply_candidate_job_scope
 from app.services.vendor.jobs import (
@@ -115,6 +123,8 @@ from app.services.vendor import interview_plan_cache as plan_cache
 from app.services.vendor.org_candidates import list_job_candidates, list_organization_candidates
 
 PADDLE_SCRIPT = Path(__file__).resolve().parents[2] / "paddle_resume_parser.py"
+# 2 MB file -> ~2.67 MB of base64 (+ a data: URL prefix). Checked before decoding.
+MAX_PARSE_BASE64_CHARS = 2_800_000
 
 
 def build_dispatch_context() -> DispatchContext:
@@ -131,6 +141,33 @@ def build_dispatch_context() -> DispatchContext:
 def _json(status: int, body: dict, *, headers: dict | None = None) -> JSONResponse:
     h = {"Cache-Control": "no-store"} if headers is None else {**headers, "Cache-Control": headers.get("Cache-Control", "no-store")}
     return JSONResponse(status_code=status, content=json_safe(body), headers=h)
+
+
+def _json_etag(request: Request, body: dict, *, cache_control: str = "private, no-cache") -> Response:
+    """200 with an ETag, or 304 when the browser already has this exact body (saves the transfer, not the work)."""
+    import hashlib
+    import json as _jsonlib
+
+    payload = _jsonlib.dumps(json_safe(body), separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+    etag = 'W/"' + hashlib.sha1(payload).hexdigest()[:32] + '"'
+    headers = {"Cache-Control": cache_control, "ETag": etag, "Vary": "Authorization"}
+    inm = request.headers.get("if-none-match") or ""
+    if etag in [t.strip() for t in inm.split(",")]:
+        return Response(status_code=304, headers=headers)
+    return Response(content=payload, media_type="application/json", headers=headers)
+
+
+def _int_param(raw: Any, default: int, *, lo: int, hi: int) -> int:
+    """Query parameters are user input: a bad number is a default, never a 500 (V-23)."""
+    try:
+        return max(lo, min(hi, int(str(raw).strip()))) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _org_id(tenant: dict | None) -> str | None:
+    org = (tenant or {}).get("organization") or {}
+    return str(org.get("id")) if org.get("id") else None
 
 
 def _vendor_recruiter_scope(access: dict) -> dict:
@@ -227,11 +264,15 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if path.startswith("/api/confidential/"):
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = (lambda _u: _u if _u and _u.get("status") != "disabled" else None)(find_user(db, email=email))
-            tenant = runtime.tenant_context_for_user(db, user)
+            user = (lambda _u: _u if _u and _u.get("status") != "disabled" else None)(
+                await asyncio.to_thread(find_user, db, email=email)
+            )
+            if not user:
+                return _json(403, {"error": "Recruiter organization access required"})
+            tenant = await asyncio.to_thread(runtime.tenant_context_for_user, db, user)
             if (
                 user.get("role") != "employer"
-                or tenant.get("organization", {}).get("status") != "active"
+                or (tenant.get("organization") or {}).get("status") != "active"
                 or (tenant.get("membership") or {}).get("role") not in ("owner", "admin", "recruiter")
             ):
                 return _json(403, {"error": "Recruiter organization access required"})
@@ -240,31 +281,43 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/candidate/job-alerts":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = find_user(db, email=email)
+            user = await asyncio.to_thread(find_user, db, email=email)
             if user and user.get("role") == "employer":
                 return _json(403, {"error": "Candidates only."})
-            return _json(200, {"alerts": list_candidate_job_alerts(db, email)})
+            return _json(200, {"alerts": await asyncio.to_thread(list_candidate_job_alerts, db, email)})
 
         if method == "GET" and path == "/api/jobs":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            if persistence_ready(config.database_url):
-                await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             params = request.query_params
             summary = params.get("summary") == "1"
             scope = "all" if params.get("scope") == "all" else "matched"
             mapper = public_job_list_payload if summary else public_job_payload
-            open_jobs = list_open_jobs(db)
-            scoped = apply_candidate_job_scope(db, email, open_jobs, scope)
+            use_slim = summary and isinstance(db, UnitOfWork) and persistence_ready(config.database_url)
+
+            def _scoped_jobs() -> dict:
+                # Blocking (database): runs in a worker thread.
+                if use_slim:
+                    # P-03: list columns only, description cut in SQL, shared for a few seconds per process.
+                    open_jobs = [
+                        j for j in db_store.open_job_summaries(config.database_url) if str(j.get("title") or "").strip()
+                    ]
+                else:
+                    if persistence_ready(config.database_url):
+                        db_store.sync_open_jobs_from_database(config.database_url, db)
+                    open_jobs = list_open_jobs(db)
+                return apply_candidate_job_scope(db, email, open_jobs, scope)
+
+            scoped = await asyncio.to_thread(_scoped_jobs)
             open_jobs = scoped["jobs"]
             meta = scoped["meta"]
             limit_raw = params.get("limit")
             if limit_raw:
-                safe_limit = max(1, min(50, int(limit_raw or 4)))
-                safe_offset = max(0, int(params.get("offset") or 0))
+                safe_limit = _int_param(limit_raw, 4, lo=1, hi=50)
+                safe_offset = _int_param(params.get("offset"), 0, lo=0, hi=1_000_000)
                 page = open_jobs[safe_offset : safe_offset + safe_limit]
-                return _json(
-                    200,
+                return _json_etag(
+                    request,
                     {
                         "jobs": [mapper(j) for j in page],
                         "total": len(open_jobs),
@@ -274,7 +327,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     },
                 )
             jobs = [mapper(j) for j in open_jobs]
-            return _json(200, {"jobs": jobs, "total": len(jobs), **meta})
+            return _json_etag(request, {"jobs": jobs, "total": len(jobs), **meta})
 
         if method == "GET" and path.startswith("/api/jobs/public/"):
             parsed = parse_public_job_path(path)
@@ -546,18 +599,32 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             access = await runtime.require_employer_tenant(request, db)
             candidate_email = str(request.query_params.get("email") or "").strip()
             try:
-                assert_vendor_may_view_candidate_documents(
-                    db, access["tenant"]["organization"]["id"], candidate_email, _vendor_recruiter_scope(access)
+                # V-05: the resume FILE is contact data: only for candidates linked to this organization
+                # (application / invite / interview) or who opted in to sharing contact details with recruiters.
+                await asyncio.to_thread(
+                    assert_vendor_may_view_candidate_documents,
+                    db,
+                    access["tenant"]["organization"]["id"],
+                    candidate_email,
+                    _vendor_recruiter_scope(access),
+                    contact=True,
                 )
-                profile = candidate_profile_for_documents(db, candidate_email)
+                profile = await asyncio.to_thread(candidate_profile_for_documents, db, candidate_email)
+                candidate_account = await asyncio.to_thread(find_user, db, email=candidate_email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
-                signed = await resolve_resume_download_from_profile(profile, pool, inline=True)
+                signed = await resolve_resume_download_from_profile(
+                    profile,
+                    pool,
+                    inline=True,
+                    owner_user_id=(candidate_account or {}).get("id"),
+                    owner_email=candidate_email.lower(),
+                )
                 if request.query_params.get("raw") == "1":
                     # The file itself, for the in-app DOCX viewer: the browser cannot read S3 cross-origin.
                     import httpx
 
                     try:
-                        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as http:
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0), follow_redirects=False) as http:
                             stored = await http.get(signed["url"])
                     except httpx.HTTPError:
                         return _json(502, {"error": "Could not load the resume from storage. Please try again."})
@@ -641,6 +708,13 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
             app_id = path.split("/")[4]
+            plan_org = access["tenant"]["organization"]["id"]
+            # V-15: every uncached preview is a Gemini call on the shared key; cap it per organization.
+            want_refresh = request.query_params.get("refresh") == "1"
+            if want_refresh and not ctx.rate_limit(f"ivplan-refresh:{plan_org}:{app_id}", 1, 5 * 60_000):
+                want_refresh = False  # one forced rebuild per application every 5 minutes; otherwise serve the cache
+            if not ctx.rate_limit(f"ivplan:{plan_org}", 40, 3_600_000):
+                return _json(429, {"error": "Too many interview previews this hour. Try again later."})
             scope = _vendor_recruiter_scope(access)
             app = get_org_application_for_recruiter(db, access["tenant"]["organization"]["id"], app_id, scope)
             if not app:
@@ -724,9 +798,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 }
 
             try:
-                payload, _cached = await plan_cache.get_or_build(
-                    plan_key, _build_plan, refresh=request.query_params.get("refresh") == "1"
-                )
+                payload, _cached = await plan_cache.get_or_build(plan_key, _build_plan, refresh=want_refresh)
             except Exception as err:
                 logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
                 return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
@@ -767,22 +839,36 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 if invite and invite.get("application_id") and not body.get("applicationId"):
                     body["applicationId"] = invite["application_id"]
             db = ctx.load_db()
-            profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = find_user(db, email=email)
+            profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
+            account = await asyncio.to_thread(find_user, db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             vendor_resolved = await _resolve_vendor_job_for_interview(db, body, email)
             if vendor_resolved.get("error"):
                 err = vendor_resolved["error"]
                 return _json(err["status"], {"error": err["message"]})
-            # Paid retakes: the first career interview is free, later ones need a paid credit. Job interviews are free.
-            # Checked here (before the AI writes questions); the credit is only used once the session is created.
+            # Paid retakes: the first career interview is free, later ones need a paid credit. Job interviews are free,
+            # but only when the SERVER resolved the link: an application owned by this candidate or a valid invite.
+            # A bare jobId (every open job id is public) made any interview free (V-06). For a jobId-only start the
+            # candidate's own application to that job, if any, is used.
+            if vendor_resolved.get("job") and not vendor_resolved.get("application") and not invite_token:
+                own_app = await asyncio.to_thread(find_employer_app_for, db, vendor_resolved["job"].get("id"), email)
+                if own_app:
+                    vendor_resolved["application"] = own_app
+            is_job = retake_payments.verified_job_interview(
+                application=vendor_resolved.get("application"), invite_token=invite_token or None
+            )
             retake_charged = False
-            if not retake_payments.is_job_interview(body) and persistence_ready(config.database_url) and database_provider() != "dynamodb":
+            free_claim = False
+            payments_db = persistence_ready(config.database_url) and database_provider() != "dynamodb"
+            if not is_job and payments_db:
                 from psycopg.rows import dict_row
 
-                with db_store.db_pool(config.database_url).connection() as conn:
-                    conn.row_factory = dict_row
-                    status = retake_payments.retake_status(conn, email)
+                def _retake_status() -> dict:
+                    with db_store.db_pool(config.database_url).connection() as conn:
+                        conn.row_factory = dict_row
+                        return retake_payments.retake_status(conn, email)
+
+                status = await asyncio.to_thread(_retake_status)
                 if not status["canStartCareerInterview"]:
                     return _json(
                         402,
@@ -794,6 +880,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         },
                     )
                 retake_charged = not status["freeInterviewAvailable"]
+                free_claim = not retake_charged
             vendor_job = vendor_resolved.get("job")
             vendor_application = vendor_resolved.get("application")
             role = str(body.get("role") or "Full Stack Engineer")
@@ -880,14 +967,33 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 raise
             agent_label = first.get("focus") or "adaptive-llm"
             session_id = secrets.token_hex(12)
-            if retake_charged:
+            if free_claim or retake_charged:
                 from psycopg.rows import dict_row
 
-                with db_store.db_pool(config.database_url).connection() as conn:
-                    conn.row_factory = dict_row
-                    used = retake_payments.consume_credit_for_start(conn, email, session_id)
-                if not used:  # spent by another tab between the check and now
-                    return _json(402, {"error": "Your retake credit has already been used.", "code": "RETAKE_PAYMENT_REQUIRED"})
+                def _take_slot() -> str | None:
+                    # Atomic: the free slot is a unique row (migration 0005) and a credit is taken FOR UPDATE SKIP
+                    # LOCKED, so N parallel starts get at most one free interview plus one per paid credit.
+                    with db_store.db_pool(config.database_url).connection() as conn:
+                        conn.row_factory = dict_row
+                        if free_claim and retake_payments.claim_free_interview(conn, email, session_id):
+                            conn.commit()
+                            return "free"
+                        if retake_payments.consume_credit_for_start(conn, email, session_id):
+                            conn.commit()
+                            return "credit"
+                        conn.commit()
+                        return None
+
+                if not await asyncio.to_thread(_take_slot):  # taken by another tab between the check and now
+                    return _json(
+                        402,
+                        {
+                            "error": f"You have used your free interview. A retake costs ₹{retake_payments.retake_price_inr()}.",
+                            "code": "RETAKE_PAYMENT_REQUIRED",
+                            "priceInr": retake_payments.retake_price_inr(),
+                            "paymentsConfigured": retake_payments.payments_configured(),
+                        },
+                    )
             session = {
                 "id": session_id,
                 "email": email,
@@ -925,6 +1031,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "closingTurn": session_closing_turn,
                 "integrity": {"faceViolations": 0, "singlePersonOk": True, "maxFacesSeen": 1},
                 "consent": consent_record,
+                # Decided on the server (V-06): counts towards the paid-retake rule unless it is a verified job link.
+                "careerInterview": not is_job,
             }
             db.setdefault("interviewSessions", {})[session_id] = session
             await ctx.save_db(db)
@@ -987,21 +1095,22 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             # (Old requests are pruned by the daily maintenance job, not by loading the whole list here.)
             await ctx.save_db(db)
             inbox = (os.environ.get("CONTACT_INBOX_EMAIL") or os.environ.get("SMTP_EMAIL") or "").strip()
-            if inbox:
-                try:
-                    from html import escape
+            if inbox and smtp_configured():
+                from html import escape
 
-                    from app.services.mail_service import send_mail, smtp_configured
-
-                    if smtp_configured():
+                async def _notify() -> None:
+                    try:
                         await send_mail(
                             to=inbox,
                             subject=f"[HireRighttt] {'Demo request' if kind == 'demo' else 'Contact'} from {name}",
                             html=f"<p><b>{escape(name)}</b> &lt;{escape(from_email)}&gt;</p><p>{escape(message)}</p>",
                             text=f"{name} <{from_email}>\n\n{message}",
                         )
-                except Exception:
-                    pass  # stored in the database either way; never fail the visitor's request on mail errors
+                    except Exception:
+                        logger.warning("Contact notification email failed", exc_info=True)
+
+                # Stored in the database either way; the visitor never waits for (or sees) the mail server.
+                background.spawn(_notify(), "contact-email")
             return _json(200, {"ok": True})
 
         if method == "POST" and path == "/api/interview/score":
@@ -1026,12 +1135,13 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 )
             if session_is_stale(session):
                 return _json(410, {"error": "This interview session has expired. Please start a new interview.", "code": "SESSION_EXPIRED"})
-            profile = runtime.merge_interview_profile(db, email, body.get("profile"))
+            # V-14: role, level (rubric difficulty) and profile come from the server's session / stored profile only.
+            profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, None)
             # The server's own question list is authoritative; client-sent questions only if the session has none.
             raw_questions = session.get("questions") or body.get("questions")
-            answers = [str(a) for a in body.get("answers") or []]
-            role = str(body.get("role") or session.get("role") or "Full Stack Engineer")
-            level = str(body.get("level") or session.get("level") or "1–3 years")
+            answers = [str(a)[:20000] for a in (body.get("answers") or [])[:50]]
+            role = str(session.get("role") or "Full Stack Engineer")
+            level = str(session.get("level") or "1–3 years")
             questions = []
             for q in raw_questions or []:
                 if isinstance(q, dict) and q.get("text"):
@@ -1047,8 +1157,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(400, {"error": "At least one answer is required to score the interview."})
             scored_questions = questions[:pair_count]
             scored_answers = answers[:pair_count]
-            user = find_user(db, email=email)
-            client_integrity = body.get("integrity") if isinstance(body.get("integrity"), dict) else {}
+            user = await asyncio.to_thread(find_user, db, email=email)
+            # V-14: proctoring is detected in the browser, but the client may only ADD flags, never remove the ones the
+            # server already recorded (session integrity counters and persisted review events).
+            client_integrity = merge_server_integrity(
+                session, body.get("integrity") if isinstance(body.get("integrity"), dict) else {}
+            )
             duration_seconds = None
             try:
                 started = datetime.fromisoformat(str(session.get("startedAt") or "").replace("Z", "+00:00"))
@@ -1071,12 +1185,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             proctoring = await persist_proctoring_flags(
                 tenant_id=str(session.get("organizationId") or "platform"),
                 session_id=session_id,
-                flagged_sections=client_integrity.get("flaggedSections")
-                or review_logs_to_flag_sections(client_integrity.get("logs") or session.get("reviewEvents") or []),
+                flagged_sections=client_integrity.get("flaggedSections") or [],
             )
             result["integrity"] = {
                 **result.get("integrity", {}),
-                "logs": session.get("reviewEvents") or client_integrity.get("logs") or [],
+                "logs": client_integrity.get("logs") or [],
                 "proctoring": proctoring,
             }
             deviations = count_face_proctor_deviations(client_integrity, proctoring)
@@ -1169,32 +1282,43 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path == "/api/talent/search":
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = find_user(db, email=email)
+            user = await asyncio.to_thread(find_user, db, email=email)
             if not user or user.get("role") != "employer":
                 return _json(403, {"error": "Employer account required for talent search."})
-            tenant = runtime.tenant_context_for_user(db, user)
-            if not tenant.get("organization", {}).get("id"):
+            tenant = await asyncio.to_thread(runtime.tenant_context_for_user, db, user)
+            org_id = _org_id(tenant)
+            if not org_id:
                 return _json(403, {"error": "No organization linked to this employer account."})
+            if not ctx.rate_limit(f"talent-search:{org_id}", 120, 3_600_000):
+                return _json(429, {"error": "Too many searches this hour. Try again later."})
             params = request.query_params
-            skills = [s.strip() for s in str(params.get("skills") or "").split(",") if s.strip()]
-            min_score_raw = params.get("minScore")
+            skills = [s.strip()[:80] for s in str(params.get("skills") or "").split(",") if s.strip()][:20]
+            min_score: float | None
+            try:
+                min_score = float(params.get("minScore")) if params.get("minScore") else None
+            except ValueError:
+                min_score = None
             try:
                 result = await search_candidate_talent(
                     config.database_url,
-                    tenant["organization"]["id"],
+                    org_id,
                     {
-                        "q": params.get("q") or "",
-                        "location": params.get("location") or "",
-                        "experienceYears": params.get("experienceYears") or params.get("experience") or "",
+                        "q": str(params.get("q") or "")[:200],
+                        "location": str(params.get("location") or "")[:120],
+                        "experienceYears": str(params.get("experienceYears") or params.get("experience") or "")[:40],
                         "skills": skills,
-                        "minScore": float(min_score_raw) if min_score_raw else None,
-                        "limit": int(params.get("limit") or 25),
-                        "offset": int(params.get("offset") or 0),
+                        "minScore": min_score,
+                        "limit": _int_param(params.get("limit"), 25, lo=1, hi=100),
+                        "offset": _int_param(params.get("offset"), 0, lo=0, hi=10_000),
                     },
                 )
+                result["candidates"] = await asyncio.to_thread(
+                    redact_talent_hits, db, org_id, result.get("candidates") or []
+                )
                 return _json(200, result)
-            except Exception as err:
-                return _json(500, {"error": str(err)})
+            except Exception:
+                logger.exception("Talent search failed")
+                return _json(500, {"error": "Search failed. Please try again."})
 
         if method == "POST" and path == "/api/interview/transcribe":
             await runtime.require_auth_email(request)
@@ -1206,7 +1330,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             )
 
         if method == "GET" and path == "/api/interview/flow":
-            return _json(200, {"flow": ia.get_interview_interactive_flow_json()})
+            return _json_etag(request, {"flow": ia.get_interview_interactive_flow_json()}, cache_control="public, max-age=3600")
 
         if method == "POST" and path == "/api/resume/upload":
             email = await runtime.require_auth_email(request)
@@ -1219,7 +1343,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(getattr(err, "status", 400), {"error": str(err)})
             try:
                 db = ctx.load_db()
-                account = find_user(db, email=email)
+                account = await asyncio.to_thread(find_user, db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 uploaded = await upload_resume_to_object_storage(
                     pool=pool,
@@ -1236,27 +1360,34 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "resumeFileId": uploaded.get("fileId"),
                     "storageProvider": uploaded["storageProvider"],
                 }
-                prev = dict((db.get("profiles") or {}).get(email) or {})
-                db.setdefault("profiles", {})[email] = {
-                    **prev,
-                    **profile_patch,
-                    "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                }
+                def _patch_profile() -> None:
+                    prev = dict((db.get("profiles") or {}).get(email) or {})
+                    db.setdefault("profiles", {})[email] = {
+                        **prev,
+                        **profile_patch,
+                        "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    }
+
+                await asyncio.to_thread(_patch_profile)
                 await ctx.save_db(db)
                 return _json(200, {"ok": True, **uploaded})
             except Exception as err:
                 status = getattr(err, "status", 502)
                 if getattr(err, "skipped", False):
-                    return _json(status, {"error": str(err), "skipped": True})
+                    return _json(status, {"error": public_object_storage_error(err, "Storage is not configured."), "skipped": True})
                 return _json(status, {"error": public_object_storage_error(err, "Resume upload failed. Please try again.")})
 
         if method == "GET" and path == "/api/resume/download":
             email = await runtime.require_auth_email(request)
             try:
                 db = ctx.load_db()
-                profile = (db.get("profiles") or {}).get(email) or {}
+                profile = await asyncio.to_thread(lambda: (db.get("profiles") or {}).get(email) or {})
+                account = await asyncio.to_thread(find_user, db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
-                signed = await resolve_resume_download_for_user(requesterEmail=email, profile=profile, pool=pool)
+                # The stored key must be inside THIS account's users/<id>/resume/ folder (V-02).
+                signed = await resolve_resume_download_for_user(
+                    requesterEmail=email, profile=profile, pool=pool, ownerUserId=(account or {}).get("id")
+                )
                 accept = request.headers.get("accept") or ""
                 if "application/json" in accept or request.query_params.get("format") == "json":
                     return _json(
@@ -1366,8 +1497,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "level": body.get("level") or "1–3 years",
                     "question": body.get("question") or {},
                     "answer": str(body.get("answer") or ""),
-                    "questionIndex": int(body.get("questionIndex") or 0),
-                    "totalQuestions": int(body.get("totalQuestions") or 0),
+                    "questionIndex": _int_param(body.get("questionIndex"), 0, lo=0, hi=100),
+                    "totalQuestions": _int_param(body.get("totalQuestions"), 0, lo=0, hi=100),
                     "nextQuestion": body.get("nextQuestion") or {},
                 }
             )
@@ -1400,7 +1531,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session = (db.get("interviewSessions") or {}).get(session_id)
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
-            face_count = int(body.get("faceCount") if body.get("faceCount") is not None else 1)
+            face_count = _int_param(body.get("faceCount"), 1, lo=0, hi=20)
             integrity = session.setdefault(
                 "integrity", {"faceViolations": 0, "singlePersonOk": True, "maxFacesSeen": 1}
             )
@@ -1414,12 +1545,25 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             return _json(200, {"integrity": integrity})
 
         if method == "POST" and path == "/api/interview":
+            # V-04: a candidate used to be able to store ANY result here (e.g. overall=100), which employers then saw
+            # in rosters and talent search. Only a result the server itself scored for this candidate is accepted;
+            # every other field of the body is ignored. (/api/interview/score already saves it; this stays for the
+            # browser's sync call, which sends the scored result including its sessionId.)
             email = await runtime.require_auth_email(request)
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
-            db.setdefault("interviews", {})[email] = body
+            sid = str(body.get("sessionId") or "").strip()
+            session = await asyncio.to_thread(lambda: (db.get("interviewSessions") or {}).get(sid) if sid else None)
+            if (
+                not session
+                or str(session.get("email") or "").lower() != email
+                or session.get("status") != "completed"
+                or not isinstance(session.get("result"), dict)
+            ):
+                return _json(400, {"error": "Only interviews scored by the server can be saved.", "code": "SERVER_SCORE_REQUIRED"})
+            db.setdefault("interviews", {})[email] = session["result"]
             await ctx.save_db(db)
-            return _json(200, {"interview": body})
+            return _json(200, {"interview": strip_interview_result_for_candidate(session["result"])})
 
         if method == "DELETE" and path.startswith("/api/applications/"):
             email = await runtime.require_auth_email(request)
@@ -1469,15 +1613,21 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(429, {"error": "Too many resume parse requests. Try again shortly."})
             body = await runtime.read_json_body(request)
             file_data = body.get("fileData") or body.get("fileBase64")
-            file_name = str(body.get("fileName") or "resume.pdf")
-            text = str(body.get("text") or body.get("resumeText") or "").strip()
+            if file_data is not None and (not isinstance(file_data, str) or len(file_data) > MAX_PARSE_BASE64_CHARS):
+                return _json(413, {"ok": False, "error": "Resume files must be 2 MB or smaller."})
+            file_name = str(body.get("fileName") or "resume.pdf")[:200]
+            text = str(body.get("text") or body.get("resumeText") or "").strip()[:100000]
             client_extracted = len(text) >= 40
             paddle_extract = None
             if not client_extracted and file_data:
                 import base64
 
                 b64 = file_data.split(",", 1)[1] if "," in str(file_data) else str(file_data)
-                paddle_extract = await _run_paddle(base64.b64decode(b64), file_name)
+                try:
+                    decoded = base64.b64decode(b64)
+                except ValueError:
+                    return _json(400, {"ok": False, "error": "The resume file could not be read."})
+                paddle_extract = await _run_paddle(decoded, file_name)
             if paddle_extract:
                 return _json(200, {"ok": True, "source": "paddle-ocr", "extract": paddle_extract})
             if not text and file_data:
@@ -1525,8 +1675,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             upload = form.get("file")
             if upload is None or not hasattr(upload, "read"):
                 return _json(400, {"error": "Recording file is required."})
-            data = await upload.read()
-            filename = str(form.get("filename") or getattr(upload, "filename", "") or "interview_recording.webm")
+            # Starlette spooled the upload to a temp file; measure it and stream it to S3 (never 100 MB in memory).
+            upload.file.seek(0, 2)
+            upload_size = upload.file.tell()
+            upload.file.seek(0)
+            filename = str(form.get("filename") or getattr(upload, "filename", "") or "interview_recording.webm")[:200]
             content_type = str(getattr(upload, "content_type", "") or form.get("contentType") or "")
             duration_raw = form.get("durationSeconds")
             try:
@@ -1535,7 +1688,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 duration_seconds = None
             try:
                 db = ctx.load_db()
-                account = find_user(db, email=email)
+                account = await asyncio.to_thread(find_user, db, email=email)
                 pool = db_store.db_pool(config.database_url or "dynamodb")
                 out = await rec_store.store_interview_recording_bytes(
                     pool=pool,
@@ -1545,7 +1698,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     sessionId=str(form.get("sessionId") or ""),
                     filename=filename,
                     contentType=content_type,
-                    data=data,
+                    fileobj=upload.file,
+                    size=upload_size,
                     durationSeconds=duration_seconds,
                 )
                 return _json(200, out)
@@ -1574,7 +1728,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     sessionId=str(body.get("sessionId") or ""),
                     filename=str(body.get("filename") or "interview_recording.webm"),
                     contentType=str(body.get("contentType") or ""),
-                    fileSize=float(body.get("fileSize") or 0),
+                    fileSize=_int_param(body.get("fileSize"), 0, lo=0, hi=10**12),
                 )
                 return _json(200, {"ok": True, **out})
             except rec_store.StorageError as err:
@@ -1681,15 +1835,20 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
         if method == "GET" and path.startswith("/api/talent/candidates/"):
             email = await runtime.require_auth_email(request)
             db = ctx.load_db()
-            user = find_user(db, email=email)
+            user = await asyncio.to_thread(find_user, db, email=email)
             if not user or user.get("role") != "employer":
                 return _json(403, {"error": "Employer account required."})
-            tenant = runtime.tenant_context_for_user(db, user)
-            user_id = path.replace("/api/talent/candidates/", "").split("/")[0]
-            candidate = await get_candidate_talent_by_id(config.database_url, tenant["organization"]["id"], user_id)
+            tenant = await asyncio.to_thread(runtime.tenant_context_for_user, db, user)
+            org_id = _org_id(tenant)
+            if not org_id:
+                return _json(403, {"error": "No organization linked to this employer account."})
+            user_id = path.replace("/api/talent/candidates/", "").split("/")[0][:64]
+            candidate = await get_candidate_talent_by_id(config.database_url, org_id, user_id)
             if not candidate:
                 return _json(404, {"error": "Candidate not found or not visible."})
-            return _json(200, {"candidate": candidate, "interview": (db.get("interviews") or {}).get(candidate["email"])})
+            interview = await asyncio.to_thread(lambda: (db.get("interviews") or {}).get(candidate["email"]))
+            redacted = await asyncio.to_thread(redact_talent_hits, db, org_id, [candidate])
+            return _json(200, {"candidate": redacted[0], "interview": interview})
 
     except HTTPException as exc:
         return _json(exc.status_code, {"error": exc.detail})

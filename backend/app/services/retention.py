@@ -44,6 +44,11 @@ def purge_expired(pool: Any, *, delete_object=None) -> dict[str, int]:
     counts = {"sessions": 0, "reset_tokens": 0, "audit_rows": 0, "recordings": 0, "artifacts": 0}
     with pool.connection() as conn:
         counts["sessions"] = conn.execute("DELETE FROM hireright_sessions WHERE expires_at < NOW()").rowcount or 0
+        try:  # failed sign-in counters (migration 0005) older than a day are no longer relevant
+            with conn.transaction():
+                conn.execute("DELETE FROM login_failures WHERE updated_at < NOW() - INTERVAL '1 day'")
+        except Exception:
+            pass
         counts["reset_tokens"] = (
             conn.execute(
                 "DELETE FROM password_reset_tokens WHERE used_at IS NOT NULL OR expires_at < NOW() - INTERVAL '1 day'"

@@ -40,6 +40,23 @@ from app.services.vendor.candidate_documents import assert_vendor_may_view_candi
 from app.services.vendor.jobs import get_org_application_for_recruiter, get_org_job_for_recruiter
 
 
+import logging
+import os
+
+logger = logging.getLogger("hireright.invites")
+
+MAIL_SEND_FAILED = "The email could not be sent. Share the link manually."
+
+
+def _invite_daily_recipient_limit() -> int:
+    """V-10: interview emails an organization may send per day (employer signup is unverified, so the mailbox could
+    otherwise be used as a spam / phishing relay)."""
+    try:
+        return max(1, int(os.environ.get("INVITE_DAILY_RECIPIENT_LIMIT") or 50))
+    except ValueError:
+        return 50
+
+
 def _mark_invite_email_sent(pool, token: str) -> None:
     """Blocking (run via asyncio.to_thread)."""
     if database_provider() == "dynamodb":
@@ -166,10 +183,12 @@ async def try_extended_routes(
         app_id = path.split("/")[4]
         body = await runtime.read_json_body(request)
         org_id = access["tenant"]["organization"]["id"]
-        app = get_org_application_for_recruiter(db, org_id, app_id, vendor_scope(access))
+        if not ctx.rate_limit(f"invite-app:{org_id}", 100, 86_400_000):
+            return json_fn(429, {"error": "Daily interview-invite limit reached for your organization. Try again tomorrow."})
+        app = await asyncio.to_thread(get_org_application_for_recruiter, db, org_id, app_id, vendor_scope(access))
         if not app:
             return json_fn(404, {"error": "Applicant not found."})
-        job = get_org_job_for_recruiter(db, org_id, app.get("jobId"), vendor_scope(access))
+        job = await asyncio.to_thread(get_org_job_for_recruiter, db, org_id, app.get("jobId"), vendor_scope(access))
         start_raw = body.get("scheduledStart") or body.get("scheduledAt")
         try:
             start = datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
@@ -220,8 +239,9 @@ async def try_extended_routes(
                 )
                 await asyncio.to_thread(_mark_invite_email_sent, pool, token)
                 email_sent = True
-            except Exception as err:
-                email_error = str(err)
+            except Exception:
+                logger.warning("Interview invite email failed", exc_info=True)
+                email_error = MAIL_SEND_FAILED
         app.setdefault("data", {})["lastInterviewInvite"] = {
             "token": token,
             "inviteUrl": invite_url,
@@ -256,6 +276,7 @@ async def try_extended_routes(
             return json_fn(503, {"error": "Database required for interview invites."})
         if not ctx.rate_limit(f"invite-send:{access['user'].get('email')}", 20, 3_600_000):
             return json_fn(429, {"error": "Invite limit reached for this hour. Try again later."})
+        invite_org_id = access["tenant"]["organization"]["id"]
         body = await runtime.read_json_body(request)
         raw_people = body.get("candidates")
         if not isinstance(raw_people, list):
@@ -272,6 +293,24 @@ async def try_extended_routes(
             people.append((em, str(item.get("name") or "").strip()[:120]))
         if not people:
             return json_fn(400, {"error": "Provide at least one valid candidate email."})
+        # V-10: every recipient counts against the organization's daily allowance (default 50 / day).
+        allowed_people = []
+        for person in people:
+            if not ctx.rate_limit(f"invite-recipients:{invite_org_id}", _invite_daily_recipient_limit(), 86_400_000):
+                break
+            allowed_people.append(person)
+        if not allowed_people:
+            return json_fn(429, {"error": "Daily invite limit reached for your organization. Try again tomorrow."})
+        skipped_over_limit = [em for em, _ in people[len(allowed_people):]]
+        people = allowed_people
+        audit.fire(
+            audit.INVITE_CREATED,
+            user_id=(access.get("user") or {}).get("id"),
+            organization_id=invite_org_id,
+            entity_type="interview_invite",
+            entity_id="",
+            meta={"recipients": [audit.email_fingerprint(em) for em, _ in people], "skipped": len(skipped_over_limit)},
+        )
         try:
             days = int(body.get("expiresInDays") or DEFAULT_OPEN_INVITE_DAYS)
         except (TypeError, ValueError):
@@ -284,7 +323,7 @@ async def try_extended_routes(
             job = get_org_job_for_recruiter(db, org_id, str(body["jobId"]), vendor_scope(access))
             if not job:
                 return json_fn(404, {"error": "Job not found."})
-        job_title = str(body.get("jobTitle") or (job or {}).get("title") or "AI Interview")[:160]
+        job_title = re.sub(r"[\r\n<>]+", " ", str(body.get("jobTitle") or (job or {}).get("title") or "AI Interview"))[:160]
         now = datetime.now(timezone.utc)
         start = now - timedelta(minutes=1)
         end = now + timedelta(days=days)
@@ -336,8 +375,9 @@ async def try_extended_routes(
                     )
                     await asyncio.to_thread(_mark_invite_email_sent, pool, token)
                     sent = True
-                except Exception as err:
-                    err_text = str(err)
+                except Exception:
+                    logger.warning("Open invite email failed", exc_info=True)
+                    err_text = MAIL_SEND_FAILED
             else:
                 err_text = "Email is not configured on the server. Share the link manually."
             results.append({"email": em, "name": nm, "inviteUrl": invite_url, "emailSent": sent, "emailError": err_text})
@@ -348,11 +388,14 @@ async def try_extended_routes(
                 "expiresAt": end.isoformat().replace("+00:00", "Z"),
                 "smtpConfigured": smtp_configured(),
                 "invites": results,
+                "skippedOverDailyLimit": skipped_over_limit,
             },
         )
 
     if method == "POST" and path == "/api/interview/confirmation-email":
         email = await runtime.require_auth_email(request)
+        if not ctx.rate_limit(f"confirm-mail:{email}", 10, 3_600_000):
+            return json_fn(429, {"error": "Too many booking emails. Try again later."})
         body = await runtime.read_json_body(request)
         start_raw = body.get("scheduledStart") or body.get("scheduledAt")
         try:
@@ -411,8 +454,9 @@ async def try_extended_routes(
             await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))
             await asyncio.to_thread(_mark_invite_email_sent, pool, token)
             email_sent = True
-        except Exception as err:
-            email_error = str(err)
+        except Exception:
+            logger.warning("Booking confirmation email failed", exc_info=True)
+            email_error = MAIL_SEND_FAILED
         return json_fn(
             200,
             {
@@ -516,8 +560,8 @@ async def try_extended_routes(
             return json_fn(400, {"error": "sessionId and email are required."})
         org_id = tenant["organization"]["id"]
         try:
-            assert_vendor_may_view_candidate_documents(db, org_id, candidate_email, vendor_scope(access))
-        except Exception as err:
+            await asyncio.to_thread(assert_vendor_may_view_candidate_documents, db, org_id, candidate_email, vendor_scope(access))
+        except ValueError as err:
             return json_fn(getattr(err, "status", 404), {"error": str(err)})
         session = (db.get("interviewSessions") or {}).get(session_id)
         if not session and database_provider() == "dynamodb":

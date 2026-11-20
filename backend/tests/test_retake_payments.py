@@ -26,7 +26,7 @@ def test_forged_or_mismatched_signatures_are_rejected():
 
 def test_job_interviews_are_never_charged():
     assert rp.is_job_interview({"applicationId": "app-1"})
-    assert rp.is_job_interview({"jobId": "job-1"})
+    assert not rp.is_job_interview({"jobId": "job-1"})  # any open job id is public: not a proof (V-06)
     assert rp.is_job_interview({"inviteToken": "tok"})
     assert not rp.is_job_interview({"role": "Frontend Developer"})
     assert not rp.is_job_interview({})

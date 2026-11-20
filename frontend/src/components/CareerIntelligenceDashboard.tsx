@@ -501,7 +501,7 @@ export function CareerIntelligenceDashboard({
             <thead>
               <tr>
                 <th scope="col" className={styles.numCol}>#</th>
-                <th scope="col">Topic</th>
+                <th scope="col" className={styles.topicCol}>Topic</th>
                 <th scope="col" className={styles.questionCol}>Question</th>
                 <th scope="col" className={styles.scoreCol}>Correct</th>
                 <th scope="col" className={styles.scoreCol}>Depth</th>

@@ -18,13 +18,9 @@
       content="Structured AI video interviews, proctoring and scorecards for candidates and hiring teams."
     />
     <meta name="twitter:card" content="summary" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Only the weights the UI uses (400-900); display=swap shows text in the fallback font right away. -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400..900;1,400..900&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Nunito is self-hosted (src/styles/fonts.css, font-display: swap). Preload only the primary face:
+         latin upright, variable 400-900. Vite rewrites the href to the hashed /assets/ file. -->
+    <link rel="preload" href="/src/assets/fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin />
     <title>HireRighttt — Talent to Talent</title>
   </head>
   <body>

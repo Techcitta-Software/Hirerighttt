@@ -7,11 +7,13 @@ from typing import Any
 
 from app.services.storage.s3_key_layout import (
     build_candidate_resume_object_key,
+    key_belongs_to_candidate,
     resolve_candidate_storage_id,
 )
 from app.services.storage.s3_storage import object_storage_configured, presign_download, upload_object
 
 MAX_RESUME_BYTES = 2_000_000
+MAX_RESUME_BASE64_CHARS = (MAX_RESUME_BYTES * 4) // 3 + 8
 RESUME_FILENAME_RE = re.compile(r"\.(pdf|docx)$", re.I)
 RESUME_DOWNLOAD_API_PATH = "/api/resume/download"
 
@@ -24,7 +26,16 @@ def parse_resume_upload_body(body: dict) -> dict[str, Any]:
         err.status = 400  # type: ignore[attr-defined]
         raise err
     b64 = raw.split(",", 1)[1] if "," in raw else raw
-    buf = base64.b64decode(b64, validate=True)
+    if len(b64) > MAX_RESUME_BASE64_CHARS:  # refuse before decoding (memory)
+        err = ValueError("Resume must be between 1 byte and 2 MB.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err
+    try:
+        buf = base64.b64decode(b64, validate=True)
+    except (ValueError, TypeError) as exc:
+        err = ValueError("The resume file could not be read. Upload it again.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err from exc
     if len(buf) < 1 or len(buf) > MAX_RESUME_BYTES:
         err = ValueError("Resume must be between 1 byte and 2 MB.")
         err.status = 400  # type: ignore[attr-defined]
@@ -82,9 +93,18 @@ async def upload_resume_to_object_storage(**opts) -> dict[str, Any]:
     }
 
 
-async def resolve_resume_download_from_profile(profile: dict, _pool, *, inline: bool = False) -> dict[str, Any]:
+async def resolve_resume_download_from_profile(
+    profile: dict,
+    _pool,
+    *,
+    inline: bool = False,
+    owner_user_id: str | None = None,
+    owner_email: str = "",
+) -> dict[str, Any]:
+    """Presign the stored resume of the profile's owner. The key must be inside the OWNER's users/<id>/resume/ folder:
+    a resumeStoragePath pointing anywhere else (set by a client before V-02 was fixed) is treated as no file."""
     key = profile.get("resumeStoragePath")
-    if not key:
+    if not key or not key_belongs_to_candidate(str(key), user_id=owner_user_id, email=owner_email, kind="resume"):
         err = ValueError("No stored resume file for this account.")
         err.status = 404  # type: ignore[attr-defined]
         raise err
@@ -95,8 +115,21 @@ async def resolve_resume_download_from_profile(profile: dict, _pool, *, inline: 
 
 
 async def resolve_resume_download_for_user(**opts) -> dict[str, Any]:
-    return await resolve_resume_download_from_profile(opts.get("profile") or {}, opts.get("pool"), inline=False)
+    return await resolve_resume_download_from_profile(
+        opts.get("profile") or {},
+        opts.get("pool"),
+        inline=False,
+        owner_user_id=opts.get("ownerUserId"),
+        owner_email=str(opts.get("requesterEmail") or ""),
+    )
 
 
 def public_object_storage_error(err: Exception, fallback: str) -> str:
-    return str(err) if str(err) else fallback
+    """A message safe to show the client. Only errors we raised on purpose (they carry a status) are passed through;
+    anything else (S3 / network / database exceptions) is logged and replaced by `fallback` (V-21)."""
+    import logging
+
+    if getattr(err, "status", None) and isinstance(err, (ValueError, RuntimeError)) and str(err):
+        return str(err)
+    logging.getLogger("hireright.storage").warning("object storage error: %s", err, exc_info=err)
+    return fallback

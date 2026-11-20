@@ -345,7 +345,11 @@ export type ApiApplication = {
 }
 
 export async function apiListApplications(): Promise<ApiApplication[]> {
-  const data = await request('/api/applications')
+  // Dashboard and the Applications page both load this on mount: share one request for a few seconds.
+  // Any write (apply, withdraw, profile save) clears the cache first, so a read after a write is fresh.
+  const data = (await cachedRequest('/api/applications', 5_000, () => request('/api/applications'))) as {
+    applications?: ApiApplication[]
+  }
   return Array.isArray(data.applications) ? data.applications : []
 }
 

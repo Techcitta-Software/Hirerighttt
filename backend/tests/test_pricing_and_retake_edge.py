@@ -134,44 +134,13 @@ def test_convert_currency():
 
 
 # ==============================================================================
-# 3. Coupon Validation Guards
+# 3. Coupons (V-25): the hard-coded table with a 100 % FREEPASS code was removed
 # ==============================================================================
 
 
-def test_apply_coupon_guard_valid_codes():
-    """WELCOME10 (10%), HIRERIGHT50 (50%), FREEPASS (100%)."""
-    eff, disc, code = rp.apply_coupon_guard(89, "WELCOME10")
-    assert code == "WELCOME10"
-    assert disc == 9
-    assert eff == 80
-
-    eff, disc, code = rp.apply_coupon_guard(100, "hireright50 ")
-    assert code == "HIRERIGHT50"
-    assert disc == 50
-    assert eff == 50
-
-    eff, disc, code = rp.apply_coupon_guard(89, "FREEPASS")
-    assert code == "FREEPASS"
-    assert disc == 89
-    assert eff == 0
-
-
-def test_apply_coupon_guard_invalid_or_missing_codes():
-    """Unknown or empty coupons leave the base price untouched."""
-    eff, disc, code = rp.apply_coupon_guard(89, "INVALID_CODE")
-    assert code is None
-    assert disc == 0
-    assert eff == 89
-
-    eff, disc, code = rp.apply_coupon_guard(89, None)
-    assert code is None
-    assert disc == 0
-    assert eff == 89
-
-    eff, disc, code = rp.apply_coupon_guard(89, "")
-    assert code is None
-    assert disc == 0
-    assert eff == 89
+def test_no_hard_coded_coupons_remain():
+    assert not hasattr(rp, "VALID_COUPONS")
+    assert not hasattr(rp, "apply_coupon_guard")
 
 
 # ==============================================================================
@@ -180,11 +149,14 @@ def test_apply_coupon_guard_invalid_or_missing_codes():
 
 
 def test_job_interviews_are_never_charged():
-    """Job interviews via applicationId, jobId, or inviteToken are always free."""
+    """Job interviews via an application or an invite are free; a bare (public) jobId is not enough (V-06)."""
     assert rp.is_job_interview({"applicationId": "app-101"})
-    assert rp.is_job_interview({"jobId": "job-202"})
+    assert not rp.is_job_interview({"jobId": "job-202"})
     assert rp.is_job_interview({"inviteToken": "tok-303"})
-    assert rp.is_job_interview(None, {"jobId": "job-from-session"})
+    assert not rp.is_job_interview(None, {"jobId": "job-from-session"})
+    assert rp.verified_job_interview(application={"id": "a"}, invite_token=None)
+    assert rp.verified_job_interview(application=None, invite_token="tok")
+    assert not rp.verified_job_interview(application=None, invite_token=None)
 
     # Pure practice interviews are charged
     assert not rp.is_job_interview({"role": "Backend Engineer"})

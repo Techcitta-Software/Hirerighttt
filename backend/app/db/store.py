@@ -816,6 +816,23 @@ def ping_database(database_url: str) -> dict[str, Any]:
         return {"ok": False, "reason": str(exc)}
 
 
+def session_token_key(token: str) -> str:
+    """What is stored for a session token: its SHA-256 (V-17), so a database dump or backup holds no live sessions.
+
+    Tokens are 32 hex characters and their hashes 64, so rows written before this change (plain tokens) are still
+    found by the lookups below until they expire (7 days, sliding)."""
+    import hashlib
+
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _session_lookup_keys(token: str) -> tuple[str, str]:
+    """(hash, legacy plain value). A 64-character value is never matched as a plain token, so a hash read from a
+    leaked dump cannot be replayed as a bearer token."""
+    hashed = session_token_key(token)
+    return hashed, (token if len(str(token or "")) != 64 else hashed)
+
+
 def save_session_token(database_url: str, token: str, email: str, ttl_ms: int = 7 * 24 * 60 * 60 * 1000) -> None:
     if database_provider() == "dynamodb":
         from app.db import dynamo_repos as dr
@@ -830,7 +847,7 @@ def save_session_token(database_url: str, token: str, email: str, ttl_ms: int = 
         conn.execute(
             """INSERT INTO hireright_sessions (token, email, expires_at) VALUES (%s, %s, %s)
                ON CONFLICT (token) DO UPDATE SET email = EXCLUDED.email, expires_at = EXCLUDED.expires_at""",
-            (token, email, expires_dt),
+            (session_token_key(token), email, expires_dt),
         )
         conn.commit()
 
@@ -846,16 +863,16 @@ def resolve_session_email(database_url: str, token: str) -> str | None:
     pool = _ensure_pool(url)
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT email, expires_at, (expires_at < NOW() + INTERVAL '6 days') AS renew "
-            "FROM hireright_sessions WHERE token = %s AND expires_at > NOW()",
-            (token,),
+            "SELECT token, email, expires_at, (expires_at < NOW() + INTERVAL '6 days') AS renew "
+            "FROM hireright_sessions WHERE token IN (%s, %s) AND expires_at > NOW()",
+            _session_lookup_keys(token),
         ).fetchone()
         if row and row.get("renew"):
             # Sliding session: someone who keeps using the product stays signed in. A fixed 7 days from login
             # signed out daily users every week. This writes at most about once a day per active session.
             conn.execute(
                 "UPDATE hireright_sessions SET expires_at = NOW() + INTERVAL '7 days' WHERE token = %s",
-                (token,),
+                (row["token"],),
             )
             conn.commit()
     return row["email"] if row else None
@@ -872,7 +889,7 @@ def delete_session_token(database_url: str, token: str) -> None:
     url = _require_database_url(database_url)
     pool = _ensure_pool(url)
     with pool.connection() as conn:
-        conn.execute("DELETE FROM hireright_sessions WHERE token = %s", (token,))
+        conn.execute("DELETE FROM hireright_sessions WHERE token IN (%s, %s)", _session_lookup_keys(token))
         conn.commit()
 
 
@@ -949,6 +966,60 @@ def sync_open_jobs_from_database(database_url: str, db: dict[str, Any]) -> dict[
         by_id[job["id"]] = {**by_id.get(job["id"], {}), **job}
     db["jobs"] = list(by_id.values())
     return db
+
+
+# --- GET /api/jobs?summary=1 (P-03) -------------------------------------------------------------------------------
+# The job board used to load up to 2000 open jobs with SELECT * (full descriptions) on every call. The list view only
+# shows a 360-character preview, so only the list columns are read, the description is cut in SQL, and the result is
+# shared for OPEN_JOBS_CACHE_TTL_S seconds per process. Any write that goes through invalidate_read_caches() (job
+# create / update / delete, unit-of-work flushes of jobs) drops it at once on this worker; other workers pick the
+# change up within the TTL.
+OPEN_JOBS_SUMMARY_LIMIT = int(os.environ.get("OPEN_JOBS_SUMMARY_LIMIT", "1000") or 1000)
+_OPEN_JOBS_TTL_S = float(os.environ.get("OPEN_JOBS_CACHE_TTL_S", "15") or 0)
+_open_jobs_lock = threading.Lock()
+_open_jobs_cache: dict[str, Any] = {"at": -1e9, "epoch": -1, "url": None, "rows": None}
+
+
+def _load_open_job_summaries(database_url: str, limit: int) -> list[dict[str, Any]]:
+    _ensure_schema(database_url)
+    pool = _ensure_pool(database_url)
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """SELECT id, organization_id, created_by_user_id, title, company, role_track, experience_level, location,
+                      LEFT(COALESCE(job_description, ''), 361) AS job_description, required_skills, shareable_code,
+                      status, created_at, extras
+               FROM jobs
+               WHERE COALESCE(status, 'published') IN ('active', 'published')
+                 AND COALESCE(TRIM(title), '') <> ''
+               ORDER BY created_at DESC
+               LIMIT %s""",
+            (limit,),
+        ).fetchall()
+    return [_map_job_row(r) for r in rows]
+
+
+def open_job_summaries(database_url: str, limit: int | None = None) -> list[dict[str, Any]]:
+    """Blocking. Open jobs for the board, newest first, description truncated to 361 characters. Read-only copies."""
+    limit = limit or OPEN_JOBS_SUMMARY_LIMIT
+
+    def fresh() -> bool:
+        c = _open_jobs_cache
+        return (
+            c["rows"] is not None
+            and c["url"] == database_url
+            and c["epoch"] == _read_epoch
+            and time.monotonic() - c["at"] < _OPEN_JOBS_TTL_S
+        )
+
+    if _OPEN_JOBS_TTL_S <= 0:
+        return _load_open_job_summaries(database_url, limit)
+    if not fresh():
+        with _open_jobs_lock:
+            if not fresh():
+                epoch = _read_epoch
+                rows = _load_open_job_summaries(database_url, limit)
+                _open_jobs_cache.update(at=time.monotonic(), epoch=epoch, url=database_url, rows=rows)
+    return [dict(r) for r in _open_jobs_cache["rows"]]
 
 
 @_invalidates_reads

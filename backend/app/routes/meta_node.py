@@ -18,7 +18,11 @@ async def llm_status(request: Request) -> dict:
     from app.node_config import is_prod_like
     from app.services.gemini_client import status_snapshot, verify_keys
 
-    detail: dict = {"failover": status_snapshot()}
+    from app.routes.health_node import health_detail_allowed
+
+    detail: dict = {}
+    if health_detail_allowed(request):  # V-20: key / failover state only for operators in production
+        detail["failover"] = status_snapshot()
     # Live key check (one tiny request per key). Development only, so it cannot be used to burn quota in production.
     if request.query_params.get("verify") == "1" and not is_prod_like:
         detail["verify"] = await verify_keys()
@@ -57,10 +61,16 @@ async def mail_status(request: Request) -> dict:
             "ok": False,
             "error": "Set RESEND_API_KEY + EMAIL_FROM (Render) or SMTP_EMAIL + SMTP_APP_PASSWORD (local)",
         }
+    from app.routes.health_node import health_detail_allowed
+    from app.services.mail_service import mail_provider
+
     public_app_url = os.environ.get("VITE_PUBLIC_APP_URL") or os.environ.get("PUBLIC_APP_URL") or None
+    if not health_detail_allowed(request):
+        # V-20: the public answer is what the frontend uses; the mailbox address and provider stay private.
+        return {"smtpConfigured": smtp_configured(), "inviteJoinWindowMinutes": INVITE_JOIN_WINDOW_MINUTES, "verify": verify}
     return {
         "smtpConfigured": smtp_configured(),
-        "mailProvider": "resend" if os.environ.get("RESEND_API_KEY") else ("gmail-smtp" if smtp_configured() else None),
+        "mailProvider": mail_provider() if smtp_configured() else None,
         "smtpHost": "smtp.gmail.com" if os.environ.get("SMTP_EMAIL") else None,
         "smtpUser": os.environ.get("SMTP_EMAIL"),
         "smtpFrom": os.environ.get("EMAIL_FROM") or os.environ.get("SMTP_EMAIL"),
@@ -73,16 +83,55 @@ async def mail_status(request: Request) -> dict:
     }
 
 
-@router.get("/plans")
-async def plans() -> dict:
+_PLANS_TTL_S = 300.0
+_plans_cache: dict = {"at": -1e9, "key": None, "plans": None}
+
+
+def _public_plans() -> list:
+    """Blocking. The plan catalog changes only with a deploy / migration: cached per process for 5 minutes."""
+    import time
+
+    from app.node_config import config
+
+    key = config.database_url
+    if _plans_cache["plans"] is not None and _plans_cache["key"] == key and time.monotonic() - _plans_cache["at"] < _PLANS_TTL_S:
+        return _plans_cache["plans"]
     db = runtime.load_db()
     public = [p for p in db.get("subscriptionPlans") or [] if p.get("isPublic") is not False]
-    return {"plans": public}
+    _plans_cache.update(at=time.monotonic(), key=key, plans=public)
+    return public
+
+
+@router.get("/plans")
+async def plans(request: Request):
+    import asyncio
+    import hashlib
+    import json
+
+    from fastapi.responses import Response
+
+    from app.server.json_safe import json_safe
+
+    payload = json.dumps(
+        {"plans": json_safe(await asyncio.to_thread(_public_plans))}, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    etag = 'W/"' + hashlib.sha1(payload).hexdigest()[:32] + '"'
+    headers = {"Cache-Control": "public, max-age=300", "ETag": etag}
+    if etag in [t.strip() for t in (request.headers.get("if-none-match") or "").split(",")]:
+        return Response(status_code=304, headers=headers)
+    return Response(content=payload, media_type="application/json", headers=headers)
 
 
 @router.get("/organization")
 async def organization(request: Request) -> dict:
+    import asyncio
+
     email = await runtime.require_auth_email(request)
+    return await asyncio.to_thread(_organization_payload, email)
+
+
+def _organization_payload(email: str) -> dict:
+    """Blocking (several lookups): runs in a worker thread."""
     db = runtime.load_db()
     user = find_user(db, email=email)
     if not user:

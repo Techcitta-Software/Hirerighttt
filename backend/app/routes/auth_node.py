@@ -18,7 +18,7 @@ from app.db.talent_index import upsert_candidate_talent
 from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import background, runtime
-from app.services import audit, password_reset as pw_reset
+from app.services import audit, login_guard, password_reset as pw_reset
 from app.services.interview_invites import public_app_origin
 from app.services.mail_service import send_mail, smtp_configured
 
@@ -31,13 +31,18 @@ async def signup(request: Request, body: dict) -> dict:
     ip = runtime.client_ip(request)
     if not config.signup_enabled:
         raise HTTPException(status_code=403, detail="Sign-up is disabled on this deployment.")
-    if is_prod_like and not runtime.rate_limit(f"signup:{ip}", 8):
+    if not runtime.rate_limit(f"signup:{ip}", 8 if is_prod_like else 60, strict=True):
         raise HTTPException(status_code=429, detail="Too many signup attempts. Try again shortly.")
-    name = str(body.get("name") or "").strip()
+    name = str(body.get("name") or "").strip()[:200]
     email = str(body.get("email") or "").strip().lower()
     password = str(body.get("password") or "")
-    if not name or not email or len(password) < 6 or len(password) > 1024:
-        raise HTTPException(status_code=400, detail="Name, email, and 6+ char password required.")
+    if not name or not email:
+        raise HTTPException(status_code=400, detail="Name, email, and password required.")
+    password_error = pw_reset.validate_new_password(password)  # same rule as password reset (8+ characters)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    if len(email) > 254:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
     if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     phone_raw = str(body.get("phone") or "").strip()
@@ -48,7 +53,7 @@ async def signup(request: Request, body: dict) -> dict:
         )
     phone = normalize_phone(phone_raw)
     db = runtime.load_db()
-    if find_user(db, email=email) is not None:
+    if await asyncio.to_thread(find_user, db, email=email) is not None:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -56,7 +61,7 @@ async def signup(request: Request, body: dict) -> dict:
                 "as either a candidate or a vendor (employer)."
             ),
         )
-    if find_user_by_phone_in_db(db, phone_raw):
+    if await asyncio.to_thread(find_user_by_phone_in_db, db, phone_raw):
         raise HTTPException(status_code=409, detail="An account with this mobile number already exists.")
     from app.db.dynamo_config import persistence_ready
 
@@ -139,17 +144,30 @@ async def login(request: Request, body: dict) -> dict:
     password = str(body.get("password") or "")
     # Throttle per account (brute force) plus a generous per-IP ceiling. A flat 20/min per IP locked out whole
     # offices and campuses, where hundreds of people share one public address.
-    if not runtime.rate_limit(f"login:{ip}", 300) or not runtime.rate_limit(f"login-email:{email}", 10):
+    if not runtime.rate_limit(f"login:{ip}", 300, strict=True) or not runtime.rate_limit(
+        f"login-email:{email}", 10, strict=True
+    ):
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again shortly.")
+    if len(password) > 1024 or len(email) > 254:
+        raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    # Failed sign-ins are counted in Postgres, so the lockout holds across every worker and instance (no Redis).
+    if email and await asyncio.to_thread(login_guard.is_locked, config.database_url, email):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed sign-in attempts for this account. Try again in a few minutes or reset your password.",
+        )
     db = runtime.load_db()
-    user = find_user(db, email=email)
+    user = await asyncio.to_thread(find_user, db, email=email)
     if (
         not user
         or user.get("status") != "active"
         or not await asyncio.to_thread(verify_password, password, user.get("passwordHash") or "")
     ):
         audit.fire(audit.LOGIN_FAILED, meta={"ip": ip, "email_fp": audit.email_fingerprint(email)})
+        if email:
+            await asyncio.to_thread(login_guard.record_failure, config.database_url, email)
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
+    await asyncio.to_thread(login_guard.clear, config.database_url, email)
     expected = body.get("expectedRole")
     expected_role = expected if expected in ("employer", "jobseeker") else None
     actual_role = "employer" if user.get("role") == "employer" else "jobseeker"
@@ -188,19 +206,19 @@ async def forgot_password(request: Request, body: dict) -> dict:
     """Email a single-use reset link. Always answers the same way so it can't reveal which emails have accounts."""
     ip = runtime.client_ip(request)
     email = str(body.get("email") or "").strip().lower()
-    if not runtime.rate_limit(f"pwforgot-ip:{ip}", 10, 15 * 60_000):
+    if not runtime.rate_limit(f"pwforgot-ip:{ip}", 10, 15 * 60_000, strict=True):
         raise HTTPException(status_code=429, detail="Too many reset requests. Try again in a few minutes.")
     if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
     response = {"ok": True, "message": pw_reset.GENERIC_REQUEST_MESSAGE}
-    if not runtime.rate_limit(f"pwforgot-email:{email}", 3, 60 * 60_000):
+    if not runtime.rate_limit(f"pwforgot-email:{email}", 3, 60 * 60_000, strict=True):
         return response
     from app.db.dynamo_config import persistence_ready
 
     if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
     db = runtime.load_db()
-    user = find_user(db, email=email)
+    user = await asyncio.to_thread(find_user, db, email=email)
     if not user or user.get("status") != "active":
         return response
     token = pw_reset.new_reset_token()
@@ -232,7 +250,7 @@ async def forgot_password(request: Request, body: dict) -> dict:
 @router.post("/password/reset")
 async def reset_password(request: Request, body: dict) -> dict:
     ip = runtime.client_ip(request)
-    if not runtime.rate_limit(f"pwreset:{ip}", 10, 15 * 60_000):
+    if not runtime.rate_limit(f"pwreset:{ip}", 10, 15 * 60_000, strict=True):
         raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
     token = str(body.get("token") or "").strip()
     password = str(body.get("password") or "")
@@ -252,13 +270,14 @@ async def reset_password(request: Request, body: dict) -> dict:
             detail="This reset link is invalid or has expired. Request a new one.",
         )
     db = runtime.load_db()
-    user = find_user(db, email=email)
+    user = await asyncio.to_thread(find_user, db, email=email)
     if not user or user.get("status") != "active":
         raise HTTPException(status_code=400, detail="This reset link is invalid or has expired. Request a new one.")
     user["passwordHash"] = await asyncio.to_thread(hash_password, password)  # scrypt (~60 ms): off the event loop
     await runtime.save_db(db)
     runtime.forget_sessions(email=email)
     await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
+    await asyncio.to_thread(login_guard.clear, config.database_url, email)
     return {"ok": True, "message": "Your password has been reset. Log in with your new password."}
 
 
@@ -270,9 +289,8 @@ async def logout(request: Request) -> dict:
     return {"ok": True}
 
 
-@router.get("/me")
-async def me(request: Request) -> dict:
-    email = await runtime.require_auth_email(request)
+def _me_payload(email: str, lite: bool) -> dict:
+    """Blocking: every lookup is a database round trip, so this runs in a worker thread (never on the event loop)."""
     db = runtime.load_db()
     user = find_user(db, email=email)
     if not user:
@@ -301,7 +319,7 @@ async def me(request: Request) -> dict:
         if plan
         else None,
     }
-    if str(request.query_params.get("lite") or "") == "1":
+    if lite:
         # Session check: account, organization and plan only. The profile (with the full resume), interview and
         # applications are left out (not null) and skip their queries; the full form is unchanged.
         return {**base, "lite": True}
@@ -313,16 +331,61 @@ async def me(request: Request) -> dict:
     }
 
 
+@router.get("/me")
+async def me(request: Request) -> dict:
+    email = await runtime.require_auth_email(request)
+    return await asyncio.to_thread(_me_payload, email, str(request.query_params.get("lite") or "") == "1")
+
+
+# Profile fields only the server may set (V-02/V-03). resumeStoragePath used to be client-writable, which let anyone
+# point it at another user's S3 object and then download or delete it. interviewScore feeds talent-search ranking.
+SERVER_OWNED_PROFILE_FIELDS = frozenset(
+    {
+        "resumeStoragePath",
+        "resumeUrl",
+        "resumeFileId",
+        "storageProvider",
+        "updatedAt",
+        "interviewScore",
+        "interviewResult",
+        "email",
+        "userId",
+    }
+)
+PROFILE_VISIBILITY_VALUES = ("marketplace", "organization_only", "private")
+MAX_PROFILE_KEYS = 200
+
+
+def sanitize_profile_patch(body: dict) -> dict:
+    """The client's profile patch minus server-owned fields, with the few typed fields validated."""
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON object")
+    if len(body) > MAX_PROFILE_KEYS:
+        raise HTTPException(status_code=400, detail="Too many profile fields.")
+    patch = {k: v for k, v in body.items() if isinstance(k, str) and k not in SERVER_OWNED_PROFILE_FIELDS}
+    if "profileVisibility" in patch and patch["profileVisibility"] not in PROFILE_VISIBILITY_VALUES:
+        patch.pop("profileVisibility")
+    if "shareContactWithRecruiters" in patch:
+        patch["shareContactWithRecruiters"] = patch["shareContactWithRecruiters"] is True
+    return patch
+
+
 @router.put("/profile")
 async def put_profile(request: Request, body: dict) -> dict:
     email = await runtime.require_auth_email(request)
+    patch = sanitize_profile_patch(body)
     db = runtime.load_db()
-    prev = dict((db.get("profiles") or {}).get(email) or {})
-    prev.update(body)
-    prev["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    db.setdefault("profiles", {})[email] = prev
+
+    def _merge() -> dict:
+        prev = dict((db.get("profiles") or {}).get(email) or {})
+        prev.update(patch)  # server-owned fields (resume storage key, ...) keep their stored values
+        prev["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        db.setdefault("profiles", {})[email] = prev
+        return prev
+
+    await asyncio.to_thread(_merge)
     await runtime.save_db(db)
-    account = find_user(db, email=email)
+    account = await asyncio.to_thread(find_user, db, email=email)
     if account and config.database_url:
         try:
             await upsert_candidate_talent(

@@ -681,6 +681,8 @@
 }
 
 .tableScroll {
+  /* Contains the visually hidden header labels so they can't widen the page on a phone. */
+  position: relative;
   width: 100%;
   overflow-x: auto;
   border: 1px solid var(--ds-border);
@@ -776,7 +778,12 @@
   font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--ds-text-secondary);
-  overflow-wrap: anywhere;
+  /* Break between words, not inside them ("Profe/ssion/al"): the column keeps room for the longest word. */
+  overflow-wrap: break-word;
+}
+
+.qaTable .topicCol {
+  min-width: 120px;
 }
 
 .questionCell {
@@ -812,6 +819,7 @@
 
 .starSummaryItem {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -821,10 +829,11 @@
 }
 
 .starCategoryName {
-  flex: 1;
+  /* Needs ~8rem before the stars move to their own line, so names never split mid-word. */
+  flex: 1 1 8rem;
   min-width: 0;
   color: var(--ds-text);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .starString {

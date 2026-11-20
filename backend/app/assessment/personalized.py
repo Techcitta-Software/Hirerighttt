@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import re
 from typing import Any
@@ -57,17 +59,18 @@ def wants_personalized(path: str, method: str, body: dict | None) -> bool:
 
 
 async def handle_personalized(path: str, method: str, email: str, body: dict) -> dict:
-    actor = actor_for_email(email)
+    # Every database block here is synchronous: run it in a worker thread, never on the event loop (P-02).
+    actor = await asyncio.to_thread(actor_for_email, email)
     if method == "GET":
-        return _get(actor, path.rsplit("/", 1)[-1])
+        return await asyncio.to_thread(_get, actor, path.rsplit("/", 1)[-1])
     if path.endswith("/start"):
         return await _start(actor, body)
     if path.endswith("/next"):
-        return _get(actor, str(body.get("sessionId")))
+        return await asyncio.to_thread(_get, actor, str(body.get("sessionId")))
     if path.endswith("/turn"):
-        _get(actor, str(body.get("sessionId")))
+        await asyncio.to_thread(_get, actor, str(body.get("sessionId")))
         return {"spoken": "Thank you. Let’s continue.", "source": "quick_response"}
-    return {"interview": _get(actor, str(body.get("sessionId")))}
+    return {"interview": await asyncio.to_thread(_get, actor, str(body.get("sessionId")))}
 
 
 def _get(actor: dict, sid: str) -> dict:
@@ -113,18 +116,24 @@ def _get(actor: dict, sid: str) -> dict:
 async def _start(actor: dict, body: dict) -> dict:
     check(actor["role"] == "jobseeker", "Candidate account required", 403)
     request_id = text(body.get("requestId"), "start request ID", 100)
-    with _pool().connection() as conn:
-        conn.row_factory = dict_row
-        prev = conn.execute(
-            "SELECT session_id FROM personalized_interview_links WHERE candidate_id=%s AND request_id=%s",
-            (actor["id"], request_id),
-        ).fetchone()
-        if prev:
-            return _get(actor, str(prev["session_id"]))
-        profile_row = conn.execute(
-            "SELECT data FROM profiles WHERE user_id=%s OR email=%s",
-            (actor["id"], actor["email"]),
-        ).fetchone()
+
+    def _lookup():
+        with _pool().connection() as conn:
+            conn.row_factory = dict_row
+            prev_row = conn.execute(
+                "SELECT session_id FROM personalized_interview_links WHERE candidate_id=%s AND request_id=%s",
+                (actor["id"], request_id),
+            ).fetchone()
+            if prev_row:
+                return prev_row, None
+            return None, conn.execute(
+                "SELECT data FROM profiles WHERE user_id=%s OR email=%s",
+                (actor["id"], actor["email"]),
+            ).fetchone()
+
+    prev, profile_row = await asyncio.to_thread(_lookup)
+    if prev:
+        return await asyncio.to_thread(_get, actor, str(prev["session_id"]))
     profile = {}
     if profile_row and profile_row.get("data"):
         profile = profile_row["data"] if isinstance(profile_row["data"], dict) else json.loads(profile_row["data"])
@@ -150,33 +159,37 @@ async def _start(actor: dict, body: dict) -> dict:
         purpose="plan",
         validate=lambda value: validate_plan(value, job, resume_text),
     )
-    with _pool().connection() as conn:
-        conn.row_factory = dict_row
-        snap = conn.execute(
-            """INSERT INTO assessment_jobs(organization_id,created_by,title,description,experience_level,competencies,personal_candidate_id)
-               VALUES('org-platform',%s,%s,%s,%s,%s::jsonb,%s) RETURNING id""",
-            (actor["id"], title, job["description"], level, json.dumps(competencies), actor["id"]),
-        ).fetchone()
-        plan = conn.execute(
-            """INSERT INTO interview_plans(organization_id,candidate_id,job_id,model,prompt_version,status)
-               VALUES('org-platform',%s,%s,%s,%s,'ready') RETURNING id""",
-            (actor["id"], snap["id"], generated["model"], VERSION),
-        ).fetchone()
-        for q in generated["data"]["questions"]:
+    def _persist() -> str:
+        with _pool().connection() as conn:
+            conn.row_factory = dict_row
+            snap = conn.execute(
+                """INSERT INTO assessment_jobs(organization_id,created_by,title,description,experience_level,competencies,personal_candidate_id)
+                   VALUES('org-platform',%s,%s,%s,%s,%s::jsonb,%s) RETURNING id""",
+                (actor["id"], title, job["description"], level, json.dumps(competencies), actor["id"]),
+            ).fetchone()
+            plan = conn.execute(
+                """INSERT INTO interview_plans(organization_id,candidate_id,job_id,model,prompt_version,status)
+                   VALUES('org-platform',%s,%s,%s,%s,'ready') RETURNING id""",
+                (actor["id"], snap["id"], generated["model"], VERSION),
+            ).fetchone()
+            for q in generated["data"]["questions"]:
+                conn.execute(
+                    "INSERT INTO interview_questions(plan_id,question_id,position,data) VALUES(%s,%s,%s,%s::jsonb)",
+                    (plan["id"], q["question_id"], q["position"], json.dumps(q)),
+                )
+            session = conn.execute(
+                """INSERT INTO assessment_sessions(plan_id,organization_id,candidate_id,status,consent_at,started_at)
+                   VALUES(%s,'org-platform',%s,'in_progress',NOW(),NOW()) RETURNING id""",
+                (plan["id"], actor["id"]),
+            ).fetchone()
             conn.execute(
-                "INSERT INTO interview_questions(plan_id,question_id,position,data) VALUES(%s,%s,%s,%s::jsonb)",
-                (plan["id"], q["question_id"], q["position"], json.dumps(q)),
+                """INSERT INTO personalized_interview_links(session_id,candidate_id,request_id)
+                   VALUES(%s,%s,%s)""",
+                (session["id"], actor["id"], request_id),
             )
-        session = conn.execute(
-            """INSERT INTO assessment_sessions(plan_id,organization_id,candidate_id,status,consent_at,started_at)
-               VALUES(%s,'org-platform',%s,'in_progress',NOW(),NOW()) RETURNING id""",
-            (plan["id"], actor["id"]),
-        ).fetchone()
-        conn.execute(
-            """INSERT INTO personalized_interview_links(session_id,candidate_id,request_id)
-               VALUES(%s,%s,%s)""",
-            (session["id"], actor["id"], request_id),
-        )
-        conn.commit()
-        sid = str(session["id"])
-    return _get(actor, sid)
+            conn.commit()
+            sid = str(session["id"])
+        return sid
+
+    sid = await asyncio.to_thread(_persist)
+    return await asyncio.to_thread(_get, actor, sid)

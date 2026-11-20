@@ -67,8 +67,32 @@ def queue_candidate_job_alerts(db: dict, job: dict) -> list[str]:
 
 
 def list_candidate_job_alerts(db: dict, email: str) -> list[dict]:
+    """Unread job-match alerts, but only for jobs the candidate would see in GET /api/jobs?scope=matched right now.
+
+    Alerts are written when a job is posted, scored against the profile AT THAT TIME. They used to be returned
+    forever, so the bell kept announcing roles that had since been closed / deleted, or no longer matched an updated
+    profile, while the dashboard ("matched roles") and the "For you" tab, which apply the live rule, showed none.
+    Blocking (one indexed lookup per alerted job): call it from a worker thread."""
+    from app.services.vendor.job_role_match import filter_open_jobs_for_candidate
+    from app.services.vendor.jobs import _is_job_link_active
+
     key = str(email or "").lower()
-    return [a for a in (db.get("candidateJobAlerts") or {}).get(key) or [] if not a.get("read")]
+    unread = [a for a in (db.get("candidateJobAlerts") or {}).get(key) or [] if not a.get("read")]
+    if not unread:
+        return []
+    jobs = {}
+    for a in unread:
+        jid = str(a.get("jobId") or "")
+        if jid and jid not in jobs:
+            job = find_job(db, jid)
+            if job and _is_job_link_active(job) and str(job.get("title") or "").strip():
+                jobs[jid] = job
+    if not jobs:
+        return []
+    profile = (db.get("profiles") or {}).get(key) or {}
+    # Same rule (and threshold) as the matched job board; without role hints that board shows every open job.
+    visible = {str(j.get("id")) for j in filter_open_jobs_for_candidate(list(jobs.values()), profile)["jobs"]}
+    return [a for a in unread if str(a.get("jobId") or "") in visible]
 
 
 def queue_employer_application_alert(db: dict, job: dict, application: dict, created: bool = True) -> dict | None:

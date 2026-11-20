@@ -195,8 +195,11 @@ async def handle(method: str, path: str, email: str, body: dict, query: dict) ->
         return await _generate(actor, body)
     if path == "/api/assessments" and method == "GET":
         org = query.get("organization_id") or ""
-        limit = int(query.get("limit") or 25)
-        offset = int(query.get("offset") or 0)
+        try:  # bad numbers in the query string are a 400-free default, never a 500 (V-23)
+            limit = max(1, min(100, int(query.get("limit") or 25)))
+            offset = max(0, int(query.get("offset") or 0))
+        except (TypeError, ValueError):
+            limit, offset = 25, 0
         return 200, {"interviews": await asyncio.to_thread(_list_sessions, actor, org, limit, offset)}
     match = re.match(r"^/api/assessments/([0-9a-f-]{36})(?:/([a-z-]+))?$", path, re.I)
     check(match, "Assessment endpoint not found", 404)

@@ -50,6 +50,19 @@
   text-decoration: none;
 }
 
+/* Text links rendered as <a> match the ones rendered as <button> (which inherit the page font above). */
+.page a.textLink {
+  font: inherit;
+}
+
+/* Copy that refers to the layout ("on the right") only shows where that layout exists. */
+.onlyNarrow { display: none; }
+
+@media (max-width: 820px) {
+  .onlyWide { display: none; }
+  .onlyNarrow { display: inline; }
+}
+
 .page button:focus-visible,
 .page a:focus-visible {
   outline: 3px solid #7ba2ff;

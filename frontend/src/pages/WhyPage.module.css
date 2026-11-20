@@ -349,7 +349,7 @@
   font-weight: 800;
 }
 
-.smallprint {
+.main .smallprint {
   color: #8b90ad !important;
   font-size: 0.7rem;
   margin: 15px 0 0;
@@ -785,17 +785,6 @@
     border-bottom: 1px solid #f1f5f9;
   }
 
-  .compareRow>div:nth-child(2)::before {
-    content: "The Traditional Way: ";
-    font-weight: 700;
-    color: #94a3b8;
-    display: block;
-    font-size: 0.72rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-  }
-
   .compareRow>div:last-child {
     padding: 14px 16px;
     font-size: 0.88rem;
@@ -803,16 +792,6 @@
     color: var(--why-ink);
   }
 
-  .compareRow>div:last-child::before {
-    content: "The HireRighttt Way: ";
-    font-weight: 800;
-    color: #4f46e5;
-    display: block;
-    font-size: 0.72rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

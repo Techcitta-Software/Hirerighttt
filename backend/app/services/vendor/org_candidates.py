@@ -308,20 +308,12 @@ def _load_all_job_seeker_roster_from_postgres(database_url: str, db: dict, filte
         interviews_for_emails(db, [r.get("email") for r in rows if not isinstance(r.get("interview_data"), dict)])
         return [_record_from_postgres_job_seeker_row(db, r) for r in rows]
     except Exception:
-        return [
-            _with_stored_interview(
-                db,
-                _record_from_profile(
-                    db,
-                    user,
-                    (db.get("profiles") or {}).get(user.get("email") or "") or {},
-                    (db.get("interviews") or {}).get(user.get("email") or ""),
-                    "platform",
-                ),
-            )
-            for user in db.get("users") or []
-            if user.get("role") != "employer"
-        ]
+        # P-05: this used to fall back to loading the WHOLE users table plus a profile and an interview lookup per
+        # user, turning one slow query into a cascade. The platform roster is simply left out for this request.
+        import logging
+
+        logging.getLogger("hireright.vendor").warning("job seeker roster query failed", exc_info=True)
+        return []
 
 
 def _list_organization_talent_user_ids(database_url: str, organization_id: str) -> list[str]:
@@ -566,4 +558,10 @@ async def list_organization_candidates(
     candidates.sort(key=lambda r: str(r.get("appliedAt") or ""), reverse=True)
     if org_only:
         candidates = [_cap_resume_text(r, LIST_RESUME_TEXT_CHARS) for r in candidates]
+    else:
+        # V-05: filtering above ran on the full data (keyword search still reaches resume text); contact details of
+        # candidates with no link to this organization are removed only from what is returned.
+        from app.services.vendor.candidate_documents import redact_roster_rows
+
+        candidates = await asyncio.to_thread(redact_roster_rows, db, candidates)
     return {"total": len(candidates), "candidates": candidates}

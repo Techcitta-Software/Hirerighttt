@@ -128,9 +128,9 @@ async def save_db(db: dict[str, Any] | None = None) -> None:
         await asyncio.to_thread(mirror_db_to_dynamo, _db_cache)
 
 
-def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000) -> bool:
+def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000, *, strict: bool = False) -> bool:
     """Shared (Redis) when REDIS_URL is set, otherwise per-process. See app/server/ratelimit.py."""
-    return ratelimit.allow(key, limit, window_ms)
+    return ratelimit.allow(key, limit, window_ms, strict=strict)
 
 
 def client_ip(request: Request) -> str:
@@ -153,9 +153,14 @@ def client_ip(request: Request) -> str:
 
 # token -> (email, expires_at_monotonic). Every authenticated request used to query Postgres for the
 # session; on a remote database that cost ~0.5-1s per call and a login makes several calls.
-# Entries live briefly and are dropped on logout / password reset (forget_sessions).
+# Entries live briefly and are dropped on logout / password reset (forget_sessions). The cache is per worker
+# process: a logout or password reset handled by ANOTHER worker takes effect here within this TTL (V-18), so it is
+# kept short. SESSION_CACHE_TTL_SECONDS=0 disables it.
 _SESSION_CACHE: dict[str, tuple[str, float]] = {}
-_SESSION_CACHE_TTL_S = 60.0
+try:
+    _SESSION_CACHE_TTL_S = max(0.0, float(__import__("os").environ.get("SESSION_CACHE_TTL_SECONDS", "20") or 20))
+except ValueError:
+    _SESSION_CACHE_TTL_S = 20.0
 
 
 def _cached_session_email(token: str) -> str | None:
@@ -170,6 +175,8 @@ def _cached_session_email(token: str) -> str | None:
 
 
 def remember_session(token: str, email: str) -> None:
+    if _SESSION_CACHE_TTL_S <= 0:
+        return
     if len(_SESSION_CACHE) > 5000:
         _SESSION_CACHE.clear()
     _SESSION_CACHE[token] = (email, time.monotonic() + _SESSION_CACHE_TTL_S)
@@ -186,19 +193,21 @@ def forget_sessions(*, token: str | None = None, email: str | None = None) -> No
 async def require_auth_email(request: Request) -> str:
     header = request.headers.get("authorization") or ""
     token = re.sub(r"^Bearer\s+", "", header, flags=re.I).strip()
-    if not token:
+    if not token or len(token) > 256:
         raise HTTPException(status_code=401, detail="Unauthorized")
     email = _cached_session_email(token)
-    if not email:
-        email = await asyncio.to_thread(resolve_session_email, config.database_url, token)
-        if email:
-            remember_session(token, email)
+    if email:
+        # P-11: the cache only holds sessions whose account was active when it was filled (same short TTL), so a
+        # cache hit needs no second query. A disabled account is dropped from the cache by forget_sessions().
+        return email
+    email = await asyncio.to_thread(resolve_session_email, config.database_url, token)
     if not email:
         raise HTTPException(status_code=401, detail="Unauthorized")
     db = load_db()
-    active = find_user(db, email=email, active_only=True) is not None
+    active = await asyncio.to_thread(lambda: find_user(db, email=email, active_only=True) is not None)
     if not active:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    remember_session(token, email)
     return email
 
 
@@ -309,10 +318,10 @@ async def require_employer_tenant(request: Request, db: dict[str, Any]) -> dict 
     from fastapi import HTTPException
 
     email = await require_auth_email(request)
-    user = find_user(db, email=email)
+    user = await asyncio.to_thread(find_user, db, email=email)
     if not user or user.get("role") != "employer":
         raise HTTPException(status_code=403, detail="Employer account required.")
-    tenant = tenant_context_for_user(db, user)
+    tenant = await asyncio.to_thread(tenant_context_for_user, db, user)
     if not tenant.get("organization") or not tenant["organization"].get("id"):
         raise HTTPException(status_code=403, detail="No organization linked to this employer account.")
     member_role = (tenant.get("membership") or {}).get("role") or ""

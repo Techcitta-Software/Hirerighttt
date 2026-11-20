@@ -199,6 +199,12 @@ def create_app() -> FastAPI:
     from app.db.uow import UnitOfWorkMiddleware
 
     app.add_middleware(UnitOfWorkMiddleware, database_url_fn=lambda: config.database_url)
+    # V-12 / V-08: security headers on every response, and the request-size limit checked before anything reads a
+    # body (both pure ASGI, outermost).
+    from app.server.security import BodyLimitMiddleware, SecurityHeadersMiddleware
+
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(BodyLimitMiddleware)
 
     @app.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:

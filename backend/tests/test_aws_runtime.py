@@ -92,22 +92,41 @@ def test_client_ip_prefers_the_address_cloudfront_saw(monkeypatch, headers, expe
         object.__setattr__(runtime.config, "trust_proxy", original)
 
 
-def test_email_goes_through_ses_when_selected(monkeypatch):
+def test_ses_is_not_a_mail_provider_and_smtp_or_resend_are_pluggable(monkeypatch):
+    """V-16: no SES code path. MAIL_PROVIDER=smtp|resend; an unknown value (e.g. "ses") falls back, never to AWS."""
     import asyncio
 
     from app.services import mail_service
 
-    sent = []
+    assert not hasattr(mail_service, "_send_ses")
+    for k in ("MAIL_PROVIDER", "EMAIL_PROVIDER", "RESEND_API_KEY", "SMTP_EMAIL", "SMTP_APP_PASSWORD", "EMAIL_FROM"):
+        monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("EMAIL_PROVIDER", "ses")
+    assert mail_service.mail_provider() == "smtp"
+    assert mail_service.smtp_configured() is False
+
+    sent = []
+    monkeypatch.setattr(mail_service, "_send_smtp_sync", lambda to, subject, html, text: sent.append(("smtp", to, subject)))
+    monkeypatch.setenv("SMTP_EMAIL", "bot@example.com")
+    monkeypatch.setenv("SMTP_APP_PASSWORD", "x")
+    assert mail_service.smtp_configured() is True
+    asyncio.run(mail_service.send_mail(to="cand@example.com", subject="Hi\r\nBcc: evil@example.com", html="<p>hi</p>"))
+    assert sent == [("smtp", "cand@example.com", "Hi Bcc: evil@example.com")]  # no header injection
+
+    async def fake_resend(to, subject, html, text):
+        sent.append(("resend", to, subject))
+
+    monkeypatch.setattr(mail_service, "_send_resend", fake_resend)
+    monkeypatch.setenv("MAIL_PROVIDER", "resend")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test")
     monkeypatch.setenv("EMAIL_FROM", "HireRight <no-reply@example.com>")
-    monkeypatch.setattr(mail_service, "_send_ses", lambda to, subject, html, text: sent.append((to, subject)))
     assert mail_service.smtp_configured() is True
     asyncio.run(mail_service.send_mail(to="cand@example.com", subject="Your interview", html="<p>hi</p>"))
-    assert sent == [("cand@example.com", "Your interview")]
+    assert sent[-1] == ("resend", "cand@example.com", "Your interview")
 
 
 def test_infrastructure_templates_parse():
-    """The CloudFormation templates are valid YAML with the expected stacks (cfn-lint runs in CI tooling)."""
+    """The free-tier CloudFormation templates are valid YAML with resources (cfn-lint is run separately)."""
     from pathlib import Path
 
     yaml = pytest.importorskip("yaml")
@@ -123,8 +142,14 @@ def test_infrastructure_templates_parse():
         return loader.construct_mapping(node)
 
     Loader.add_multi_constructor("!", any_tag)
-    root = Path(__file__).resolve().parents[2] / "infra" / "aws"
-    for name in ("network", "data", "edge", "app", "github-oidc"):
-        doc = yaml.load((root / f"{name}.yaml").read_text(encoding="utf-8"), Loader=Loader)
-        assert doc["Resources"], name
+    root = Path(__file__).resolve().parents[2] / "infra"
+    if not (root / "aws-free").exists():
+        pytest.skip("infra/aws-free templates not present")
+    for rel in ("aws-free/base.yaml", "aws-free/cdn.yaml", "aws/github-oidc.yaml"):
+        doc = yaml.load((root / rel).read_text(encoding="utf-8"), Loader=Loader)
+        assert doc["Resources"], rel
+        text = (root / rel).read_text(encoding="utf-8")
+        for paid in ("AWS::SES::", "AWS::EC2::NatGateway", "AWS::ElasticLoadBalancingV2::", "AWS::RDS::DBCluster",
+                     "AWS::ElastiCache::", "AWS::SecretsManager::", "PowerUserAccess"):
+            assert paid not in text, (rel, paid)
     importlib.import_module("app.main")

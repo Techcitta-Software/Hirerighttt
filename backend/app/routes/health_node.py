@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter
+import hmac
+
+from fastapi import APIRouter, Request
 
 from app.db.store import ping_database
-from app.node_config import config
+from app.node_config import config, is_prod_like
 
 router = APIRouter()
 
@@ -28,8 +30,33 @@ def _failover_summary() -> dict:
     }
 
 
+def health_detail_allowed(request: Request) -> bool:
+    """V-20: bucket names, DB errors, model names and key health are recon for an attacker. Public callers on a
+    production-like deployment get {ok, service, version, llm, features}; the full report needs X-Cron-Secret."""
+    if not is_prod_like:
+        return True
+    secret = os.environ.get("CRON_SECRET") or ""
+    given = request.headers.get("x-cron-secret") or ""
+    return bool(secret) and hmac.compare_digest(secret, given)
+
+
 @router.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
+    full = await _health_full()
+    if health_detail_allowed(request):
+        return full
+    return {
+        "ok": full["ok"],
+        "service": full["service"],
+        "version": full["version"],
+        "llm": full["llm"],
+        "database": {"connected": full["database"]["connected"]},
+        "features": full["features"],
+        "runtime": "python",
+    }
+
+
+async def _health_full() -> dict:
     db_ping = await _async_ping()
     deploy_ref = (
         os.environ.get("RENDER_GIT_COMMIT")
@@ -110,6 +137,12 @@ async def _async_ping() -> dict:
     if cached is not None and cached.get("ok") and time.monotonic() - _ping_cache["at"] < PING_CACHE_SECONDS:
         return cached
     value = await asyncio.to_thread(ping_database, config.database_url or "")
+    if not value.get("ok") and value.get("reason"):
+        import logging
+
+        logging.getLogger("hireright.health").warning("database ping failed: %s", value.get("reason"))
+        if is_prod_like:
+            value = {**value, "reason": "Database unreachable"}  # V-21: no hostnames / driver messages to clients
     _ping_cache["at"] = time.monotonic()
     _ping_cache["value"] = value
     return value

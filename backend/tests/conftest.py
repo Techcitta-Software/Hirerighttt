@@ -29,3 +29,15 @@ from app.main import app  # noqa: E402
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_pools_at_exit():
+    """A pool left open (e.g. to a fake URL) keeps reconnecting in background threads and the run never exits."""
+    yield
+    try:
+        from app.db import store
+
+        store.close_store()
+    except Exception:
+        pass

@@ -14,11 +14,13 @@ from app.services.storage.s3_key_layout import (
 )
 from app.services.storage.s3_storage import (
     active_s3_bucket_name,
+    delete_object,
     head_object,
     presign_download,
     presign_upload,
     s3_env,
     s3_storage_configured,
+    upload_fileobj,
     upload_object,
 )
 
@@ -152,6 +154,7 @@ async def authorize_interview_recording_upload(**opts: Any) -> dict[str, Any]:
         raise StorageError("Could not create recording metadata.", status=503) from db_err
     presigned = presign_upload(key=object_key, content_type=content_type, content_length=int(file_size))
     return {
+        "uploadHeaders": presigned.get("headers"),
         "recordingId": recording_id,
         "objectKey": object_key,
         "bucket": bucket,
@@ -172,7 +175,13 @@ async def complete_interview_recording_upload(**opts: Any) -> dict[str, Any]:
     if not head:
         await asyncio.to_thread(rec_repo.update_interview_recording, opts["pool"], str(opts["recordingId"]), {"status": "failed"})
         raise StorageError("Recording file was not found in storage.", status=400)
-    size = int(head.get("ContentLength") or row.get("file_size_bytes") or 0)
+    size = int(head.get("ContentLength") or 0)
+    declared = int(row.get("file_size_bytes") or 0)
+    if size > MAX_RECORDING_BYTES or (declared and size > declared):
+        # V-09: never keep an object larger than what was approved (storage / egress cost on the free tier).
+        await asyncio.to_thread(delete_object, str(row["s3_object_key"]))
+        await asyncio.to_thread(rec_repo.update_interview_recording, opts["pool"], str(opts["recordingId"]), {"status": "failed"})
+        raise StorageError(f"Recording exceeds maximum size ({MAX_RECORDING_BYTES} bytes).", status=413)
     await asyncio.to_thread(
         rec_repo.update_interview_recording,
         opts["pool"],
@@ -190,15 +199,16 @@ async def store_interview_recording_bytes(**opts: Any) -> dict[str, Any]:
     """Save the interview video with boto3 under users/{id}/video/."""
     if not s3_storage_configured():
         raise StorageError("Interview recording storage is not configured (S3).", status=503, skipped=True)
-    data = opts.get("data") or b""
-    if not isinstance(data, (bytes, bytearray)):
+    data = opts.get("data")
+    fileobj = opts.get("fileobj")
+    if fileobj is None and not isinstance(data, (bytes, bytearray)):
         raise StorageError("Recording file is missing.", status=400)
     email = str(opts["requesterEmail"]).lower()
     session_id = str(opts.get("sessionId") or "").strip()
     session = await ensure_interview_session_for_candidate(opts["db"], opts["pool"], session_id, email)
     if not session:
         raise StorageError("Interview session not found.", status=404)
-    file_size = len(data)
+    file_size = int(opts["size"]) if fileobj is not None else len(data)
     if file_size < 256:
         raise StorageError("Recording file is too small.", status=400)
     if file_size > MAX_RECORDING_BYTES:
@@ -215,7 +225,11 @@ async def store_interview_recording_bytes(**opts: Any) -> dict[str, Any]:
         content_type=content_type,
     )
     bucket = s3_env()["bucket"]
-    await asyncio.to_thread(upload_object, key=object_key, body=bytes(data), content_type=content_type)
+    if fileobj is not None:
+        # Streamed from the spooled upload (multipart for big files): a 100 MB video is never held in memory.
+        await asyncio.to_thread(upload_fileobj, key=object_key, fileobj=fileobj, content_type=content_type)
+    else:
+        await asyncio.to_thread(upload_object, key=object_key, body=bytes(data), content_type=content_type)
     try:
         recording_id = await asyncio.to_thread(
             rec_repo.insert_interview_recording,

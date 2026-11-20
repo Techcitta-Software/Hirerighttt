@@ -101,15 +101,26 @@ def presign_download(
 
 
 def presign_upload(*, key: str, content_type: str, content_length: int | None = None) -> dict[str, Any]:
-    del content_length
+    """Presigned PUT bound to one exact size (V-09).
+
+    Content-Length is part of the signature, so the browser can only upload exactly the number of bytes the server
+    approved (already checked against the size limit). Without it a presigned URL accepted objects of any size."""
+    if not content_length or int(content_length) <= 0:
+        raise ValueError("content_length is required for a presigned upload")
     bucket = os.environ["S3_BUCKET"]
-    exp = s3_env()["presignSeconds"]
+    exp = min(s3_env()["presignSeconds"], 900)
     url = _client().generate_presigned_url(
         "put_object",
-        Params={"Bucket": bucket, "Key": key, "ContentType": content_type},
+        Params={"Bucket": bucket, "Key": key, "ContentType": content_type, "ContentLength": int(content_length)},
         ExpiresIn=exp,
     )
-    return {"url": url, "expiresInSeconds": exp, "method": "PUT", "key": key}
+    return {
+        "url": url,
+        "expiresInSeconds": exp,
+        "method": "PUT",
+        "key": key,
+        "headers": {"Content-Type": content_type, "Content-Length": str(int(content_length))},
+    }
 
 
 def head_object(key: str) -> dict[str, Any] | None:
@@ -129,6 +140,21 @@ def delete_object(key: str) -> None:
     bucket = os.environ.get("S3_BUCKET")
     if bucket and key:
         _client().delete_object(Bucket=bucket, Key=key)
+
+
+def upload_fileobj(*, key: str, fileobj: Any, content_type: str) -> dict[str, str]:
+    """Stream a (spooled) file to S3 without reading it into memory first (multipart for large files)."""
+    from app.services.storage.s3_key_layout import assert_writable_user_object_key
+
+    bucket = os.environ["S3_BUCKET"]
+    expected = (os.environ.get("S3_EXPECTED_BUCKET") or "").strip()
+    if expected and expected != bucket:
+        raise RuntimeError(f'S3_BUCKET="{bucket}" does not match S3_EXPECTED_BUCKET="{expected}". Fix repo-root .env.')
+    safe_key = assert_writable_user_object_key(key)
+    _client().upload_fileobj(
+        fileobj, bucket, safe_key, ExtraArgs={"ContentType": content_type, "ServerSideEncryption": "AES256"}
+    )
+    return {"bucket": bucket, "key": safe_key}
 
 
 def upload_object(*, key: str, body: bytes, content_type: str) -> dict[str, str]:

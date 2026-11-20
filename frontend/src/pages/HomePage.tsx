@@ -478,7 +478,7 @@ export function HomePage() {
                 who&apos;s done the same job for years and wonders what&apos;s next.
               </p>
               <p>Which one sounds a little like you?</p>
-              <div className={styles.chapterHint}>Pick a thought on the right. This bit is yours.</div>
+              <div className={styles.chapterHint}>Pick a thought <span className={styles.onlyWide}>on the right</span><span className={styles.onlyNarrow}>below</span>. This bit is yours.</div>
             </div>
             <div className={styles.chapterVisual}>
               <div className={styles.visualStage}>

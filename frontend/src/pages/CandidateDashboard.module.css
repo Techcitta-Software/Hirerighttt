@@ -244,7 +244,8 @@
 }
 
 .cardHeader > div {
-  flex: 1 1 14rem;
+  /* Small enough that "View all" stays on the title row in the narrow sidebar cards too. */
+  flex: 1 1 9rem;
   min-width: 0;
 }
 

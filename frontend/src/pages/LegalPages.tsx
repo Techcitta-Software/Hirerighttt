@@ -23,14 +23,14 @@ function LegalShell({
   return (
     <div className={styles.page}>
       <MarketingNavBar />
-      <div className={styles.shell}>
+      <main className={styles.shell}>
         <article className={styles.card}>
           <span className={styles.kicker}>{kicker}</span>
           <h1>{title}</h1>
           <p className={styles.updated}>Last updated: {LAST_UPDATED}</p>
           <div className={styles.prose}>{children}</div>
         </article>
-      </div>
+      </main>
       <MarketingFooter />
     </div>
   )

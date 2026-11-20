@@ -142,13 +142,16 @@ async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int
         from app.db import dynamo_repos as dr
 
         return await _send_due_reminders_dynamo(dr.list_interview_invites_dynamo(), now)
-    with pool.connection() as conn:
-        rows = conn.execute(
-            """SELECT * FROM interview_invites
-               WHERE scheduled_start > %s AND scheduled_start <= %s
-                 AND (reminder_24h_sent_at IS NULL OR reminder_2h_sent_at IS NULL)""",
-            (now, now + timedelta(hours=24)),
-        ).fetchall()
+    def _due_rows():
+        with pool.connection() as conn:
+            return conn.execute(
+                """SELECT * FROM interview_invites
+                   WHERE scheduled_start > %s AND scheduled_start <= %s
+                     AND (reminder_24h_sent_at IS NULL OR reminder_2h_sent_at IS NULL)""",
+                (now, now + timedelta(hours=24)),
+            ).fetchall()
+
+    rows = await asyncio.to_thread(_due_rows)
     sent = {"24h": 0, "2h": 0, "failed": 0}
     for row in rows:
         invite = dict(row)
@@ -157,12 +160,16 @@ async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int
             continue
         column = "reminder_24h_sent_at" if kind == "24h" else "reminder_2h_sent_at"
         # Claim the reminder first so two scheduler runs never send it twice.
-        with pool.connection() as conn:
-            claimed = conn.execute(
-                f"UPDATE interview_invites SET {column} = NOW() WHERE token = %s AND {column} IS NULL RETURNING token",
-                (invite["token"],),
-            ).fetchone()
-            conn.commit()
+        def _claim(col=column, tok=invite["token"]):
+            with pool.connection() as conn:
+                got = conn.execute(
+                    f"UPDATE interview_invites SET {col} = NOW() WHERE token = %s AND {col} IS NULL RETURNING token",
+                    (tok,),
+                ).fetchone()
+                conn.commit()
+                return got
+
+        claimed = await asyncio.to_thread(_claim)
         if not claimed:
             continue
         try:
@@ -172,9 +179,13 @@ async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int
         except Exception:
             logger.exception("Reminder email failed for invite %s", str(invite["token"])[:8])
             sent["failed"] += 1
-            with pool.connection() as conn:
-                conn.execute(f"UPDATE interview_invites SET {column} = NULL WHERE token = %s", (invite["token"],))
-                conn.commit()
+
+            def _unclaim(col=column, tok=invite["token"]):
+                with pool.connection() as conn:
+                    conn.execute(f"UPDATE interview_invites SET {col} = NULL WHERE token = %s", (tok,))
+                    conn.commit()
+
+            await asyncio.to_thread(_unclaim)
     return sent
 
 
@@ -224,8 +235,8 @@ async def try_schedule_routes(
         token = match.group(1)
         invite = await get_interview_invite_by_token(pool, token)
         db = ctx.load_db()
-        user = find_user(db, email=email)
-        refusal = reschedule_refusal(invite, user, db)
+        user = await asyncio.to_thread(find_user, db, email=email)
+        refusal = await asyncio.to_thread(reschedule_refusal, invite, user, db)
         if refusal:
             return json_fn(403, {"error": refusal, "code": "RESCHEDULE_NOT_ALLOWED"})
         start = _dt(body.get("scheduledStart"))
@@ -240,17 +251,21 @@ async def try_schedule_routes(
         if database_provider() == "dynamodb":
             from app.db import dynamo_repos as dr
 
-            dr.reschedule_invite_dynamo(token, start, end)
+            await asyncio.to_thread(dr.reschedule_invite_dynamo, token, start, end)
         else:
-            with pool.connection() as conn:
-                conn.execute(
-                    """UPDATE interview_invites
-                       SET scheduled_start = %s, scheduled_end = %s, reschedule_count = COALESCE(reschedule_count, 0) + 1,
-                           reminder_24h_sent_at = NULL, reminder_2h_sent_at = NULL
-                       WHERE token = %s""",
-                    (start, end, token),
-                )
-                conn.commit()
+
+            def _move() -> None:
+                with pool.connection() as conn:
+                    conn.execute(
+                        """UPDATE interview_invites
+                           SET scheduled_start = %s, scheduled_end = %s, reschedule_count = COALESCE(reschedule_count, 0) + 1,
+                               reminder_24h_sent_at = NULL, reminder_2h_sent_at = NULL
+                           WHERE token = %s""",
+                        (start, end, token),
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_move)
         email_sent = False
         if smtp_configured():
             try:

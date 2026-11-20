@@ -626,6 +626,21 @@
   line-height: 1.6;
 }
 
+/* Keep the badge at its own size (.paper span above would otherwise enlarge it). */
+.paper .badge {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+/* On a phone the badge sits above its text instead of squeezing it into a narrow column. */
+@media (max-width: 560px) {
+  .paper {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 .demoEnd {
   padding-top: 16px;
   font-size: 0.75rem;

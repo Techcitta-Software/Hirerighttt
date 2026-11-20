@@ -33,7 +33,8 @@
 
 /* Content column: AppShell gutters are re-applied here because .pageBleed removes them. */
 .shell {
-  max-width: var(--page-max, 1280px);
+  /* The padding sits inside this box, so add it back: content lines up with the nav, footer and candidate pages. */
+  max-width: calc(var(--page-max, 1280px) + 2 * var(--app-main-padding-x, 2rem));
   width: 100%;
   margin: 0 auto;
   padding: var(--app-main-padding-y, 2rem) var(--app-main-padding-x, 2rem) var(--app-page-padding-bottom, 4rem);

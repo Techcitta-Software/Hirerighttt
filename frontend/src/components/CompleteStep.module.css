@@ -93,7 +93,8 @@
   bottom: 0;
   width: 166px;
   height: 144px;
-  background: url('/assets/reference-confirmation.png') -795px -195px / 1024px 1536px no-repeat;
+  /* Pre-cropped 166x144 region (was a 1.4 MB sprite at -795px -195px). */
+  background: url('../assets/ava-confirmation.webp') 0 0 / 166px 144px no-repeat;
   mix-blend-mode: multiply;
   mask-image: linear-gradient(to right, transparent, black 15%, black 92%, transparent);
 }
