@@ -43,7 +43,7 @@ import { uploadInterviewReportPdfToS3, waitForStoredReportPdf } from '../lib/int
 import { apiListApplications, apiSaveProfile, apiWithdrawApplication } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
-import { syncJobMatchNotifications } from '../lib/jobMatchNotifications'
+import { pruneStaleForYouNotifications, syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import { slugifyCompany } from '../lib/jobLink'
 import {
   ANY,
@@ -389,7 +389,10 @@ export function JobsPage() {
           .catch(() => {
             /* the Applied badge falls back to the cached list */
           })
-        const listRes = await fetchOpenJobs({ summary: true, scope: jobScope })
+        const [listRes, forYouRes] = await Promise.all([
+          fetchOpenJobs({ summary: true, scope: jobScope }),
+          fetchOpenJobs({ summary: true, scope: 'matched', limit: 100, background: true }),
+        ])
         if (cancelled) return
         setJobsListMeta({
           totalOpen: listRes.totalOpen ?? listRes.total,
@@ -398,9 +401,9 @@ export function JobsPage() {
           message: listRes.message,
         })
         const rawJobs = listRes.jobs ?? []
-        syncJobMatchNotifications(
-          rawJobs.map((j) => ({ id: j.id, title: j.title, company: j.company })),
-        )
+        const forYouJobs = forYouRes.jobs ?? []
+        pruneStaleForYouNotifications(forYouJobs.map((j) => j.id))
+        syncJobMatchNotifications(forYouJobs.map((j) => ({ id: j.id, title: j.title, company: j.company })))
         if (rawJobs.length === 0) {
           setEmployerJobs([])
           setJobsBoardState('ready')

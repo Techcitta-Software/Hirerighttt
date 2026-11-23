@@ -19,7 +19,7 @@ import {
   type SavedProfile,
   type User,
 } from '../lib/store'
-import { syncJobMatchNotifications } from '../lib/jobMatchNotifications'
+import { pruneStaleForYouNotifications, syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import {
   missingRequiredProfileFields,
   profileCheckHref,
@@ -123,6 +123,7 @@ export function DashboardPage() {
 
       if (roles.status === 'fulfilled') {
         const openJobs = roles.value.jobs ?? []
+        pruneStaleForYouNotifications(openJobs.map((j) => j.id))
         syncJobMatchNotifications(
           openJobs.map((j) => ({ id: j.id, title: j.title, company: j.company })),
         )

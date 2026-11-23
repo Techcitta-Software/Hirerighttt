@@ -1,4 +1,4 @@
-import { addNotification, getUser } from './store'
+import { addNotification, getUser, markNotificationsReadWhere, type AppNotification } from './store'
 
 const BASELINE_SUFFIX = 'hireright.jobNotifyBaseline'
 const NOTIFIED_IDS_SUFFIX = 'hireright.notifiedJobIds'
@@ -15,6 +15,26 @@ export type JobAlertPayload = {
   id: string
   title: string
   company: string
+}
+
+/** Candidate bell: only personalized job matches (“For you”), not application/status noise. */
+export function isForYouJobNotification(n: AppNotification): boolean {
+  return n.kind === 'job_match' && Boolean(n.jobId?.trim())
+}
+
+/** Drop stored job-match alerts that no longer appear on the matched jobs board. */
+export function pruneStaleForYouNotifications(matchedJobIds: Iterable<string>) {
+  const allow = new Set(
+    [...matchedJobIds].map((id) => String(id || '').trim()).filter(Boolean),
+  )
+  markNotificationsReadWhere(
+    (n) => isForYouJobNotification(n) && !allow.has(String(n.jobId || '').trim()),
+  )
+}
+
+/** Dismiss every unread “For you” job alert from the candidate bell. */
+export function markForYouNotificationsRead() {
+  markNotificationsReadWhere((n) => isForYouJobNotification(n))
 }
 
 /** Notify the signed-in candidate about newly posted roles that match their profile. */

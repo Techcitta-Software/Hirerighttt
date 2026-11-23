@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
+import { getNotifications, markNotificationRead, type AppNotification } from '../lib/store'
 import {
-  getNotifications,
-  markNotificationRead,
-  markNotificationsRead,
-  type AppNotification,
-} from '../lib/store'
-import { rememberNotifiedJobIds, syncJobMatchNotifications } from '../lib/jobMatchNotifications'
-import { fetchCandidateJobAlerts, fetchMatchedJobsForAlerts } from '../lib/vendorApi'
+  isForYouJobNotification,
+  markForYouNotificationsRead,
+  pruneStaleForYouNotifications,
+  rememberNotifiedJobIds,
+  syncJobMatchNotifications,
+} from '../lib/jobMatchNotifications'
+import { fetchOpenJobs } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
 import styles from './CandidateNotificationBell.module.css'
 
@@ -45,8 +46,7 @@ export function CandidateNotificationBell() {
   const [items, setItems] = useState<AppNotification[]>([])
 
   function refreshList() {
-    const all = getNotifications()
-    const unreadOnly = all.filter((n) => !n.read)
+    const unreadOnly = getNotifications().filter((n) => !n.read && isForYouJobNotification(n))
     setItems(unreadOnly)
     setUnread(unreadOnly.length)
   }
@@ -64,26 +64,23 @@ export function CandidateNotificationBell() {
       try {
         const ok = await ensureApiSession()
         if (!ok || cancelled) return
-        const [matchedJobs, alertsRes] = await Promise.all([
-          fetchMatchedJobsForAlerts(30),
-          fetchCandidateJobAlerts().catch(() => ({ alerts: [] as { jobId: string; title: string; company: string }[] })),
-        ])
+        const matchedRes = await fetchOpenJobs({
+          summary: true,
+          scope: 'matched',
+          limit: 100,
+          background: true,
+        })
         if (cancelled) return
-        const fromJobs = matchedJobs.map((j) => ({
-          id: j.id,
-          title: j.title,
-          company: j.company,
-        }))
-        const fromAlerts = (alertsRes.alerts ?? []).map((a) => ({
-          id: a.jobId,
-          title: a.title,
-          company: a.company,
-        }))
-        const merged = [...fromAlerts]
-        for (const j of fromJobs) {
-          if (!merged.some((m) => m.id === j.id)) merged.push(j)
-        }
-        syncJobMatchNotifications(merged)
+        const matchedJobs = matchedRes.jobs ?? []
+        const allow = new Set(matchedJobs.map((j) => j.id).filter(Boolean))
+        pruneStaleForYouNotifications(allow)
+        syncJobMatchNotifications(
+          matchedJobs.map((j) => ({
+            id: j.id,
+            title: j.title,
+            company: j.company,
+          })),
+        )
       } catch {
         /* ignore — bell still shows stored notifications */
       }
@@ -174,14 +171,14 @@ export function CandidateNotificationBell() {
             transition={{ duration: 0.16 }}
           >
             <div className={styles.panelHead}>
-              <h2 className={styles.panelTitle}>Notifications</h2>
+              <h2 className={styles.panelTitle}>For you</h2>
               {unread > 0 && (
                 <button
                   type="button"
                   className={styles.markAllBtn}
                   onClick={() => {
                     dismissItems(items)
-                    markNotificationsRead()
+                    markForYouNotificationsRead()
                     refreshList()
                   }}
                 >
@@ -201,7 +198,7 @@ export function CandidateNotificationBell() {
                   </div>
                   <p className={styles.emptyTitle}>You&apos;re all caught up</p>
                   <p className={styles.emptyBody}>
-                    When an employer posts a role that fits your profile, it will show up here.
+                    Only roles from your <strong>For you</strong> tab appear here when they newly match your profile.
                   </p>
                 </li>
               ) : (
