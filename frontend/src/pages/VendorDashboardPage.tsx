@@ -33,7 +33,7 @@ function formatFullDate(iso: string): string {
 
 /**
  * Vendor home: headline numbers, the hiring pipeline and what needs attention.
- * Job management lives on /employer/jobs and the applicant search on /employer/applicants.
+ * Job management lives on /employer/jobs. A job's applications open at /employer/jobs?jobId=.
  */
 export function VendorDashboardPage() {
   const user = getUser()
@@ -118,12 +118,12 @@ export function VendorDashboardPage() {
   const tiles = [
     { label: 'All jobs', value: stats.allJobs, hint: 'Openings you have posted', to: '/employer/jobs' },
     { label: 'Active jobs', value: stats.activeJobs, hint: 'Openings with applicants', to: '/employer/jobs' },
-    { label: 'Applicants', value: stats.totalCandidates, hint: `${stats.newThisWeek} new this week`, to: '/employer/applicants' },
+    { label: 'Applicants', value: stats.totalCandidates, hint: `${stats.newThisWeek} new this week`, to: '/employer/jobs' },
     {
       label: 'Interviews completed',
       value: stats.interviewsCompleted,
       hint: stats.averageScore !== null ? `Average score ${stats.averageScore}/100` : 'No scores yet',
-      to: '/employer/applicants?iv=completed&sort=score',
+      to: '/employer/jobs',
     },
   ]
 
@@ -134,13 +134,13 @@ export function VendorDashboardPage() {
     {
       count: stats.awaitingInterview,
       text: stats.awaitingInterview === 1 ? 'applicant has not taken the AI interview' : 'applicants have not taken the AI interview',
-      to: '/employer/applicants?iv=not_interviewed',
+      to: '/employer/jobs',
       icon: 'clock' as const,
     },
     {
       count: stats.integrityReview,
       text: stats.integrityReview === 1 ? 'interview flagged for integrity review' : 'interviews flagged for integrity review',
-      to: '/employer/applicants?review=1',
+      to: '/employer/jobs',
       icon: 'shield' as const,
     },
     {
@@ -161,8 +161,8 @@ export function VendorDashboardPage() {
               <p className={shell.pageSub}>{user?.companyName || 'Your organization'} · What needs you today and how hiring is going.</p>
             </div>
             <div className={shell.pageActions}>
-              <Link to="/employer/applicants" className={shell.btnSecondary}>
-                <HrIcon name="search" size={16} /> Search applicants
+              <Link to="/employer/jobs" className={shell.btnSecondary}>
+                <HrIcon name="search" size={16} /> Open jobs
               </Link>
               <Link to="/employer/jobs" state={{ createJob: true }} className={shell.btnPrimary}>
                 <HrIcon name="plus" size={16} /> Create job
@@ -263,9 +263,9 @@ export function VendorDashboardPage() {
                     {stats.perJob.slice(0, 6).map((j) => (
                       <tr key={j.id}>
                         <td>
-                          <span className={styles.jobName} title={j.title}>
+                          <Link className={styles.jobName} title={j.title} to={`/employer/jobs?jobId=${encodeURIComponent(j.id)}`}>
                             {j.title}
-                          </span>
+                          </Link>
                           <span className={styles.barTrack} aria-hidden="true">
                             <span
                               className={`${styles.barFill} ${styles.toneNew}`}
@@ -385,8 +385,8 @@ export function VendorDashboardPage() {
                   </h2>
                   <p className={shell.panelSub}>Highest AI interview scores.</p>
                 </div>
-                <Link to="/employer/applicants" className={`${shell.btnGhost} ${shell.btnSm}`}>
-                  All applicants <HrIcon name="arrow-right" size={14} />
+                <Link to="/employer/jobs" className={`${shell.btnGhost} ${shell.btnSm}`}>
+                  All jobs <HrIcon name="arrow-right" size={14} />
                 </Link>
               </div>
               {top.length === 0 ? (
@@ -420,10 +420,10 @@ export function VendorDashboardPage() {
               <Link to="/employer/jobs" state={{ createJob: true }} className={styles.action}>
                 <HrIcon name="briefcase" size={16} /> Create or share a job opening
               </Link>
-              <Link to="/employer/applicants" state={{ inviteDialog: true }} className={styles.action}>
+              <Link to="/employer/jobs" state={{ inviteDialog: true }} className={styles.action}>
                 <HrIcon name="link" size={16} /> Send AI interview links
               </Link>
-              <Link to="/employer/applicants" className={styles.action}>
+              <Link to="/employer/jobs" className={styles.action}>
                 <HrIcon name="users" size={16} /> Review applicants and reports
               </Link>
               <Link to="/resumes" className={styles.action}>

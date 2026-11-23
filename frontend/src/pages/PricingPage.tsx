@@ -141,6 +141,7 @@ export function PricingPage() {
     <div className={styles.page}>
       <MarketingNavBar />
       <main className={styles.shell}>
+        <div className={styles.hero}>
         <header className={styles.header}>
           <div className={styles.kicker}>TRANSPARENT & AFFORDABLE</div>
           <h1 className={styles.title}>
@@ -196,6 +197,7 @@ export function PricingPage() {
               </Link>
             </div>
           ))}
+        </div>
         </div>
 
         {/* Guarantees Strip */}

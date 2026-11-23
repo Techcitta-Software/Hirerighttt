@@ -268,8 +268,6 @@ export function ApplicantResumePanel({
                 </button>
                 <CareerIntelligenceDashboard
                   embedded
-                  variant="detailed"
-                  audience="recruiter"
                   result={a.interviewResult}
                   candidateName={a.candidateName}
                   candidateRole={a.role || a.jobTitle}

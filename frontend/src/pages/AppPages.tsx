@@ -2126,7 +2126,6 @@ export function ProfilePage() {
               </header>
               <CareerIntelligenceDashboard
                 embedded
-                variant="detailed"
                 result={interview}
                 candidateName={fullName || 'Candidate'}
                 candidateRole={profile?.currentRole ?? interview.role}

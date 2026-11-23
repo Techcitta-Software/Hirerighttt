@@ -17,6 +17,8 @@
   --tint-3: color-mix(in srgb, var(--brand) 28%, white);
   --serif: Georgia, 'Times New Roman', serif;
   --ease: cubic-bezier(0.2, 0.75, 0.2, 1);
+  --cv-pad-top: clamp(20px, 4vh, 56px);
+  --cv-pad-bottom: clamp(64px, 9vh, 92px);
 
   min-height: 100vh;
   display: flex;
@@ -405,7 +407,8 @@
   position: absolute;
   z-index: 5;
   left: 49%;
-  bottom: 3%;
+  top: calc(100% + 10px);
+  bottom: auto;
   transform: translateX(-50%);
   width: max-content;
   max-width: 74%;
@@ -1246,6 +1249,26 @@
   }
 }
 
+@media (min-width: 1024px) and (min-height: 640px) {
+  .hero {
+    height: var(--marketing-frame-h);
+    min-height: var(--marketing-frame-h);
+    max-height: var(--marketing-frame-h);
+  }
+  .heroInner {
+    min-height: 0;
+    height: 100%;
+    padding: var(--cv-pad-top) 0 var(--cv-pad-bottom);
+  }
+  .hero h1 {
+    font-size: clamp(2.6rem, min(5.1vw, 8.6vh), 4.9rem);
+    margin: clamp(14px, 2.6vh, 25px) 0 clamp(14px, 2.8vh, 27px);
+  }
+  .universe {
+    width: min(100%, 590px, calc(var(--marketing-frame-h) - var(--cv-pad-top) - var(--cv-pad-bottom)));
+  }
+}
+
 @media (max-width: 850px) {
   .heroInner {
     grid-template-columns: 1fr;
@@ -1267,7 +1290,7 @@
 
   .universe {
     width: min(520px, 100%);
-    margin: 12px auto 0;
+    margin: 12px auto 48px;
   }
 
   .bridgeGrid {

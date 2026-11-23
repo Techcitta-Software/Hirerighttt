@@ -456,3 +456,38 @@
     padding: 24px 18px;
   }
 }
+
+@media (min-width: 961px) and (min-height: 700px) {
+  .shell {
+    min-height: var(--marketing-frame-h);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(12px, 2vh, 48px) 0;
+  }
+  .layoutGrid { width: 100%; align-items: center; gap: clamp(32px, 4vw, 56px); }
+  .infoCol { gap: clamp(12px, 2vh, 24px); }
+  .title { font-size: clamp(2rem, 3.2vw, 2.75rem); }
+  .lead { font-size: 1rem; line-height: 1.55; }
+  .slaBadge { padding: 6px 14px; }
+  .contactDetails { gap: 12px; margin-top: 0; }
+  .detailCard {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+  }
+  .detailIcon { grid-row: 1 / span 2; margin-bottom: 0; width: 36px; height: 36px; }
+  .detailLabel { margin-bottom: 2px; align-self: end; }
+  .detailValue { align-self: start; overflow-wrap: anywhere; }
+  .quickFaqs { padding: 16px 18px; }
+  .quickFaqsTitle { margin-bottom: 10px; }
+  .faqMiniList { gap: 10px; }
+  .formCard { padding: clamp(20px, 3vh, 32px) 28px; }
+  .modeSwitcher, .formIntro { margin-bottom: clamp(12px, 2vh, 20px); }
+  .form { gap: clamp(10px, 1.6vh, 16px); }
+  .inputField, .textareaField { padding: 10px 14px; }
+  .textareaField { min-height: 84px; height: 84px; }
+  .submitBtn { padding: 12px 20px; }
+}

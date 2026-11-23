@@ -12,6 +12,7 @@
   --why-wash: var(--brand-light, #eef2ff);
   --why-soft: #f7f6ff;
   --why-serif: Georgia, 'Times New Roman', serif;
+  --why-hero-pad: clamp(24px, 5vh, 64px);
 
   min-height: 100vh;
   display: flex;
@@ -145,6 +146,8 @@
 }
 
 .heroVisual svg {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
@@ -593,6 +596,23 @@
 
   .compareRow>div {
     padding: 17px 15px;
+  }
+}
+
+@media (min-width: 821px) and (min-height: 600px) {
+  .hero {
+    height: var(--marketing-frame-h);
+    min-height: var(--marketing-frame-h);
+    max-height: var(--marketing-frame-h);
+  }
+  .heroGrid {
+    min-height: 0;
+    height: 100%;
+    padding-top: var(--why-hero-pad);
+    padding-bottom: var(--why-hero-pad);
+  }
+  .heroVisual {
+    height: min(480px, calc(var(--marketing-frame-h) - 2 * var(--why-hero-pad)));
   }
 }
 

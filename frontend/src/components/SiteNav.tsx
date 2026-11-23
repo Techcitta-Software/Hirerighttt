@@ -33,7 +33,6 @@ const JOBSEEKER_NAV = [
 const EMPLOYER_NAV = [
   { to: '/employer/dashboard', label: 'Dashboard' },
   { to: '/employer/jobs', label: 'Jobs' },
-  { to: '/employer/applicants', label: 'Applicants' },
   { to: '/talent-vault', label: 'Talent vault' },
 ]
 
@@ -196,8 +195,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   const isCurrent =
                     isActive ||
                     (item.to === '/employer/dashboard' && location.pathname === '/employer') ||
-                    (item.to === '/employer/applicants' &&
-                      (location.pathname === '/candidates' || location.pathname === '/employer/candidates')) ||
                     (item.to === '/talent-vault' &&
                       (location.pathname === '/resumes' || location.pathname === '/talent-vault'))
                   return isLanding
@@ -278,14 +275,6 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                             onClick={() => goFromProfileMenu('/employer/jobs')}
                           >
                             Jobs &amp; openings
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className={styles.profileDropdownItem}
-                            onClick={() => goFromProfileMenu('/employer/applicants')}
-                          >
-                            Applicants
                           </button>
                           <button
                             type="button"

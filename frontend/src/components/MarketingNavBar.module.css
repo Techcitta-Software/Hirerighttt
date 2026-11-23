@@ -31,7 +31,7 @@
   gap: var(--space-5);
   box-sizing: border-box;
   flex: 1;
-  min-height: 84px;
+  min-height: 83px;
 }
 
 .brandWrap {

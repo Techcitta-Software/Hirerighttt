@@ -78,6 +78,20 @@
   }
 }
 
+@media (min-width: 1025px) {
+  .heroSection {
+    min-height: var(--marketing-frame-h);
+    padding-top: clamp(1.5rem, 5vh, 4.5rem);
+    padding-bottom: clamp(1.5rem, 5vh, 4.5rem);
+  }
+}
+@media (min-width: 1200px) and (min-height: 660px) {
+  .heroSection {
+    height: var(--marketing-frame-h);
+    max-height: var(--marketing-frame-h);
+  }
+}
+
 .heroContent {
   display: flex;
   flex-direction: column;

@@ -141,6 +141,7 @@ function HeroFilm() {
           ✳
         </span>
       </div>
+      <div className={styles.filmSpacer} aria-hidden="true" />
       <div className={styles.filmData}>
         <span className={styles.filmKicker}>{FILM[frame][0]}</span>
         <div className={styles.filmQuote} key={frame} aria-live="off">
@@ -186,11 +187,11 @@ export function RecruiterPage() {
       <MarketingNavBar />
       <main>
         {/* hero */}
-        <section className={styles.hero}>
+        <section className={styles.hero} aria-labelledby="recruiter-hero-title">
           <div className={`${styles.container} ${styles.heroGrid}`}>
-            <div>
+            <div className={styles.heroCol}>
               <div className={styles.eyebrow}>For the people doing the hiring</div>
-              <h1 className={styles.h1}>
+              <h1 id="recruiter-hero-title" className={styles.h1}>
                 A resume can’t answer your <span className={styles.italic}>follow-up question.</span>
               </h1>
               <p className={styles.lead}>

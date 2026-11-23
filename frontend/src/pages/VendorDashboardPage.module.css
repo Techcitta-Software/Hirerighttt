@@ -239,9 +239,14 @@
   display: block;
   font-weight: 700;
   color: var(--ds-text);
+  text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.jobName:hover {
+  color: var(--ds-brand-hover, #4338ca);
 }
 
 .miniTable .barTrack {

@@ -12,7 +12,7 @@ import {
   subscribeInterviewFinishJob,
   type InterviewFinishStatus,
 } from '../lib/interviewFinishJob'
-import { getInterviewResult, getProfile, getUser, resolveCandidateName } from '../lib/store'
+import { getInterviewResult, getProfile, getUser } from '../lib/store'
 import styles from './InterviewCompletePage.module.css'
 
 function formatDate(value: string | undefined): string {
@@ -82,7 +82,10 @@ export function InterviewCompletePage() {
 
   if (!result && !scoring && !scoringFailed) return <Navigate to="/dashboard" replace />
 
-  const fullName = resolveCandidateName(profile, user)
+  const fullName =
+    (profile as { fullName?: string; name?: string } | null)?.fullName ||
+    user?.name ||
+    'Candidate'
   const location = (profile as { location?: string } | null)?.location || ''
   const first = fullName === 'Candidate' ? '' : fullName.trim().split(/\s+/)[0] || ''
   const completedOn = formatDate(result?.date || job?.meta.startedAt)

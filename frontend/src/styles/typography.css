@@ -149,6 +149,8 @@
   --nav-height: 64px; /* real SiteNav header height (all breakpoints) */
   --nav-padding-x: var(--space-6);
   --nav-padding-y: var(--space-3);
+  --marketing-nav-h: 84px;
+  --marketing-frame-h: calc(100svh - var(--marketing-nav-h));
 
   /* Brand wordmark (text logo) */
   --logo-color-hire: #141638;

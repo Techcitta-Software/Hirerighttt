@@ -74,10 +74,10 @@ function respectReducedMotionInFramer() {
 
 if (typeof window !== 'undefined') respectReducedMotionInFramer()
 
-/** /employer/candidates and /candidates were renamed to /employer/applicants. */
-function RedirectToApplicants() {
+/** Old applicant addresses now open Jobs. A ?jobId= still opens that job's applications. */
+function RedirectToJobApplications() {
   const { search, hash } = useLocation()
-  return <Navigate to={`/employer/applicants${search}${hash}`} replace />
+  return <Navigate to={`/employer/jobs${search}${hash}`} replace />
 }
 
 const ROUTE_TITLES: Record<string, string> = {
@@ -95,9 +95,9 @@ const ROUTE_TITLES: Record<string, string> = {
   '/employer/dashboard': 'Dashboard',
   '/employer': 'Dashboard',
   '/employer/jobs': 'Jobs',
-  '/employer/applicants': 'Applicants',
-  '/employer/candidates': 'Applicants',
-  '/candidates': 'Applicants',
+  '/employer/applicants': 'Jobs',
+  '/employer/candidates': 'Jobs',
+  '/candidates': 'Jobs',
   '/resumes': 'Resume database',
   '/talent-vault': 'Resume database',
   '/dashboard': 'Dashboard',
@@ -322,19 +322,9 @@ function AnimatedRoutes() {
                 </Page>
               }
             />
-            <Route
-              path="/employer/applicants"
-              element={
-                <Page>
-                  <RequireAuth role="employer">
-                    <EmployerDashboard view="candidates" />
-                  </RequireAuth>
-                </Page>
-              }
-            />
-            {/* Old addresses of the Applicants page: kept working, with their ?jobId= and #hash. */}
-            <Route path="/employer/candidates" element={<RedirectToApplicants />} />
-            <Route path="/candidates" element={<RedirectToApplicants />} />
+            <Route path="/employer/applicants" element={<RedirectToJobApplications />} />
+            <Route path="/employer/candidates" element={<RedirectToJobApplications />} />
+            <Route path="/candidates" element={<RedirectToJobApplications />} />
             <Route
               path="/employer"
               element={

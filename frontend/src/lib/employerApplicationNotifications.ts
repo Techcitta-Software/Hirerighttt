@@ -63,7 +63,7 @@ export function syncEmployerApplicationNotifications(alerts: EmployerApplication
         jobId: alert.jobId,
         title: 'New application',
         body: `${alert.candidateName} applied for ${alert.jobTitle}.${extras.length ? ` ${extras.join(' · ')}.` : ''}`,
-        href: `/employer/applicants?jobId=${encodeURIComponent(alert.jobId)}`,
+        href: `/employer/jobs?jobId=${encodeURIComponent(alert.jobId)}`,
         createdAt: alert.createdAt,
       },
       email,

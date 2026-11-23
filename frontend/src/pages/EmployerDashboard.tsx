@@ -28,6 +28,7 @@ import {
   JOB_ROLE_GROUPS,
   suggestRoleFromTitle,
 } from '../data/jobRoles'
+import { readJobDescriptionFile } from '../lib/jobDescriptionImport'
 import {
   createVendorJob,
   deleteVendorJob,
@@ -90,17 +91,16 @@ function LoadErrorPanel({ message, onRetry }: { message: string; onRetry: () => 
   )
 }
 
-interface EmployerDashboardProps {
-  view?: 'dashboard' | 'candidates'
-}
-
-export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
+export function EmployerDashboard() {
   const location = useLocation()
-  const isCandidatesView =
-    view === 'candidates' ||
-    location.pathname === '/employer/applicants' ||
-    location.pathname === '/employer/candidates' ||
-    location.pathname === '/candidates'
+  const navigate = useNavigate()
+  // ?jobId= is how a job is opened. The applications search rewrites that to ?job= when filters change.
+  const selectedJobId = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('jobId') || params.get('job') || ''
+  }, [location.search])
+  const showJobApplications = Boolean(selectedJobId) && location.pathname.startsWith('/employer/jobs')
+  const isCandidatesView = showJobApplications
 
   useEffect(() => {
     if (location.hash === '#candidates' || location.hash === '#candidate-list') {
@@ -110,7 +110,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   }, [location])
 
   const user = getUser()
-  const navigate = useNavigate()
   const [jobs, setJobs] = useState<EmployerJob[]>([])
   const [applicants, setApplicants] = useState<EmployerApplicant[]>([])
   const [jobCounts, setJobCounts] = useState<Record<string, number>>({})
@@ -148,13 +147,19 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
   const [newJobSkills, setNewJobSkills] = useState('')
+  const [jobSource, setJobSource] = useState<'type' | 'upload'>('type')
+  const [jobDocName, setJobDocName] = useState('')
+  const [jobDocError, setJobDocError] = useState('')
+  const [jobDocReading, setJobDocReading] = useState(false)
+  const [jobDocDragging, setJobDocDragging] = useState(false)
+  const jobDocInputRef = useRef<HTMLInputElement>(null)
   const [portalSyncNote, setPortalSyncNote] = useState('')
   const seenApplicationAlertIdsRef = useRef(new Set<string>())
 
   const [jobRosterOpen, setJobRosterOpen] = useState<{ jobId: string; title: string } | null>(
     null,
   )
-  const [jobRosterLoading, setJobRosterLoading] = useState(false)
+  const [jobRosterLoading] = useState(false)
   const [jobRosterNotice, setJobRosterNotice] = useState('')
   const [jobRosterRows, setJobRosterRows] = useState<EmployerApplicant[]>([])
 
@@ -339,12 +344,42 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
 
   function openCreateJob() {
     setCreateJobError('')
+    setJobDocError('')
     setShowCreateJobModal(true)
   }
 
   function closeCreateJob() {
-    if (creatingJob) return
+    if (creatingJob || jobDocReading) return
     setShowCreateJobModal(false)
+    setJobDocDragging(false)
+  }
+
+  function applyImportedJob(fileName: string, draft: Awaited<ReturnType<typeof readJobDescriptionFile>>) {
+    if (draft.title) setNewJobTitle(draft.title)
+    if (draft.location) setNewJobLocation(draft.location)
+    if (draft.experienceLevel) setNewJobExp(draft.experienceLevel)
+    if (draft.skills.length) setNewJobSkills(draft.skills.join(', '))
+    setNewJobDescription(draft.description)
+    const suggested = suggestRoleFromTitle(draft.title)
+    if (suggested) setNewJobRoleTrack(suggested)
+    setJobDocName(fileName)
+    setJobDocError('')
+  }
+
+  async function importJobDocument(file: File | undefined) {
+    if (!file || jobDocReading || creatingJob) return
+    setJobDocReading(true)
+    setJobDocError('')
+    setJobDocName(file.name)
+    try {
+      applyImportedJob(file.name, await readJobDescriptionFile(file))
+    } catch (err) {
+      setJobDocName('')
+      setJobDocError(err instanceof Error ? err.message : 'Could not read that document.')
+    } finally {
+      setJobDocReading(false)
+      if (jobDocInputRef.current) jobDocInputRef.current.value = ''
+    }
   }
 
   async function handleCreateJob(e: React.FormEvent) {
@@ -414,6 +449,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       setNewJobRoleTrack(DEFAULT_JOB_ROLE)
       setNewJobExp('3-5 years')
       setNewJobLocation('Hyderabad / Remote')
+      setJobSource('type')
+      setJobDocName('')
+      setJobDocError('')
       setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)
     } catch (err) {
       console.warn('[employer-dashboard] create job failed', err)
@@ -501,23 +539,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }, [openRosterJobId])
 
-  async function openJobApplicantsRoster(job: EmployerJob) {
+  function openJobApplicantsRoster(job: EmployerJob) {
     if (isOptimisticJobId(job.id)) return
-    setJobRosterOpen({ jobId: job.id, title: job.title })
-    setJobRosterNotice('')
-    setJobRosterLoading(true)
-    setJobRosterRows([])
-    try {
-      await ensureApiSession()
-      const { applicants, total } = await fetchJobApplicants(job.id)
-      setJobRosterRows(applicants.map((a) => normalizeApplicant(mapVendorApplicant(a))))
-      setJobCounts((prev) => ({ ...prev, [job.id]: total ?? applicants.length }))
-    } catch (err) {
-      console.warn('[employer-dashboard] load applicants failed', err)
-      setJobRosterRows([])
-    } finally {
-      setJobRosterLoading(false)
-    }
+    navigate({ pathname: '/employer/jobs', search: `?jobId=${encodeURIComponent(job.id)}` })
   }
 
   /** A job saved by Edit / Close / Reopen / Unpublish: replace it in the list and say what happened. */
@@ -610,8 +634,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         {isCandidatesView ? (
           <header className={styles.pageHeader}>
             <div>
-              <h1 className={styles.pageTitle}>Applicants</h1>
-              <p className={styles.pageSub}>Search, compare and shortlist people for your jobs.</p>
+              <button type="button" className={styles.backLink} onClick={() => navigate('/employer/jobs')}>
+                ← All jobs
+              </button>
+              <h1 className={styles.pageTitle}>
+                {jobs.find((j) => j.id === selectedJobId)?.title ?? 'Applications'}
+              </h1>
+              <p className={styles.pageSub}>Everyone who applied to this job, with their interview results.</p>
             </div>
             <div className={styles.pageActions}>
               <button type="button" className={styles.btnPrimary} onClick={() => setShowInviteDialog(true)}>
@@ -875,8 +904,8 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                 <div>
                   <h2 id="create-job-title">Create job</h2>
                   <p className={styles.modalSub}>
-                    A private opening with its own apply link. Applicants get an AI interview based on this
-                    description and their resume.
+                    Type the opening, or upload a PDF or Word file. Applicants get an AI interview based on
+                    this description and their resume.
                   </p>
                 </div>
                 <button
@@ -890,6 +919,81 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
 
               <div className={styles.modalBody}>
+                <div className={styles.sourceSwitch} role="group" aria-label="How to add this job">
+                  <button
+                    type="button"
+                    className={`${styles.sourceOption} ${jobSource === 'type' ? styles.sourceOptionActive : ''}`}
+                    aria-pressed={jobSource === 'type'}
+                    onClick={() => setJobSource('type')}
+                  >
+                    <strong>Type the details</strong>
+                    <span>Fill the title, role, description and skills yourself.</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.sourceOption} ${jobSource === 'upload' ? styles.sourceOptionActive : ''}`}
+                    aria-pressed={jobSource === 'upload'}
+                    onClick={() => setJobSource('upload')}
+                  >
+                    <strong>Upload a document</strong>
+                    <span>PDF or Word. We fill the fields so you can edit them.</span>
+                  </button>
+                </div>
+
+                {jobSource === 'upload' ? (
+                  <div
+                    className={`${styles.jdDrop} ${jobDocDragging ? styles.jdDropDragging : ''}`}
+                    onDragEnter={(e) => {
+                      e.preventDefault()
+                      setJobDocDragging(true)
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault()
+                      setJobDocDragging(true)
+                    }}
+                    onDragLeave={() => setJobDocDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault()
+                      setJobDocDragging(false)
+                      void importJobDocument(e.dataTransfer.files?.[0])
+                    }}
+                  >
+                    <HrIcon name="upload" size={18} />
+                    <strong>{jobDocReading ? 'Reading the document…' : 'Drop a PDF or Word file'}</strong>
+                    <span>Selectable text only. Scanned images are not read.</span>
+                    <input
+                      ref={jobDocInputRef}
+                      id="employer-job-document"
+                      className={styles.jdFileInput}
+                      type="file"
+                      aria-label="Job description PDF or Word file"
+                      accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      tabIndex={-1}
+                      onChange={(e) => void importJobDocument(e.target.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      className={`${styles.btnSecondary} ${styles.btnSm}`}
+                      disabled={jobDocReading || creatingJob}
+                      onClick={() => jobDocInputRef.current?.click()}
+                    >
+                      Choose file
+                    </button>
+                    {jobDocName && !jobDocError ? (
+                      <p className={styles.jdNote} role="status">
+                        Filled from {jobDocName}. Check the details below, then create the job.
+                      </p>
+                    ) : null}
+                    {jobDocError ? (
+                      <p className={`ds-alert ds-alert--error ${styles.modalError}`} role="alert">
+                        {jobDocError}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <section className={styles.formSection} aria-labelledby="create-job-role">
+                  <h3 id="create-job-role" className={styles.formSectionTitle}>Role</h3>
                 <div className={styles.formGroup}>
                   <label htmlFor="employer-job-title">Job title</label>
                   <input
@@ -942,7 +1046,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   </div>
                 </div>
 
-                <div className={styles.formGroup}>
+                <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-location">Location</label>
                   <input
                     id="employer-job-location"
@@ -953,8 +1057,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     onChange={(e) => setNewJobLocation(e.target.value)}
                   />
                 </div>
+                </section>
 
-                <div className={styles.formGroup}>
+                <section className={styles.formSection} aria-labelledby="create-job-description-heading">
+                  <h3 id="create-job-description-heading" className={styles.formSectionTitle}>Description</h3>
+                <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-description">Job description</label>
                   <textarea
                     id="employer-job-description"
@@ -974,7 +1081,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                       : `At least 30 characters (${descLength}/30)`}
                   </span>
                 </div>
+                </section>
 
+                <section className={styles.formSection} aria-labelledby="create-job-skills-heading">
+                  <h3 id="create-job-skills-heading" className={styles.formSectionTitle}>Skills</h3>
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-skills">
                     Required skills <span className={styles.optionalText}>(optional)</span>
@@ -991,6 +1101,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     Separate skills with commas.
                   </span>
                 </div>
+                </section>
 
                 {createJobError ? (
                   <p className={`ds-alert ds-alert--error ${styles.modalError}`} role="alert">
@@ -1004,11 +1115,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                   type="button"
                   className={styles.btnSecondary}
                   onClick={closeCreateJob}
-                  disabled={creatingJob}
+                  disabled={creatingJob || jobDocReading}
                 >
                   Cancel
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={creatingJob} aria-busy={creatingJob}>
+                <button type="submit" className={styles.btnPrimary} disabled={creatingJob || jobDocReading} aria-busy={creatingJob}>
                   {creatingJob ? 'Creating…' : 'Create job'}
                 </button>
               </div>

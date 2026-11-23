@@ -141,12 +141,12 @@ describe('Applicant drawer', () => {
 })
 
 describe('Rename: Candidates → Applicants (vendor side)', () => {
-  it('the employer footer links to Applicants at /employer/applicants', () => {
+  it('the employer footer links to Jobs and Talent vault, not a separate applicants page', () => {
     localStorage.setItem('hireright.users', JSON.stringify([{ email: 'r@acme.test', password: 'x', role: 'employer', name: 'R' }]))
     localStorage.setItem('hireright.session', 'r@acme.test')
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AppFooter)))
-    expect(html).toContain('href="/employer/applicants"')
-    expect(html).toContain('>Applicants<')
-    expect(html).not.toContain('>Candidates<')
+    expect(html).toContain('href="/employer/jobs"')
+    expect(html).toContain('href="/talent-vault"')
+    expect(html).not.toContain('href="/employer/applicants"')
   })
 })
