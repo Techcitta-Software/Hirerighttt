@@ -32,6 +32,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Secret scan (tracked files)
+        run: node scripts/secret-scan.mjs
+
       - run: pip install -r requirements.txt
         working-directory: backend
 
@@ -46,7 +49,14 @@ jobs:
       - name: Build frontend
         env:
           VITE_AUTH_PROVIDER: api
+          # Production bundles must never ship client-side LLM keys (vulnerability-scan-agent).
         run: npm run build
+
+      - name: Assert prod bundle has no obvious API key material
+        run: |
+          if command -v rg >/dev/null 2>&1; then
+            ! rg -q 'AIza[0-9A-Za-z_-]{20,}' frontend/dist || (echo "Possible API key in frontend/dist" && exit 1)
+          fi
 
       - name: Production config smoke (Python API)
         env:

@@ -1909,6 +1909,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             token = path.replace("/api/interview-invites/", "").strip()
             if not token:
                 return _json(400, {"error": "Invite token required."})
+            # Public lookup: throttle by IP and token to reduce scanning / abuse (Vulnerability Scan iteration 2).
+            if not ctx.rate_limit(f"ivinvite-ip:{ctx.client_ip(request)}", 120, 3_600_000):
+                return _json(429, {"error": "Too many invite lookups. Try again later."})
+            if not ctx.rate_limit(f"ivinvite-token:{token[:48]}", 40, 3_600_000):
+                return _json(429, {"error": "Too many requests for this invite link."})
             if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview invites."})
             pool = db_store.db_pool(config.database_url)
