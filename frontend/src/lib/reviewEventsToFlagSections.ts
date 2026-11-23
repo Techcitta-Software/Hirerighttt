@@ -41,3 +41,53 @@ export function reviewEventsToFlagSections(
   }
   return out
 }
+
+/**
+ * The server derives flagged sections from the camera review events (`review_logs_to_flag_sections`) in its own
+ * shape: `{ id, type: 'MULTIPLE_FACES_DETECTED', startOffsetSec, durationSec }`. The review UI expects
+ * `{ type: 'MULTI_FACE', startSec, endSec, ... }`; without this, labels were all "Looking away" and times NaN:NaN.
+ * Sections already in the UI shape pass through unchanged; unusable entries are dropped.
+ */
+export function normalizeFlagSections(sections: readonly unknown[] | null | undefined): InterviewFlagSection[] {
+  const out: InterviewFlagSection[] = []
+  for (const raw of sections ?? []) {
+    if (!raw || typeof raw !== 'object') continue
+    const f = raw as Partial<InterviewFlagSection> & {
+      type?: string
+      eventType?: string
+      startOffsetSec?: number
+      reason?: string
+      message?: string
+    }
+    const t = String(f.type || f.eventType || '')
+    const type: InterviewFlagSection['type'] | null =
+      t === 'LOOKING_SIDE' || t === 'MULTI_FACE' || t === 'NO_FACE'
+        ? t
+        : mapType(t as IntegrityLogEvent['eventType'])
+    const start = Number.isFinite(f.startSec) ? Number(f.startSec) : Number(f.startOffsetSec)
+    if (!type || !Number.isFinite(start) || start < 0) continue
+    const dur = Number.isFinite(f.durationSec) ? Math.max(0, Number(f.durationSec)) : null
+    const end = Number.isFinite(f.endSec) ? Math.max(start, Number(f.endSec)) : start + (dur ?? 0)
+    out.push({
+      id: f.id || `flag_${Math.round(start * 10)}`,
+      type,
+      severity: f.severity === 'high' || f.severity === 'medium' ? f.severity : type === 'MULTI_FACE' ? 'high' : 'medium',
+      turnIndex: Number.isFinite(f.turnIndex) && Number(f.turnIndex) > 0 ? Number(f.turnIndex) : 0,
+      questionText: f.questionText || '',
+      startSec: start,
+      endSec: end,
+      durationSec: dur ?? Number((end - start).toFixed(1)),
+      reason: f.reason || f.message || '',
+      peakMetrics: f.peakMetrics ?? {},
+    })
+  }
+  return out
+}
+
+/** Server writes `REVIEW` when any section is flagged (older data: `FLAGGED`). */
+export function proctoringNeedsReview(
+  p: { status?: string; counts?: { total?: number } } | null | undefined,
+): boolean {
+  if (!p) return false
+  return p.status === 'FLAGGED' || p.status === 'REVIEW' || (p.counts?.total ?? 0) > 0
+}

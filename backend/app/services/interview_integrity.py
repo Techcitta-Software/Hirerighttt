@@ -95,14 +95,17 @@ def merge_server_integrity(session: dict, client: dict | None) -> dict:
     if server.get("banned") and server.get("banReason"):
         merged["banReason"] = server.get("banReason")
 
-    server_logs = [e for e in (session.get("reviewEvents") or []) if isinstance(e, dict)]
-    client_logs = [e for e in (client.get("logs") or []) if isinstance(e, dict)][:1000]
+    server_events = session.get("reviewEvents")
+    server_logs = [e for e in (server_events if isinstance(server_events, list) else []) if isinstance(e, dict)]
+    raw_logs = client.get("logs")
+    client_logs = [e for e in (raw_logs if isinstance(raw_logs, list) else []) if isinstance(e, dict)][:1000]
     by_id: dict = {}
     for e in client_logs + server_logs:  # server copy wins for the same event id
         by_id[e.get("id") or id(e)] = e
     merged["logs"] = list(by_id.values())
 
-    client_sections = [f for f in (client.get("flaggedSections") or []) if isinstance(f, dict)][:1000]
+    raw_sections = client.get("flaggedSections")
+    client_sections = [f for f in (raw_sections if isinstance(raw_sections, list) else []) if isinstance(f, dict)][:1000]
     server_sections = review_logs_to_flag_sections(server_logs)
     merged["flaggedSections"] = client_sections if len(client_sections) >= len(server_sections) else server_sections
     if not merged["flaggedSections"] and client_logs:

@@ -9,6 +9,7 @@
  * candidate's, so they are deliberately not searched: every applicant to a React job would match "react".
  */
 import type { EmployerApplicant } from './store'
+import { proctoringNeedsReview } from './reviewEventsToFlagSections'
 
 export type SearchableCandidate = Pick<
   EmployerApplicant,
@@ -96,7 +97,7 @@ export function candidateScore(c: Pick<EmployerApplicant, 'aiScore' | 'interview
 export function needsIntegrityReview(c: Pick<EmployerApplicant, 'integrityStatus' | 'interviewResult'>): boolean {
   if (c.integrityStatus === 'pending' || c.integrityStatus === 'unverified') return true
   const integrity = c.interviewResult?.integrity
-  return Boolean(integrity?.proctoring?.status === 'FLAGGED' || (integrity?.faceViolations ?? 0) > 0)
+  return proctoringNeedsReview(integrity?.proctoring) || (integrity?.faceViolations ?? 0) > 0
 }
 
 export function matchesQuickFilter(c: FilterableCandidate, filter: CandidateQuickFilter): boolean {

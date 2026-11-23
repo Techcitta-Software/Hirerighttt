@@ -5,13 +5,22 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from app.db.dynamo_config import database_provider
 from app.db.store import db_pool
 
 TALENT_SCHEMA = Path(__file__).resolve().parents[2] / "db" / "sql" / "schema-talent-search.sql"
 
 _schema_lock = threading.Lock()
 _schema_ready_for: set[str] = set()
+
+
+def _talent_full_name(user: dict, profile: dict) -> str:
+    """The resume name (talent search / recruiter views show what the resume says), else the signup name."""
+    from app.services.candidate_name import CANDIDATE_FALLBACK, resolve_candidate_name
+
+    resolved = resolve_candidate_name(profile, user.get("name") or "")
+    if resolved != CANDIDATE_FALLBACK:
+        return resolved
+    return str(profile.get("fullName") or profile.get("name") or user.get("name") or user["email"]).strip()
 
 
 def build_talent_record(user: dict, profile: dict, interview: dict | None = None) -> dict[str, Any]:
@@ -38,7 +47,7 @@ def build_talent_record(user: dict, profile: dict, interview: dict | None = None
     return {
         "userId": user["id"],
         "email": user["email"].lower(),
-        "fullName": str(profile.get("fullName") or profile.get("name") or user.get("name") or user["email"]).strip(),
+        "fullName": _talent_full_name(user, profile),
         "currentRole": str(profile.get("currentRole") or profile.get("whoAreYou") or "").strip(),
         "location": str(profile.get("currentLocation") or profile.get("location") or "").strip(),
         "experienceYears": str(profile.get("totalExperience") or profile.get("experienceYears") or "").strip(),
@@ -81,12 +90,6 @@ async def upsert_candidate_talent(
     interview: dict | None = None,
 ) -> None:
     if not user.get("id") or user.get("role") == "employer":
-        return
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        row = build_talent_record(user, profile or {}, interview)
-        await asyncio.to_thread(dr.upsert_talent_profile_dynamo, row)
         return
     if not database_url:
         return
@@ -137,11 +140,6 @@ async def grant_organization_talent_access(
 ) -> None:
     if not organization_id or not user_id:
         return
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        await asyncio.to_thread(dr.grant_talent_access_dynamo, organization_id, user_id, access_type)
-        return
     if not database_url:
         return
     await ensure_talent_schema(database_url)
@@ -161,10 +159,6 @@ def _grant_talent_access_sync(database_url: str, organization_id: str, user_id: 
 
 
 async def search_candidate_talent(database_url: str, organization_id: str, filters: dict | None = None) -> dict:
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        return await asyncio.to_thread(dr.search_talent_dynamo, organization_id, filters)
     await ensure_talent_schema(database_url)
     filters = filters or {}
     limit = min(max(int(filters.get("limit") or 25), 1), 100)
@@ -265,10 +259,6 @@ async def search_candidate_talent(database_url: str, organization_id: str, filte
 
 
 async def get_candidate_talent_by_id(database_url: str, organization_id: str, user_id: str) -> dict | None:
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        return await asyncio.to_thread(dr.get_talent_by_id_dynamo, organization_id, user_id)
     await ensure_talent_schema(database_url)
     pool = db_pool(database_url)
     with pool.connection() as conn:

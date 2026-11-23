@@ -26,23 +26,10 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from app.db.apply_schema import apply_schema
-from app.db.dynamo_config import database_provider, use_dynamodb, use_neon
 from app.db.resolve_pg_host import resolve_pg_host
 
 _log = __import__("logging").getLogger(__name__)
 
-
-def _mirror_dynamo(db: dict[str, Any]) -> None:
-    if not use_dynamodb():
-        return
-    try:
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        mirror_db_to_dynamo(db)
-    except Exception as exc:
-        if database_provider() == "dynamodb":
-            raise RuntimeError(f"DynamoDB write failed (data was not persisted): {exc}") from exc
-        _log.warning("DynamoDB mirror failed: %s", exc)
 
 _pool: ConnectionPool | None = None
 _pool_lock = threading.Lock()
@@ -322,6 +309,7 @@ def _map_job_row(r: dict[str, Any]) -> dict[str, Any]:
         "shareableCode": r["shareable_code"],
         "status": r.get("status"),
         "createdAt": _iso(r["created_at"]),
+        "updatedAt": _iso(r.get("updated_at")) if r.get("updated_at") else None,
         "createdByEmail": extras.get("createdByEmail") or "",
     }
 
@@ -470,10 +458,6 @@ def _load_relational(conn: Connection) -> dict[str, Any]:
 
 
 def load_db(database_url: str) -> dict[str, Any]:
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import load_db_dynamo
-
-        return load_db_dynamo()
     url = _require_database_url(database_url)
     _ensure_schema(url)
     pool = _ensure_pool(url)
@@ -772,7 +756,7 @@ _queued_save: dict[str, Any] | None = None
 def save_db(db: dict[str, Any], database_url: str) -> None:
     global _queued_save
     url = (database_url or "").strip()
-    if use_neon() and not url:
+    if not url:
         url = _require_database_url(database_url)
     snapshot = copy.deepcopy(db)
     if _queued_save:
@@ -784,13 +768,11 @@ def save_db(db: dict[str, Any], database_url: str) -> None:
     def _run() -> None:
         global _queued_save
         try:
-            if use_neon() and job["database_url"].strip():
+            if job['database_url'].strip():
                 _ensure_schema(job["database_url"])
                 pool = _ensure_pool(job["database_url"])
                 with pool.connection() as conn:
                     _save_relational(conn, job["snapshot"])
-            if use_dynamodb():
-                _mirror_dynamo(job["snapshot"])
         finally:
             if _queued_save is job:
                 _queued_save = None
@@ -802,10 +784,6 @@ def save_db(db: dict[str, Any], database_url: str) -> None:
 
 
 def ping_database(database_url: str) -> dict[str, Any]:
-    if use_dynamodb() and database_provider() == "dynamodb":
-        from app.db.dynamo_relational import ping_dynamo
-
-        return ping_dynamo()
     try:
         url = _require_database_url(database_url)
         pool = _ensure_pool(url)
@@ -834,11 +812,6 @@ def _session_lookup_keys(token: str) -> tuple[str, str]:
 
 
 def save_session_token(database_url: str, token: str, email: str, ttl_ms: int = 7 * 24 * 60 * 60 * 1000) -> None:
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        dr.save_session_token_dynamo(token, email, ttl_ms)
-        return
     url = _require_database_url(database_url)
     expires = datetime.now(timezone.utc).timestamp() + ttl_ms / 1000
     expires_dt = datetime.fromtimestamp(expires, tz=timezone.utc)
@@ -855,10 +828,6 @@ def save_session_token(database_url: str, token: str, email: str, ttl_ms: int = 
 def resolve_session_email(database_url: str, token: str) -> str | None:
     if not token:
         return None
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        return dr.resolve_session_email_dynamo(token)
     url = _require_database_url(database_url)
     pool = _ensure_pool(url)
     with pool.connection() as conn:
@@ -881,11 +850,6 @@ def resolve_session_email(database_url: str, token: str) -> str | None:
 def delete_session_token(database_url: str, token: str) -> None:
     if not token:
         return
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        dr.delete_session_token_dynamo(token)
-        return
     url = _require_database_url(database_url)
     pool = _ensure_pool(url)
     with pool.connection() as conn:
@@ -895,11 +859,6 @@ def delete_session_token(database_url: str, token: str) -> None:
 
 def append_interview_history(database_url: str, email: str, data: dict, ctx: dict | None = None) -> None:
     if not email or not data:
-        return
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        dr.append_interview_history_dynamo(email, data, ctx)
         return
     url = _require_database_url(database_url)
     ctx = ctx or {}
@@ -922,10 +881,6 @@ def append_interview_history(database_url: str, email: str, data: dict, ctx: dic
 
 
 def db_pool(database_url: str) -> ConnectionPool:
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_assessment import DynamoAssessmentPool
-
-        return DynamoAssessmentPool()  # type: ignore[return-value]
     url = _require_database_url(database_url)
     return _ensure_pool(url)
 
@@ -948,8 +903,6 @@ def sync_open_jobs_from_database(database_url: str, db: dict[str, Any]) -> dict[
 
     if isinstance(db, UnitOfWork):
         return db  # per-request unit of work: app.db.finders queries exactly the rows needed
-    if database_provider() == "dynamodb":
-        return db
     if not database_url.strip():
         return db
     _ensure_schema(database_url)
@@ -1026,11 +979,6 @@ def open_job_summaries(database_url: str, limit: int | None = None) -> list[dict
 def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
     if not job.get("id") or not job.get("shareableCode"):
         return
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import upsert_job_dynamo
-
-        upsert_job_dynamo(job)
-        return
     _ensure_schema(database_url)
     extras = {"createdByEmail": job.get("createdByEmail") or "", "companySlug": job.get("companySlug")}
     pool = _ensure_pool(database_url)
@@ -1063,10 +1011,6 @@ def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
             ),
         )
         conn.commit()
-    if use_dynamodb():
-        from app.db.dynamo_relational import upsert_job_dynamo
-
-        upsert_job_dynamo(job)
 
 
 @_throttled_sync
@@ -1076,8 +1020,6 @@ def sync_org_jobs_from_database(database_url: str, db: dict[str, Any], organizat
     if isinstance(db, UnitOfWork):
         return db  # per-request unit of work: app.db.finders queries exactly the rows needed
     org_id = str(organization_id or "").strip()
-    if database_provider() == "dynamodb":
-        return db
     if not database_url.strip() or not org_id:
         return db
     _ensure_schema(database_url)
@@ -1098,17 +1040,11 @@ def sync_org_jobs_from_database(database_url: str, db: dict[str, Any], organizat
     return db
 
 
-def find_job_by_shareable_code(database_url: str, shareable_code: str) -> dict[str, Any] | None:
+def find_job_by_shareable_code(
+    database_url: str, shareable_code: str, *, include_inactive: bool = False
+) -> dict[str, Any] | None:
     code = str(shareable_code or "").strip().lower()
     if not code:
-        return None
-    if database_provider() == "dynamodb":
-        db = load_db("")
-        for j in db.get("jobs") or []:
-            if str(j.get("shareableCode") or "").lower() == code:
-                st = (j.get("status") or "published").lower()
-                if st in ("active", "published"):
-                    return j
         return None
     if not database_url.strip():
         return None
@@ -1118,9 +1054,9 @@ def find_job_by_shareable_code(database_url: str, shareable_code: str) -> dict[s
         row = conn.execute(
             """SELECT * FROM jobs
                WHERE LOWER(shareable_code) = %s
-                 AND COALESCE(status, 'published') IN ('active', 'published')
+                 AND (%s OR COALESCE(status, 'published') IN ('active', 'published'))
                LIMIT 1""",
-            (code,),
+            (code, include_inactive),
         ).fetchone()
     return _map_job_row(row) if row else None
 
@@ -1131,14 +1067,6 @@ def delete_job_record(database_url: str, job_id: str, organization_id: str) -> b
     org_id = str(organization_id or "").strip()
     if not jid or not org_id:
         return False
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        db = load_db("")
-        before = len(db.get("jobs") or [])
-        db["jobs"] = [j for j in db.get("jobs") or [] if j.get("id") != jid]
-        mirror_db_to_dynamo(db)
-        return len(db.get("jobs") or []) < before
     if not database_url.strip():
         return False
     _ensure_schema(database_url)
@@ -1158,8 +1086,6 @@ def sync_employer_applications_from_database(database_url: str, db: dict[str, An
 
     if isinstance(db, UnitOfWork):
         return db  # per-request unit of work: app.db.finders queries exactly the rows needed
-    if database_provider() == "dynamodb":
-        return db
     if not database_url.strip():
         return db
     _ensure_schema(database_url)
@@ -1190,16 +1116,6 @@ def sync_employer_applications_from_database(database_url: str, db: dict[str, An
 def upsert_job_application_record(database_url: str, email: str, record: dict[str, Any]) -> None:
     if not email or not record.get("id"):
         return
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        db = load_db("")
-        apps = list(db.get("applications", {}).get(email) or [])
-        apps = [a for a in apps if a.get("id") != record.get("id")]
-        apps.append(record)
-        db.setdefault("applications", {})[email] = apps
-        mirror_db_to_dynamo(db)
-        return
     if not database_url.strip():
         return
     _ensure_schema(database_url)
@@ -1221,25 +1137,6 @@ def mark_job_applications_deleted_in_postgres(database_url: str, job_id: str, pa
     jid = str(job_id or "").strip()
     if not jid:
         return 0
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        db = load_db("")
-        merged = {
-            "jobStatus": "deleted",
-            "jobDeletedAt": (patch or {}).get("jobDeletedAt") or datetime.now(timezone.utc).isoformat(),
-            "jobDeletedMessage": (patch or {}).get("jobDeletedMessage")
-            or "This job was removed by the employer.",
-        }
-        count = 0
-        for email, apps in (db.get("applications") or {}).items():
-            for app in apps or []:
-                if str(app.get("jobId") or "") == jid:
-                    app.update(merged)
-                    count += 1
-        if count:
-            mirror_db_to_dynamo(db)
-        return count
     if not database_url.strip():
         return 0
     patch = patch or {}
@@ -1265,14 +1162,6 @@ def mark_job_applications_deleted_in_postgres(database_url: str, job_id: str, pa
 def delete_job_application_record(database_url: str, email: str, application_id: str) -> None:
     if not email or not application_id:
         return
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        db = load_db("")
-        apps = [a for a in db.get("applications", {}).get(email) or [] if a.get("id") != application_id]
-        db.setdefault("applications", {})[email] = apps
-        mirror_db_to_dynamo(db)
-        return
     if not database_url.strip():
         return
     _ensure_schema(database_url)
@@ -1289,9 +1178,6 @@ def delete_job_application_record(database_url: str, email: str, application_id:
 def load_job_applications_for_email(database_url: str, email: str) -> list[dict[str, Any]]:
     if not email:
         return []
-    if database_provider() == "dynamodb":
-        db = load_db("")
-        return list(db.get("applications", {}).get(email) or [])
     if not database_url.strip():
         return []
     _ensure_schema(database_url)
@@ -1314,15 +1200,6 @@ def load_job_applications_for_email(database_url: str, email: str) -> list[dict[
 @_invalidates_reads
 def upsert_employer_application_record(database_url: str, app: dict[str, Any]) -> None:
     if not app.get("id"):
-        return
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        db = load_db("")
-        items = [a for a in db.get("employerApplications") or [] if a.get("id") != app.get("id")]
-        items.append(app)
-        db["employerApplications"] = items
-        mirror_db_to_dynamo(db)
         return
     if not database_url.strip():
         return

@@ -4,6 +4,8 @@ import type { ProfileFormData } from '../data/wizard'
 import { beginImmediateInterview } from '../lib/interviewTestMode'
 import { getInterviewResult, getProfile } from '../lib/store'
 import { moonshineStt } from '../lib/moonshineStt'
+import { interviewDurationMinutes } from '../lib/interviewDuration'
+import { resolveInterviewJobContext } from '../lib/pendingJobApply'
 import styles from './AiInterviewStep.module.css'
 
 interface AiInterviewStepProps {
@@ -42,6 +44,8 @@ function Icon({ kind }: { kind: 'calendar' | 'clock' | 'brain' | 'lock' | 'shiel
 
 export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
   const navigate = useNavigate()
+  // A job link carried through sign-up is a 20-minute JD interview; otherwise the 15-minute career interview.
+  const [minutes] = useState(() => interviewDurationMinutes(resolveInterviewJobContext()))
   const today = indiaDay(new Date())
   const [initial] = useState(() => {
     const saved = data.interviewNotes.startsWith('Scheduled: ') ? new Date(data.interviewNotes.slice(11)) : null
@@ -97,7 +101,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
           <p className={styles.introTitle}>
             {hasResume ? 'Your resume is uploaded.' : 'Let’s get your AI interview scheduled.'}
           </p>
-          <p className={styles.introSub}>Book your 15-minute AI interview. Choose a time that works best for you.</p>
+          <p className={styles.introSub}>Book your {minutes}-minute AI interview. Choose a time that works best for you.</p>
         </div>
       </div>
 
@@ -105,7 +109,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
         <div className={styles.immediateCopy}>
           <h2 id="ai-now-title" className={styles.immediateTitle}>Start your interview now</h2>
           <p className={styles.immediateDesc}>
-            Ready right now? Skip scheduling and start your 15-minute live AI interview immediately.
+            Ready right now? Skip scheduling and start your {minutes}-minute live AI interview immediately.
           </p>
         </div>
         <button type="button" className={styles.nowBtn} onClick={launchLiveInterview}>
@@ -122,7 +126,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
 
       <section className={styles.bookingSection} aria-labelledby="ai-slot-title">
         <div className={styles.bookingHeading}>
-          <h2 id="ai-slot-title">Choose a 15-minute interview slot</h2>
+          <h2 id="ai-slot-title">Choose a {minutes}-minute interview slot</h2>
           <p className={styles.timezone}>All times are in IST (Asia/Kolkata)</p>
         </div>
         <div className={styles.bookingGrid}>

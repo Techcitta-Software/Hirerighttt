@@ -8,7 +8,6 @@ import {
   resumeExtractToProfilePatch,
   type ResumeExtract,
 } from '../lib/resumeParser'
-import { updateUserName } from '../lib/store'
 import { MotionItem, MotionStack } from '../motion/MotionStack'
 import { CharacterTextarea } from './CharacterTextarea'
 import { ResumeUpload } from './ResumeUpload'
@@ -57,11 +56,9 @@ export function AboutYouStep({
     const patch = resumeExtractToProfilePatch(extract)
     if (Object.keys(patch).length) onPatch(patch)
 
-    let nextFirst: string | undefined
-    if (extract.fullName) {
-      const updated = updateUserName(extract.fullName)
-      nextFirst = updated?.name.split(' ')[0]
-    }
+    // The name shown everywhere comes from the resume itself; the signup name is not overwritten.
+    const resumeName = (patch as { fullName?: string }).fullName
+    const nextFirst: string | undefined = resumeName ? resumeName.split(' ')[0] : undefined
 
     onExtracted?.({
       firstName: nextFirst,

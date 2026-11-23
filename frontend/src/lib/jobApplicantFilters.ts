@@ -9,7 +9,8 @@ export type JobApplicantFilters = {
   interview: 'any' | 'interviewed' | 'not_interviewed' | number
   source: 'all' | 'job_board' | 'shared_link' | 'invite'
   status: 'all' | EmployerApplicant['status']
-  sort: 'ats' | 'jd' | 'interview' | 'newest'
+  /** 'rank' = top candidature (the API's ranking): interview score, then Role Skills Fit, then who finished first. */
+  sort: 'rank' | 'ats' | 'jd' | 'interview' | 'newest'
 }
 
 export const DEFAULT_JOB_APPLICANT_FILTERS: JobApplicantFilters = {
@@ -18,7 +19,7 @@ export const DEFAULT_JOB_APPLICANT_FILTERS: JobApplicantFilters = {
   interview: 'any',
   source: 'all',
   status: 'all',
-  sort: 'ats',
+  sort: 'rank',
 }
 
 /** HireRighttt interview score (0–100) when the candidate has interviewed. */
@@ -30,6 +31,36 @@ export function interviewScoreOf(a: EmployerApplicant): number | null {
 
 function num(v: number | null | undefined): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : -1
+}
+
+/** Role Skills Fit the ranking uses: the API's value, else the report's own analysis. */
+export function roleSkillsFitOf(a: EmployerApplicant): number | null {
+  if (typeof a.roleSkillsFit === 'number') return a.roleSkillsFit
+  const analysis = a.interviewResult?.roleSkillsAnalysis
+  if (analysis?.requiredSkills?.length && typeof analysis.fitScore === 'number') return analysis.fitScore
+  const fit = a.interviewResult?.resumeFitScore
+  return typeof fit === 'number' ? fit : null
+}
+
+/**
+ * Top candidature order. The API ranks the list (`rank`, 1 = best) and that order is used as is; rows without
+ * a rank (not interviewed) follow, compared by the same rule as the API: interview score, Role Skills Fit,
+ * earliest interview completion, earliest application.
+ */
+export function compareTopCandidature(x: EmployerApplicant, y: EmployerApplicant): number {
+  const rx = typeof x.rank === 'number' ? x.rank : null
+  const ry = typeof y.rank === 'number' ? y.rank : null
+  if (rx !== null && ry !== null) return rx - ry
+  const sx = interviewScoreOf(x)
+  const sy = interviewScoreOf(y)
+  if ((sx === null) !== (sy === null)) return sx === null ? 1 : -1
+  const iso = (v: string | null | undefined) => v || '9999'
+  return (
+    num(sy) - num(sx) ||
+    num(roleSkillsFitOf(y)) - num(roleSkillsFitOf(x)) ||
+    iso(x.interviewCompletedAt).localeCompare(iso(y.interviewCompletedAt)) ||
+    iso(x.appliedAt).localeCompare(iso(y.appliedAt))
+  )
 }
 
 export function filterJobApplicants(rows: EmployerApplicant[], f: JobApplicantFilters): EmployerApplicant[] {
@@ -51,7 +82,8 @@ export function filterJobApplicants(rows: EmployerApplicant[], f: JobApplicantFi
     if (f.status !== 'all' && a.status !== f.status) return false
     return true
   })
-  const by: Record<JobApplicantFilters['sort'], (a: EmployerApplicant) => number> = {
+  if (f.sort === 'rank') return [...out].sort(compareTopCandidature)
+  const by: Record<Exclude<JobApplicantFilters['sort'], 'rank'>, (a: EmployerApplicant) => number> = {
     ats: (a) => num(a.atsScore),
     jd: (a) => num(a.jdMatchScore),
     interview: (a) => num(interviewScoreOf(a)),

@@ -56,14 +56,14 @@ function workExperienceComplete(profile: SavedProfile | null | undefined): boole
 
 function workExperienceHint(profile: SavedProfile | null | undefined): string {
   if (!profile?.resumeText?.trim()) {
-    return 'Add employers and roles in onboarding, or mark yourself as fresher.'
+    return 'Add employers and roles to your résumé and replace it on your profile.'
   }
   const resume = profile.resumeText
   const mentionsJobs =
     /\b(work\s+experience|professional\s+experience|employment|internship)/i.test(resume) &&
     /\b(19|20)\d{2}\b/.test(resume)
   if (mentionsJobs && !hasFilledWorkExperience(profile) && !profile.noPriorWorkExperience) {
-    return 'Your resume mentions jobs — add work history in onboarding (auto-fill may have missed a section).'
+    return 'Your résumé mentions jobs we could not read — check the work history section and replace the file.'
   }
   return 'Add at least one role with company and title, or confirm you have no prior employment.'
 }
@@ -124,9 +124,9 @@ export function profileFieldChecks(
       done: (profile?.whoAreYou?.trim().length ?? 0) >= 30,
       required: true,
       section: 'about',
-      hint: 'A short “who you are” intro from onboarding step 1.',
+      hint: 'A short “who you are” intro, read from your résumé. Add a summary to your résumé and replace it.',
       icon: 'user',
-      href: '/onboarding?step=1',
+      href: '/profile#resume',
     },
     {
       label: 'Skills',
@@ -143,7 +143,7 @@ export function profileFieldChecks(
       section: 'experience',
       hint: workExperienceHint(profile),
       icon: 'briefcase',
-      href: '/onboarding?step=2',
+      href: '/profile#resume',
     },
     {
       label: 'Resume file',
@@ -175,9 +175,10 @@ export function profileFieldChecks(
       done: hasCert,
       required: false,
       section: 'performance',
-      hint: 'Optional — add certificates or courses from onboarding step 3.',
+      // Onboarding is closed once finished (it redirects to the dashboard), so this points at the résumé card.
+      hint: 'Optional — list certificates or courses on your résumé, then replace it on your profile.',
       icon: 'document',
-      href: '/onboarding?step=3',
+      href: '/profile#resume',
     },
   ]
 }

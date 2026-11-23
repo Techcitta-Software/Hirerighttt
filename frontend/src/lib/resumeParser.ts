@@ -11,7 +11,8 @@ import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
 import { computeExperience, latestJob, monthsToLabel } from './resumeExperience'
-import { extractNameFromText, pickRole } from './resumeName'
+import { extractNameFromText, normalizePersonName, pickRole } from './resumeName'
+import { resumeNameOf } from './candidateName'
 
 export { extractNameFromText }
 
@@ -57,9 +58,14 @@ export function resumeExtractToProfilePatch(
   extract: ResumeExtract,
 ): Partial<ProfileFormData> {
   const patch: Partial<ProfileFormData> = {}
-  if (extract.fullName) {
-    // Keep the saved profile in step with the resume that was just read, so an older resume's name cannot stick.
-    Object.assign(patch, { name: extract.fullName, fullName: extract.fullName })
+  // The candidate's name always comes from the resume that was just read ("KAVYA IYER" -> "Kavya Iyer"), so an older
+  // resume's name or the signup name cannot stick. Cleared when this resume has no readable name.
+  const resumeFullName = extract.resumeText
+    ? resumeNameOf({ resumeFullName: extract.fullName, resumeText: extract.resumeText })
+    : normalizePersonName(extract.fullName)
+  if (extract.fullName || extract.resumeText) Object.assign(patch, { resumeFullName })
+  if (resumeFullName) {
+    Object.assign(patch, { name: resumeFullName, fullName: resumeFullName })
   }
   if (extract.whoAreYou) patch.whoAreYou = extract.whoAreYou
   if (extract.keyStrengths) patch.keyStrengths = extract.keyStrengths

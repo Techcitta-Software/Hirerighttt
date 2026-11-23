@@ -174,7 +174,7 @@ export function PlatformWorkflowSection({
         <p className={styles.ctaBody}>
           {roleMode === 'candidate'
             ? 'It takes less than 12 minutes to receive your certified score and unlock ranked top match jobs.'
-            : 'Join fast-growing companies using HireRight to screen hundreds of candidates with zero manual recruiter burnout.'}
+            : 'Join fast-growing companies using HireRighttt to screen hundreds of candidates with zero manual recruiter burnout.'}
         </p>
         <div className={styles.ctaActions}>
           <Link

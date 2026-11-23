@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   AUTH_INVALID_MSG_KEY,
   consumeAuthInvalidMessage,
@@ -13,10 +13,16 @@ export function AuthInvalidModal() {
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState('')
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const onAuthScreen = pathname === '/login' || pathname === '/logout'
 
   useEffect(() => {
     function show(msg: string) {
       if (!msg) return
+      if (pathname === '/login' || pathname === '/logout') {
+        sessionStorage.removeItem(AUTH_INVALID_MSG_KEY)
+        return
+      }
       setMessage(msg)
       setOpen(true)
     }
@@ -31,9 +37,9 @@ export function AuthInvalidModal() {
     if (initial) show(initial)
 
     return () => window.removeEventListener(OPEN_AUTH_INVALID_EVENT, onEvent)
-  }, [])
+  }, [pathname])
 
-  // Esc, the backdrop and the button all lead to the login page: the session is no longer valid.
+  // Esc and the primary button lead to login; backdrop clicks are ignored so the message is not skipped by accident.
   const dismiss = useCallback(() => {
     setOpen(false)
     sessionStorage.removeItem(AUTH_INVALID_MSG_KEY)
@@ -42,12 +48,11 @@ export function AuthInvalidModal() {
 
   const dialog = useDialog(open, dismiss)
 
-  if (!open) return null
+  if (!open || onAuthScreen) return null
 
   return (
     <div
       className={styles.overlay}
-      onClick={dismiss}
       onKeyDown={dialog.onKeyDown}
       role="alertdialog"
       aria-modal="true"
@@ -56,14 +61,14 @@ export function AuthInvalidModal() {
     >
       <div ref={dialog.ref} tabIndex={-1} className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
         <h2 id="auth-invalid-title" className={styles.title}>
-          Sign-in not verified
+          Please sign in again
         </h2>
         <p id="auth-invalid-body" className={styles.metaText}>
-          {message}
+          {message || 'Your session ended or could not be verified. Sign in to pick up where you left off.'}
         </p>
         <div className={styles.buttonGroup}>
           <button type="button" className={styles.confirmBtn} onClick={dismiss} data-autofocus>
-            Go to login
+            Sign in
           </button>
         </div>
       </div>

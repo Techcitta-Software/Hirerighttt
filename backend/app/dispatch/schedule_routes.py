@@ -24,16 +24,18 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
 from app.db import store as db_store
-from app.db.dynamo_config import database_provider, persistence_ready
+from app.db.persistence import persistence_ready
 from app.dispatch.context import DispatchContext
 from app.node_config import config
 from app.server import runtime
+from app.services.candidate_name import candidate_display_name
 from app.services.interview_integrity import invite_attempt_used
 from app.services.interview_invites import (
     build_interview_invite_email,
     get_interview_invite_by_token,
     invite_join_window_end,
     invite_public_url,
+    trusted_request_origin,
 )
 from app.services.mail_service import send_mail, smtp_configured
 
@@ -54,9 +56,11 @@ def _dt(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    # An offset-less time is UTC; a naive value compared with the aware "now" below raised TypeError (500).
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def reminder_kind(invite: dict, now: datetime) -> str | None:
@@ -96,30 +100,6 @@ def reschedule_refusal(invite: dict | None, user: dict | None, db: dict) -> str 
     return None
 
 
-async def _send_due_reminders_dynamo(rows: list[dict], now: datetime) -> dict[str, int]:
-    sent = {"24h": 0, "2h": 0, "failed": 0}
-    for invite in rows:
-        start = _dt(invite.get("scheduled_start"))
-        if not start or start <= now or start > now + timedelta(hours=24):
-            continue
-        kind = reminder_kind(invite, now)
-        if not kind:
-            continue
-        try:
-            mail = _reminder_email(invite, kind)
-            await send_mail(
-                to=invite["candidate_email"],
-                subject=mail["subject"],
-                html=mail["html"],
-                text=mail.get("text"),
-            )
-            sent[kind] += 1
-        except Exception:
-            logger.exception("Reminder email failed for invite %s", str(invite.get("token", ""))[:8])
-            sent["failed"] += 1
-    return sent
-
-
 def _reminder_email(invite: dict, kind: str) -> dict[str, str]:
     mail = build_interview_invite_email(
         candidateName=invite.get("candidate_name"),
@@ -134,14 +114,23 @@ def _reminder_email(invite: dict, kind: str) -> dict[str, str]:
     return mail
 
 
+def _current_resume_name(pool, invite: dict) -> str:
+    """The name on the candidate's current resume (it may have been replaced after the invite was created)."""
+    from app.services.candidate_name import resume_name
+
+    try:
+        with pool.connection() as conn:
+            row = conn.execute(
+                "SELECT data FROM profiles WHERE lower(email) = lower(%s)", (str(invite.get("candidate_email") or ""),)
+            ).fetchone()
+    except Exception:
+        return ""
+    data = (row.get("data") if isinstance(row, dict) else (row[0] if row else None)) if row else None
+    return resume_name(data if isinstance(data, dict) else {})
+
+
 async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int]:
-    from app.db.dynamo_config import database_provider
-
     now = now or datetime.now(timezone.utc)
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        return await _send_due_reminders_dynamo(dr.list_interview_invites_dynamo(), now)
     def _due_rows():
         with pool.connection() as conn:
             return conn.execute(
@@ -173,6 +162,7 @@ async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int
         if not claimed:
             continue
         try:
+            invite["candidate_name"] = await asyncio.to_thread(_current_resume_name, pool, invite) or invite.get("candidate_name")
             mail = _reminder_email(invite, kind)
             await send_mail(to=invite["candidate_email"], subject=mail["subject"], html=mail["html"], text=mail.get("text"))
             sent[kind] += 1
@@ -198,17 +188,17 @@ async def try_schedule_routes(
     if method == "POST" and path == "/api/internal/interview-reminders":
         secret = os.environ.get("CRON_SECRET") or ""
         given = request.headers.get("x-cron-secret") or ""
-        if not secret or not hmac.compare_digest(secret, given):
+        if not secret or not hmac.compare_digest(secret.encode(), given.encode("utf-8", "replace")):
             return json_fn(401, {"error": "Unauthorized"})
         if not persistence_ready(config.database_url) or not smtp_configured():
             return json_fn(503, {"error": "Database and email must be configured."})
-        sent = await send_due_reminders(db_store.db_pool(config.database_url or "dynamodb"))
+        sent = await send_due_reminders(db_store.db_pool(config.database_url))
         return json_fn(200, {"ok": True, "sent": sent})
 
     if method == "POST" and path == "/api/internal/maintenance":
         secret = os.environ.get("CRON_SECRET") or ""
         given = request.headers.get("x-cron-secret") or ""
-        if not secret or not hmac.compare_digest(secret, given):
+        if not secret or not hmac.compare_digest(secret.encode(), given.encode("utf-8", "replace")):
             return json_fn(401, {"error": "Unauthorized"})
         if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database must be configured."})
@@ -217,7 +207,7 @@ async def try_schedule_routes(
 
         counts = await asyncio.to_thread(
             retention.purge_expired,
-            db_store.db_pool(config.database_url or "dynamodb"),
+            db_store.db_pool(config.database_url),
             delete_object=delete_object if object_storage_configured() else None,
         )
         await audit.record_async(audit.DATA_PURGED, meta=counts)
@@ -231,7 +221,7 @@ async def try_schedule_routes(
         body = await runtime.read_json_body(request)
         if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database required."})
-        pool = db_store.db_pool(config.database_url or "dynamodb")
+        pool = db_store.db_pool(config.database_url)
         token = match.group(1)
         invite = await get_interview_invite_by_token(pool, token)
         db = ctx.load_db()
@@ -248,34 +238,28 @@ async def try_schedule_routes(
         if start > now + MAX_AHEAD:
             return json_fn(400, {"error": "Pick a time within the next 30 days."})
         end = invite_join_window_end(start)
-        if database_provider() == "dynamodb":
-            from app.db import dynamo_repos as dr
+        def _move() -> None:
+            with pool.connection() as conn:
+                conn.execute(
+                    """UPDATE interview_invites
+                       SET scheduled_start = %s, scheduled_end = %s, reschedule_count = COALESCE(reschedule_count, 0) + 1,
+                           reminder_24h_sent_at = NULL, reminder_2h_sent_at = NULL
+                       WHERE token = %s""",
+                    (start, end, token),
+                )
+                conn.commit()
 
-            await asyncio.to_thread(dr.reschedule_invite_dynamo, token, start, end)
-        else:
-
-            def _move() -> None:
-                with pool.connection() as conn:
-                    conn.execute(
-                        """UPDATE interview_invites
-                           SET scheduled_start = %s, scheduled_end = %s, reschedule_count = COALESCE(reschedule_count, 0) + 1,
-                               reminder_24h_sent_at = NULL, reminder_2h_sent_at = NULL
-                           WHERE token = %s""",
-                        (start, end, token),
-                    )
-                    conn.commit()
-
-            await asyncio.to_thread(_move)
+        await asyncio.to_thread(_move)
         email_sent = False
         if smtp_configured():
             try:
                 mail = build_interview_invite_email(
-                    candidateName=invite.get("candidate_name"),
+                    candidateName=candidate_display_name(db, email, given=invite.get("candidate_name")),
                     jobTitle=invite.get("job_title"),
                     scheduledStart=start.isoformat(),
                     scheduledEnd=end.isoformat(),
                     durationMinutes=20,
-                    inviteUrl=invite_public_url(token),
+                    inviteUrl=invite_public_url(token, trusted_request_origin(request)),
                 )
                 mail["subject"] = "Rescheduled: " + mail["subject"].replace("Booking confirmed: ", "")
                 await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))

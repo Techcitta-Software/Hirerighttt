@@ -1199,3 +1199,50 @@ export function questionMatchesPlan(
 export function selectProjectForInterview(profile: SavedProfile | null, ctx: PlanContext, role: string, varietySeed = '') {
   return pickProjectAnchor(extractResumeProjects(profile, ctx, role), 1, varietySeed);
 }
+
+/* ------------------------------------------------------------------------------------------------------------------
+ * JD-first plan for recruiter job links / invites (mirror of backend app/services/interview_jd_plan.py).
+ * ~80% of questions on the JD, ~20% on how the candidate's past work relates to it, always >= 1 behavioural;
+ * 9 scored questions + the sign-off in about 20 minutes. The server builds and validates the questions; the client
+ * uses this to check what it received and to label the plan.
+ * ---------------------------------------------------------------------------------------------------------------- */
+export type JdPlanSlot = 'jd' | 'jd-alignment' | 'behavioural'
+export const JD_INTERVIEW_SCORED_QUESTIONS = 9
+export const JD_INTERVIEW_TURN_COUNT = JD_INTERVIEW_SCORED_QUESTIONS + 1
+const JD_ALIGNMENT_SHARE = 0.2
+
+export function jdQuestionMix(scored = JD_INTERVIEW_SCORED_QUESTIONS): Record<JdPlanSlot, number> {
+  const n = Math.max(3, Math.floor(scored))
+  const alignment = Math.max(1, Math.round(n * JD_ALIGNMENT_SHARE))
+  const behavioural = 1
+  return { jd: n - alignment - behavioural, 'jd-alignment': alignment, behavioural }
+}
+
+/** Slot per scored turn: alignment opens, behavioural mid-interview, the second alignment late, JD everywhere else. */
+export function jdFirstSlotOrder(scored = JD_INTERVIEW_SCORED_QUESTIONS): JdPlanSlot[] {
+  const mix = jdQuestionMix(scored)
+  const n = mix.jd + mix['jd-alignment'] + mix.behavioural
+  const order: (JdPlanSlot | null)[] = Array.from({ length: n }, () => null)
+  order[0] = 'jd-alignment'
+  order[Math.min(Math.max(1, Math.floor(n / 2)), n - 1)] = 'behavioural'
+  let remaining = mix['jd-alignment'] - 1
+  for (let pos = n - 2; remaining > 0 && pos > 0; pos--) {
+    if (order[pos] === null) {
+      order[pos] = 'jd-alignment'
+      remaining--
+    }
+  }
+  return order.map((slot) => slot ?? 'jd')
+}
+
+/** The scored questions follow the JD-first rule (>= 1 behavioural, an alignment question, >= 70% on the JD). */
+export function questionsFitJdMix(questions: { planSlot?: string | null }[]): boolean {
+  const counts: Record<JdPlanSlot, number> = { jd: 0, 'jd-alignment': 0, behavioural: 0 }
+  for (const q of questions) {
+    const slot = q?.planSlot as JdPlanSlot | undefined
+    if (slot && slot in counts) counts[slot] += 1
+  }
+  const scored = counts.jd + counts['jd-alignment'] + counts.behavioural
+  if (!scored || counts.behavioural < 1 || counts['jd-alignment'] < 1) return false
+  return (counts.jd + counts.behavioural) / scored >= 0.7
+}

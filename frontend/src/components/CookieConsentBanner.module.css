@@ -1,12 +1,12 @@
-/* A slim notice that never covers more than one line of the page on desktop, two on a phone. */
+/* A slim notice. On wide screens it sits bottom-left, so it never covers the centred or right-aligned
+   primary actions (sticky "Save and continue", form submit buttons); on a phone it spans the width. */
 .bar {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  z-index: var(--z-toast, 1200);
-  max-width: 760px;
-  margin-inline: auto;
+  left: 16px;
+  bottom: 16px;
+  /* Below dialogs and drawers (z-modal and up) so it never covers their action buttons; above nav and menus. */
+  z-index: calc(var(--z-modal, 1000) - 10);
+  width: min(540px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   gap: 8px 16px;
@@ -78,6 +78,7 @@
     left: 8px;
     right: 8px;
     bottom: 8px;
+    width: auto;
     padding: 8px 8px 8px 12px;
     font-size: 0.75rem;
   }

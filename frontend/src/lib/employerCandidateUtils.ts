@@ -15,6 +15,7 @@ export function vendorJobToEmployerJob(job: VendorJob, createdByEmail: string): 
     createdAt: job.createdAt,
     shareableCode: job.shareableCode,
     companySlug: job.companySlug,
+    ...(job.status ? { status: job.status } : {}),
   }
 }
 
@@ -84,6 +85,9 @@ export function mapVendorApplicant(a: VendorApplicant): EmployerApplicant {
     interviewSource: a.data.interviewSource,
     appliedAt: a.appliedAt,
     status: statusMap[a.status] || 'New',
+    rank: a.rank ?? null,
+    roleSkillsFit: a.rankRoleSkillsFit ?? null,
+    interviewCompletedAt: a.interviewCompletedAt ?? null,
   }
 }
 
@@ -136,6 +140,12 @@ export function mapOrgCandidate(c: OrgCandidateRecord): EmployerApplicant {
     appliedAt: c.appliedAt,
     status: (c.status as EmployerApplicant['status']) || 'New',
     interviewRecordingAvailable: Boolean(c.interviewRecordingAvailable),
+    ...(c.source ? { recordSource: c.source } : {}),
+    ...(c.contactHidden ? { contactHidden: true } : {}),
+    ...(c.appliedJobIds?.length ? { appliedJobIds: c.appliedJobIds } : {}),
+    // Statuses arrive as labels ("New", "In Review", "Shortlisted"), like the row's own status.
+    ...(c.applications?.length ? { applications: c.applications } : {}),
+    ...(c.interviewJobId !== undefined ? { interviewJobId: c.interviewJobId } : {}),
   }
 }
 

@@ -37,7 +37,7 @@ def health_detail_allowed(request: Request) -> bool:
         return True
     secret = os.environ.get("CRON_SECRET") or ""
     given = request.headers.get("x-cron-secret") or ""
-    return bool(secret) and hmac.compare_digest(secret, given)
+    return bool(secret) and hmac.compare_digest(secret.encode(), given.encode("utf-8", "replace"))
 
 
 @router.get("/health")
@@ -84,10 +84,9 @@ async def _health_full() -> dict:
         "llmFailover": _failover_summary(),
         "database": {
             "configured": bool(config.database_url),
-            "storage": __import__("os").environ.get("DATABASE_PROVIDER") or "neon",
+            "storage": "postgres",
             "connected": bool(db_ping.get("ok")),
             "detail": db_ping.get("reason"),
-            "dynamodb": __import__("os").environ.get("DATABASE_PROVIDER") in ("dual", "dynamodb"),
         },
         "features": {
             "interviewAgent": True,
@@ -126,10 +125,9 @@ _ping_cache: dict = {"at": 0.0, "value": None}
 
 
 async def _async_ping() -> dict:
-    from app.db.dynamo_config import persistence_ready
-
+    from app.db.persistence import persistence_ready
     if not persistence_ready(config.database_url):
-        return {"ok": False, "reason": "Database not configured (set DATABASE_PROVIDER=dynamodb or DATABASE_URL)"}
+        return {"ok": False, "reason": "Database not configured (set DATABASE_URL)"}
     import asyncio
     import time
 

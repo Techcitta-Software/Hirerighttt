@@ -33,7 +33,7 @@ function formatFullDate(iso: string): string {
 
 /**
  * Vendor home: headline numbers, the hiring pipeline and what needs attention.
- * Job management lives on /employer/jobs and the candidate directory on /employer/candidates.
+ * Job management lives on /employer/jobs and the applicant search on /employer/applicants.
  */
 export function VendorDashboardPage() {
   const user = getUser()
@@ -118,12 +118,12 @@ export function VendorDashboardPage() {
   const tiles = [
     { label: 'All jobs', value: stats.allJobs, hint: 'Openings you have posted', to: '/employer/jobs' },
     { label: 'Active jobs', value: stats.activeJobs, hint: 'Openings with applicants', to: '/employer/jobs' },
-    { label: 'Candidates', value: stats.totalCandidates, hint: `${stats.newThisWeek} new this week`, to: '/employer/candidates' },
+    { label: 'Applicants', value: stats.totalCandidates, hint: `${stats.newThisWeek} new this week`, to: '/employer/applicants' },
     {
       label: 'Interviews completed',
       value: stats.interviewsCompleted,
       hint: stats.averageScore !== null ? `Average score ${stats.averageScore}/100` : 'No scores yet',
-      to: '/employer/candidates',
+      to: '/employer/applicants?iv=completed&sort=score',
     },
   ]
 
@@ -131,9 +131,24 @@ export function VendorDashboardPage() {
   const perJobMax = Math.max(1, ...stats.perJob.map((j) => j.count))
 
   const attention = [
-    { count: stats.awaitingInterview, text: 'candidates have not taken the AI interview', to: '/employer/candidates', icon: 'clock' as const },
-    { count: stats.integrityReview, text: 'interviews flagged for integrity review', to: '/employer/candidates', icon: 'shield' as const },
-    { count: stats.jobsWithoutApplicants, text: 'openings have no applicants yet', to: '/employer/jobs', icon: 'briefcase' as const },
+    {
+      count: stats.awaitingInterview,
+      text: stats.awaitingInterview === 1 ? 'applicant has not taken the AI interview' : 'applicants have not taken the AI interview',
+      to: '/employer/applicants?iv=not_interviewed',
+      icon: 'clock' as const,
+    },
+    {
+      count: stats.integrityReview,
+      text: stats.integrityReview === 1 ? 'interview flagged for integrity review' : 'interviews flagged for integrity review',
+      to: '/employer/applicants?review=1',
+      icon: 'shield' as const,
+    },
+    {
+      count: stats.jobsWithoutApplicants,
+      text: stats.jobsWithoutApplicants === 1 ? 'opening has no applicants yet' : 'openings have no applicants yet',
+      to: '/employer/jobs',
+      icon: 'briefcase' as const,
+    },
   ].filter((a) => a.count > 0)
 
   return (
@@ -146,8 +161,8 @@ export function VendorDashboardPage() {
               <p className={shell.pageSub}>{user?.companyName || 'Your organization'} · What needs you today and how hiring is going.</p>
             </div>
             <div className={shell.pageActions}>
-              <Link to="/employer/candidates" className={shell.btnSecondary}>
-                <HrIcon name="search" size={16} /> Search candidates
+              <Link to="/employer/applicants" className={shell.btnSecondary}>
+                <HrIcon name="search" size={16} /> Search applicants
               </Link>
               <Link to="/employer/jobs" state={{ createJob: true }} className={shell.btnPrimary}>
                 <HrIcon name="plus" size={16} /> Create job
@@ -222,7 +237,7 @@ export function VendorDashboardPage() {
                   <h2 id="vd-perjob" className={shell.panelTitle}>
                     Applicants by opening
                   </h2>
-                  <p className={shell.panelSub}>Which openings are drawing candidates.</p>
+                  <p className={shell.panelSub}>Which openings are drawing applicants.</p>
                 </div>
                 <Link to="/employer/jobs" className={`${shell.btnGhost} ${shell.btnSm}`}>
                   All jobs <HrIcon name="arrow-right" size={14} />
@@ -274,7 +289,7 @@ export function VendorDashboardPage() {
                   <h2 id="vd-pipeline" className={shell.panelTitle}>
                     Hiring pipeline
                   </h2>
-                  <p className={shell.panelSub}>Where your candidates stand right now.</p>
+                  <p className={shell.panelSub}>Where your applicants stand right now.</p>
                 </div>
               </div>
               <div className={styles.pipelineBody}>
@@ -288,7 +303,7 @@ export function VendorDashboardPage() {
                           {p.label}
                         </span>
                         <span className={styles.barTrack} aria-hidden="true">
-                          {loading ? null : (
+                          {loading || count === 0 ? null : (
                             <span className={`${styles.barFill} ${p.tone}`} style={{ width: `${(count / pipelineMax) * 100}%` }} />
                           )}
                         </span>
@@ -370,15 +385,15 @@ export function VendorDashboardPage() {
                   </h2>
                   <p className={shell.panelSub}>Highest AI interview scores.</p>
                 </div>
-                <Link to="/employer/candidates" className={`${shell.btnGhost} ${shell.btnSm}`}>
-                  All candidates <HrIcon name="arrow-right" size={14} />
+                <Link to="/employer/applicants" className={`${shell.btnGhost} ${shell.btnSm}`}>
+                  All applicants <HrIcon name="arrow-right" size={14} />
                 </Link>
               </div>
               {top.length === 0 ? (
                 loading ? (
                   <LoadingRows label="Loading top performers…" rows={5} />
                 ) : (
-                  <EmptyState icon="star" title="No interview scores yet" body="Scores appear here once candidates complete their AI interview." />
+                  <EmptyState icon="star" title="No interview scores yet" body="Scores appear here once applicants complete their AI interview." />
                 )
               ) : (
                 <ol className={styles.list}>
@@ -402,14 +417,14 @@ export function VendorDashboardPage() {
               Quick actions
             </h2>
             <div className={styles.actions}>
-              <Link to="/employer/jobs" className={styles.action}>
+              <Link to="/employer/jobs" state={{ createJob: true }} className={styles.action}>
                 <HrIcon name="briefcase" size={16} /> Create or share a job opening
               </Link>
-              <Link to="/employer/candidates" className={styles.action}>
+              <Link to="/employer/applicants" state={{ inviteDialog: true }} className={styles.action}>
                 <HrIcon name="link" size={16} /> Send AI interview links
               </Link>
-              <Link to="/employer/candidates" className={styles.action}>
-                <HrIcon name="users" size={16} /> Review candidates and reports
+              <Link to="/employer/applicants" className={styles.action}>
+                <HrIcon name="users" size={16} /> Review applicants and reports
               </Link>
               <Link to="/resumes" className={styles.action}>
                 <HrIcon name="folder" size={16} /> Open the talent vault

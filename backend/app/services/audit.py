@@ -21,6 +21,7 @@ LOGOUT = "auth.logout"
 PASSWORD_RESET = "auth.password_reset"
 RECORDING_VIEWED = "recording.viewed"
 INVITE_CREATED = "invite.created"
+JOB_UPDATED = "job.updated"
 DATA_PURGED = "retention.purged"
 
 
@@ -35,20 +36,6 @@ def record(
 ) -> None:
     """Synchronous insert; call from async code with `await asyncio.to_thread(audit.record, ...)`."""
     try:
-        from app.db.dynamo_config import database_provider
-
-        if database_provider() == "dynamodb":
-            from app.db import dynamo_repos as dr
-
-            dr.audit_record_dynamo(
-                action,
-                user_id=user_id,
-                organization_id=organization_id,
-                entity_type=entity_type,
-                entity_id=entity_id,
-                meta=meta,
-            )
-            return
         if not config.database_url.strip():
             return
         from app.db import store as db_store

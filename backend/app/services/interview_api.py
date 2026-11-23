@@ -316,6 +316,8 @@ async def score_interview_session(input: dict) -> dict:
         "integrity": input.get("integrity"),
         "name": input.get("accountName") or "Candidate",
         "duration_seconds": input.get("durationSeconds"),
+        # Job interviews: Role Skills Fit is measured against the job's required skills.
+        "required_skills": [str(s) for s in (input.get("requiredSkills") or []) if str(s).strip()],
     }
     if llm_eval_configured():
         return await score_session_async(**kwargs)
@@ -348,8 +350,12 @@ JSON SCHEMA
 def _resume_fallback_extract(text: str) -> dict:
     """No AI available: a minimal, honest extract (the browser's own parser already fills everything else)."""
     ctx = summarize_profile({"resumeText": text}, "Candidate")
+    from app.services.candidate_name import resume_name
+
+    named = resume_name({"resumeText": text})
     return {
-        "fullName": resolve_candidate_name({"resumeText": text}, ""),
+        "fullName": named,
+        "resumeFullName": named,
         "skills": ctx.get("skills") or [],
         "resumeText": text[:50000],
     }
@@ -433,6 +439,12 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     }
     extract = {k: v for k, v in data.items() if k in allowed}
     extract["resumeText"] = clean[:50000]
+    # The name must be the one written on the resume (never a job title, never the signup name); "KAVYA IYER" -> "Kavya Iyer".
+    from app.services.candidate_name import resume_name
+
+    named = resume_name({"resumeFullName": extract.get("fullName"), "resumeText": clean})
+    extract["fullName"] = named
+    extract["resumeFullName"] = named
     extract["source"] = "gemini"
     _resume_cache_put(cache_key, extract)  # only real AI extracts are cached; a fallback retries the model next time
     return extract

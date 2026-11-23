@@ -5,12 +5,12 @@
 
 import { scoreInterview, type Question } from './interviewEngine'
 import { classifyQuestionScoringProfile, scoreAnswerRubrics } from './interviewRubrics'
-import { computeSessionRoleSkillsFit } from './roleSkillsFitScoring'
+import { computeRoleSkillsFit } from './roleSkillsFitScoring'
 import { getSkillsForRole } from './roleSkillStore'
 import { resolveExactInterviewRole } from './interviewQuestionPlan'
 import { computeWeightedScore, isFresherProfile } from './interviewWeighting'
 import type { InterviewResult, SavedProfile } from './store'
-import { candidateFullName } from './store'
+import { candidateFullName, getUser, resolveCandidateName } from './store'
 import type { IntegritySnapshot } from './interviewAgentClient'
 
 const STOP = new Set([
@@ -71,7 +71,7 @@ export function buildResumeInterviewQuestions(
   profile: SavedProfile | null,
   jobDescription?: string,
 ): Question[] {
-  const fullName = (profile?.fullName || profile?.name || candidateFullName()).trim().replace(/\s+/g, ' ')
+  const fullName = (profile ? resolveCandidateName(profile, getUser()) : candidateFullName()).trim().replace(/\s+/g, ' ')
   const name = fullName && fullName !== 'Candidate' ? fullName : 'there'
   const resumeText = profile?.resumeText || ''
   const skills = extractTokensFromResume(resumeText, profile?.skills || [])
@@ -365,7 +365,6 @@ export function runLocalInterviewScore(options: {
     skills,
     resumeSnippet: options.profile?.resumeText?.slice(0, 4000) ?? '',
   }
-  const roleSkillsAnalysis = computeSessionRoleSkillsFit(ctx, requiredRoleSkills, options.answers)
   const rubricAnswers = options.questions.map((q, i) => {
     const extended = q as Question & { scoringProfile?: string; focus?: string; topic?: string }
     const { rubrics, score, scoringProfile } = scoreAnswerRubrics(
@@ -395,6 +394,14 @@ export function runLocalInterviewScore(options: {
     }
   })
 
+  // Same rule as the API (offline fallback only): resume evidence + skills demonstrated in well-scored answers.
+  const roleSkillsAnalysis = computeRoleSkillsFit(
+    ctx,
+    requiredRoleSkills,
+    options.questions as { text?: string; topic?: string }[],
+    options.answers,
+    rubricAnswers.map((a) => a.score),
+  )
   const fit0 = requiredRoleSkills.length ? roleSkillsAnalysis.fitScore : resumeFitScore(options.answers, options.profile)
   // Each question carries a fixed share of the score (technical 15%, others 10%); the rest is role fit.
   const weighted = computeWeightedScore({

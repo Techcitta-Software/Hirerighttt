@@ -286,6 +286,16 @@ export async function apiRequestPasswordReset(email: string): Promise<string> {
   return String(data.message || '')
 }
 
+/** Signed-in password change. The server signs out other sessions and returns a new token for this one. */
+export async function apiChangePassword(currentPassword: string, newPassword: string): Promise<string> {
+  const data = await request('/api/password/change', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+  if (typeof data.token === 'string' && data.token) setApiToken(data.token)
+  return String(data.message || 'Password updated.')
+}
+
 export async function apiResetPassword(token: string, password: string): Promise<string> {
   const data = await request('/api/password/reset', {
     method: 'POST',

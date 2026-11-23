@@ -23,8 +23,8 @@ export function publicAppOrigin(): string {
 export function buildApplyUrl(company: string, shareableCode: string): string {
   const slug = slugifyCompany(company)
   const code = encodeURIComponent(String(shareableCode || '').trim())
-  const origin = publicAppOrigin() || 'http://localhost:5173'
-  return `${origin}/apply/${slug}/${code}`
+  // No configured URL and no window (tests / prerender): a root-relative link, never a hard-coded localhost.
+  return `${publicAppOrigin()}/apply/${slug}/${code}`
 }
 
 /** In-app route for the apply form (resume upload + ATS). */

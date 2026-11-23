@@ -1,5 +1,9 @@
 {
   "extends": "./frontend/tsconfig.app.json",
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx"
+  },
   "include": [
     "frontend/src/**/*"
   ]

@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
 } from 'react'
 import type { FaceLandmarker } from '@mediapipe/tasks-vision'
 import type { IntegrityLogEvent, InterviewFlagSection, InterviewProctoringSummary } from '../lib/store'
@@ -14,8 +13,9 @@ import {
   flagAtTime,
   getPlaybackFaceLandmarker,
 } from '../lib/proctorPlaybackLandmarks'
-import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
+import { normalizeFlagSections, proctoringNeedsReview, reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
 import { canViewInterviewVideo } from '../lib/adminAccess'
+import { ProctorTimelineBar } from './ProctorTimelineBar'
 import styles from './InterviewRecordingPlayer.module.css'
 
 type Props = {
@@ -56,7 +56,7 @@ function InterviewRecordingPlayerInner({
   const [activeFlag, setActiveFlag] = useState<InterviewFlagSection | null>(null)
 
   const flaggedSections = useMemo(() => {
-    const fromProctor = proctoring?.flaggedSections ?? []
+    const fromProctor = normalizeFlagSections(proctoring?.flaggedSections)
     if (fromProctor.length) return fromProctor
     if (employerReview && events.length) return reviewEventsToFlagSections(events)
     return []
@@ -88,12 +88,6 @@ function InterviewRecordingPlayerInner({
     },
     [effectiveDuration],
   )
-
-  function onTrackClick(event: MouseEvent<HTMLDivElement>) {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
-    seekTo(ratio * effectiveDuration)
-  }
 
   const progressPct = effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0
 
@@ -232,6 +226,14 @@ function InterviewRecordingPlayerInner({
         ) : null}
       </div>
 
+      {/* Red marks under the video wherever proctoring recorded a deviation; click one to jump there. */}
+      <ProctorTimelineBar
+        videoRef={videoRef}
+        events={events}
+        flaggedSections={flaggedSections}
+        durationHint={durationHint}
+      />
+
       {showReviewPanel ? (
         <>
           <div className={styles.summaryBar} role="status">
@@ -241,7 +243,7 @@ function InterviewRecordingPlayerInner({
             {proctoring ? (
               <span className={styles.summaryMeta}>
                 Integrity {proctoring.integrityScore}/100 ·{' '}
-                {proctoring.status === 'FLAGGED' ? 'Review recommended' : 'Clear'}
+                {proctoringNeedsReview(proctoring) ? 'Review recommended' : 'Clear'}
               </span>
             ) : flagCount > 0 ? (
               <span className={styles.summaryMeta}>From live camera review events</span>
@@ -251,49 +253,6 @@ function InterviewRecordingPlayerInner({
                 with camera on if empty.
               </span>
             )}
-          </div>
-
-          <div className={styles.timelineLabel}>
-            <span>Flagged sections — red marks on video when playback hits these times</span>
-            <span className={styles.timelineClock}>
-              {formatClock(currentTime)} / {formatClock(effectiveDuration)}
-            </span>
-          </div>
-
-          <div
-            className={styles.timelineTrack}
-            role="slider"
-            aria-label="Interview timeline with proctoring flags"
-            aria-valuemin={0}
-            aria-valuemax={Math.round(effectiveDuration)}
-            aria-valuenow={Math.round(currentTime)}
-            tabIndex={0}
-            onClick={onTrackClick}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowRight') seekTo(currentTime + 5)
-              if (e.key === 'ArrowLeft') seekTo(currentTime - 5)
-            }}
-          >
-            <div className={styles.timelinePlayed} style={{ width: `${progressPct}%` }} />
-            {flaggedSections.map((flag, flagIndex) => {
-              const left = (flag.startSec / effectiveDuration) * 100
-              const width = Math.max(0.8, ((flag.endSec - flag.startSec) / effectiveDuration) * 100)
-              const isHigh = flag.severity === 'high' || flag.type === 'MULTI_FACE'
-              return (
-                <button
-                  key={flag.id ?? `flag-${flagIndex}`}
-                  type="button"
-                  className={isHigh ? styles.timelineFlagHigh : styles.timelineFlagMedium}
-                  style={{ left: `${left}%`, width: `${width}%` }}
-                  title={`Turn ${flag.turnIndex}: ${flag.reason}`}
-                  aria-label={`${flagTypeLabel(flag.type)} at ${formatClock(flag.startSec)}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    seekTo(Math.max(0, flag.startSec - 0.3))
-                  }}
-                />
-              )
-            })}
           </div>
 
           {flagCount > 0 ? (

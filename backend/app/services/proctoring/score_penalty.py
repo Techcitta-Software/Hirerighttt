@@ -32,25 +32,19 @@ def count_face_proctor_deviations(integrity: dict | None, proctoring: dict | Non
 def _restate_score_in_scorecard(scorecard: dict[str, Any], before: int, after: int) -> None:
     """Everything derived from the overall score must show the penalised score, not the one before it.
 
-    The report used to say "Kavya scored 70/100" and "700/1000 Industry Ready" next to an overall of 65.
+    The report used to say "Kavya scored 70/100" next to an overall of 65. The career score is the interview
+    score itself, so it is penalised by exactly the same points.
     """
     if before == after:
         return
-    from app.services.interview_agent import career_score_for, career_status_for
+    from app.services.interview_agent import career_score_for
 
     old_text, new_text = f"{before}/100", f"{after}/100"
     for key in ("bandInterpretation", "coachNotes"):
         if isinstance(scorecard.get(key), str):
             scorecard[key] = scorecard[key].replace(old_text, new_text)
-    old_status = scorecard.get("finalCareerStatus")
     if isinstance(scorecard.get("careerScore"), (int, float)):
         scorecard["careerScore"] = career_score_for(after)
-        # A provisional (heuristic) status is kept; otherwise the band follows the new career score.
-        if isinstance(old_status, str) and not old_status.startswith("Provisional"):
-            new_status = career_status_for(scorecard["careerScore"])
-            scorecard["finalCareerStatus"] = new_status
-            if isinstance(scorecard.get("bandInterpretation"), str):
-                scorecard["bandInterpretation"] = scorecard["bandInterpretation"].replace(old_status, new_status)
     for axis in scorecard.get("radarAxes") or []:
         if isinstance(axis, dict) and axis.get("label") == "Overall":
             axis["val"] = after
@@ -75,6 +69,9 @@ def apply_face_deviation_penalty_to_result(result: dict[str, Any], deviations: i
             _restate_score_in_scorecard(scorecard, int(before), int(result["overall"]))
     result["proctorDeviationCount"] = deviations
     result["proctorScorePenalty"] = penalty
+    if isinstance(before, (int, float)):
+        # Shown on the report so the deduction is transparent: score before, points taken off, final score.
+        result["scoreBeforeProctorPenalty"] = int(before)
     improvements = result.get("improvements")
     note = f"{deviations} camera proctoring deviation(s) (−{penalty} points on overall score)."
     if isinstance(improvements, list) and not any("camera proctoring" in str(s) for s in improvements):

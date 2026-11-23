@@ -105,6 +105,11 @@
   min-width: 0;
 }
 
+/* In the column layout the hint's 14rem flex-basis became a 224px tall empty block. */
+.collapsedCopy .collapsedHint {
+  flex: none;
+}
+
 .summaryList {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));

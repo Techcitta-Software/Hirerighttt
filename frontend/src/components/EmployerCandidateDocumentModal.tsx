@@ -278,6 +278,8 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                 <section className={styles.reportSection} aria-label="HireRighttt report">
                   <CareerIntelligenceDashboard
                     embedded
+                    variant="detailed"
+                    audience="recruiter"
                     result={applicant.interviewResult!}
                     candidateName={applicant.candidateName}
                     candidateRole={applicant.role || applicant.jobTitle}

@@ -42,9 +42,7 @@ def email_hash(email: str) -> str:
 
 
 def _pool(database_url: str):
-    from app.db.dynamo_config import database_provider
-
-    if not database_url or database_provider() == "dynamodb":
+    if not database_url:
         return None
     from app.db import store
 

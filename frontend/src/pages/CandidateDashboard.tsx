@@ -10,6 +10,8 @@ import {
   getProfile,
   getInterviewResult,
   profileKey,
+  accountDisplayName,
+  resolveInterviewOverall,
   rankPostedJobs,
   type Application,
   type RankedJob,
@@ -157,10 +159,15 @@ export function DashboardPage() {
   }, [email, revision])
 
   const user = accountUser || sessionUser
-  const name = profile?.fullName?.trim() || user?.name?.trim() || 'there'
-  const firstName = name.split(/\s+/)[0] || name
-  const hasScore = !!interview && Number.isFinite(interview.overall)
-  const overallScore = hasScore ? Math.round(interview!.overall) : 0
+  // The candidate's name always comes from the resume (the signup name only when there is no resume name).
+  const displayName = accountDisplayName(user)
+  const firstName = (() => {
+    const n = displayName.trim()
+    if (!n) return 'there'
+    return n.split(/\s+/)[0] || 'there'
+  })()
+  const hasScore = resolveInterviewOverall(interview) !== null
+  const overallScore = hasScore ? Math.round(resolveInterviewOverall(interview)!) : 0
   const interviewInsights = buildInterviewInsights(interview)
   const performanceDimensions = interviewInsights.dimensions
   const recent = [...applications].sort((a, b) => Date.parse(b.appliedAt) - Date.parse(a.appliedAt)).slice(0, 5)
@@ -171,7 +178,8 @@ export function DashboardPage() {
   )
   const missingDetails = missingRequired
   const completion = profileCompletionPercent(profile, user)
-  const initials = name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'HR'
+  const initials =
+    displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'HR'
   const inReviewCount = applications.filter((a) => a.status === 'In Review').length
   const interviewStageCount = applications.filter((a) => a.status === 'Interview').length
   const offerCount = applications.filter((a) => a.status === 'Offer').length
@@ -301,14 +309,28 @@ export function DashboardPage() {
           <div className={styles.stat}>
             <span className={styles.statLabel}>Interview score</span>
             <strong className={styles.statValue}>
-              {hasScore ? overallScore : '—'}
-              {hasScore && <small>/100</small>}
+              {loading && !hasScore ? (
+                <span className={`ds-skeleton ${styles.statSkeleton}`} aria-hidden="true" />
+              ) : (
+                <>
+                  {hasScore ? overallScore : '—'}
+                  {hasScore && <small>/100</small>}
+                </>
+              )}
             </strong>
             <p className={styles.statHint}>{hasScore ? 'Latest AI assessment' : 'Complete an interview to unlock'}</p>
           </div>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Applications</span>
-            <strong className={styles.statValue}>{appsReady ? applications.length : '—'}</strong>
+            <strong className={styles.statValue}>
+              {appsReady ? (
+                applications.length
+              ) : loading ? (
+                <span className={`ds-skeleton ${styles.statSkeleton}`} aria-hidden="true" />
+              ) : (
+                '—'
+              )}
+            </strong>
             <p className={styles.statHint}>
               {appsReady
                 ? applications.length
@@ -321,7 +343,9 @@ export function DashboardPage() {
           </div>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Matched roles</span>
-            <strong className={styles.statValue}>{jobsReady ? jobCount : '—'}</strong>
+            <strong className={styles.statValue}>
+              {jobsReady ? jobCount : loading ? <span className={`ds-skeleton ${styles.statSkeleton}`} aria-hidden="true" /> : '—'}
+            </strong>
             <p className={styles.statHint}>{jobsReady ? 'Open roles that fit your profile' : loading ? 'Loading…' : 'Unavailable'}</p>
           </div>
         </section>
@@ -573,49 +597,6 @@ export function DashboardPage() {
               )}
             </section>
 
-            <section className={styles.card} aria-labelledby="research-heading">
-              <div className={styles.cardHeader}>
-                <div>
-                  <h2 id="research-heading" className={styles.cardTitle}>Stay interview-ready</h2>
-                  <p className={styles.cardSub}>Simple steps to take before an employer looks at your profile.</p>
-                </div>
-              </div>
-              <ul className={styles.rowList}>
-                <li className={styles.row}>
-                  <span className={styles.rowIcon} aria-hidden="true"><HrIcon name="chart" size={16} /></span>
-                  <div className={styles.rowText}>
-                    <h3 className={styles.rowTitle}>Review your score breakdown</h3>
-                    <p className={styles.rowMeta}>See which areas employers notice first in your interview.</p>
-                  </div>
-                  <Link to={hasScore ? '/dashboard/report' : '/interview'} className={styles.textLink}>
-                    {hasScore ? 'Open report' : 'Take interview'}
-                    <HrIcon name="arrow-right" size={16} />
-                  </Link>
-                </li>
-                <li className={styles.row}>
-                  <span className={styles.rowIcon} aria-hidden="true"><HrIcon name="briefcase" size={16} /></span>
-                  <div className={styles.rowText}>
-                    <h3 className={styles.rowTitle}>Compare open roles</h3>
-                    <p className={styles.rowMeta}>Check the required skills before you apply.</p>
-                  </div>
-                  <Link to="/jobs" className={styles.textLink}>
-                    Explore jobs
-                    <HrIcon name="arrow-right" size={16} />
-                  </Link>
-                </li>
-                <li className={styles.row}>
-                  <span className={styles.rowIcon} aria-hidden="true"><HrIcon name="user" size={16} /></span>
-                  <div className={styles.rowText}>
-                    <h3 className={styles.rowTitle}>Keep your profile up to date</h3>
-                    <p className={styles.rowMeta}>Location, experience and skills decide which jobs you see.</p>
-                  </div>
-                  <Link to="/profile" className={styles.textLink}>
-                    Update profile
-                    <HrIcon name="arrow-right" size={16} />
-                  </Link>
-                </li>
-              </ul>
-            </section>
           </div>
 
           <aside className={`${styles.column} ${styles.sideStack}`} aria-label="Profile and applications">
@@ -623,7 +604,9 @@ export function DashboardPage() {
               <div className={styles.profileIdentity}>
                 <div className={styles.avatar} aria-hidden="true">{initials}</div>
                 <div className={styles.profileInfo}>
-                  <h2 id="profile-heading" className={styles.cardTitle}>{profile?.fullName?.trim() || user?.name || email}</h2>
+                  <h2 id="profile-heading" className={styles.cardTitle}>
+                    {displayName || email}
+                  </h2>
                   {profile?.currentRole?.trim() ? <p className={styles.cardSub}>{profile.currentRole}</p> : null}
                 </div>
               </div>

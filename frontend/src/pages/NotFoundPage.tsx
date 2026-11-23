@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
@@ -5,6 +6,10 @@ import styles from './NotFoundPage.module.css'
 
 /** Uses the same marketing header/footer as every other public page. */
 export function NotFoundPage() {
+  useLayoutEffect(() => {
+    document.title = 'Page not found · HireRighttt'
+  }, [])
+
   return (
     <div className={styles.page}>
       <MarketingNavBar />

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { handleLoginNavigation, handleSignupNavigation } from '../lib/authSession'
 import { AnimatePresence, motion } from 'framer-motion'
-import { getUser, isLoggedIn } from '../lib/store'
+import { accountDisplayName, getUser, isLoggedIn } from '../lib/store'
 import { CandidateNotificationBell } from './CandidateNotificationBell'
 import { EmployerNotificationBell } from './EmployerNotificationBell'
 import { openSignOutModal } from '../lib/signOutModal'
@@ -14,13 +14,13 @@ const MARKETING_NAV = [
   { to: '/why', label: 'Why us?' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/career-view', label: '360° report' },
-  { to: '/for-recruiters', label: 'Organisations' },
+  { to: '/organizations', label: 'Organisations' },
   { to: '/contact', label: 'Contact us' },
 ]
 
 const LANDING_NAV = [
   { to: '/jobs', label: 'Find jobs' },
-  { to: '/for-recruiters', label: 'Organisations' },
+  { to: '/organizations', label: 'Organisations' },
   { to: '/why', label: 'Why us?' },
 ]
 
@@ -33,7 +33,8 @@ const JOBSEEKER_NAV = [
 const EMPLOYER_NAV = [
   { to: '/employer/dashboard', label: 'Dashboard' },
   { to: '/employer/jobs', label: 'Jobs' },
-  { to: '/employer/candidates', label: 'Candidates' },
+  { to: '/employer/applicants', label: 'Applicants' },
+  { to: '/talent-vault', label: 'Talent vault' },
 ]
 
 type SiteNavProps = {
@@ -53,15 +54,16 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
   // Start from the stored session so the notification bell mounts once, not after the first auth sync.
   const [loggedIn, setLoggedIn] = useState(() => isLoggedIn())
   const user = getUser()
+  const displayName = accountDisplayName(user)
   const initials = useMemo(() => {
-    const raw = (user?.name || user?.companyName || '').trim()
+    const raw = displayName
     if (!raw) return user?.role === 'employer' ? 'EM' : 'HR'
     const parts = raw.split(/\s+/).filter(Boolean)
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase()
     }
     return raw.slice(0, 2).toUpperCase()
-  }, [user?.name, user?.companyName, user?.role])
+  }, [displayName, user?.role])
   const isHome = variant === 'home'
 
   function onLoginClick(event: MouseEvent) {
@@ -194,7 +196,10 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   const isCurrent =
                     isActive ||
                     (item.to === '/employer/dashboard' && location.pathname === '/employer') ||
-                    (item.to === '/employer/candidates' && location.pathname === '/candidates')
+                    (item.to === '/employer/applicants' &&
+                      (location.pathname === '/candidates' || location.pathname === '/employer/candidates')) ||
+                    (item.to === '/talent-vault' &&
+                      (location.pathname === '/resumes' || location.pathname === '/talent-vault'))
                   return isLanding
                     ? isCurrent
                       ? `${styles.navPillLink} ${styles.navPillActive}`
@@ -231,7 +236,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                 <button
                   type="button"
                   className={`${styles.avatarCircle} ${styles.avatarBtn}`}
-                  title={user?.name || user?.companyName || 'Account menu'}
+                  title={displayName || 'Account menu'}
                   aria-label="Open account menu"
                   aria-expanded={profileMenuOpen}
                   aria-haspopup="menu"
@@ -254,7 +259,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                     >
                       <div className={styles.profileDropdownHeader}>
                         <p className={styles.profileDropdownName}>
-                          {user?.name || user?.companyName || (user?.role === 'employer' ? 'Employer' : 'Candidate')}
+                          {displayName || (user?.role === 'employer' ? 'Employer' : 'Candidate')}
                         </p>
                         <p className={styles.profileDropdownEmail}>{user?.email}</p>
                         <span className={styles.profileDropdownBadge}>
@@ -278,9 +283,9 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                             type="button"
                             role="menuitem"
                             className={styles.profileDropdownItem}
-                            onClick={() => goFromProfileMenu('/employer/candidates')}
+                            onClick={() => goFromProfileMenu('/employer/applicants')}
                           >
-                            Candidate directory
+                            Applicants
                           </button>
                           <button
                             type="button"

@@ -5,6 +5,7 @@ import { requireApiForAuth } from '../lib/authConfig'
 import {
   clearStoredAuth,
   isApiSessionValid,
+  sessionRecentlyValidated,
   setAuthInvalidMessage,
 } from '../lib/authSession'
 import { ensureApiSession } from '../lib/apiSession'
@@ -46,6 +47,18 @@ export function RequireAuth({ children, role }: Props) {
         verifiedEmail = null
         if (!cancelled) {
           setAllowed(false)
+          setReady(true)
+        }
+        return
+      }
+
+      if (
+        alreadyVerified() &&
+        (!requireApiForAuth() || sessionRecentlyValidated())
+      ) {
+        verifiedEmail = user.email?.trim().toLowerCase() || null
+        if (!cancelled) {
+          setAllowed(true)
           setReady(true)
         }
         return

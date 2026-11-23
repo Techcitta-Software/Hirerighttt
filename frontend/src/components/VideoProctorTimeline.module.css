@@ -224,3 +224,10 @@
   color: #64748b;
   font-family: ui-monospace, monospace;
 }
+
+/* The panel is dark: its heading must not inherit the page's dark heading colour (was ~1.1:1). */
+.container h3,
+.container h4,
+.title {
+  color: #ffffff;
+}

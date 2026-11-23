@@ -260,7 +260,7 @@ export function ProfileWizard() {
         onStepClick={(next) => goToStep(next)}
       />
 
-      <div className={styles.main}>
+      <main id="app-main" className={styles.main}>
         <motion.header
           className={styles.pageHeader}
           key={`header-${step}`}
@@ -402,7 +402,7 @@ export function ProfileWizard() {
             </>
           )}
         </footer>
-      </div>
+      </main>
 
       <OnboardingExtractModal
         open={extractModalOpen}

@@ -7,6 +7,7 @@ import { getUser, type InterviewResult } from '../lib/store'
 import { ensureApiSession } from '../lib/apiSession'
 import { filterJobSeekerCandidates } from '../lib/employerCandidateUtils'
 import { fetchOrganizationCandidates } from '../lib/vendorApi'
+import { resumeHeadline } from '../lib/applicantSearch'
 import type { OrgCandidateRecord } from '../lib/vendorApi'
 import { HrIcon } from '../components/HrIcon'
 import ui from './EmployerDashboard.module.css'
@@ -31,11 +32,44 @@ export type StoredResumeCandidate = {
   createdAt: string
 }
 
-const VAULT_STORAGE_KEY = 'hireright.talentVault'
+/** Before: one key for every account in this browser, holding the server's candidates (contact details included). */
+const LEGACY_VAULT_STORAGE_KEY = 'hireright.talentVault'
+/** Per account: only the resumes uploaded in this browser, and the recruiter's status for server candidates. */
+const vaultStorageKey = (email: string | undefined) => `hireright.talentVault.${(email || 'anon').toLowerCase()}`
+const vaultStatusKey = (email: string | undefined) => `hireright.talentVault.status.${(email || 'anon').toLowerCase()}`
+
+type VaultStatus = StoredResumeCandidate['status']
+const VAULT_STATUSES: VaultStatus[] = ['New', 'Screening', 'Shortlisted', 'Technical', 'Hired', 'Rejected']
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    /* storage full or blocked: the change still applies for this visit */
+  }
+}
+
+/** The application's own status where it maps onto the vault's list; anything else starts as New. */
+function vaultStatusFromServer(status: string | undefined): VaultStatus {
+  const s = String(status || '').toLowerCase()
+  if (s === 'shortlisted') return 'Shortlisted'
+  if (s === 'rejected') return 'Rejected'
+  if (s === 'hired') return 'Hired'
+  return 'New'
+}
 /** Cards or rows rendered at once; "Show more" adds another page. */
 const VAULT_PAGE_SIZE = 24
 
-function orgRecordToVault(c: OrgCandidateRecord): StoredResumeCandidate {
+function orgRecordToVault(c: OrgCandidateRecord, statusOverrides: Record<string, VaultStatus> = {}): StoredResumeCandidate {
   const interviewResult = c.interviewResult as InterviewResult | undefined
   return {
     id: c.id,
@@ -44,28 +78,30 @@ function orgRecordToVault(c: OrgCandidateRecord): StoredResumeCandidate {
     phone: c.candidatePhone || '',
     currentRole: c.candidateRole || c.jobTitle || '',
     experienceYears: c.experienceYears || '',
-    location: c.company || '—',
+    // The location the resume states (c.company is this organisation's own name, not where the candidate is).
+    location: resumeHeadline(c.resumeText).location,
     skills: c.primarySkills || [],
-    resumeName: c.resumeName || 'resume',
+    resumeName: (c.resumeName || 'resume').replace(/^HireRight profile$/, 'HireRighttt profile'),
     resumeText: c.resumeText || '',
     summary: c.resumeText ? c.resumeText.slice(0, 200) : '',
     interviewScore: interviewResult?.overall,
     interviewResult,
-    status: 'New',
+    status: VAULT_STATUSES.includes(statusOverrides[c.id]) ? statusOverrides[c.id] : vaultStatusFromServer(c.status),
     source: c.source || 'Database',
     createdAt: c.appliedAt,
   }
 }
 
 
-function loadStoredVault(): StoredResumeCandidate[] {
+function loadStoredVault(email: string | undefined): StoredResumeCandidate[] {
   try {
-    const raw = localStorage.getItem(VAULT_STORAGE_KEY)
-    if (!raw) return []
-    return JSON.parse(raw) as StoredResumeCandidate[]
+    // The old shared key could hold another account's candidates: never read it, and remove it.
+    localStorage.removeItem(LEGACY_VAULT_STORAGE_KEY)
   } catch {
-    return []
+    /* storage blocked */
   }
+  const rows = readJson<StoredResumeCandidate[]>(vaultStorageKey(email), [])
+  return Array.isArray(rows) ? rows.filter(isLocalUpload) : []
 }
 
 /** Resumes uploaded in this browser are not on the server, so they are kept when the API list arrives. */
@@ -74,7 +110,8 @@ function isLocalUpload(c: StoredResumeCandidate) {
 }
 
 export function ResumeDatabasePage() {
-  const [candidates, setCandidates] = useState<StoredResumeCandidate[]>(() => loadStoredVault())
+  const accountEmail = getUser()?.email
+  const [candidates, setCandidates] = useState<StoredResumeCandidate[]>(() => loadStoredVault(accountEmail))
   const [loading, setLoading] = useState(() => getUser()?.role === 'employer')
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
@@ -90,7 +127,8 @@ export function ResumeDatabasePage() {
         await ensureApiSession()
         const { candidates: rows } = await fetchOrganizationCandidates()
         if (cancelled) return
-        const remote = filterJobSeekerCandidates(rows).map(orgRecordToVault)
+        const overrides = readJson<Record<string, VaultStatus>>(vaultStatusKey(user.email), {})
+        const remote = filterJobSeekerCandidates(rows).map((c) => orgRecordToVault(c, overrides))
         setCandidates((prev) => [...prev.filter(isLocalUpload), ...remote])
       } catch (err) {
         if (cancelled) return
@@ -123,7 +161,8 @@ export function ResumeDatabasePage() {
 
   function saveVault(updated: StoredResumeCandidate[]) {
     setCandidates(updated)
-    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(updated))
+    // Only this browser's uploads are stored; the server's candidates (with contact details) are never cached.
+    writeJson(vaultStorageKey(accountEmail), updated.filter(isLocalUpload))
   }
 
   // Filter and search
@@ -206,6 +245,11 @@ export function ResumeDatabasePage() {
   function updateCandidateStatus(id: string, nextStatus: StoredResumeCandidate['status']) {
     const next = candidates.map((c) => (c.id === id ? { ...c, status: nextStatus } : c))
     saveVault(next)
+    // Server candidates: keep the recruiter's status across reloads (it was lost on the next load).
+    if (!id.startsWith('vault-upload-')) {
+      const overrides = readJson<Record<string, VaultStatus>>(vaultStatusKey(accountEmail), {})
+      writeJson(vaultStatusKey(accountEmail), { ...overrides, [id]: nextStatus })
+    }
     if (selectedCandidate?.id === id) {
       setSelectedCandidate({ ...selectedCandidate, status: nextStatus })
     }
@@ -362,7 +406,7 @@ export function ResumeDatabasePage() {
           )}
         </p>
 
-        <h2 className="ds-sr-only">Candidates</h2>
+        <h2 className="ds-sr-only">Applicants</h2>
 
         {showSkeleton ? (
           <div className={styles.candidateGrid} aria-hidden="true">
@@ -476,7 +520,7 @@ export function ResumeDatabasePage() {
                       <div>{c.currentRole}</div>
                       <div className={ui.candidateContact}>{c.experienceYears}</div>
                     </td>
-                    <td data-label="Location">{c.location}</td>
+                    <td data-label="Location">{c.location || '—'}</td>
                     <td data-label="Skills">
                       <div className={styles.skillPills}>
                         {c.skills.slice(0, 3).map((s) => (
@@ -571,8 +615,9 @@ export function ResumeDatabasePage() {
                 <div>
                   <h2 id="dossier-title">{selectedCandidate.name}</h2>
                   <p className={ui.modalSub}>
-                    Full resume and profile · {selectedCandidate.currentRole} · {selectedCandidate.location} · Source:{' '}
-                    {selectedCandidate.source}
+                    {['Full resume and profile', selectedCandidate.currentRole, selectedCandidate.location, `Source: ${selectedCandidate.source}`]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                 </div>
                 <button
@@ -638,6 +683,7 @@ export function ResumeDatabasePage() {
                       <option value="Hired">Hired</option>
                       <option value="Rejected">Rejected</option>
                     </select>
+                    <p className={ui.modalSub}>Your own label, kept in this browser. The applicant is not notified.</p>
                   </div>
                 </div>
 

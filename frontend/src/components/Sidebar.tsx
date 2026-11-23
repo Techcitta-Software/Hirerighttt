@@ -3,6 +3,8 @@ import { STEPS, type WizardStep } from '../data/wizard'
 import { BrandLogo } from './BrandLogo'
 import { Stepper } from './Stepper'
 import styles from './Sidebar.module.css'
+import { interviewDurationMinutes } from '../lib/interviewDuration'
+import { resolveInterviewJobContext } from '../lib/pendingJobApply'
 
 const WHY_ITEMS = [
   'AI-powered matching with the right roles',
@@ -20,7 +22,7 @@ const CONFIRM_ITEMS = [
 /** One encouraging line per step: why it matters. */
 const STEP_HINTS: Record<WizardStep, string> = {
   1: 'Your resume fills in the details, so you only review and confirm.',
-  2: 'A 15-minute conversation shows employers what you can really do.',
+  2: 'A {minutes}-minute conversation shows employers what you can really do.',
   3: 'Your profile and score unlock roles that fit you.',
 }
 
@@ -37,6 +39,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ step = 1, completedThrough = 0, onStepClick }: SidebarProps) {
+  // Same length as the step-2 panel: 20 minutes for a job-link (JD) interview, 15 for the career interview.
+  const minutes = interviewDurationMinutes(resolveInterviewJobContext())
+  const hints = { ...STEP_HINTS, 2: STEP_HINTS[2].replace('{minutes}', String(minutes)) }
   const total = STEPS.length
   const progress = Math.round((step / total) * 100)
   const whyItems =
@@ -96,15 +101,15 @@ export function Sidebar({ step = 1, completedThrough = 0, onStepClick }: Sidebar
           current={step}
           completedThrough={completedThrough}
           onStepClick={(next) => onStepClick?.(next)}
-          hints={STEP_HINTS}
+          hints={hints}
         />
       </div>
 
-      <p className={styles.compactHint}>{STEP_HINTS[step]}</p>
+      <p className={styles.compactHint}>{hints[step]}</p>
 
       <div className={styles.why}>
         <p className={styles.whyTitle}>
-          {step === 3 ? 'Your journey is in safe hands' : 'Why HireRight'}
+          {step === 3 ? 'Your journey is in safe hands' : 'Why HireRighttt'}
         </p>
         <ul>
           {whyItems.map((item) => (

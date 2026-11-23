@@ -5,22 +5,26 @@ import { fadeUp, staggerContainer } from '../motion/variants'
 import {
   addNotification,
 
-  firstName,
   getApplications,
   getInterviewResult,
   type Application,
   type InterviewResult,
   getProfile,
   getUser,
+  accountDisplayName,
+  resolveCandidateName,
   markNotificationsReadWhere,
   rankPostedJobs,
   resolveInterviewOverall,
   saveApplications,
   profileKey,
   interviewResultKey,
+  getAccountPrefs,
+  saveAccountPrefs,
 
 } from '../lib/store'
 import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
+import { sanitizeSkillsList } from '../lib/interviewSessionPayload'
 import { parseResumeFile } from '../lib/resumeParser'
 import { replaceResumeViaApi } from '../lib/replaceResumeApi'
 import {
@@ -41,8 +45,27 @@ import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import { syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import { slugifyCompany } from '../lib/jobLink'
+import {
+  ANY,
+  filterJobBoard,
+  hasActiveJobFilters,
+  jobLocationOptions,
+  jobWorkMode,
+  readHiddenJobIds,
+  readSavedJobIds,
+  writeHiddenJobIds,
+  writeSavedJobIds,
+} from '../lib/jobBoardFilters'
 import { HrIcon } from '../components/HrIcon'
+import {
+  accountDeletionRequestPath,
+  downloadMyData,
+  isVisibleToEmployers,
+  profileVisibilityFor,
+} from '../lib/candidatePrivacy'
 import styles from './AppPages.module.css'
+import { EXPERIENCE_RANGE_LABELS } from '../lib/resumeExperience'
+import { formatPhoneForDisplay } from '../lib/phone'
 
 export { DashboardPage } from './CandidateDashboard'
 
@@ -60,7 +83,8 @@ export function InterviewReportPage() {
   const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
   const [profile, setProfile] = useState(() => getProfile())
   const [reportLoading, setReportLoading] = useState(true)
-  const name = firstName()
+  // The candidate's name on the report always comes from the resume (signup name only without a resume name).
+  const reportName = resolveCandidateName(profile, user)
 
   useEffect(() => {
     let cancelled = false
@@ -93,10 +117,10 @@ export function InterviewReportPage() {
     if (!interview || autoDownloadDone) return
     if (searchParams.get('download') !== '1') return
     setAutoDownloadDone(true)
-    void downloadScorecardPdf(user?.name || profile?.fullName || name).catch(() => {
+    void downloadScorecardPdf(reportName).catch(() => {
       /* user can click Download report on the page */
     })
-  }, [interview, autoDownloadDone, searchParams, user?.name, profile?.fullName, name])
+  }, [interview, autoDownloadDone, searchParams, reportName])
 
   useEffect(() => {
     if (sessionStorage.getItem(PENDING_REPORT_UPLOAD_KEY) !== '1') return
@@ -142,7 +166,7 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <div className={styles.main} aria-busy="true">
+          <main className={styles.main} aria-busy="true">
             <p className="ds-sr-only" role="status">
               Loading your interview report…
             </p>
@@ -151,7 +175,7 @@ export function InterviewReportPage() {
               <span className={`ds-skeleton ${styles.skeletonBlock}`} />
               <span className={`ds-skeleton ${styles.skeletonBlock}`} />
             </div>
-          </div>
+          </main>
         </div>
       </div>
     )
@@ -161,7 +185,7 @@ export function InterviewReportPage() {
     return (
       <div className={styles.page}>
         <div className={styles.shell}>
-          <div className={styles.main}>
+          <main className={styles.main}>
             <header className={styles.head}>
               <div>
                 <h1>Interview report</h1>
@@ -179,7 +203,7 @@ export function InterviewReportPage() {
                 </Link>
               </div>
             </div>
-          </div>
+          </main>
         </div>
       </div>
     )
@@ -188,7 +212,7 @@ export function InterviewReportPage() {
   return (
     <div className={styles.page}>
       <div className={styles.shell}>
-        <div className={styles.main}>
+        <main className={styles.main}>
           {fromInterview ? (
             <div className={`ds-alert ds-alert--info ${styles.reportNotice}`} role="status">
               <div className={styles.reportNoticeBody}>
@@ -222,7 +246,7 @@ export function InterviewReportPage() {
           )}
           <CareerIntelligenceDashboard
             result={interview}
-            candidateName={user?.name || profile?.fullName || name}
+            candidateName={reportName}
             candidateRole={profile?.currentRole || interview.role}
             candidateExperience={profile?.totalExperience || interview.level}
             skills={profile?.skills ?? []}
@@ -235,7 +259,7 @@ export function InterviewReportPage() {
             onRetake={() => navigate('/interview')}
             onContinue={() => goToCandidateDashboardAfterInterview(navigate)}
           />
-        </div>
+        </main>
       </div>
     </div>
   )
@@ -308,7 +332,6 @@ export function JobsPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [locationFilter, setLocationFilter] = useState('Any')
   const [workModeFilter, setWorkModeFilter] = useState('Any')
-  const [minMatchFilter] = useState('70%')
   const [sortBy, setSortBy] = useState('Best match')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [jobScope, setJobScope] = useState<'matched' | 'all'>('matched')
@@ -318,8 +341,15 @@ export function JobsPage() {
     personalized?: boolean
     message?: string
   }>({})
-  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(new Set())
+  const candidateEmail = getUser()?.email
+  const [savedJobIds, setSavedJobIds] = useState<Set<string>>(() => readSavedJobIds(candidateEmail))
+  const [hiddenJobIds, setHiddenJobIds] = useState<Set<string>>(() => readHiddenJobIds(candidateEmail))
   const [applyingJobId, setApplyingJobId] = useState<string | null>(null)
+  const applyInFlight = useRef(false)
+  // Jobs already applied to (from the synced application list): the card shows "Applied" instead of a second apply.
+  const [appliedJobIds, setAppliedJobIds] = useState<Set<string>>(
+    () => new Set(getApplications().map((a) => a.jobId).filter((id): id is string => Boolean(id))),
+  )
   const [interview, setInterview] = useState<InterviewResult | null>(() => getInterviewResult())
 
   const interviewOverall = resolveInterviewOverall(interview)
@@ -350,6 +380,15 @@ export function JobsPage() {
           return
         }
         await pullProfileFromApi()
+        void apiListApplications()
+          .then((apps) => {
+            if (cancelled) return
+            saveApplications(apps)
+            setAppliedJobIds(new Set(apps.map((a) => a.jobId).filter((id): id is string => Boolean(id))))
+          })
+          .catch(() => {
+            /* the Applied badge falls back to the cached list */
+          })
         const listRes = await fetchOpenJobs({ summary: true, scope: jobScope })
         if (cancelled) return
         setJobsListMeta({
@@ -370,7 +409,8 @@ export function JobsPage() {
         const ranked = rankPostedJobs(rawJobs)
         const mapped: JobMatchRole[] = ranked.map((j, idx) => {
           const raw = rawJobs.find((rj) => rj.id === j.id)
-          const reqSkills = raw?.requiredSkills?.length ? raw.requiredSkills : ['Skills in job description']
+          const cleaned = sanitizeSkillsList(raw?.requiredSkills ?? [])
+          const reqSkills = cleaned.length ? cleaned : ['Skills in job description']
           const logoStyle = companyLogoStyle(j.company)
           const jd = raw?.jobDescription || j.jobDescription || ''
           const jdBullets = jd
@@ -386,7 +426,7 @@ export function JobsPage() {
             title: j.title,
             company: j.company,
             location: j.location || 'Remote',
-            mode: (j.location || '').toLowerCase().includes('remote') ? 'Remote' : 'Hybrid',
+            mode: jobWorkMode(j.location),
             salary: 'Employer listed',
             experience: j.experienceLevel || raw?.experienceLevel || 'See job description',
             jobType: 'Full-time',
@@ -442,49 +482,18 @@ export function JobsPage() {
 
   const allRoles = useMemo(() => employerJobs, [employerJobs])
 
-  // Filter and sort
-  const filteredRoles = useMemo(() => {
-    return allRoles.filter((job) => {
-      if (
-        searchTerm &&
-        !job.title.toLowerCase().includes(searchTerm.toLowerCase()) &&
-        !job.company.toLowerCase().includes(searchTerm.toLowerCase()) &&
-        !job.matchedSkills.some((s) => s.toLowerCase().includes(searchTerm.toLowerCase()))
-      ) {
-        return false
-      }
-      if (jobScope === 'all') {
-        return true
-      }
-      const loc = job.location.toLowerCase()
-      const mode = job.mode.toLowerCase()
-      const remoteFriendly = mode.includes('remote') || loc.includes('remote')
-      if (
-        locationFilter !== 'Any' &&
-        locationFilter !== 'All locations'
-      ) {
-        if (locationFilter.toLowerCase() === 'remote') {
-          if (!remoteFriendly) return false
-        } else if (!loc.includes(locationFilter.toLowerCase()) && !remoteFriendly) {
-          return false
-        }
-      }
-      if (workModeFilter !== 'Any' && !job.mode.toLowerCase().includes(workModeFilter.toLowerCase())) {
-        return false
-      }
-      const minMatch = parseInt(minMatchFilter, 10)
-      if (Number.isFinite(minMatch) && job.match < minMatch) {
-        return false
-      }
-      return true
-    })
-  }, [allRoles, searchTerm, locationFilter, workModeFilter, minMatchFilter, jobScope])
+  // Filter and sort (the visible filters apply in both scopes; "For you" itself is decided by the server)
+  const jobFilters = { search: searchTerm, location: locationFilter, mode: workModeFilter }
+  const filtersActive = hasActiveJobFilters(jobFilters)
+  const locationOptions = useMemo(() => jobLocationOptions(allRoles), [allRoles])
+  const filteredRoles = useMemo(
+    () => filterJobBoard(allRoles, { search: searchTerm, location: locationFilter, mode: workModeFilter }, hiddenJobIds),
+    [allRoles, searchTerm, locationFilter, workModeFilter, hiddenJobIds],
+  )
 
   const sortedRoles = useMemo(() => {
     const list = [...filteredRoles]
-    if (sortBy === 'Highest salary') {
-      list.sort((a, b) => b.salary.localeCompare(a.salary))
-    } else if (sortBy === 'Most recent') {
+    if (sortBy === 'Most recent') {
       list.sort((a, b) => {
         const ta = new Date(a.postedAt || 0).getTime()
         const tb = new Date(b.postedAt || 0).getTime()
@@ -515,7 +524,7 @@ export function JobsPage() {
     const fromResume = profile?.resumeText?.trim() || ''
     if (fromResume.length >= 30) return fromResume.slice(0, 100_000)
     const parts = [
-      profile?.fullName || user?.name ? `Candidate: ${profile?.fullName || user?.name}` : '',
+      `Candidate: ${resolveCandidateName(profile, user)}`,
       profile?.currentRole ? `Role: ${profile.currentRole}` : '',
       profile?.totalExperience ? `Experience: ${profile.totalExperience}` : '',
       profile?.experienceSummary || profile?.whoAreYou || '',
@@ -529,9 +538,21 @@ export function JobsPage() {
   }
 
   async function handleApply(job: JobMatchRole) {
+    if (applyInFlight.current || appliedJobIds.has(job.id)) return
+    applyInFlight.current = true
+    setApplyingJobId(job.id)
+    try {
+      await applyToJob(job)
+    } finally {
+      applyInFlight.current = false
+      setApplyingJobId(null)
+    }
+  }
+
+  async function applyToJob(job: JobMatchRole) {
     if (!job.shareableCode) {
       setToast('This role is missing an apply link. Ask the employer to re-share the job.')
-      window.setTimeout(() => setToast(''), 3000)
+      window.setTimeout(() => setToast(''), 6000)
       return
     }
     const sessionOk = await ensureApiSession()
@@ -547,26 +568,25 @@ export function JobsPage() {
     const overall = resolveInterviewOverall(latestInterview)
     if (overall === null) {
       setToast('Complete an AI interview before applying with your report.')
-      window.setTimeout(() => setToast(''), 3500)
+      window.setTimeout(() => setToast(''), 6000)
       return
     }
     if (resumeText.trim().length < 30) {
       setToast('Complete your profile or upload a resume before applying with your report.')
-      window.setTimeout(() => setToast(''), 3500)
+      window.setTimeout(() => setToast(''), 6000)
       return
     }
-    setApplyingJobId(job.id)
     try {
         await applyToPublicJob(
           job.shareableCode,
           {
-          candidateName: profile?.fullName || user?.name || '',
+          candidateName: resolveCandidateName(profile, user),
             candidateEmail: user?.email || '',
           candidatePhone: user?.phone || '',
           candidateRole: profile?.currentRole || interview?.role || '',
           experienceYears: profile?.totalExperience || interview?.level || '',
           resumeText,
-          resumeName: profile?.resumeName || 'HireRight profile',
+          resumeName: profile?.resumeName || 'HireRighttt profile',
           attachInterviewReport: true,
           match: job.match,
           source: 'job_board',
@@ -575,6 +595,7 @@ export function JobsPage() {
       )
       const synced = await apiListApplications()
       saveApplications(synced)
+      setAppliedJobIds((prev) => new Set([...prev, job.id, ...synced.map((a) => a.jobId).filter((id): id is string => Boolean(id))]))
       addNotification({
         kind: 'application',
         title: `Applied to ${job.title}`,
@@ -585,29 +606,38 @@ export function JobsPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Could not submit your application.')
     } finally {
-      setApplyingJobId(null)
       window.setTimeout(() => setToast(''), 4000)
     }
   }
 
   function handleSave(job: JobMatchRole) {
-    setSavedJobIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(job.id)) {
-        next.delete(job.id)
-        setToast(`Removed ${job.title} from saved roles.`)
-      } else {
-        next.add(job.id)
-        setToast(`Saved ${job.title} to your bookmarked roles.`)
-      }
-      return next
-    })
+    const next = new Set(savedJobIds)
+    if (next.has(job.id)) {
+      next.delete(job.id)
+      setToast(`Removed ${job.title} from saved roles.`)
+    } else {
+      next.add(job.id)
+      setToast(`Saved ${job.title} to your bookmarked roles.`)
+    }
+    setSavedJobIds(next)
+    writeSavedJobIds(candidateEmail, next)
     window.setTimeout(() => setToast(''), 2500)
   }
 
   function handleNotForMe(job: JobMatchRole) {
-    setToast(`Marked "${job.title}" as not for you.`)
+    const next = new Set(hiddenJobIds)
+    next.add(job.id)
+    setHiddenJobIds(next)
+    writeHiddenJobIds(candidateEmail, next)
+    setSelectedJobId(null)
+    setToast(`Hidden "${job.title}". It will not show in your list again.`)
     window.setTimeout(() => setToast(''), 2500)
+  }
+
+  function showHiddenJobs() {
+    const next = new Set<string>()
+    setHiddenJobIds(next)
+    writeHiddenJobIds(candidateEmail, next)
   }
 
   const jobsHeadline =
@@ -652,11 +682,12 @@ export function JobsPage() {
                 onChange={(e) => setLocationFilter(e.target.value)}
                 aria-label="Location"
               >
-                <option value="Hyderabad">Hyderabad</option>
-                <option value="Bengaluru">Bengaluru</option>
-                <option value="Pune">Pune</option>
-                <option value="Remote">Remote</option>
-                <option value="Any">Any location</option>
+                <option value={ANY}>Any location</option>
+                {locationOptions.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {loc}
+                  </option>
+                ))}
               </select>
               <select
                 className={styles.select}
@@ -664,10 +695,8 @@ export function JobsPage() {
                 onChange={(e) => setWorkModeFilter(e.target.value)}
                 aria-label="Work mode"
               >
-                <option value="Any">Any mode</option>
-                <option value="Remote">Remote</option>
-                <option value="Hybrid">Hybrid</option>
-                <option value="On-site">On-site</option>
+                <option value={ANY}>Any mode</option>
+                <option value="Remote">Remote only</option>
               </select>
               <select
                 className={styles.select}
@@ -677,7 +706,6 @@ export function JobsPage() {
               >
                 <option value="Best match">Best match</option>
                 <option value="Most recent">Most recent</option>
-                <option value="Highest salary">Salary</option>
               </select>
             </div>
           </motion.div>
@@ -734,6 +762,17 @@ export function JobsPage() {
             </div>
           ) : null}
 
+          {!unlocked && jobsBoardState === 'ready' && visibleRoles.length > 0 ? (
+            <div className={`ds-alert ds-alert--info ${styles.pageAlert}`} role="status">
+              <p>
+                Take your 15-minute AI interview to apply with your report.{' '}
+                <Link to="/interview" className={styles.jobsInlineCta}>
+                  Start interview
+                </Link>
+              </p>
+            </div>
+          ) : null}
+
           <motion.div
             className={styles.jobsFeedList}
             variants={fadeUp}
@@ -755,22 +794,33 @@ export function JobsPage() {
                   <span className="ds-empty__icon" aria-hidden="true">
                     <HrIcon name="search" size={20} />
                   </span>
-                  <p className="ds-empty__title">No results match these filters</p>
+                  <p className="ds-empty__title">
+                    {filtersActive ? 'No results match these filters' : 'You have hidden every role here'}
+                  </p>
                   <p className="ds-empty__body">
-                    Clear the search, or set location and work mode to “Any” to see more roles.
+                    {filtersActive
+                      ? 'Clear the search, or set location and work mode to “Any” to see more roles.'
+                      : 'Roles you marked “Not for me” are hidden. Show them again to review them.'}
                   </p>
                   <div className="ds-empty__actions">
-                    <button
-                      type="button"
-                      className="ds-btn ds-btn--secondary"
-                      onClick={() => {
-                        setLocationFilter('Any')
-                        setWorkModeFilter('Any')
-                        setSearchTerm('')
-                      }}
-                    >
-                      Clear filters
-                    </button>
+                    {filtersActive ? (
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--secondary"
+                        onClick={() => {
+                          setLocationFilter(ANY)
+                          setWorkModeFilter(ANY)
+                          setSearchTerm('')
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                    {hiddenJobIds.size > 0 ? (
+                      <button type="button" className="ds-btn ds-btn--ghost" onClick={showHiddenJobs}>
+                        Show hidden roles ({hiddenJobIds.size})
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -826,12 +876,15 @@ export function JobsPage() {
                           <HrIcon name="briefcase" size={16} />
                           {job.experience}
                         </span>
-                        <span className={styles.jobMetaItem}>
-                          <span className={styles.jobRupee} aria-hidden="true">
-                            ₹
+                        {/* Jobs have no salary field yet: show pay only when the employer actually listed it. */}
+                        {job.salary && job.salary !== 'Employer listed' ? (
+                          <span className={styles.jobMetaItem}>
+                            <span className={styles.jobRupee} aria-hidden="true">
+                              ₹
+                            </span>
+                            {job.salary}
                           </span>
-                          {job.salary === 'Employer listed' ? 'Not disclosed' : job.salary}
-                        </span>
+                        ) : null}
                         <span className={styles.jobMetaItem}>
                           <HrIcon name="map-pin" size={16} />
                           {locationLine}
@@ -845,19 +898,31 @@ export function JobsPage() {
 
                   <div className={styles.jobCardFoot}>
                     <span className={styles.jobPosted}>{job.posted}</span>
-                    <button
-                      type="button"
-                      className={`ds-btn ds-btn--ghost ds-btn--sm ${isSaved ? styles.jobSaveActive : styles.jobSave}`}
-                      aria-pressed={isSaved}
-                      aria-label={`${isSaved ? 'Saved' : 'Save'}: ${job.title} at ${job.company}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSave(job)
-                      }}
-                    >
-                      <HrIcon name="document" size={14} />
-                      {isSaved ? 'Saved' : 'Save'}
-                    </button>
+                    <div className={styles.jobCardFootActions}>
+                      <button
+                        type="button"
+                        className="ds-btn ds-btn--ghost ds-btn--sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedJobId(job.id)
+                        }}
+                      >
+                        View role
+                      </button>
+                      <button
+                        type="button"
+                        className={`ds-btn ds-btn--ghost ds-btn--sm ${isSaved ? styles.jobSaveActive : styles.jobSave}`}
+                        aria-pressed={isSaved}
+                        aria-label={`${isSaved ? 'Saved' : 'Save'}: ${job.title} at ${job.company}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSave(job)
+                        }}
+                      >
+                        <HrIcon name="star" size={14} />
+                        {isSaved ? 'Saved' : 'Save'}
+                      </button>
+                    </div>
                   </div>
 
                   {isOpen ? (
@@ -878,10 +943,15 @@ export function JobsPage() {
                         >
                           Not for me
                         </button>
+                        {appliedJobIds.has(job.id) ? (
+                          <Link to="/applications" className="ds-btn ds-btn--secondary">
+                            Applied · View application
+                          </Link>
+                        ) : (
                         <button
                           type="button"
                           className="ds-btn ds-btn--primary"
-                          disabled={applyingJobId === job.id}
+                          disabled={applyingJobId !== null}
                           aria-busy={applyingJobId === job.id}
                           onClick={() => void handleApply(job)}
                         >
@@ -890,10 +960,13 @@ export function JobsPage() {
                               <span className="ds-spinner" aria-hidden="true" />
                               Applying…
                             </>
-                          ) : (
+                          ) : unlocked ? (
                             'Apply with my report'
+                          ) : (
+                            'Take interview to apply'
                           )}
                         </button>
+                        )}
                       </div>
                       <p className={styles.jobApplyNote}>
                         Applying shares your HireRighttt interview report and resume with this employer.
@@ -998,6 +1071,7 @@ function ProfileSectionHeader({
 }
 
 export function ProfilePage() {
+  const navigate = useNavigate()
   const profileLocation = useLocation()
   useEffect(() => {
     const section = profileLocation.hash.slice(1)
@@ -1039,6 +1113,8 @@ export function ProfilePage() {
         localStorage.removeItem(interviewResultKey(userEmail))
       }
       setLiveProfile(outcome.profile)
+      setFullName(resolveCandidateName(outcome.profile, getUser()))  // the new resume's name
+      window.dispatchEvent(new Event('hireright-auth'))  // nav / menus pick up the new name
       setSkillsList(profileSkillsToList(outcome.profile.skills))
       setTargetRole(outcome.profile.currentRole || targetRole)
       setExperience(outcome.profile.totalExperience || experience)
@@ -1058,7 +1134,8 @@ export function ProfilePage() {
     | (typeof profile & { currentCompanyTitle?: string; highestEducation?: string; contactPhone?: string; linkedin?: string; github?: string; portfolio?: string; jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean } })
     | null
 
-  const [fullName, setFullName] = useState(profile?.fullName || user?.name || '')
+  // The name is read from the resume (shown read-only); see lib/candidateName.ts.
+  const [fullName, setFullName] = useState(() => resolveCandidateName(profile, user))
   const [email] = useState(user?.email || '')
   const [phone, setPhone] = useState(user?.phone || profileExtras?.contactPhone || '')
   const [city, setCity] = useState(profile?.currentLocation || '')
@@ -1075,7 +1152,7 @@ export function ProfilePage() {
   const [basicsEditing, setBasicsEditing] = useState(false)
   const [basicsSaving, setBasicsSaving] = useState(false)
   const [basicsDraftBackup, setBasicsDraftBackup] = useState({
-    fullName: profile?.fullName || user?.name || '',
+    fullName: resolveCandidateName(profile, user),
     phone: user?.phone || profileExtras?.contactPhone || '',
     city: profile?.currentLocation || '',
   })
@@ -1114,8 +1191,48 @@ export function ProfilePage() {
   const [github, setGithub] = useState(profileExtras?.github || '')
   const [portfolio, setPortfolio] = useState(profileExtras?.portfolio || '')
 
-  const [visibleToEmployers, setVisibleToEmployers] = useState(true)
-  const [emailAlerts, setEmailAlerts] = useState(true)
+  const [visibleToEmployers, setVisibleToEmployers] = useState(() => isVisibleToEmployers(profile))
+  const [emailAlerts, setEmailAlerts] = useState(() => getAccountPrefs().emailMatchAlerts)
+  const [exportingData, setExportingData] = useState(false)
+
+  /** Puts the saved profile back into every form field (initial load and the bottom "Cancel"). */
+  function applyProfileToForm(next: ReturnType<typeof getProfile>) {
+    setVisibleToEmployers(isVisibleToEmployers(next))
+    setEmailAlerts(getAccountPrefs().emailMatchAlerts)
+    if (next) {
+      const extras = next as typeof next & {
+        currentCompanyTitle?: string
+        highestEducation?: string
+        contactPhone?: string
+        linkedin?: string
+        github?: string
+        portfolio?: string
+        jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean }
+      }
+      setFullName(accountDisplayName(getUser()) || resolveCandidateName(next, getUser()))
+      setPhone(getUser()?.phone || extras.contactPhone || '')
+      setCity(next.currentLocation || '')
+      setTargetRole(next.currentRole || '')
+      setExperience(next.totalExperience || '')
+      setCompanyTitle(extras.currentCompanyTitle || '')
+      setHighestEducation(extras.highestEducation || '')
+      setSkillsList(profileSkillsToList(next.skills))
+      setExpectedCtc(next.salaryExpectation || '')
+      setNoticePeriod(next.noticePeriod || '')
+      setPrefLocations(
+        next.preferredLocations?.length ? next.preferredLocations.join(', ') : '',
+      )
+      setWorkModes({
+        remote: next.workMode?.includes('Remote') ?? false,
+        hybrid: next.workMode?.includes('Hybrid') ?? false,
+        onsite: next.workMode?.includes('On-site') ?? false,
+      })
+      setJobTypes(extras.jobTypes ?? { fullTime: false, contract: false, internship: false })
+      setLinkedin(extras.linkedin || '')
+      setGithub(extras.github || '')
+      setPortfolio(extras.portfolio || '')
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -1126,44 +1243,13 @@ export function ProfilePage() {
       if (cancelled) return
       const next = remote ?? getProfile()
       setLiveProfile(next)
-      if (next) {
-        const extras = next as typeof next & {
-          currentCompanyTitle?: string
-          highestEducation?: string
-          contactPhone?: string
-          linkedin?: string
-          github?: string
-          portfolio?: string
-          jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean }
-        }
-        setFullName(next.fullName || getUser()?.name || '')
-        setPhone(getUser()?.phone || extras.contactPhone || '')
-        setCity(next.currentLocation || '')
-        setTargetRole(next.currentRole || '')
-        setExperience(next.totalExperience || '')
-        setCompanyTitle(extras.currentCompanyTitle || '')
-        setHighestEducation(extras.highestEducation || '')
-        setSkillsList(profileSkillsToList(next.skills))
-        setExpectedCtc(next.salaryExpectation || '')
-        setNoticePeriod(next.noticePeriod || '')
-        setPrefLocations(
-          next.preferredLocations?.length ? next.preferredLocations.join(', ') : '',
-        )
-        setWorkModes({
-          remote: next.workMode?.includes('Remote') ?? false,
-          hybrid: next.workMode?.includes('Hybrid') ?? false,
-          onsite: next.workMode?.includes('On-site') ?? false,
-        })
-        setJobTypes(extras.jobTypes ?? { fullTime: false, contract: false, internship: false })
-        setLinkedin(extras.linkedin || '')
-        setGithub(extras.github || '')
-        setPortfolio(extras.portfolio || '')
-      }
+      applyProfileToForm(next)
       setProfileLoading(false)
     })()
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email])
 
   const profileMissing = missingProfileFields(profile, user)
@@ -1207,7 +1293,7 @@ export function ProfilePage() {
   }
 
   function buildMergedProfile(skillNames: string[]) {
-    const trimmedName = fullName.trim()
+    const trimmedName = resolveCandidateName(profile, user) || fullName.trim()
     return {
       ...(profile || {}),
       fullName: trimmedName,
@@ -1238,6 +1324,7 @@ export function ProfilePage() {
       workMode: [workModes.remote && 'Remote', workModes.hybrid && 'Hybrid', workModes.onsite && 'On-site'].filter(Boolean).join(', '),
       linkedin: linkedin.trim(), github: github.trim(), portfolio: portfolio.trim(), jobTypes,
       salaryExpectation: expectedCtc,
+      profileVisibility: profileVisibilityFor(visibleToEmployers),
       interviewNotes: profile?.interviewNotes || '',
       resumeFile: null,
       resumeText: profile?.resumeText || '',
@@ -1264,6 +1351,11 @@ export function ProfilePage() {
       const saved = await apiSaveProfile({ ...mergedProfile, completedSteps: profile?.completedSteps ?? 5 })
       localStorage.setItem(profileKey(user?.email), JSON.stringify(saved.profile))
       setLiveProfile(saved.profile as ReturnType<typeof getProfile>)
+      saveAccountPrefs({
+        ...getAccountPrefs(),
+        emailMatchAlerts: emailAlerts,
+        profileVisibleToEmployers: visibleToEmployers,
+      })
       options.onSuccess()
       setToast(options.successMessage)
       setTimeout(() => setToast(''), 3000)
@@ -1374,7 +1466,7 @@ export function ProfilePage() {
         >
           <motion.header className={styles.head} variants={fadeUp}>
             <div>
-              <h1>{user?.name || profile?.fullName || 'Your profile'}</h1>
+              <h1>{fullName || 'Your profile'}</h1>
               <p>
                 {profileLoading
                   ? 'Loading your saved profile…'
@@ -1441,7 +1533,9 @@ export function ProfilePage() {
                       className={styles.input}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      readOnly={!basicsEditing}
+                      readOnly
+                      title="Your name is taken from your resume. Upload an updated resume to change it."
+                      aria-readonly="true"
                       disabled={basicsSaving}
                       autoComplete="name"
                       data-testid="basics-full-name"
@@ -1465,7 +1559,7 @@ export function ProfilePage() {
                       id="pf-phone"
                       type="tel"
                       className={styles.input}
-                      value={phone}
+                      value={basicsEditing ? phone : formatPhoneForDisplay(phone)}
                       onChange={(e) => setPhone(e.target.value)}
                       readOnly={!basicsEditing}
                       disabled={basicsSaving}
@@ -1528,11 +1622,16 @@ export function ProfilePage() {
                       disabled={!roleEditing || roleSaving}
                       data-testid="role-experience"
                     >
-                      <option value="0 - 1 years">0 - 1 years</option>
-                      <option value="1 - 2 years">1 - 2 years</option>
-                      <option value="2 - 3 years">2 - 3 years</option>
-                      <option value="3 - 5 years">3 - 5 years</option>
-                      <option value="5+ years">5+ years</option>
+                      {/* Same ranges the resume parser writes, so a parsed "5 – 8 Years" is shown (and saved) as is. */}
+                      {experience && !(EXPERIENCE_RANGE_LABELS as readonly string[]).includes(experience) ? (
+                        <option value={experience}>{experience}</option>
+                      ) : null}
+                      {!experience ? <option value="">Select a range</option> : null}
+                      {EXPERIENCE_RANGE_LABELS.map((label) => (
+                        <option key={label} value={label}>
+                          {label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className={styles.field}>
@@ -1704,7 +1803,18 @@ export function ProfilePage() {
                           className="ds-btn ds-btn--secondary ds-btn--sm"
                           disabled={resumeReplaceStatus === 'updating'}
                           aria-busy={resumeReplaceStatus === 'updating'}
-                          onClick={() => resumeFileInputRef.current?.click()}
+                          onClick={() => {
+                            // The server deletes the interview score, report and recordings when the résumé changes.
+                            if (
+                              interview &&
+                              !window.confirm(
+                                'Replacing your résumé resets your AI interview score and report. You will need to take the interview again. Continue?',
+                              )
+                            ) {
+                              return
+                            }
+                            resumeFileInputRef.current?.click()
+                          }}
                         >
                           {resumeReplaceStatus === 'updating' ? 'Updating…' : 'Replace'}
                         </button>
@@ -1931,20 +2041,34 @@ export function ProfilePage() {
                     <button
                       type="button"
                       className="ds-btn ds-btn--secondary"
+                      disabled={exportingData}
+                      aria-busy={exportingData || undefined}
                       onClick={() => {
-                        setToast('Preparing data export…')
-                        setTimeout(() => setToast(''), 2000)
+                        if (exportingData) return
+                        setExportingData(true)
+                        void downloadMyData()
+                          .then(() => setToast('Your data was downloaded as a JSON file.'))
+                          .catch((err: unknown) =>
+                            setToast(err instanceof Error ? err.message : 'Could not export your data. Try again.'),
+                          )
+                          .finally(() => {
+                            setExportingData(false)
+                            setTimeout(() => setToast(''), 3000)
+                          })
                       }}
                     >
-                      Download my data
+                      {exportingData ? 'Preparing…' : 'Download my data'}
                     </button>
                     <button
                       type="button"
                       className="ds-btn ds-btn--danger-ghost"
                       onClick={() => {
-                        if (window.confirm('Are you sure you want to request account deletion?')) {
-                          setToast('Account deletion request registered.')
-                          setTimeout(() => setToast(''), 2500)
+                        if (
+                          window.confirm(
+                            'Account deletion is handled by our support team. Open the contact form with a deletion request?',
+                          )
+                        ) {
+                          navigate(accountDeletionRequestPath(user?.email))
                         }
                       }}
                     >
@@ -1960,7 +2084,11 @@ export function ProfilePage() {
                   type="button"
                   className="ds-btn ds-btn--secondary"
                   onClick={() => {
-                    setToast('Changes reverted.')
+                    applyProfileToForm(profile)
+                    setBasicsEditing(false)
+                    setRoleEditing(false)
+                    if (skillsEditing) cancelSkillsEdit()
+                    setToast('Unsaved changes discarded.')
                     setTimeout(() => setToast(''), 2000)
                   }}
                 >
@@ -1988,14 +2116,16 @@ export function ProfilePage() {
                     Your interview report
                   </h2>
                   <p className={styles.sectionSub}>
-                    Your latest AI interview results. Employers see this report when you apply.
+                    Your latest AI interview results, with the full question-by-question breakdown. Employers
+                    see this report when you apply.
                   </p>
                 </div>
               </header>
               <CareerIntelligenceDashboard
                 embedded
+                variant="detailed"
                 result={interview}
-                candidateName={user?.name ?? profile?.fullName ?? 'Candidate'}
+                candidateName={fullName || 'Candidate'}
                 candidateRole={profile?.currentRole ?? interview.role}
                 candidateExperience={profile?.totalExperience ?? interview.level}
                 skills={profile?.skills ?? []}
@@ -2059,6 +2189,9 @@ export function ApplicationsPage() {
   }, [])
 
   async function handleWithdraw(id: string) {
+    const target = apps.find((a) => a.id === id)
+    const label = target ? `${target.title} at ${target.company}` : 'this application'
+    if (!window.confirm(`Withdraw ${label}? You can apply again later if the role is still open.`)) return
     setWithdrawingId(id)
     try {
       await ensureApiSession()

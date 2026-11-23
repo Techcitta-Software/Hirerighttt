@@ -82,18 +82,13 @@ AI_SCORING_DEADLINE_SECONDS = 38.0
 
 
 def career_score_for(overall: int | float) -> int:
-    """The 0-1000 career score shown on the report: the interview score x10 (50..980)."""
-    return int(min(980, max(50, round(overall) * 10)))
+    """The career score IS the interview score: one 0-100 number everywhere (no x10 scale, no bands)."""
+    return int(min(100, max(0, round(overall or 0))))
 
 
-def career_status_for(career_score: int | float) -> str:
-    if career_score >= 850:
-        return "Premium Market-Ready"
-    if career_score >= 700:
-        return "Industry Ready"
-    if career_score >= 550:
-        return "Growth Potential"
-    return "Skill Enhancement Recommended"
+def career_status_for(career_score: int | float, reliable: bool = True) -> str:
+    """A plain description of how the score was produced. Deliberately not a tier / band / percentile label."""
+    return "AI-evaluated interview score" if reliable else "Provisional — AI evaluation unavailable"
 
 
 def _clean(value: Any) -> str:
@@ -112,64 +107,13 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
-def _name_words(value: Any) -> list[str]:
-    return [w for w in re.sub(r"[^a-z\s]", " ", str(value or "").lower()).split() if len(w) >= 2]
-
-
-def same_name_person(a: Any, b: Any) -> bool:
-    """Same person if every word of the shorter name appears in the longer one ("Bharath" vs "Bharath Krishna P")."""
-    x, y = _name_words(a), _name_words(b)
-    if not x or not y:
-        return False
-    short, long_ = (x, y) if len(x) <= len(y) else (y, x)
-    return all(w in long_ for w in short)
-
-
-def _name_from_resume_text(resume: str) -> str:
-    for line in resume.splitlines()[:10]:
-        line = line.strip()
-        if 4 <= len(line) <= 64 and re.match(r"^[A-Z][A-Za-z.'-]+(\s+[A-Z][A-Za-z.'-]+){0,4}$", line):
-            return line
-    return ""
-
-
-def resolve_candidate_name(profile: dict[str, Any] | None, account_name: str = "") -> str:
-    """The name Ava should use.
-
-    A saved profile name wins only while it still matches the current resume or the account name. A saved name that
-    matches neither is stale (left over from an older resume) and is ignored, so a new resume or the name the person
-    signed up with takes over.
-    """
-    p = profile or {}
-    saved = _clean(p.get("fullName")) or _clean(p.get("name"))
-    saved = saved if saved and saved != DEMO_ACCOUNT_NAME else ""
-    resume_name = _name_from_resume_text(_clean(p.get("resumeText")))
-    acct = _clean(account_name)
-    acct = acct if acct and acct != DEMO_ACCOUNT_NAME else ""
-
-    if saved:
-        evidence = [e for e in (resume_name, acct) if e]
-        if not evidence or any(same_name_person(saved, e) for e in evidence):
-            return saved
-    if resume_name:
-        return resume_name
-    if acct:
-        return acct
-
-    resume_file = _clean(p.get("resumeName"))
-    if resume_file:
-        stem = re.sub(r"\.[^/.]+$", "", resume_file).replace("_", " ").replace("-", " ")
-        stem = re.sub(
-            r"\b(resume|cv|biodata|profile|fullstack|frontend|backend|engineer|developer)\b",
-            "",
-            stem,
-            flags=re.I,
-        ).strip()
-        words = [w for w in stem.split() if len(w) >= 2 and w.isalpha()]
-        if 2 <= len(words) <= 4:
-            return " ".join(w.capitalize() for w in words)
-
-    return saved or "Candidate"
+# The candidate's name has one rule for the whole product (resume name first); see app/services/candidate_name.py.
+from app.services.candidate_name import (  # noqa: E402
+    name_from_resume_text as _name_from_resume_text,
+    name_words as _name_words,
+    resolve_candidate_name,
+    same_name_person,
+)
 
 
 def first_name_from_full(full: str) -> str:
@@ -522,14 +466,13 @@ def _build_interview_scorecard(
         )
 
     career_score = career_score_for(overall)
-    status = career_status_for(career_score)
-    if not reliable:
-        status = "Provisional — AI evaluation unavailable"
+    status = career_status_for(career_score, reliable)
     name = _clean(ctx.get("name")).split()[0] or "You"
 
     return {
         "careerScore": career_score,
-        "industryAlignment": max(1, min(99, resume_fit_score)),
+        # Same number as Role Skills Fit / resumeFitScore (no 1..99 clamp, so it never disagrees with them).
+        "industryAlignment": max(0, min(100, int(resume_fit_score))),
         "donuts": donuts,
         "healthMetrics": health_metrics,
         "qaRows": qa_rows,
@@ -538,7 +481,7 @@ def _build_interview_scorecard(
             {"label": "Overall", "val": overall},
         ],
         "finalCareerStatus": status,
-        "bandInterpretation": f"{name} scored {overall}/100 on the {role} ({level}) interview — {status}.",
+        "bandInterpretation": f"{name} scored {overall}/100 on the {role} ({level}) interview.",
         "sessionStats": {
             "durationMinutes": round(duration_seconds / 60) if duration_seconds else None,
             "questionCount": question_count,
@@ -725,6 +668,41 @@ def _finalize_score_payload(
     }
 
 
+def _resolve_fit_skills(
+    role: str, profile: dict[str, Any] | None, ctx: dict[str, Any], required_skills: list[str] | None
+) -> tuple[list[str], list[str], str]:
+    """(skills for per-answer rubrics, skills for Role Skills Fit, where they came from).
+
+    A job interview is measured against the job's required skills; otherwise the role catalog; roles outside the
+    catalog (nursing, mechanical, QA, ...) against the candidate's own resume skills.
+    """
+    job_skills = [str(s).strip() for s in (required_skills or []) if str(s).strip()]
+    if job_skills:
+        return job_skills, job_skills, "job"
+    role_skills = _load_required_role_skills(role, profile or {})
+    if role_skills:
+        return role_skills, role_skills, "role"
+    resume = [str(s) for s in (ctx.get("skills") or [])[:3] if str(s).strip()]
+    return [], resume, "resume"
+
+
+def _role_skills_analysis_for(
+    ctx: dict[str, Any],
+    fit_skills: list[str],
+    skill_source: str,
+    questions: list[dict[str, Any]],
+    answers: list[str],
+    analyses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    from app.services.role_skills_fit_scoring import compute_role_skills_fit
+
+    # Answers that fail the quality gate (keyword stuffing, off topic) cannot earn skill credit.
+    trusted = _trusted_answers(questions, answers, ctx)
+    return compute_role_skills_fit(
+        ctx, fit_skills, questions, trusted, [a.get("score") for a in analyses], skill_source=skill_source
+    )
+
+
 async def score_session_async(
     *,
     role: str,
@@ -735,14 +713,13 @@ async def score_session_async(
     integrity: dict[str, Any] | None = None,
     name: str = "Candidate",
     duration_seconds: int | None = None,
+    required_skills: list[str] | None = None,
 ) -> dict[str, Any]:
     from app.services.interview_llm_eval import evaluate_answers_with_llm, llm_eval_configured
-    from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
 
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
-    role_skills = _load_required_role_skills(role, profile or {})
-    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
+    role_skills, fit_skills, skill_source = _resolve_fit_skills(role, profile, ctx, required_skills)
     fresher = _candidate_is_fresher(profile, level, ctx)
     llm_by_index = None
     agent = "python-resume-agent"
@@ -771,17 +748,7 @@ async def score_session_async(
         )
         for i, q in enumerate(questions)
     ]
-    # Roles outside the skills catalog (nursing, mechanical, QA, ...) are measured against the candidate's own resume
-    # skills. They used to fall back to exact phrase matching, which gave an ICU nurse 0/100 role fit (15 points of the
-    # score) because no answer said "Ventilator management" word for word.
-    fit_skills = role_skills or [str(s) for s in (ctx.get("skills") or [])[:3] if str(s).strip()]
-    if llm_by_index and fit_skills:
-        # With AI scores available, role fit counts skills the candidate actually demonstrated (not keywords).
-        from app.services.role_skills_fit_scoring import compute_session_role_skills_fit_scored
-
-        role_skills_analysis = compute_session_role_skills_fit_scored(
-            ctx, fit_skills, questions, answers, [a.get("score") for a in analyses]
-        )
+    role_skills_analysis = _role_skills_analysis_for(ctx, fit_skills, skill_source, questions, answers, analyses)
     return _finalize_score_payload(
         role=role,
         level=level,
@@ -807,18 +774,17 @@ def score_session(
     integrity: dict[str, Any] | None = None,
     name: str = "Candidate",
     duration_seconds: int | None = None,
+    required_skills: list[str] | None = None,
 ) -> dict[str, Any]:
-    from app.services.role_skills_fit_scoring import compute_session_role_skills_fit
-
     ctx = summarize_profile(profile, name=name)
     integrity = integrity or {}
-    role_skills = _load_required_role_skills(role, profile or {})
-    role_skills_analysis = compute_session_role_skills_fit(ctx, role_skills, _trusted_answers(questions, answers, ctx))
+    role_skills, fit_skills, skill_source = _resolve_fit_skills(role, profile, ctx, required_skills)
     fresher = _candidate_is_fresher(profile, level, ctx)
     analyses = [
         _analyze_answer_detailed(q, answers[i] if i < len(answers) else "", ctx, None, role_skills)
         for i, q in enumerate(questions)
     ]
+    role_skills_analysis = _role_skills_analysis_for(ctx, fit_skills, skill_source, questions, answers, analyses)
     return _finalize_score_payload(
         role=role,
         level=level,

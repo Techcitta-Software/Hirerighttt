@@ -234,6 +234,13 @@
   overflow-x: auto;
 }
 
+@media (min-width: 901px) {
+  .panel .tableScroll,
+  .panel .tableContainer {
+    overflow-x: visible;
+  }
+}
+
 /* Keep the last row's hover fill inside the panel's rounded corners. */
 .panel > .tableScroll:last-child,
 .panel > .tableContainer:last-child {
@@ -250,7 +257,7 @@
 .dataTable th,
 .candidatesTable th {
   position: sticky;
-  top: 0;
+  top: calc(var(--nav-height, 64px) + var(--space-2, 8px));
   z-index: var(--z-sticky-header, 1);
   height: 40px;
   padding: 0 var(--space-4, 16px);
@@ -552,6 +559,7 @@
 
 /* sm secondary "Copy" button */
 .copyBtn {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -748,7 +756,7 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  z-index: var(--z-modal, 1000);
+  z-index: var(--z-modal, 1100);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1255,7 +1263,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .pageHeader {
     align-items: flex-start;
     margin-bottom: var(--space-4, 16px);

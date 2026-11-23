@@ -105,6 +105,14 @@ export function sanitizeResumeText(rawText: unknown, maxChars = 200_000): string
  * Sanitizes skill list arrays.
  * Deduplicates, trims whitespace, strips empty entries.
  */
+function isPlausibleSkillLabel(value: string): boolean {
+  const t = value.trim()
+  if (!t || t.length > 80) return false
+  // Drop pasted garbage with no vowels (e.g. accidental keyboard mash).
+  if (t.length >= 10 && !/\s/.test(t) && !/[aeiou]/i.test(t)) return false
+  return /^[\w+#./\- ]+$/i.test(t)
+}
+
 export function sanitizeSkillsList(rawSkills: unknown): string[] {
   if (!Array.isArray(rawSkills)) return []
   const seen = new Set<string>()
@@ -118,7 +126,7 @@ export function sanitizeSkillsList(rawSkills: unknown): string[] {
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
       .replace(/\s+/g, ' ')
       .trim()
-    if (!cleaned) continue
+    if (!cleaned || !isPlausibleSkillLabel(cleaned)) continue
     const lower = cleaned.toLowerCase()
     if (!seen.has(lower)) {
       seen.add(lower)

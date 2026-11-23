@@ -238,7 +238,7 @@
   background: transparent;
   font-size: 0.85rem;
   font-weight: 700;
-  color: #64748b;
+  color: var(--color-text-muted, #5f6686);
   border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   transition: all 0.2s ease;

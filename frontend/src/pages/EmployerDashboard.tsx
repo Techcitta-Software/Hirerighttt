@@ -1,4 +1,4 @@
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { Score } from '../components/Score'
@@ -7,24 +7,16 @@ import { getUser, type EmployerApplicant, type EmployerJob } from '../lib/store'
 import { HrIcon } from '../components/HrIcon'
 import { JobApplicantsPanel } from '../components/JobApplicantsPanel'
 import { InviteCandidatesPanel } from '../components/InviteCandidatesPanel'
-import { CandidateSearchBar, HighlightText } from '../components/CandidateSearchBar'
-import {
-  candidateScore,
-  needsIntegrityReview,
-  searchCandidates,
-  type CandidateQuickFilter,
-  type CandidateSort,
-} from '../lib/candidateSearch'
+import { ApplicantsSearch } from '../components/applicants/ApplicantsSearch'
+import { patchApplicantRows } from '../components/applicants/applicantJobs'
+import { candidateScore } from '../lib/candidateSearch'
 import { fetchMailStatus } from '../lib/api'
 import { ensureApiSession } from '../lib/apiSession'
 import { buildApplyUrl } from '../lib/jobLink'
 import {
   filterJobSeekerCandidates,
-  hasHireRightReport,
-  hasResumeContent,
   mapOrgCandidate,
   mapVendorApplicant,
-  resumeDisplayLabel,
   vendorJobToEmployerJob,
 } from '../lib/employerCandidateUtils'
 import {
@@ -48,14 +40,9 @@ import {
 } from '../lib/vendorApi'
 import { subscribeEmployerApplicationAlerts } from '../lib/employerAlertsFeed'
 import { mapWithConcurrency } from '../lib/concurrency'
+import { JobLifecycleActions, JobStatusBadge } from '../components/jobs/JobLifecycle'
+import type { VendorJob } from '../lib/vendorApi'
 import styles from './EmployerDashboard.module.css'
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (!parts.length) return '??'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 function slugifyCompanyName(name: string) {
   const base = name
@@ -103,161 +90,6 @@ function LoadErrorPanel({ message, onRetry }: { message: string; onRetry: () => 
   )
 }
 
-/** Rows rendered at once in the candidate directory; "Show more" adds another page. */
-const DIRECTORY_PAGE_SIZE = 50
-
-type CandidatesDirectoryTableProps = {
-  rows: EmployerApplicant[]
-  loading: boolean
-  emptyTitle: string
-  emptyBody: string
-  /** Current search text: used to highlight matches and to explain an empty result. */
-  query?: string
-  onClearSearch?: () => void
-  onViewDocument: (kind: EmployerDocumentKind, applicant: EmployerApplicant) => void
-}
-
-/** Same layout as /employer/candidates — name, role, experience, resume, HireRight report. */
-const CandidatesDirectoryTable = memo(function CandidatesDirectoryTable({
-  rows,
-  loading,
-  emptyTitle,
-  emptyBody,
-  query = '',
-  onClearSearch,
-  onViewDocument,
-}: CandidatesDirectoryTableProps) {
-  return (
-    <table className={`${styles.candidatesTable} ${styles.stackOnPhone}`} aria-busy={loading}>
-      <thead>
-        <tr>
-          <th scope="col" style={{ width: '30%' }}>Candidate</th>
-          <th scope="col" style={{ width: '16%' }}>Role</th>
-          <th scope="col" style={{ width: '12%' }}>Experience</th>
-          <th scope="col" style={{ width: '20%' }}>Resume</th>
-          <th scope="col" style={{ width: '22%' }}>HireRighttt report</th>
-        </tr>
-      </thead>
-      <tbody>
-        {loading && rows.length === 0 ? (
-          [0, 1, 2, 3, 4, 5].map((i) => (
-            <tr key={i} className={styles.skeletonRow} aria-hidden="true">
-              <td className={styles.directoryNameCell}>
-                <div className={styles.candidateCell}>
-                  <span className={`ds-skeleton ${styles.avatar}`} />
-                  <div className={styles.candidateCellText}>
-                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonName}`} />
-                    <span className={`ds-skeleton ds-skeleton-line ${styles.skeletonSub}`} />
-                  </div>
-                </div>
-              </td>
-              <td data-label="Role"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
-              <td data-label="Experience"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
-              <td data-label="Resume"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
-              <td data-label="Report"><span className={`ds-skeleton ds-skeleton-line ${styles.skeletonCell}`} /></td>
-            </tr>
-          ))
-        ) : rows.length === 0 ? (
-          <tr>
-            <td colSpan={5}>
-              <div className={styles.emptyState}>
-                {query.trim() ? (
-                  <>
-                    <h3>No candidates match “{query.trim()}”</h3>
-                    <p>
-                      Try fewer words, a different spelling, or search by a skill or role. Every word you type must
-                      appear on the candidate.
-                    </p>
-                    {onClearSearch ? (
-                      <button type="button" className={styles.btnSecondary} onClick={onClearSearch}>
-                        Clear search
-                      </button>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <h3>{emptyTitle}</h3>
-                    <p>{emptyBody}</p>
-                  </>
-                )}
-              </div>
-            </td>
-          </tr>
-        ) : (
-          rows.map((cand) => {
-            const initials = getInitials(cand.candidateName)
-            const resumeLabel = resumeDisplayLabel(cand)
-            const resumeReady = hasResumeContent(cand)
-            const reportReady = hasHireRightReport(cand)
-            const score = candidateScore(cand)
-
-            return (
-              <tr key={cand.id}>
-                <td className={styles.directoryNameCell}>
-                  <div className={styles.candidateCell}>
-                    <div className={styles.avatar} aria-hidden="true">{initials}</div>
-                    <div className={styles.candidateCellText}>
-                      <div className={styles.candidateName}>
-                        <HighlightText text={cand.candidateName} query={query} />
-                      </div>
-                      <div className={styles.candidateContact}>
-                        <HighlightText text={cand.candidateEmail} query={query} />
-                        {cand.candidatePhone ? <> · <HighlightText text={cand.candidatePhone} query={query} /></> : null}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td data-label="Role">
-                  {cand.role ? (
-                    <span className={styles.roleTag}>
-                      <HighlightText text={cand.role} query={query} />
-                    </span>
-                  ) : (
-                    <span className={styles.docMuted}>—</span>
-                  )}
-                </td>
-                <td data-label="Experience">
-                  <span className={styles.experienceText}>{cand.experienceYears || '—'}</span>
-                </td>
-                <td data-label="Resume">
-                  {resumeReady ? (
-                    <button
-                      type="button"
-                      className={styles.docLinkBtn}
-                      onClick={() => onViewDocument('resume', cand)}
-                    >
-                      <HrIcon name="document" size={14} />
-                      {resumeLabel}
-                    </button>
-                  ) : (
-                    <span className={styles.docMuted}>No resume</span>
-                  )}
-                </td>
-                <td data-label="Report">
-                  {reportReady ? (
-                    <span className={styles.reportCell}>
-                      {score !== null ? <Score value={score} label="Overall interview score" /> : null}
-                      <button
-                        type="button"
-                        className={`${styles.docLinkBtn} ${styles.docLinkBtnNoWrap}`}
-                        onClick={() => onViewDocument('report', cand)}
-                      >
-                        View report
-                      </button>
-                    </span>
-                  ) : (
-                    <span className={styles.pill}>No interview yet</span>
-                  )}
-                </td>
-              </tr>
-            )
-          })
-        )}
-      </tbody>
-    </table>
-  )
-})
-
 interface EmployerDashboardProps {
   view?: 'dashboard' | 'candidates'
 }
@@ -266,6 +98,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const location = useLocation()
   const isCandidatesView =
     view === 'candidates' ||
+    location.pathname === '/employer/applicants' ||
     location.pathname === '/employer/candidates' ||
     location.pathname === '/candidates'
 
@@ -284,19 +117,6 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
   const [portalLoading, setPortalLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-
-  // Filters State
-  const [searchFilter, setSearchFilter] = useState('')
-  const [roleFilter, setRoleFilter] = useState('')
-  const [jobFilter, setJobFilter] = useState('')
-  const [expFilter, setExpFilter] = useState('')
-  const [scoreFilter, setScoreFilter] = useState('')
-  const [integrityFilter, setIntegrityFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [quickFilter, setQuickFilter] = useState<CandidateQuickFilter>('all')
-  const [sortMode, setSortMode] = useState<CandidateSort>('best_match')
-  const [showMoreFilters, setShowMoreFilters] = useState(false)
-  const [visibleCount, setVisibleCount] = useState(DIRECTORY_PAGE_SIZE)
 
   // Modals
   // The dashboard's "Create job" links here with { createJob: true } so the modal is open on arrival.
@@ -335,6 +155,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     null,
   )
   const [jobRosterLoading, setJobRosterLoading] = useState(false)
+  const [jobRosterNotice, setJobRosterNotice] = useState('')
   const [jobRosterRows, setJobRosterRows] = useState<EmployerApplicant[]>([])
 
   const [inviteStart, setInviteStart] = useState('')
@@ -418,7 +239,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     },
     opts?: { background?: boolean },
   ) {
-    const { candidates } = await fetchOrganizationCandidates(filters, opts)
+    const { candidates } = await fetchOrganizationCandidates({ ...filters, scope: 'org' }, opts)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
     setPortalSyncNote(`${jobSeekers.length} candidate profiles available.`)
@@ -445,7 +266,9 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         if (!cancelled) {
           console.warn('[employer-dashboard] load failed', err)
           setLoadError(
-            `We could not load ${isCandidatesView ? 'your candidates' : 'your job openings'}. Check your connection and try again.`,
+            isCandidatesView
+              ? 'We could not load your applicants. If the wait was long, the server may still be waking up — try again in a moment.'
+              : 'We could not load your job openings. Check your connection and try again.',
           )
         }
       } finally {
@@ -495,132 +318,24 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }, [user?.email, user?.role, isCandidatesView])
 
-  const showCandidateTable = isCandidatesView
-
-  function handleClearFilters() {
-    setQuickFilter('all')
-    setSortMode('best_match')
-    setSearchFilter('')
-    setRoleFilter('')
-    setJobFilter('')
-    setExpFilter('')
-    setScoreFilter('')
-    setIntegrityFilter('')
-    setStatusFilter('')
-  }
-
-  const hasActiveFilters = Boolean(
-    searchFilter || roleFilter || jobFilter || expFilter || scoreFilter || integrityFilter || statusFilter
-  )
-
-  const moreFilterCount = [roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter].filter(Boolean).length
-
-  const activeFilterCount = [
-    searchFilter,
-    roleFilter,
-    jobFilter,
-    expFilter,
-    scoreFilter,
-    integrityFilter,
-    statusFilter,
-  ].filter(Boolean).length
-
-  function handleSearchCandidatesClick() {
-    const el = document.getElementById('candidates-section')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }
-
-  const advancedFiltered = useMemo(() => {
-    return applicants.filter((app) => {
-      // Role text search
-      if (roleFilter.trim()) {
-        const q = roleFilter.trim().toLowerCase()
-        if (!app.role?.toLowerCase().includes(q)) return false
-      }
-
-      // Target Job text search
-      if (jobFilter.trim()) {
-        const q = jobFilter.trim().toLowerCase()
-        const matchesJob = app.jobTitle.toLowerCase().includes(q)
-        const matchesCompany = app.company.toLowerCase().includes(q)
-        if (!matchesJob && !matchesCompany) return false
-      }
-
-      // Experience text search
-      if (expFilter.trim()) {
-        const q = expFilter.trim().toLowerCase()
-        if (!String(app.experienceYears ?? '').toLowerCase().includes(q)) return false
-      }
-
-      // Score text search
-      if (scoreFilter.trim()) {
-        const q = scoreFilter.trim().toLowerCase()
-        const score = String(app.aiScore ?? app.interviewResult?.overall ?? '')
-        if (!score.includes(q) && !`${score}%`.includes(q)) return false
-      }
-
-      // Integrity text search
-      if (integrityFilter.trim()) {
-        const q = integrityFilter.trim().toLowerCase()
-        const integ =
-          app.integrityStatus ??
-          (app.interviewResult?.integrity?.proctoring?.status === 'FLAGGED' ||
-          (app.interviewResult?.integrity?.faceViolations ?? 0) > 0
-            ? 'pending'
-            : 'verified')
-        const label = integ === 'verified' ? 'verified candidate' : integ === 'pending' ? 'verification pending' : 'not verified'
-        if (!label.includes(q) && !integ.includes(q)) return false
-      }
-
-      // Status text search
-      if (statusFilter.trim()) {
-        const q = statusFilter.trim().toLowerCase()
-        if (!app.status.toLowerCase().includes(q)) return false
-      }
-
-      return true
-    })
-  }, [applicants, roleFilter, jobFilter, expFilter, scoreFilter, integrityFilter, statusFilter])
-
-  // The input updates on every keystroke; the (heavier) search and table re-render follow at lower priority.
-  const deferredQuery = useDeferredValue(searchFilter)
-
-  // Ranked multi-word search (name, email, phone, role, skills, resume text) + quick filter + sort.
-  const filteredApplicants = useMemo(
-    () => searchCandidates(advancedFiltered, { query: deferredQuery, quick: quickFilter, sort: sortMode }),
-    [advancedFiltered, deferredQuery, quickFilter, sortMode],
-  )
-
-  // Any change to the result set starts again from the first page of rows.
-  useEffect(() => {
-    setVisibleCount(DIRECTORY_PAGE_SIZE)
-  }, [filteredApplicants])
-
-  const visibleApplicants = useMemo(
-    () => filteredApplicants.slice(0, visibleCount),
-    [filteredApplicants, visibleCount],
-  )
-
-  const quickCounts = useMemo<Record<CandidateQuickFilter, number>>(() => {
-    const counts = { all: advancedFiltered.length, interviewed: 0, not_interviewed: 0, score_70: 0, review: 0 }
-    for (const c of advancedFiltered) {
-      if (c.interviewResult) counts.interviewed += 1
-      else counts.not_interviewed += 1
-      const score = candidateScore(c)
-      if (score !== null && score >= 70) counts.score_70 += 1
-      if (needsIntegrityReview(c)) counts.review += 1
-    }
-    return counts
-  }, [advancedFiltered])
-
   const inviteJobs = useMemo(() => jobs.map((j) => ({ id: j.id, title: j.title })), [jobs])
-  const clearSearch = useCallback(() => setSearchFilter(''), [])
-  const openDocument = useCallback(
-    (kind: EmployerDocumentKind, applicant: EmployerApplicant) => setDocumentViewer({ kind, applicant }),
-    [],
+  // "Invite to interview" (email interview links) opens in a dialog from the Applicants header.
+  // The dashboard's "Send AI interview links" links here with { inviteDialog: true }: open it on arrival.
+  const [showInviteDialog, setShowInviteDialog] = useState(
+    () => Boolean((location.state as { inviteDialog?: boolean } | null)?.inviteDialog),
   )
+  useEffect(() => {
+    if (!(location.state as { inviteDialog?: boolean } | null)?.inviteDialog) return
+    setShowInviteDialog(true)
+    // Drop the flag (keep the search) so a refresh or Back does not reopen the dialog.
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null })
+  }, [location.state, location.pathname, location.search, navigate])
+  const closeInviteDialog = useCallback(() => setShowInviteDialog(false), [])
+  const inviteDialogRef = useRef<HTMLDivElement>(null)
+  useDialogFocus(showInviteDialog, inviteDialogRef, 'field')
+  const updateApplicant = useCallback((id: string, patch: Partial<EmployerApplicant>) => {
+    setApplicants((prev) => patchApplicantRows(prev, id, patch))
+  }, [])
 
   function openCreateJob() {
     setCreateJobError('')
@@ -763,9 +478,33 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     }
   }
 
+  /* While a job's applicant list is open, refresh it quietly so an interview a candidate just finished shows its
+     report, score and rank without reopening the list. */
+  const openRosterJobId = jobRosterOpen?.jobId
+  useEffect(() => {
+    if (!openRosterJobId) return
+    let cancelled = false
+    const timer = window.setInterval(() => {
+      void fetchJobApplicants(openRosterJobId, { background: true })
+        .then(({ applicants, total }) => {
+          if (cancelled) return
+          setJobRosterRows(applicants.map((a) => normalizeApplicant(mapVendorApplicant(a))))
+          setJobCounts((prev) => ({ ...prev, [openRosterJobId]: total ?? applicants.length }))
+        })
+        .catch(() => {
+          /* keep the rows already shown */
+        })
+    }, 20_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [openRosterJobId])
+
   async function openJobApplicantsRoster(job: EmployerJob) {
     if (isOptimisticJobId(job.id)) return
     setJobRosterOpen({ jobId: job.id, title: job.title })
+    setJobRosterNotice('')
     setJobRosterLoading(true)
     setJobRosterRows([])
     try {
@@ -779,6 +518,19 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
     } finally {
       setJobRosterLoading(false)
     }
+  }
+
+  /** A job saved by Edit / Close / Reopen / Unpublish: replace it in the list and say what happened. */
+  function applySavedJob(saved: VendorJob, notice: string) {
+    bumpJobsLoadGeneration()
+    setJobs((prev) =>
+      prev.map((j) => (j.id === saved.id ? vendorJobToEmployerJob(saved, j.createdByEmail || user?.email || '') : j)),
+    )
+    if (typeof saved.applicantCount === 'number') {
+      setJobCounts((prev) => ({ ...prev, [saved.id]: saved.applicantCount as number }))
+    }
+    setJobRosterOpen((open) => (open && open.jobId === saved.id ? { ...open, title: saved.title } : open))
+    setPortalSyncNote(notice)
   }
 
   function closeJobApplicantsRoster() {
@@ -802,6 +554,16 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
       setInviteFeedback('Choose a scheduled start date and time.')
       return
     }
+    const start = new Date(inviteStart)
+    if (Number.isNaN(start.getTime()) || start.getTime() < Date.now() - 60_000) {
+      setInviteFeedback('Choose a start time in the future.')
+      return
+    }
+    if (!(inviteDuration >= 15 && inviteDuration <= 180)) {
+      setInviteFeedback('Duration must be between 15 and 180 minutes.')
+      return
+    }
+    if (inviteLoading) return
     setInviteLoading(true)
     setInviteFeedback('')
     try {
@@ -848,10 +610,13 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
         {isCandidatesView ? (
           <header className={styles.pageHeader}>
             <div>
-              <h1 className={styles.pageTitle}>Candidates</h1>
-              <p className={styles.pageSub}>
-                Applicants, shared interviews and job seekers who completed an AI interview on HireRighttt.
-              </p>
+              <h1 className={styles.pageTitle}>Applicants</h1>
+              <p className={styles.pageSub}>Search, compare and shortlist people for your jobs.</p>
+            </div>
+            <div className={styles.pageActions}>
+              <button type="button" className={styles.btnPrimary} onClick={() => setShowInviteDialog(true)}>
+                <HrIcon name="calendar" size={16} /> Invite to interview
+              </button>
             </div>
           </header>
         ) : (
@@ -977,6 +742,7 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                               >
                                 {job.title}
                               </button>
+                              {isPending ? null : <JobStatusBadge status={job.status} />}
                               <div className={styles.jobMeta}>
                                 <span>{job.roleTrack}</span>
                                 <span className={styles.jobMetaSep} aria-hidden="true">·</span>
@@ -1021,6 +787,14 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                               >
                                 View applicants
                               </button>
+                              {isPending ? null : (
+                                <JobLifecycleActions
+                                  job={job}
+                                  disabled={isDeleting}
+                                  onChanged={(saved) => applySavedJob(saved, '')}
+                                  onNotice={(text) => setPortalSyncNote(text)}
+                                />
+                              )}
                               <button
                                 type="button"
                                 className={`${styles.btnDanger} ${styles.btnSm}`}
@@ -1042,223 +816,44 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
           </>
         )}
 
-        {showCandidateTable && (
-        <>
-        <CandidateSearchBar
-          query={searchFilter}
-          onQuery={setSearchFilter}
-          quick={quickFilter}
-          onQuick={setQuickFilter}
-          sort={sortMode}
-          onSort={setSortMode}
-          shown={filteredApplicants.length}
-          total={applicants.length}
-          counts={quickCounts}
-          moreOpen={showMoreFilters}
-          moreActiveCount={moreFilterCount}
-          onToggleMore={() => setShowMoreFilters((v) => !v)}
-          onReset={handleClearFilters}
-        />
-
-        {/* Advanced filters (role, job, experience, score, integrity, status) stay one click away */}
-        {showMoreFilters && (
-        <section className={styles.filterBarCard} aria-labelledby="more-filters-title">
-          <div className={styles.filterCardHeader}>
-            <div>
-              <h2 id="more-filters-title" className={styles.filterCardTitle}>More filters</h2>
-              <p className={styles.filterCardSubtitle}>
-                Narrow the list by job, role, experience, score, integrity or status.
-              </p>
-            </div>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                className={`${styles.btnGhost} ${styles.btnSm}`}
-                onClick={handleClearFilters}
-                title="Clear all filters"
-              >
-                <HrIcon name="close" size={14} /> Reset filters
-              </button>
-            )}
-          </div>
-
-          <div className={styles.filterGrid}>
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-job">
-                Job opening
-              </label>
-              <input
-                id="filter-job"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="Search job title…"
-                value={jobFilter}
-                onChange={(e) => setJobFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-role">
-                Role track
-              </label>
-              <input
-                id="filter-role"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="Search role…"
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-exp">
-                Experience level
-              </label>
-              <input
-                id="filter-exp"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="e.g. Senior, Mid, 3+ yrs"
-                value={expFilter}
-                onChange={(e) => setExpFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-score">
-                AI interview score
-              </label>
-              <input
-                id="filter-score"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="e.g. 80, 90%"
-                value={scoreFilter}
-                onChange={(e) => setScoreFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-integrity">
-                Proctor integrity
-              </label>
-              <input
-                id="filter-integrity"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="e.g. Verified, Pending"
-                value={integrityFilter}
-                onChange={(e) => setIntegrityFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-
-            <div className={styles.filterFieldGroup}>
-              <label className={styles.filterFieldLabel} htmlFor="filter-status">
-                Application status
-              </label>
-              <input
-                id="filter-status"
-                type="text"
-                className={styles.filterInputField}
-                placeholder="e.g. Shortlisted, New"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearchCandidatesClick()
-                }}
-              />
-            </div>
-          </div>
-
-          <div className={styles.filterCardFooter}>
-            {hasActiveFilters ? (
-              <span className={styles.filterStatusText}>
-                <span className={styles.filterCountPill}>
-                  {activeFilterCount} active filter{activeFilterCount > 1 ? 's' : ''}
-                </span>
-                Showing matching candidates
-              </span>
-            ) : (
-              <span className={styles.filterHintText}>Results update as you type.</span>
-            )}
-
-            <div className={styles.filterFooterRight}>
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  onClick={handleClearFilters}
-                  title="Clear all filters"
-                >
-                  <HrIcon name="close" size={16} /> Clear filters
-                </button>
-              )}
-              <button type="button" className={styles.btnPrimary} onClick={handleSearchCandidatesClick}>
-                <HrIcon name="search" size={16} /> Show results
-              </button>
-            </div>
-          </div>
-        </section>
+        {isCandidatesView && (
+          <>
+            <ApplicantsSearch
+              applicants={applicants}
+              jobs={inviteJobs}
+              loading={portalLoading}
+              error={loadError}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onUpdateApplicant={updateApplicant}
+              onInviteByEmail={() => setShowInviteDialog(true)}
+              savedStorageKey={user?.email ? `hireright.applicants.saved.${user.email.toLowerCase()}` : undefined}
+            />
+          </>
         )}
 
-        <InviteCandidatesPanel jobs={inviteJobs} />
-
-        <section id="candidates-section" className={styles.panel} aria-labelledby="candidates-heading">
-          <div className={styles.panelHeader}>
-            <div>
-              <h2 id="candidates-heading" className={styles.panelTitle}>
-                All candidates
-              </h2>
+        {showInviteDialog && (
+          <div
+            className={styles.modalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invite-dialog-title"
+            onKeyDown={(e) => handleDialogKeyDown(e, closeInviteDialog)}
+          >
+            <div ref={inviteDialogRef} tabIndex={-1} className={styles.modal}>
+              <div className={styles.modalHeader}>
+                <div>
+                  <h2 id="invite-dialog-title">Invite to interview</h2>
+                  <p className={styles.modalSub}>Email people a link that opens their AI interview directly.</p>
+                </div>
+                <button type="button" className={styles.closeBtn} onClick={closeInviteDialog} aria-label="Close">
+                  <HrIcon name="close" size={16} />
+                </button>
+              </div>
+              <div className={styles.modalBody}>
+                <InviteCandidatesPanel jobs={inviteJobs} embedded />
+              </div>
             </div>
           </div>
-
-          {loadError && !portalLoading ? (
-            <LoadErrorPanel message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />
-          ) : (
-            <div className={styles.tableContainer}>
-              <CandidatesDirectoryTable
-                rows={visibleApplicants}
-                loading={portalLoading}
-                emptyTitle="No candidates yet"
-                emptyBody="No matching profiles yet. Try search or wait for candidates to complete interviews."
-                query={deferredQuery}
-                onClearSearch={clearSearch}
-                onViewDocument={openDocument}
-              />
-              {filteredApplicants.length > visibleApplicants.length ? (
-                <div className={styles.showMoreRow}>
-                  <span className={styles.showMoreCount}>
-                    Showing {visibleApplicants.length} of {filteredApplicants.length}
-                  </span>
-                  <button
-                    type="button"
-                    className={`${styles.btnSecondary} ${styles.btnSm}`}
-                    onClick={() => setVisibleCount((n) => n + DIRECTORY_PAGE_SIZE)}
-                  >
-                    Show {Math.min(DIRECTORY_PAGE_SIZE, filteredApplicants.length - visibleApplicants.length)} more
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          )}
-        </section>
-        </>
         )}
 
         {/* Create job modal */}
@@ -1481,7 +1076,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
             <div ref={rosterDialogRef} tabIndex={-1} className={`${styles.modal} ${styles.modalWide}`}>
               <div className={styles.modalHeader}>
                 <div>
-                  <h2 id="job-roster-title">Applicants · {jobRosterOpen.title}</h2>
+                  <h2 id="job-roster-title">
+                    Applicants · {jobRosterOpen.title}
+                    <JobStatusBadge status={jobs.find((j) => j.id === jobRosterOpen.jobId)?.status} />
+                  </h2>
                   <p className={styles.modalSub}>
                     Everyone who applied from the job board or your shared link, scored against this job.
                   </p>
@@ -1497,6 +1095,11 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
 
               <div className={styles.modalBody}>
+                {jobRosterNotice ? (
+                  <p className={styles.syncNote} role="status">
+                    {jobRosterNotice}
+                  </p>
+                ) : null}
                 <JobApplicantsPanel
                   rows={jobRosterRows}
                   loading={jobRosterLoading}
@@ -1506,6 +1109,20 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
               </div>
 
               <div className={styles.modalFooter}>
+                {(() => {
+                  const rosterJob = jobs.find((j) => j.id === jobRosterOpen.jobId)
+                  return rosterJob ? (
+                    <JobLifecycleActions
+                      job={rosterJob}
+                      compact={false}
+                      onChanged={(saved) => applySavedJob(saved, '')}
+                      onNotice={(text) => {
+                        setJobRosterNotice(text)
+                        setPortalSyncNote(text)
+                      }}
+                    />
+                  ) : null
+                })()}
                 <button type="button" className={styles.btnSecondary} onClick={closeJobApplicantsRoster}>
                   Close
                 </button>
@@ -1631,7 +1248,10 @@ export function EmployerDashboard({ view }: EmployerDashboardProps = {}) {
                     <button
                       type="button"
                       className={styles.btnPrimary}
-                      disabled={inviteLoading}
+                      // aria-disabled, not disabled: a disabled button drops focus to <body>, and Esc then no
+                      // longer reached the dialog (it stayed open). handleSendInterviewInvite ignores repeat clicks.
+                      aria-disabled={inviteLoading}
+                      aria-busy={inviteLoading}
                       onClick={() => void handleSendInterviewInvite()}
                     >
                       {inviteLoading ? 'Sending…' : 'Send invite'}

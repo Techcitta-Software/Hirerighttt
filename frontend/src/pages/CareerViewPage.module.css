@@ -60,7 +60,7 @@
   gap: 10px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  font-size: 0.66rem;
+  font-size: 0.75rem;
   font-weight: 850;
   color: var(--brand);
 }
@@ -213,8 +213,8 @@
   align-items: center;
   gap: 13px;
   flex-wrap: wrap;
-  font-size: 0.72rem;
-  color: #7b819f;
+  font-size: 0.75rem;
+  color: var(--muted);
   margin-top: 23px;
 }
 
@@ -228,10 +228,10 @@
   bottom: 23px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   letter-spacing: 0.16em;
   font-weight: 850;
-  color: #8a90b0;
+  color: var(--muted);
   text-transform: uppercase;
   display: flex;
   align-items: center;
@@ -341,7 +341,7 @@
 }
 
 .coreCaption {
-  font-size: 0.56rem;
+  font-size: 0.75rem;
   font-weight: 850;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -368,7 +368,7 @@
   text-align: left;
   gap: 7px;
   font: inherit;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 800;
   line-height: 1.17;
   color: var(--ink);
@@ -411,7 +411,7 @@
   max-width: 74%;
   text-align: center;
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   padding: 7px 15px;
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid var(--tint-2);
@@ -611,11 +611,11 @@
 }
 
 .pageIndexHead {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 850;
-  color: #8a90b0;
+  color: var(--muted);
   margin: 3px 10px 25px;
 }
 
@@ -643,7 +643,7 @@
   font-family: var(--serif);
   font-style: italic;
   font-size: 1.18rem;
-  color: #a5aac6;
+  color: var(--muted);
 }
 
 .pageTab:hover {
@@ -664,8 +664,8 @@
 
 .indexSmall {
   margin: auto 12px 0;
-  color: #8a90b0;
-  font-size: 0.7rem;
+  color: var(--muted);
+  font-size: 0.75rem;
   line-height: 1.6;
   padding-top: 25px;
 }
@@ -683,10 +683,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   letter-spacing: 0.13em;
   font-weight: 850;
-  color: #8a90b0;
+  color: var(--muted);
   text-transform: uppercase;
   border-bottom: 1px solid var(--line);
   padding-bottom: 17px;
@@ -709,7 +709,7 @@
 }
 
 .paperKicker {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-weight: 850;
@@ -746,7 +746,7 @@
   color: var(--brand);
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 850;
   margin-bottom: 8px;
 }
@@ -803,7 +803,7 @@
 
 .artLabel {
   position: absolute;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   font-weight: 800;
   color: var(--brand);
   border-radius: 30px;
@@ -869,7 +869,7 @@
 
 .takeaway strong {
   display: block;
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--brand);
@@ -910,7 +910,7 @@
 
 .finePrint {
   color: #a8acc8;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   margin-top: 18px;
   line-height: 1.6;
 }
@@ -972,10 +972,10 @@
 }
 
 .planTop {
-  font-size: 0.62rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: #8a90b0;
+  color: var(--muted);
   font-weight: 850;
   margin-bottom: 24px;
 }
@@ -1040,8 +1040,8 @@
 }
 
 .sub {
-  font-size: 0.62rem;
-  color: #8a90b0;
+  font-size: 0.75rem;
+  color: var(--muted);
   display: block;
   margin-top: 3px;
 }
@@ -1071,8 +1071,8 @@
 }
 
 .planAside {
-  font-size: 0.7rem;
-  color: #8a90b0;
+  font-size: 0.75rem;
+  color: var(--muted);
   margin-top: 17px;
   line-height: 1.6;
 }
@@ -1217,7 +1217,7 @@
   .orbit {
     min-width: 103px;
     max-width: 112px;
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   .reportStage {
@@ -1226,7 +1226,7 @@
 
   .pageTab {
     padding: 12px 8px;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
   }
 
   .reportPaper {
@@ -1352,7 +1352,7 @@
   }
 
   .metricSub {
-    font-size: 0.68rem;
+    font-size: 0.75rem;
   }
 
   .container {
@@ -1383,11 +1383,11 @@
   }
 
   .heroFoot {
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   .universe {
-    margin: 18px auto 0;
+    margin: 18px auto 48px;
     width: min(100%, 390px);
   }
 
@@ -1398,7 +1398,7 @@
     max-width: 92px;
     min-height: 58px;
     padding: 9px 8px;
-    font-size: 0.56rem;
+    font-size: 0.75rem;
     gap: 5px;
   }
 
@@ -1407,9 +1407,11 @@
     height: 6px;
   }
 
+  /* Below the orbit, not on top of the bottom nodes ("Interview readiness" was covered at 390px). */
   .insight {
-    font-size: 0.56rem;
-    bottom: 0;
+    font-size: 0.75rem;
+    top: calc(100% + 4px);
+    bottom: auto;
     max-width: 85%;
     white-space: nowrap;
   }
@@ -1423,7 +1425,7 @@
   }
 
   .coreCaption {
-    font-size: 0.44rem;
+    font-size: 0.75rem;
   }
 
   .motionButton {
@@ -1453,7 +1455,7 @@
   }
 
   .bridgeItem span {
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   .bridgeLine {
@@ -1507,7 +1509,7 @@
     flex: 0 0 auto;
     width: auto;
     white-space: nowrap;
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     margin: 0;
     padding: 11px 13px;
     border-radius: 5px;
@@ -1527,7 +1529,7 @@
   }
 
   .paperHead {
-    font-size: 0.56rem;
+    font-size: 0.75rem;
   }
 
   .paperGrid {
@@ -1540,7 +1542,7 @@
 
   .paperKicker {
     margin: 27px 0 13px;
-    font-size: 0.56rem;
+    font-size: 0.75rem;
   }
 
   .paperText h3 {
@@ -1577,7 +1579,7 @@
   }
 
   .finePrint {
-    font-size: 0.62rem;
+    font-size: 0.75rem;
   }
 
   .roadmap {

@@ -15,7 +15,7 @@ export function AppShell() {
       <AppNavBar />
       <main className={styles.main} id="app-main" tabIndex={-1}>
         {/* Keeps the header and footer on screen while a page's code is still loading. */}
-        <Suspense fallback={<PageLoader />}>
+        <Suspense fallback={<PageLoader label="Loading page…" />}>
           <Outlet />
         </Suspense>
       </main>

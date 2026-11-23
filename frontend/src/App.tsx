@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { initSupabaseAuthSync } from './lib/supabaseSync'
@@ -74,6 +74,12 @@ function respectReducedMotionInFramer() {
 
 if (typeof window !== 'undefined') respectReducedMotionInFramer()
 
+/** /employer/candidates and /candidates were renamed to /employer/applicants. */
+function RedirectToApplicants() {
+  const { search, hash } = useLocation()
+  return <Navigate to={`/employer/applicants${search}${hash}`} replace />
+}
+
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'HireRighttt — AI interviews that prove skills',
   '/why': 'Why HireRighttt?',
@@ -89,8 +95,9 @@ const ROUTE_TITLES: Record<string, string> = {
   '/employer/dashboard': 'Dashboard',
   '/employer': 'Dashboard',
   '/employer/jobs': 'Jobs',
-  '/employer/candidates': 'Candidates',
-  '/candidates': 'Candidates',
+  '/employer/applicants': 'Applicants',
+  '/employer/candidates': 'Applicants',
+  '/candidates': 'Applicants',
   '/resumes': 'Resume database',
   '/talent-vault': 'Resume database',
   '/dashboard': 'Dashboard',
@@ -111,6 +118,21 @@ const ROUTE_TITLES: Record<string, string> = {
   '/privacy': 'Privacy Policy',
   '/terms': 'Terms & Conditions',
   '/cookies': 'Cookie Policy',
+}
+
+/** Titles for routes with parameters (job links, invites), so the tab never keeps the previous page's title. */
+const ROUTE_TITLE_PREFIXES: [string, string][] = [
+  ['/apply/', 'Apply for a role'],
+  ['/jobs/', 'Apply for a role'],
+  ['/interview/invite/', 'Interview invitation'],
+  ['/assessment/', 'Assessment'],
+]
+
+function routeTitle(pathname: string): string | null {
+  const exact = ROUTE_TITLES[pathname] ?? ROUTE_TITLES[pathname.replace(/\/+$/, '') || '/']
+  if (exact) return exact
+  const prefixed = ROUTE_TITLE_PREFIXES.find(([prefix]) => pathname.startsWith(prefix))
+  return prefixed ? prefixed[1] : null
 }
 
 /**
@@ -142,7 +164,7 @@ function DeferredDialogs() {
   }, [])
   if (!ready) return null
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<PageLoader label="Loading…" />}>
       <SignOutModal />
       <AuthInvalidModal />
     </Suspense>
@@ -155,24 +177,25 @@ function DeferredDialogs() {
  */
 function Page({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
-  return <Fragment key={pathname}>{children}</Fragment>
+  return (
+    <div key={pathname} className="hr-route-enter">
+      {children}
+    </div>
+  )
 }
 
 function AnimatedRoutes() {
   const location = useLocation()
 
   useEffect(() => {
-    const title = ROUTE_TITLES[location.pathname]
-    document.title = title
-      ? title.startsWith('HireRighttt')
-        ? title
-        : `${title} · HireRighttt`
-      : 'HireRighttt'
+    const title = routeTitle(location.pathname)
+    if (!title) return
+    document.title = title.startsWith('HireRighttt') ? title : `${title} · HireRighttt`
   }, [location.pathname])
 
   return (
     <div style={{ minHeight: '100%' }}>
-        <Suspense fallback={<PageLoader />}>
+        <Suspense fallback={<PageLoader label="Loading page…" />}>
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
           <Route path="/solutions" element={<SolutionsPage />} />
@@ -193,11 +216,11 @@ function AnimatedRoutes() {
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
           <Route path="/terms" element={<TermsPage />} />
-          <Route path="/terms-of-use" element={<TermsPage />} />
+          <Route path="/terms-of-use" element={<Navigate to="/terms" replace />} />
           <Route path="/cookies" element={<CookiePolicyPage />} />
-          <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+          <Route path="/cookie-policy" element={<Navigate to="/cookies" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/organizations/signup" element={<OrganizationSignupPage />} />
@@ -300,7 +323,7 @@ function AnimatedRoutes() {
               }
             />
             <Route
-              path="/employer/candidates"
+              path="/employer/applicants"
               element={
                 <Page>
                   <RequireAuth role="employer">
@@ -309,16 +332,9 @@ function AnimatedRoutes() {
                 </Page>
               }
             />
-            <Route
-              path="/candidates"
-              element={
-                <Page>
-                  <RequireAuth role="employer">
-                    <EmployerDashboard view="candidates" />
-                  </RequireAuth>
-                </Page>
-              }
-            />
+            {/* Old addresses of the Applicants page: kept working, with their ?jobId= and #hash. */}
+            <Route path="/employer/candidates" element={<RedirectToApplicants />} />
+            <Route path="/candidates" element={<RedirectToApplicants />} />
             <Route
               path="/employer"
               element={
@@ -333,7 +349,7 @@ function AnimatedRoutes() {
               path="/resumes"
               element={
                 <Page>
-                  <RequireAuth>
+                  <RequireAuth role="employer">
                     <ResumeDatabasePage />
                   </RequireAuth>
                 </Page>
@@ -343,7 +359,7 @@ function AnimatedRoutes() {
               path="/talent-vault"
               element={
                 <Page>
-                  <RequireAuth>
+                  <RequireAuth role="employer">
                     <ResumeDatabasePage />
                   </RequireAuth>
                 </Page>

@@ -5,6 +5,7 @@ import { HrIcon } from '../components/HrIcon'
 import { PageLoader } from '../components/SignalLoader'
 import { MIN_PASSWORD_LENGTH, PASSWORD_RULE_TEXT, passwordRuleError } from '../lib/passwordRules'
 import {
+  accountDisplayName,
   clearProfileForEmail,
   findUserByEmail,
   getAccountPrefs,
@@ -15,13 +16,12 @@ import {
   persistLoggedInUser,
   saveAccountPrefs,
   saveUser,
-  updateUserEmail,
-  updateUserPassword,
 } from '../lib/store'
 import {
   apiConnectionHint,
   apiHealth,
   apiLogin,
+  apiChangePassword,
   apiLogout,
   apiSignup,
   getApiToken,
@@ -35,6 +35,7 @@ import { readInviteEmail } from '../lib/inviteReturn'
 import { getDemoAccount, isDemoEmail } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
+import { isVisibleToEmployers, saveProfileVisibility } from '../lib/candidatePrivacy'
 import { consumeSignupLoginHandoff, stashSignupLoginHandoff } from '../lib/authHandoff'
 import {
   clearSessionValidationCache,
@@ -58,6 +59,15 @@ async function authenticateWithEmailPassword(
   password: string,
   expectedRole?: RoleType,
 ): Promise<{ user: StoredUser | null; error?: string }> {
+  const normalizedEmail = targetEmail.trim().toLowerCase()
+  const active = getUser()
+  if (active && active.email.trim().toLowerCase() !== normalizedEmail) {
+    // Drop stale session so role checks cannot send the new login to the wrong dashboard.
+    logout()
+    setApiToken(null)
+    clearSessionValidationCache()
+  }
+
   let authenticatedUser: StoredUser | null = null
   let supabaseRejected = false
 
@@ -403,7 +413,9 @@ export function LoginPage({
           ? 'employer'
           : roleParam === 'jobseeker' || roleParam === 'candidate'
             ? 'jobseeker'
-            : undefined)
+            : targetEmail.includes('employer') || targetEmail.includes('admin')
+              ? 'employer'
+              : undefined)
       const { user, error: authError } = await authenticateWithEmailPassword(
         targetEmail,
         loginPassword,
@@ -648,7 +660,7 @@ export function LoginPage({
             <div className={styles.authContainer}>
               <header className={styles.formHeader}>
                 <h1 className={styles.welcomeTitle}>Welcome</h1>
-                <p className={styles.welcomeSub}>Sign in to continue your career journey.</p>
+                <p className={styles.welcomeSub}>Candidates and hiring teams sign in here.</p>
               </header>
 
               <form className={styles.loginForm} onSubmit={handleLoginSubmit}>
@@ -830,7 +842,7 @@ export function LoginPage({
 
                 <div className={styles.formGroup}>
                   <label htmlFor="signup-phone" className={styles.formLabel}>
-                    Mobile number <span className={styles.requiredMark}>(required)</span>
+                    Mobile number
                   </label>
                   <input
                     id="signup-phone"
@@ -949,18 +961,21 @@ export function SettingsPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
-  // Email & password
-  const [email, setEmail] = useState(user?.email ?? '')
+  // Password (the sign-in email is shown read-only: changing it goes through support)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  // Prefs
-  const [prefs, setPrefs] = useState(() => getAccountPrefs())
+  // Prefs. "Visible to employers" is stored on the server profile (talent search honours it).
+  const [prefs, setPrefs] = useState(() => ({
+    ...getAccountPrefs(),
+    profileVisibleToEmployers: isVisibleToEmployers(getProfile()),
+  }))
 
   useEffect(() => {
     setUser(getUser())
-    setPrefs(getAccountPrefs())
+    setPrefs({ ...getAccountPrefs(), profileVisibleToEmployers: isVisibleToEmployers(getProfile()) })
   }, [])
 
   function flash(ok: string) {
@@ -969,8 +984,9 @@ export function SettingsPage() {
     window.setTimeout(() => setMessage(''), 2800)
   }
 
-  function saveSecurity(event: FormEvent) {
+  async function saveSecurity(event: FormEvent) {
     event.preventDefault()
+    if (saving) return
     setError('')
     setMessage('')
 
@@ -978,37 +994,32 @@ export function SettingsPage() {
       setError('Enter your current password to make changes.')
       return
     }
-
-    if (email.trim().toLowerCase() !== (user?.email ?? '')) {
-      const result = updateUserEmail(email, currentPassword)
-      if (!result.ok) {
-        setError(result.error)
-        return
-      }
-      setUser(getUser())
+    if (!newPassword) {
+      setError('Enter a new password.')
+      return
     }
-
-    if (newPassword || confirmPassword) {
-      if (newPassword !== confirmPassword) {
-        setError('New password and confirmation do not match.')
-        return
-      }
-      const passwordError = passwordRuleError(newPassword)
-      if (passwordError) {
-        setError(passwordError)
-        return
-      }
-      const result = updateUserPassword(currentPassword, newPassword)
-      if (!result.ok) {
-        setError(result.error)
-        return
-      }
+    if (newPassword !== confirmPassword) {
+      setError('New password and confirmation do not match.')
+      return
+    }
+    const passwordError = passwordRuleError(newPassword)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
+    setSaving(true)
+    try {
+      if (!(await ensureApiSession())) throw new Error('Your session expired. Sign in again to change your password.')
+      const ok = await apiChangePassword(currentPassword, newPassword)
+      setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
+      flash(ok)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change your password. Try again.')
+    } finally {
+      setSaving(false)
     }
-
-    setCurrentPassword('')
-    flash('Account security updated.')
   }
 
   function saveNotifications(event: FormEvent) {
@@ -1018,11 +1029,21 @@ export function SettingsPage() {
     flash('Notification preferences saved.')
   }
 
-  function savePrivacy(event: FormEvent) {
+  async function savePrivacy(event: FormEvent) {
     event.preventDefault()
-    const next = saveAccountPrefs(prefs)
-    setPrefs(next)
-    flash('Privacy settings saved.')
+    if (saving) return
+    setError('')
+    setSaving(true)
+    try {
+      if (user?.role === 'jobseeker') await saveProfileVisibility(prefs.profileVisibleToEmployers)
+      const next = saveAccountPrefs(prefs)
+      setPrefs(next)
+      flash('Privacy settings saved.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save your privacy settings. Try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -1032,7 +1053,7 @@ export function SettingsPage() {
           <h1 className={styles.settingsTitle}>Account settings</h1>
           <p className={styles.settingsSub}>
             Signed in as <strong>{user?.email ?? 'guest'}</strong>
-            {user?.name ? ` · ${user.name}` : ''}
+            {accountDisplayName(user) ? ` · ${accountDisplayName(user)}` : ''}
           </p>
         </header>
 
@@ -1054,10 +1075,13 @@ export function SettingsPage() {
                 <button type="button" className={styles.settingsRow} onClick={() => setPanel('security')}>
                   <span className={styles.settingsRowText}>
                     <span className={styles.settingsRowTitle}>Email &amp; password</span>
-                    <span className={styles.settingsRowMeta}>Change your sign-in email or password</span>
+                    <span className={styles.settingsRowMeta}>See your sign-in email and change your password</span>
                   </span>
                   <HrIcon name="arrow-right" size={16} />
                 </button>
+                {/* Role matches, interview reminders and profile visibility are job-seeker settings (vendor QA). */}
+                {user?.role === 'employer' ? null : (
+                <>
                 <button type="button" className={styles.settingsRow} onClick={() => setPanel('notifications')}>
                   <span className={styles.settingsRowText}>
                     <span className={styles.settingsRowTitle}>Notification preferences</span>
@@ -1072,12 +1096,17 @@ export function SettingsPage() {
                   </span>
                   <HrIcon name="arrow-right" size={16} />
                 </button>
+                </>
+                )}
               </div>
             </div>
             <div className={styles.settingsActions}>
-              <button type="button" className={styles.btnSecondary} onClick={() => navigate('/profile')}>
-                View profile
-              </button>
+              {/* Employers have no candidate profile: /profile only bounced them back to the dashboard. */}
+              {user?.role === 'employer' ? null : (
+                <button type="button" className={styles.btnSecondary} onClick={() => navigate('/profile')}>
+                  View profile
+                </button>
+              )}
               <button type="button" className={styles.btnSecondary} onClick={openSignOutModal}>
                 Sign out
               </button>
@@ -1091,7 +1120,9 @@ export function SettingsPage() {
               <h2 id="settings-security-title" className={styles.settingsCardTitle}>
                 Email &amp; password
               </h2>
-              <p className={styles.settingsCardSub}>Enter your current password to save any change.</p>
+              <p className={styles.settingsCardSub}>
+                Enter your current password, then a new one. {PASSWORD_RULE_TEXT}. Other devices are signed out.
+              </p>
             </header>
             <form onSubmit={saveSecurity}>
               <div className={styles.settingsFields}>
@@ -1100,10 +1131,14 @@ export function SettingsPage() {
                   <input
                     type="email"
                     spellCheck={false}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
+                    value={user?.email ?? ''}
+                    readOnly
+                    aria-describedby="settings-email-help"
+                    autoComplete="username"
                   />
+                  <span id="settings-email-help" className={styles.settingsRowMeta}>
+                    To change your sign-in email, <Link to="/contact">contact support</Link>.
+                  </span>
                 </label>
                 <label>
                   Current password
@@ -1122,7 +1157,8 @@ export function SettingsPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     autoComplete="new-password"
-                    placeholder="Leave blank to keep current"
+                    minLength={MIN_PASSWORD_LENGTH}
+                    required
                   />
                 </label>
                 <label>
@@ -1132,6 +1168,7 @@ export function SettingsPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     autoComplete="new-password"
+                    required
                   />
                 </label>
               </div>
@@ -1146,8 +1183,8 @@ export function SettingsPage() {
                 >
                   Back
                 </button>
-                <button type="submit" className={styles.btnPrimary}>
-                  Save changes
+                <button type="submit" className={styles.btnPrimary} disabled={saving} aria-busy={saving || undefined}>
+                  {saving ? 'Saving…' : 'Change password'}
                 </button>
               </div>
             </form>
@@ -1228,8 +1265,8 @@ export function SettingsPage() {
                 <button type="button" className={styles.btnSecondary} onClick={() => setPanel('menu')}>
                   Back
                 </button>
-                <button type="submit" className={styles.btnPrimary}>
-                  Save changes
+                <button type="submit" className={styles.btnPrimary} disabled={saving} aria-busy={saving || undefined}>
+                  {saving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
             </form>

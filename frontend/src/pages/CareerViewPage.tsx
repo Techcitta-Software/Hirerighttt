@@ -330,14 +330,14 @@ export function CareerViewPage() {
                 <span className={styles.metricSub}>Deep behavioral signals</span>
               </div>
               <div className={styles.metricCard}>
-                <span className={styles.metricVal}>Top 8%</span>
-                <span className={styles.metricTitle}>Readiness Score</span>
-                <span className={styles.metricSub}>Integrity & communication</span>
+                <span className={styles.metricVal}>82/100</span>
+                <span className={styles.metricTitle}>Career Score</span>
+                <span className={styles.metricSub}>Same as the interview score</span>
               </div>
               <div className={styles.metricCard}>
                 <span className={styles.metricVal}>₹89</span>
                 <span className={styles.metricTitle}>Full Retake Pass</span>
-                <span className={styles.metricSub}>Instant rank refresh</span>
+                <span className={styles.metricSub}>Instant score refresh</span>
               </div>
             </div>
 

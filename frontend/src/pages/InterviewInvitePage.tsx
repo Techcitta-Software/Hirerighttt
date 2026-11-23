@@ -6,6 +6,8 @@ import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
 import { getUser } from '../lib/store'
 import { rememberInviteReturn } from '../lib/inviteReturn'
+import { clearPendingJob } from '../lib/pendingJobApply'
+import { interviewDurationMinutes } from '../lib/interviewDuration'
 import { apiFetch } from '../lib/api'
 import {
   inviteAccessFromStored,
@@ -206,6 +208,8 @@ export function InterviewInvitePage() {
         }),
       )
     }
+    // The invite carries its own job: an older job link stored during sign-up must not replace it.
+    if (invite.applicationId || invite.jobDescription?.trim()) clearPendingJob()
     navigate('/interview', { replace: true })
   }
 
@@ -266,17 +270,29 @@ export function InterviewInvitePage() {
       <MarketingNavBar />
       <main className={styles.main}>
         <header className={styles.hero}>
-          <h1>{invite?.jobTitle || 'Your scheduled interview'}</h1>
+          <h1>{invite?.jobTitle || (error && !loading ? 'Invitation not available' : 'Your scheduled interview')}</h1>
           <p className={styles.sub}>AI interview invitation{invite?.company ? ` from ${invite.company}` : ''}</p>
         </header>
 
         {loading && <PageLoader label="Loading your interview…" />}
         {error && (
           <div className={`ds-alert ds-alert--error ${styles.errorAlert}`} role="alert">
-            <p className={styles.alertText}>{error}</p>
-            <button type="button" className={styles.secondaryBtn} onClick={() => setRetry((value) => value + 1)}>
-              Try again
-            </button>
+            <p className={styles.alertText}>
+              {error}
+              {/not found|expired|invalid/i.test(error)
+                ? ' Check the link in your invitation email, or ask the employer to send a new one.'
+                : ''}
+            </p>
+            {/not found|expired|invalid/i.test(error) ? (
+              // Retrying a link the server does not know does nothing: offer a way out instead.
+              <Link to={signedInEmail ? '/dashboard' : '/'} className={styles.secondaryBtn}>
+                {signedInEmail ? 'Go to dashboard' : 'Go to home page'}
+              </Link>
+            ) : (
+              <button type="button" className={styles.secondaryBtn} onClick={() => setRetry((value) => value + 1)}>
+                Try again
+              </button>
+            )}
           </div>
         )}
 
@@ -307,6 +323,13 @@ export function InterviewInvitePage() {
                       {formatIst(invite.scheduledEnd, istTime)} IST
                     </>
                   )}
+                </dd>
+              </div>
+              <div className={styles.detailRow}>
+                <dt className={styles.label}>Duration</dt>
+                <dd className={styles.value}>
+                  About {interviewDurationMinutes({ jd: invite.jobDescription, jobId: invite.jobId || undefined }, null, true)}{' '}
+                  minutes
                 </dd>
               </div>
               <div className={styles.detailRow}>

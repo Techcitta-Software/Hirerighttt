@@ -31,8 +31,28 @@ const rows = [
 ]
 
 describe('job applicant filters', () => {
-  it('sorts by ATS score by default', () => {
+  it('sorts by top candidature by default and by ATS score on request', () => {
+    expect(D.sort).toBe('rank')
     expect(filterJobApplicants(rows, D).map((r) => r.id)).toEqual(['c', 'a', 'b'])
+    expect(filterJobApplicants(rows, { ...D, sort: 'ats' }).map((r) => r.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('keeps the API ranking: score, then role skills fit, then who finished first', () => {
+    const ranked = [
+      app({ id: 'late', aiScore: 70, roleSkillsFit: 60, interviewCompletedAt: '2026-11-02T10:00:00Z', rank: 3 }),
+      app({ id: 'none', appliedAt: '2026-10-01T00:00:00Z', rank: null }),
+      app({ id: 'top', aiScore: 82, roleSkillsFit: 50, rank: 1 }),
+      app({ id: 'fit', aiScore: 70, roleSkillsFit: 80, rank: 2 }),
+    ]
+    expect(filterJobApplicants(ranked, D).map((r) => r.id)).toEqual(['top', 'fit', 'late', 'none'])
+    // Rows from an older API without `rank` are ordered by the same rule.
+    const unranked = ranked.map((r) => ({ ...r, rank: undefined }))
+    expect(filterJobApplicants(unranked, D).map((r) => r.id)).toEqual(['top', 'fit', 'late', 'none'])
+    const tie = [
+      app({ id: 'second', aiScore: 70, roleSkillsFit: 60, interviewCompletedAt: '2026-11-02T10:00:00Z' }),
+      app({ id: 'first', aiScore: 70, roleSkillsFit: 60, interviewCompletedAt: '2026-11-02T09:00:00Z' }),
+    ]
+    expect(filterJobApplicants(tie, D).map((r) => r.id)).toEqual(['first', 'second'])
   })
 
   it('sorts by JD match, interview score and newest', () => {

@@ -1,6 +1,13 @@
 import { fetchPublicJob, type VendorJob } from './vendorApi'
 import { companySlugMatches } from './jobLink'
 
+/** The API's answer (HTTP 410) for a job that was closed or unpublished by the employer. */
+export const JOB_CLOSED_MESSAGE = 'This job is no longer accepting applications.'
+
+export function isJobClosedError(message: string | undefined | null): boolean {
+  return String(message || '').trim() === JOB_CLOSED_MESSAGE
+}
+
 export async function resolvePublicJob(
   code: string,
   companySlug?: string,
@@ -23,6 +30,8 @@ export async function resolvePublicJob(
       }
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err)
+      // Closed / unpublished: the link is right, the job just stopped taking applications. No other slug to try.
+      if (isJobClosedError(lastError)) return { job: null, error: lastError }
     }
   }
 

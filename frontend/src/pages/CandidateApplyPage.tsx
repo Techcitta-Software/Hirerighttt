@@ -2,11 +2,21 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { SiteNav } from '../components/SiteNav'
-import { SiteFooter } from '../components/SiteFooter'
-import { getEmployerJobByCode, getUser, isLoggedIn, type EmployerJob } from '../lib/store'
+import { AppFooter } from '../components/AppFooter'
+import { MarketingNavBar } from '../components/MarketingNavBar'
+import { MarketingFooter } from '../components/MarketingFooter'
+import {
+  candidateFullName,
+  getApplications,
+  getEmployerJobByCode,
+  getProfile,
+  getUser,
+  isLoggedIn,
+  type EmployerJob,
+} from '../lib/store'
 import { parseResumeFile } from '../lib/resumeParser'
 import { HrIcon } from '../components/HrIcon'
-import { resolvePublicJob } from '../lib/resolvePublicJob'
+import { isJobClosedError, resolvePublicJob } from '../lib/resolvePublicJob'
 import { vendorJobToEmployerJob } from '../lib/employerCandidateUtils'
 import { applyToPublicJob } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
@@ -15,6 +25,15 @@ import { isValidPhone, normalizePhone } from '../lib/phone'
 import { companySlugMatches, slugifyCompany } from '../lib/jobLink'
 import { setPendingJob } from '../lib/pendingJobApply'
 import styles from './CandidateApplyPage.module.css'
+
+/** Signed-in people get the app's own nav and footer; visitors get the same chrome as the rest of the public site. */
+function ApplyNav() {
+  return isLoggedIn() ? <SiteNav /> : <MarketingNavBar />
+}
+
+function ApplyFooter() {
+  return isLoggedIn() ? <AppFooter /> : <MarketingFooter />
+}
 
 type ApplyJob = EmployerJob & { companySlug?: string }
 
@@ -40,12 +59,20 @@ export function CandidateApplyPage() {
     return local ? localJobToApply(local) : null
   })
   const [loadingJob, setLoadingJob] = useState(true)
-  const [name, setName] = useState(sessionUser?.name || '')
+  const [name, setName] = useState(() => {
+    if (!sessionUser) return ''
+    const resolved = candidateFullName()  // the name on the saved resume, else the signup name
+    return resolved && resolved !== 'Candidate' ? resolved : sessionUser.name || ''
+  })
   const [email] = useState(sessionUser?.email || '')
   const [phone, setPhone] = useState(sessionUser?.phone || '')
-  const [experience, setExperience] = useState('3 years')
+  // A signed-in candidate applies with the résumé and experience already on their profile (no forced re-upload,
+  // no made-up "3 years"); choosing a file replaces it for this application only.
+  const [savedProfile] = useState(() => (sessionUser ? getProfile() : null))
+  const [experience, setExperience] = useState(() => savedProfile?.totalExperience || '')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
-  const [resumeText, setResumeText] = useState('')
+  const [resumeText, setResumeText] = useState(() => savedProfile?.resumeText?.trim() || '')
+  const profileResumeName = savedProfile?.resumeText?.trim() ? savedProfile?.resumeName || 'Your profile résumé' : ''
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [applyConsent, setApplyConsent] = useState(false)
@@ -75,6 +102,10 @@ export function CandidateApplyPage() {
           setJob(
             vendorJobToEmployerJob(remote, sessionUser?.email || 'candidate@hireright.com'),
           )
+        } else if (!cancelled && isJobClosedError(remoteError)) {
+          // Closed or unpublished by the employer: say so, even if an old local copy of the job exists.
+          setJob(null)
+          setError(remoteError)
         } else if (!cancelled && !local && remoteError) {
           setError(remoteError)
         }
@@ -118,7 +149,8 @@ export function CandidateApplyPage() {
     try {
       const extracted = await parseResumeFile(file)
       setResumeText(extracted.resumeText || extracted.whoAreYou || `Resume: ${file.name}`)
-      if (extracted.fullName && !name) {
+      // The candidate's name comes from the resume they upload.
+      if (extracted.fullName) {
         setName(extracted.fullName)
       }
     } catch {
@@ -183,7 +215,7 @@ export function CandidateApplyPage() {
             candidatePhone: phoneNorm,
             experienceYears: experience,
             resumeText: resumeText.trim(),
-            resumeName: resumeFile ? resumeFile.name : 'Candidate_Resume.pdf',
+            resumeName: resumeFile ? resumeFile.name : profileResumeName || 'Candidate_Resume.pdf',
             source: 'shared_link',
           },
           companySlug || job.companySlug,
@@ -237,7 +269,7 @@ export function CandidateApplyPage() {
   if (loadingJob) {
     return (
       <div className={styles.page}>
-        <SiteNav />
+        <ApplyNav />
         <main className={styles.shell} aria-busy="true">
           <h1 className="ds-sr-only">Loading job details</h1>
           <section className={styles.card} aria-hidden="true">
@@ -257,34 +289,52 @@ export function CandidateApplyPage() {
   if (!job) {
     return (
       <div className={styles.page}>
-        <SiteNav />
+        <ApplyNav />
         <main className={styles.shell}>
           <section className={`${styles.card} ${styles.notFound}`}>
             <span className={styles.notFoundIcon} aria-hidden="true">
               <HrIcon name="warning" size={20} />
             </span>
-            <h1 className={styles.notFoundTitle}>Job link not found</h1>
-            <p className={styles.muted}>
-              The job application link you accessed may have expired or been removed by the employer.
-            </p>
-            {error && (
+            {isJobClosedError(error) ? (
+              <>
+                <h1 className={styles.notFoundTitle}>This job is no longer accepting applications</h1>
+                <p className={styles.muted}>
+                  The employer has closed this opening. If you already applied, your application and interview
+                  report are still with them.
+                </p>
+              </>
+            ) : (
+              <>
+                <h1 className={styles.notFoundTitle}>Job link not found</h1>
+                <p className={styles.muted}>
+                  The job application link you accessed may have expired or been removed by the employer.
+                </p>
+              </>
+            )}
+            {error && !isJobClosedError(error) && !/not found|expired/i.test(error) && (
               <p className={`ds-alert ds-alert--error ${styles.notFoundAlert}`} role="alert">
                 {error}
               </p>
             )}
-            <button type="button" className={styles.primaryBtn} onClick={() => navigate('/signup')}>
-              Explore public jobs
-            </button>
+            {isLoggedIn() ? (
+              <button type="button" className={styles.primaryBtn} onClick={() => navigate('/jobs')}>
+                Browse open roles
+              </button>
+            ) : (
+              <button type="button" className={styles.primaryBtn} onClick={() => navigate('/')}>
+                Go to home page
+              </button>
+            )}
           </section>
         </main>
-        <SiteFooter />
+        <ApplyFooter />
       </div>
     )
   }
 
   return (
     <div className={styles.page}>
-      <SiteNav />
+      <ApplyNav />
       <motion.main
         className={styles.shell}
         initial={{ opacity: 0 }}
@@ -443,6 +493,12 @@ export function CandidateApplyPage() {
             <p className={styles.sectionSub}>
               We send your details and resume to {job.company}, then show how well your resume matches this role.
             </p>
+            {getApplications().some((app) => app.jobId === job.id || (code && app.shareableCode === code)) ? (
+              <p className={`ds-alert ds-alert--info ${styles.pageAlert}`} role="status">
+                You already applied to this role. Submitting again updates your application.{' '}
+                <Link to="/applications">View my applications</Link>
+              </p>
+            ) : null}
 
             <form className={styles.form} onSubmit={handleSubmit}>
               <div className={styles.formGrid}>
@@ -530,12 +586,14 @@ export function CandidateApplyPage() {
                       <HrIcon name={resumeFile ? 'check' : 'upload'} size={20} />
                     </span>
                     <span className={styles.fileName}>
-                      {resumeFile ? resumeFile.name : 'Choose your resume file'}
+                      {resumeFile ? resumeFile.name : profileResumeName || 'Choose your resume file'}
                     </span>
                     <span id="apply-resume-help" className={styles.fileHint}>
                       {resumeFile
                         ? `File attached (${Math.round(resumeFile.size / 1024)} KB) · choose again to replace`
-                        : 'PDF, DOCX or TXT. Ava uses your resume for adaptive interview questions.'}
+                        : profileResumeName
+                          ? 'From your profile · choose a file to use a different résumé for this job'
+                          : 'PDF, DOCX or TXT. Ava uses your resume for adaptive interview questions.'}
                     </span>
                   </label>
                 </div>
@@ -549,7 +607,7 @@ export function CandidateApplyPage() {
                   required
                 />
                 <span>
-                  I consent to HireRight sharing my name, contact details, and resume with the employer for this
+                  I consent to HireRighttt sharing my name, contact details, and resume with the employer for this
                   job, and processing my data as described in the <Link to="/privacy">Privacy Policy</Link>.
                 </span>
               </label>
@@ -580,7 +638,7 @@ export function CandidateApplyPage() {
           </section>
         )}
       </motion.main>
-      <SiteFooter />
+      <ApplyFooter />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import type { ProfileFormData } from '../data/wizard'
 import { normalizeMetrics } from '../data/wizard'
-import { extractNameFromText } from './resumeName'
+import { resolveCandidateNameFrom } from './candidateName'
 
 export type UserRole = 'jobseeker' | 'employer'
 
@@ -22,6 +22,8 @@ export type User = {
 export type SavedProfile = Omit<ProfileFormData, 'resumeFile'> & {
   fullName?: string
   name?: string
+  /** The name written on the resume (set when the resume is parsed); the candidate's display name. */
+  resumeFullName?: string
   resumeName: string | null
   /** Raw extracted resume text for Ava's resume-accurate questions. */
   resumeText?: string
@@ -49,6 +51,9 @@ export type IntegrityLogEvent = {
   id: string
   startOffsetSec?: number
   durationSec?: number
+  /** Server-computed offsets from the start of the recording (ms), for the review timeline. */
+  startOffsetMs?: number
+  endOffsetMs?: number
   reviewOnly?: boolean
   candidateExplanation?: string
   timestamp: string
@@ -59,6 +64,7 @@ export type IntegrityLogEvent = {
     | 'MULTIPLE_FACES_DETECTED'
     | 'SIDE_GAZE_LOOKING_AWAY'
     | 'EXCESSIVE_MOVEMENT'
+    | 'PHONE_DETECTED'
     | 'INTERVIEW_BANNED'
     | 'TAB_OR_WINDOW_LEFT'
     | 'FULLSCREEN_EXITED'
@@ -142,7 +148,7 @@ export type InterviewFlagSection = {
 
 export type InterviewProctoringSummary = {
   integrityScore: number
-  status: 'FLAGGED' | 'CLEAR'
+  status: 'FLAGGED' | 'REVIEW' | 'CLEAR'
   counts: {
     total: number
     lookingSide: number
@@ -150,6 +156,33 @@ export type InterviewProctoringSummary = {
     noFace: number
   }
   flaggedSections: InterviewFlagSection[]
+}
+
+/** Per required skill: 40 points if on the resume + 60 if demonstrated in the interview. */
+export type RoleSkillFitRow = {
+  skill: string
+  onResume: boolean
+  demonstrated: boolean
+  /** 1-based question number whose answer demonstrated the skill. */
+  evidenceQuestion?: number | null
+  points: number
+  status: 'matched' | 'partial' | 'missing'
+}
+
+export type RoleSkillsAnalysis = {
+  fitScore: number
+  requiredSkills: string[]
+  onResume: string[]
+  evidencedInAnswers: string[]
+  resumeMatchCount: number
+  answerMatchCount: number
+  skills?: RoleSkillFitRow[]
+  matchedSkills?: string[]
+  missingSkills?: string[]
+  /** Where the required skills came from: the job, the role catalog, or the resume. */
+  skillSource?: 'job' | 'role' | 'resume'
+  weights?: { resume: number; interview: number }
+  method?: string
 }
 
 export type InterviewResult = {
@@ -175,14 +208,12 @@ export type InterviewResult = {
   improvements: string[]
   answers: AnswerAnalysis[]
   resumeFitScore?: number
-  roleSkillsAnalysis?: {
-    fitScore: number
-    requiredSkills: string[]
-    onResume: string[]
-    evidencedInAnswers: string[]
-    resumeMatchCount: number
-    answerMatchCount: number
-  }
+  /** Role Skills Fit, computed by the API (the browser only displays it). */
+  roleSkillsAnalysis?: RoleSkillsAnalysis
+  /** Camera proctoring deduction applied to `overall` (shown on the report so it is transparent). */
+  proctorScorePenalty?: number
+  proctorDeviationCount?: number
+  scoreBeforeProctorPenalty?: number
   agent?: string
   /** How the score was produced. `reliable: false` means the AI evaluator was unavailable. */
   scoring?: { mode: 'llm' | 'heuristic'; reliable: boolean; notice?: string | null }
@@ -234,6 +265,20 @@ export type EmployerJob = {
   createdByEmail: string
   createdAt: string
   shareableCode: string
+  /** Lifecycle from the API: draft / published (or legacy "active") / closed / archived. */
+  status?: string
+}
+
+export type EmployerApplicantApplication = {
+  applicationId: string
+  jobId: string
+  jobTitle?: string
+  status?: string
+  atsScore?: number | null
+  jdMatchScore?: number | null
+  appliedAt?: string
+  interviewScore?: number | null
+  interviewed?: boolean
 }
 
 export type EmployerApplicant = {
@@ -264,6 +309,21 @@ export type EmployerApplicant = {
   source?: 'job_board' | 'shared_link' | 'invite'
   /** Which interview the score comes from: this job's interview, or the candidate's general one. */
   interviewSource?: 'job' | 'general'
+  /** Position in the job's ranking from the API (1 = top candidate); null when not interviewed yet. */
+  rank?: number | null
+  /** Role Skills Fit the ranking used (tie-breaker after the interview score). */
+  roleSkillsFit?: number | null
+  interviewCompletedAt?: string | null
+  /** Where an organisation-directory row came from (API `source`: application, vault, interview, talent…). */
+  recordSource?: string
+  /** Every job of the organisation this person applied to (GET /api/vendor/candidates). */
+  appliedJobIds?: string[]
+  /** Those applications with their own id, status and scores (one row per person, several jobs). */
+  applications?: EmployerApplicantApplication[]
+  /** The job the attached interview was taken for (null: a general / shared interview). */
+  interviewJobId?: string | null
+  /** The API removed contact details (candidate has no link to this organisation and did not opt in). */
+  contactHidden?: boolean
 }
 
 const USERS_KEY = 'hireright.users'
@@ -636,6 +696,7 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     interviewNotes: data.interviewNotes,
     resumeName: data.resumeFile?.name ?? data.resumeName ?? getProfile()?.resumeName ?? null,
     resumeText: data.resumeText || getProfile()?.resumeText || '',
+    resumeFullName: (data as { resumeFullName?: string }).resumeFullName ?? getProfile()?.resumeFullName ?? '',
     resumeUrl: data.resumeUrl ?? getProfile()?.resumeUrl ?? null,
     resumeStoragePath: data.resumeStoragePath ?? getProfile()?.resumeStoragePath ?? null,
     resumeFileId: data.resumeFileId ?? getProfile()?.resumeFileId ?? null,
@@ -748,7 +809,8 @@ export function resolveInterviewOverall(interview: InterviewResult | null | unde
   }
   const career = interview.scorecard?.careerScore
   if (typeof career === 'number' && Number.isFinite(career)) {
-    return Math.round(Math.min(100, Math.max(0, career / 10)))
+    // Reports saved before the career score became the interview score used a x10 (0-1000) scale.
+    return Math.round(Math.min(100, Math.max(0, career > 100 ? career / 10 : career)))
   }
   return null
 }
@@ -769,14 +831,10 @@ export function hasInterviewScore(): boolean {
   return resolveInterviewOverall(getInterviewResult()) !== null
 }
 
-/** Scorecard career score (e.g. 530 on a ~980 scale), not the 0–100 interview overall. */
+/** The career score IS the 0–100 interview score (one number everywhere; no x10 scale, no bands). */
 export function getCareerDisplayScore(interview?: InterviewResult | null): number | null {
-  if (!interview) return null
-  const sc = interview.scorecard
   const overall = resolveInterviewOverall(interview)
-  if (sc?.careerScore != null) return sc.careerScore
-  if (overall != null) return Math.min(980, Math.max(50, Math.round(overall * 10)))
-  return null
+  return overall == null ? null : Math.round(overall)
 }
 
 export function canApplyToJobs(): boolean {
@@ -998,7 +1056,7 @@ export function applyToJob(job: {
         jobId: match.id,
         jobTitle: match.title,
         company: match.company,
-        candidateName: user.name,
+        candidateName: candidateFullName(),
         candidateEmail: user.email,
         candidatePhone: '',
         experienceYears: getProfile()?.totalExperience || '',
@@ -1041,8 +1099,6 @@ export function applicationStats() {
   }
 }
 
-const DEMO_DISPLAY_NAME = 'Arjun Sharma'
-
 /** Lower-cased name words, ignoring punctuation. "Bharath Krishna  Pachimatla" -> ["bharath","krishna","pachimatla"]. */
 function nameWords(value: string | null | undefined): string[] {
   return String(value ?? '')
@@ -1062,47 +1118,15 @@ export function sameNamePerson(a: string | null | undefined, b: string | null | 
 }
 
 /**
- * The name Ava should use. One rule everywhere (interview greeting, dashboard, reports):
- *
- *  1. the name saved on the profile, but ONLY if it still matches the current resume or the account name;
- *  2. otherwise the name written on the current resume;
- *  3. otherwise the name the person gave when they signed up;
- *  4. otherwise a name guessed from the resume file name.
- *
- * A saved name that matches neither the resume nor the account is stale (left from an older resume) and is ignored,
- * so uploading a new resume can never leave the interview calling someone by a previous person's name.
+ * The candidate's name. One rule everywhere (interview greeting, dashboard, nav, reports), identical to the backend:
+ * the name written on the current resume ALWAYS wins; only without a resume name does the signup name take over.
+ * See lib/candidateName.ts.
  */
 export function resolveCandidateName(
-  profile: { fullName?: string; name?: string; resumeText?: string; resumeName?: string | null } | null | undefined,
-  user: { name?: string; email?: string } | null | undefined,
+  profile: { fullName?: string; name?: string; resumeFullName?: string; resumeText?: string; resumeName?: string | null } | null | undefined,
+  user: { name?: string; email?: string; role?: string } | null | undefined,
 ): string {
-  const saved = (profile?.fullName || profile?.name || '').trim()
-  const savedUsable = saved && saved !== DEMO_DISPLAY_NAME ? saved : ''
-  const resumeName = profile?.resumeText ? (extractNameFromText(profile.resumeText) || '').trim() : ''
-  const accountName = user?.name?.trim() && user.name.trim() !== DEMO_DISPLAY_NAME ? user.name.trim() : ''
-
-  if (savedUsable) {
-    const evidence = [resumeName, accountName].filter(Boolean)
-    // With nothing to compare against, keep what the person saved.
-    if (!evidence.length || evidence.some((e) => sameNamePerson(savedUsable, e))) return savedUsable
-  }
-  if (resumeName) return resumeName
-  if (accountName) return accountName
-
-  if (profile?.resumeName) {
-    const cleanFileName = profile.resumeName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[_-]/g, ' ')
-      .replace(/\b(resume|cv|biodata|profile|fullstack|frontend|backend|engineer|developer)\b/gi, '')
-      .trim()
-    const words = cleanFileName.split(/\s+/).filter((w) => w.length >= 2 && /^[A-Za-z]+$/.test(w))
-    if (words.length >= 2 && words.length <= 4) {
-      return words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-    }
-  }
-  if (savedUsable) return savedUsable
-  if (user?.email === 'demo@hireright.com') return 'Candidate'
-  return 'Candidate'
+  return resolveCandidateNameFrom(profile, user)
 }
 
 export function candidateFullName(): string {
@@ -1111,8 +1135,21 @@ export function candidateFullName(): string {
 
 export function firstName(): string {
   const full = candidateFullName()
-  if (!full || full === 'Candidate' || full === 'there') return 'there'
-  return full.split(' ')[0]
+  if (full && full !== 'Candidate' && full !== 'there') return full.split(' ')[0]
+  const fallback = (getUser()?.name || '').trim()
+  if (fallback) return fallback.split(' ')[0]
+  return 'there'
+}
+
+/**
+ * The name to show for a signed-in account (nav avatar, account menu, sign-out dialog). Candidates are shown by the
+ * name on their resume; employer / admin accounts keep their own account name.
+ */
+export function accountDisplayName(user: User | null | undefined = getUser()): string {
+  if (!user) return ''
+  if (user.role && user.role !== 'jobseeker') return (user.name || user.companyName || '').trim()
+  const full = candidateFullName()
+  return full && full !== 'Candidate' ? full : (user.name || '').trim()
 }
 
 export const JOB_MATCHES = [
@@ -1773,7 +1810,10 @@ export function getNotifications(email?: string): AppNotification[] {
 }
 
 export function addNotification(
-  input: Pick<AppNotification, 'title' | 'body' | 'href' | 'kind' | 'jobId' | 'alertId'>,
+  input: Pick<AppNotification, 'title' | 'body' | 'href' | 'kind' | 'jobId' | 'alertId'> & {
+    /** When the event really happened (e.g. the server's application time); defaults to now. */
+    createdAt?: string
+  },
   email?: string,
 ) {
   const list = getNotifications(email)
@@ -1788,7 +1828,10 @@ export function addNotification(
     id: uid(),
     kind: input.kind ?? 'general',
     read: false,
-    createdAt: new Date().toISOString(),
+    createdAt:
+      input.createdAt && Number.isFinite(Date.parse(input.createdAt))
+        ? new Date(input.createdAt).toISOString()
+        : new Date().toISOString(),
   })
   localStorage.setItem(notifKey(email), JSON.stringify(list.slice(0, 40)))
   window.dispatchEvent(new Event('hireright-auth'))

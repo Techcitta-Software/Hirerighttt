@@ -172,9 +172,10 @@ describe('which name the interview uses', () => {
     expect(resolveCandidateName(profile, user)).toBe('Bharath krishna pachimatla')
   })
 
-  it('keeps a saved name that matches the resume or the account', () => {
+  it('always uses the full name written on the resume', () => {
     expect(resolveCandidateName({ fullName: 'Bharath Krishna Pachimatla', resumeText: BHARATH }, user)).toBe('Bharath Krishna Pachimatla')
-    expect(resolveCandidateName({ fullName: 'Bharath', resumeText: BHARATH }, user)).toBe('Bharath')
+    expect(resolveCandidateName({ fullName: 'Bharath', resumeText: BHARATH }, user)).toBe('Bharath Krishna Pachimatla')
+    expect(resolveCandidateName({ resumeText: BHARATH }, { name: 'Someone Else', email: 'b@example.com' })).toBe('Bharath Krishna Pachimatla')
   })
 
   it('never uses the demo name', () => {

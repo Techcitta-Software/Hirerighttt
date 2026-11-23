@@ -1,0 +1,254 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ds-border);
+  border-radius: 12px;
+  background: var(--ds-surface);
+  color: var(--ds-text);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.countFlagged,
+.countClear {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.countFlagged {
+  color: var(--ds-danger);
+}
+
+.countClear {
+  color: var(--ds-text-muted);
+}
+
+.clock {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-muted);
+}
+
+/* ── Track ── */
+
+.trackWrap {
+  position: relative;
+  height: 32px;
+  /* Room for the tooltip above the track. */
+  margin-top: 28px;
+}
+
+.track {
+  position: absolute;
+  inset: 6px 0;
+  border-radius: 6px;
+  background: var(--ds-neutral-soft);
+  border: 1px solid var(--ds-border-strong);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.track:focus-visible {
+  outline: var(--ds-focus-outline);
+  outline-offset: 2px;
+}
+
+.played {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ds-brand-soft);
+  border-right: 1px solid var(--ds-brand-border);
+  pointer-events: none;
+}
+
+.markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.segment,
+.tick {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Continuous deviations (looked away for 6 s): a red span. */
+.segment {
+  min-width: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ds-danger-solid) 78%, transparent);
+  box-shadow: inset 0 0 0 1px var(--ds-danger);
+}
+
+/* Instant deviations (tab switch, copy attempt): a red tick with a wider invisible hit area. */
+.tick {
+  width: 16px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.tick::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--ds-danger-solid);
+}
+
+.high.segment {
+  background: var(--ds-danger-solid);
+}
+
+.high.tick::after {
+  width: 4px;
+  background: var(--ds-danger);
+}
+
+.segment:hover,
+.segment:focus-visible {
+  background: var(--ds-danger);
+}
+
+.tick:hover::after,
+.tick:focus-visible::after {
+  background: var(--ds-danger);
+  width: 5px;
+}
+
+.segment:focus-visible,
+.tick:focus-visible {
+  outline: var(--ds-focus-outline);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--ds-text);
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.playhead::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: var(--ds-text);
+  box-shadow: 0 0 0 2px var(--ds-surface);
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--ds-text);
+  color: var(--ds-surface);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.35;
+  /* Size to the text, not to the space left before the track's edge. */
+  width: max-content;
+  max-width: min(280px, calc(100vw - 48px));
+  pointer-events: none;
+  z-index: 3;
+}
+
+.tooltipStart {
+  transform: translateX(-8px);
+}
+
+.tooltipEnd {
+  transform: translateX(calc(-100% + 8px));
+}
+
+/* ── Legend ── */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--ds-danger-border);
+  border-radius: 999px;
+  background: var(--ds-danger-soft);
+  color: var(--ds-text-secondary);
+  font-size: 0.75rem;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--ds-danger-solid);
+}
+
+.legendCount {
+  font-weight: 700;
+  color: var(--ds-danger);
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ds-text-muted);
+}
+
+@media (max-width: 480px) {
+  .root {
+    padding: 10px;
+  }
+
+  .trackWrap {
+    height: 40px;
+  }
+}

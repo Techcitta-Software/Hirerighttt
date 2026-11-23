@@ -5,13 +5,15 @@ import styles from './InviteCandidatesPanel.module.css'
 
 type Props = {
   jobs: { id: string; title: string }[]
+  /** Inside a dialog that has its own title: no collapse toggle, the form is always open. */
+  embedded?: boolean
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** Recruiter tool: paste emails -> each person gets an interview link that opens a resume-based AI interview. */
-export function InviteCandidatesPanel({ jobs }: Props) {
-  const [open, setOpen] = useState(false)
+export function InviteCandidatesPanel({ jobs, embedded = false }: Props) {
+  const [open, setOpen] = useState(embedded)
   const [raw, setRaw] = useState('')
   const [jobId, setJobId] = useState('')
   const [days, setDays] = useState(7)
@@ -65,7 +67,8 @@ export function InviteCandidatesPanel({ jobs }: Props) {
   }
 
   return (
-    <section className={styles.panel} aria-label="Send interview links">
+    <section className={embedded ? undefined : styles.panel} aria-label="Send interview links">
+      {embedded ? null : (
       <button type="button" className={styles.toggle} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <span className={styles.toggleText}>
           <strong>Send interview links</strong>
@@ -75,11 +78,12 @@ export function InviteCandidatesPanel({ jobs }: Props) {
           <HrIcon name="plus" size={14} />
         </span>
       </button>
+      )}
 
       {open ? (
         <form className={styles.body} onSubmit={onSubmit}>
           <label className={styles.label} htmlFor="invite-emails">
-            Candidate emails
+            Email addresses
           </label>
           <textarea
             id="invite-emails"

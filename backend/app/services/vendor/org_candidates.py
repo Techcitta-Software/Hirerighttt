@@ -20,6 +20,7 @@ from app.db.finders import (
 )
 from app.db.store import db_pool, read_cache_epoch
 from app.db.talent_index import search_candidate_talent
+from app.services.candidate_name import candidate_display_name
 from app.services.vendor.jobs import list_job_applications, list_org_jobs
 
 
@@ -55,7 +56,7 @@ def _with_stored_interview(db: dict, row: dict) -> dict:
     return out
 
 
-def _record_from_application(app: dict) -> dict:
+def _record_from_application(app: dict, db: dict | None = None) -> dict:
     data = app.get("data") or {}
     return {
         "id": app.get("id"),
@@ -64,7 +65,9 @@ def _record_from_application(app: dict) -> dict:
         "jobId": app.get("jobId"),
         "candidateUserId": app.get("candidateUserId"),
         "candidateEmail": str(app.get("candidateEmail") or "").lower(),
-        "candidateName": data.get("candidateName") or app.get("candidateEmail"),
+        "candidateName": candidate_display_name(
+            db, app.get("candidateEmail"), resume_text=data.get("resumeText"), given=data.get("candidateName")
+        ),
         "candidatePhone": data.get("candidatePhone") or "",
         "candidateRole": data.get("roleTrack") or data.get("jobTitle") or "",
         "experienceYears": data.get("experienceYears") or "",
@@ -90,7 +93,13 @@ def _record_from_profile(db: dict, user: dict, profile: dict, interview: dict | 
         "jobId": None,
         "candidateUserId": user.get("id"),
         "candidateEmail": email,
-        "candidateName": str(profile.get("fullName") or profile.get("name") or user.get("name") or email).strip(),
+        "candidateName": candidate_display_name(
+            db,
+            email,
+            resume_text=profile.get("resumeText"),
+            given=profile.get("fullName") or profile.get("name"),
+            account_name=user.get("name"),
+        ),
         "candidatePhone": profile.get("phone") or user.get("phone") or "",
         "candidateRole": str(profile.get("currentRole") or profile.get("whoAreYou") or "").strip(),
         "experienceYears": str(profile.get("totalExperience") or profile.get("experienceYears") or "").strip(),
@@ -129,7 +138,7 @@ def _record_from_talent_hit(db: dict, hit: dict, user: Any = _LOOKUP) -> dict:
         "jobId": None,
         "candidateUserId": hit.get("userId"),
         "candidateEmail": email,
-        "candidateName": str(hit.get("fullName") or email).strip(),
+        "candidateName": candidate_display_name(db, email, resume_text=profile.get("resumeText"), given=hit.get("fullName")),
         "candidatePhone": profile.get("phone") or (user.get("phone") if user else "") or "",
         "candidateRole": str(hit.get("currentRole") or "").strip(),
         "experienceYears": str(hit.get("experienceYears") or "").strip(),
@@ -188,10 +197,89 @@ def _is_flagged(row: dict, flagged: set[str]) -> bool:
     return em in flagged or str(row.get("candidateUserId") or "") in flagged
 
 
+def _score(value: Any) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _application_summary(row: dict) -> dict:
+    """Per-application facts of one directory record (one job), kept when records of several jobs are merged."""
+    ir = row.get("interviewResult") if isinstance(row.get("interviewResult"), dict) else None
+    return {
+        "applicationId": row.get("id"),
+        "jobId": row.get("jobId"),
+        "jobTitle": row.get("jobTitle") or "",
+        "status": row.get("status"),
+        "atsScore": row.get("atsScore"),
+        "jdMatchScore": row.get("jdMatchScore"),
+        "appliedAt": row.get("appliedAt"),
+        "interviewScore": _score((ir or {}).get("overall")),
+        "interviewed": bool(ir and (_score(ir.get("overall")) is not None or ir.get("scorecard"))),
+    }
+
+
+def _applications_of(row: dict) -> list[dict]:
+    if isinstance(row.get("applications"), list):
+        return list(row["applications"])
+    if row.get("source") == "application" and row.get("id") and row.get("jobId"):
+        return [_application_summary(row)]
+    return []
+
+
+def _merge_applications(a: dict, b: dict) -> list[dict]:
+    by_id: dict[str, dict] = {}
+    for item in _applications_of(a) + _applications_of(b):
+        key = str(item.get("applicationId") or item.get("jobId") or "")
+        prev = by_id.get(key)
+        # The same application seen twice (application row + interview session row): keep the richer copy.
+        if prev is None or (item.get("interviewed") and not prev.get("interviewed")):
+            by_id[key] = item
+    return sorted(by_id.values(), key=lambda x: str(x.get("appliedAt") or ""))
+
+
+def project_to_job(row: dict, job_id: str) -> dict:
+    """The row as seen under one job's filter: that job's application id, status, ATS / JD scores and title.
+
+    A candidate on two jobs is one row (the interviewed application). Filtered by the OTHER job it showed the
+    interviewed job's rank, label and scores; now it shows the filtered job's own. The interview stays attached (the
+    job's ranking also uses the candidate's general interview) and `interviewJobId` says which job it came from."""
+    if not job_id or row.get("jobId") == job_id:
+        return row
+    app = next((x for x in _applications_of(row) if x.get("jobId") == job_id), None)
+    if not app:
+        return row
+    return {
+        **row,
+        "id": app.get("applicationId") or row.get("id"),
+        "jobId": job_id,
+        "jobTitle": app.get("jobTitle") or row.get("jobTitle"),
+        "status": app.get("status") or row.get("status"),
+        "atsScore": app.get("atsScore"),
+        "jdMatchScore": app.get("jdMatchScore"),
+        "appliedAt": app.get("appliedAt") or row.get("appliedAt"),
+        "interviewJobId": row.get("interviewJobId") or (row.get("jobId") if row.get("interviewResult") else None),
+    }
+
+
 def _merge_records(a: dict, b: dict) -> dict:
     def pick(x: Any, y: Any) -> Any:
         return x if x and str(x).strip() else y
 
+    def job_ids(r: dict) -> list:
+        return list(r.get("appliedJobIds") or ([r["jobId"]] if r.get("jobId") else []))
+
+    applied_job_ids = list(dict.fromkeys(job_ids(a) + job_ids(b)))
+    # One row per candidate: when they applied to several jobs, the row is the application that HAS the interview,
+    # so its id, job, status and score belong together (it showed job B's application with job A's interview).
+    if (
+        a.get("source") == "application"
+        and b.get("source") == "application"
+        and b.get("interviewResult")
+        and not a.get("interviewResult")
+    ):
+        a, b = b, a
+    # Two applications: the chosen one's own fields (status, appliedAt, ...) win, not the other job's.
+    base = {**b, **a} if a.get("source") == "application" and b.get("source") == "application" else {**a, **b}
+    app_row = a if a.get("source") == "application" else b if b.get("source") == "application" else None
     source = a.get("source")
     if source != "application" and b.get("source") == "application":
         source = "application"
@@ -199,8 +287,7 @@ def _merge_records(a: dict, b: dict) -> dict:
     skills_a = a.get("primarySkills") or []
     skills_b = b.get("primarySkills") or []
     return {
-        **a,
-        **b,
+        **base,
         "id": row_id,
         "source": source,
         "candidateName": pick(a.get("candidateName"), b.get("candidateName")),
@@ -212,7 +299,28 @@ def _merge_records(a: dict, b: dict) -> dict:
         "primarySkills": skills_a if skills_a else skills_b,
         "atsScore": a.get("atsScore") if a.get("atsScore") is not None else b.get("atsScore"),
         "jdMatchScore": a.get("jdMatchScore") if a.get("jdMatchScore") is not None else b.get("jdMatchScore"),
+        # Every job of this organisation the candidate applied to (the Applicants job filter uses it).
+        "appliedJobIds": applied_job_ids,
+        # Each of those applications with its own status and scores (per-job view in the Applicants filter).
+        "applications": _merge_applications(a, b),
+        # Which job the attached interview was taken for (None: a general / shared interview, or none yet).
+        "interviewJobId": _interview_job_id(a, b),
+        # The recruiter's decision lives on the application: a talent / interview-report record merged in later
+        # ("New") must not reset a Shortlisted / Rejected applicant (Shortlist was lost on reload).
+        "status": (app_row or base).get("status"),
     }
+
+
+def _interview_job_id(a: dict, b: dict) -> str | None:
+    for r in (a, b):
+        for app in _applications_of(r):
+            if app.get("interviewed"):
+                return app.get("jobId")
+    return a.get("interviewJobId") or b.get("interviewJobId")
+
+
+def _job_ids_of(row: dict) -> list:
+    return list(row.get("appliedJobIds") or ([row["jobId"]] if row.get("jobId") else []))
 
 
 def _matches_filters(row: dict, filters: dict) -> bool:
@@ -247,7 +355,7 @@ def _matches_filters(row: dict, filters: dict) -> bool:
         ).lower()
         if kw_q not in hay:
             return False
-    if filters.get("jobId") and row.get("jobId") != filters.get("jobId"):
+    if filters.get("jobId") and filters.get("jobId") not in _job_ids_of(row):
         return False
     return True
 
@@ -379,7 +487,9 @@ def _cap_resume_text(row: dict, limit: int) -> dict:
 
 def list_job_candidates(db: dict, organization_id: str, job_id: str, filters: dict | None = None) -> dict[str, Any]:
     filters = filters or {}
-    rows = [_record_from_application(a) for a in list_job_applications(db, organization_id, job_id)]
+    job_apps = list_job_applications(db, organization_id, job_id)
+    profiles_for_emails(db, [a.get("candidateEmail") for a in job_apps])  # one query: names come from resumes
+    rows = [_record_from_application(a, db) for a in job_apps]
     flagged = _recruiter_account_keys(db, rows)
     interviews_for_emails(db, [r.get("candidateEmail") for r in rows])
     candidates = [_with_stored_interview(db, r) for r in rows if not _is_flagged(r, flagged)]
@@ -388,7 +498,9 @@ def list_job_candidates(db: dict, organization_id: str, job_id: str, filters: di
         key = str(row.get("candidateEmail") or "").lower()
         prev = by_email.get(key)
         by_email[key] = _merge_records(prev, row) if prev else row
-    filtered = [r for r in by_email.values() if _matches_filters(r, {**filters, "jobId": job_id})]
+    filtered = [
+        project_to_job(r, job_id) for r in by_email.values() if _matches_filters(r, {**filters, "jobId": job_id})
+    ]
     return {"total": len(filtered), "candidates": filtered, "jobId": job_id}
 
 
@@ -445,10 +557,11 @@ async def list_organization_candidates(
 
     org_apps = employer_apps_for_org(db, organization_id)
     interviews_for_emails(db, [a.get("candidateEmail") for a in org_apps])  # one query for all of them
+    profiles_for_emails(db, [a.get("candidateEmail") for a in org_apps])  # names come from the resumes
     for app in org_apps:
         if recruiter_job_ids and app.get("jobId") not in recruiter_job_ids:
             continue
-        add(_with_stored_interview(db, _record_from_application(app)))
+        add(_with_stored_interview(db, _record_from_application(app, db)))
 
     for vault in vault_for_org(db, organization_id):
         add(
@@ -459,7 +572,9 @@ async def list_organization_candidates(
                 "jobId": None,
                 "candidateUserId": None,
                 "candidateEmail": str(vault.get("email") or "").lower(),
-                "candidateName": vault.get("name"),
+                "candidateName": candidate_display_name(
+                    db, vault.get("email"), resume_text=vault.get("resumeText"), given=vault.get("name")
+                ),
                 "candidatePhone": vault.get("phone") or "",
                 "candidateRole": vault.get("currentRole") or "",
                 "experienceYears": vault.get("experienceYears") or "",
@@ -517,11 +632,13 @@ async def list_organization_candidates(
                     "jobId": job_id,
                     "candidateUserId": user.get("id") if user else None,
                     "candidateEmail": email,
-                    "candidateName": str(
-                        data.get("candidateName")
-                        or profile.get("fullName")
-                        or (user.get("name") if user else email)
-                    ).strip(),
+                    "candidateName": candidate_display_name(
+                        db,
+                        email,
+                        resume_text=data.get("resumeText"),
+                        given=data.get("candidateName") or profile.get("fullName"),
+                        account_name=user.get("name") if user else None,
+                    ),
                     "candidatePhone": data.get("candidatePhone") or profile.get("phone") or "",
                     "candidateRole": str(data.get("roleTrack") or profile.get("currentRole") or (job or {}).get("roleTrack") or "").strip(),
                     "experienceYears": str(data.get("experienceYears") or profile.get("totalExperience") or "").strip(),
@@ -555,6 +672,16 @@ async def list_organization_candidates(
         and (not recruiter_job_ids or not row.get("jobId") or row.get("jobId") in recruiter_job_ids)
         and _matches_filters(row, filters)
     ]
+    if recruiter_job_ids:
+        # A recruiter sees only their own jobs' applications in the per-job list, too.
+        candidates = [
+            {**r, "applications": [x for x in r["applications"] if x.get("jobId") in recruiter_job_ids]}
+            if isinstance(r.get("applications"), list)
+            else r
+            for r in candidates
+        ]
+    if filters.get("jobId"):
+        candidates = [project_to_job(r, str(filters["jobId"])) for r in candidates]
     candidates.sort(key=lambda r: str(r.get("appliedAt") or ""), reverse=True)
     if org_only:
         candidates = [_cap_resume_text(r, LIST_RESUME_TEXT_CHARS) for r in candidates]

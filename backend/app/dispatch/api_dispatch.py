@@ -29,7 +29,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from app.db import store as db_store
-from app.db.dynamo_config import database_provider, persistence_ready
+from app.db.persistence import persistence_ready
 from app.db.talent_index import (
     get_candidate_talent_by_id,
     grant_organization_talent_access,
@@ -43,8 +43,10 @@ from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import background, runtime
 from app.services.ats_composite import compute_employer_interview_composite
 from app.server.json_safe import json_safe
+from app.services import audit
 from app.services import interview_api as ia
 from app.services import retake_payments
+from app.services.candidate_name import candidate_display_name
 from app.services.interview_invites import (
     INVITE_JOIN_WINDOW_MINUTES,
     build_interview_invite_email,
@@ -66,6 +68,7 @@ from app.services.interview_integrity import (
     session_is_stale,
 )
 from app.services.interview_review import vendor_may_view_interview_session
+from app.services.interview_jd_plan import JD_INTERVIEW_DURATION_MINUTES, JD_INTERVIEW_TURN_COUNT, is_jd_first_interview
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
 from app.services.proctoring.score_penalty import apply_face_deviation_penalty_to_result, count_face_proctor_deviations
@@ -98,14 +101,17 @@ from app.services.vendor.candidate_applications import (
 from app.services.vendor.candidate_documents import (
     assert_vendor_may_view_candidate_documents,
     candidate_profile_for_documents,
+    discovery_interview_summary,
     redact_talent_hits,
 )
 from app.services.vendor.job_role_match import apply_candidate_job_scope
 from app.services.vendor.jobs import (
     attach_candidate_report_to_application,
+    closed_job_response_body,
     create_job_application,
     create_vendor_job,
     delete_vendor_job,
+    find_job_by_code_any_status,
     get_org_application,
     get_org_application_for_recruiter,
     get_org_job,
@@ -118,6 +124,7 @@ from app.services.vendor.jobs import (
     public_job_payload,
     resolve_public_job,
     update_application_interview,
+    update_vendor_job,
 )
 from app.services.vendor import interview_plan_cache as plan_cache
 from app.services.vendor.org_candidates import list_job_candidates, list_organization_candidates
@@ -336,6 +343,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             job = await resolve_public_job(db, config.database_url, parsed["code"], parsed.get("companySlug"))
             if not job:
+                stale = await asyncio.to_thread(find_job_by_code_any_status, db, parsed["code"], config.database_url)
+                if stale:
+                    return _json(410, closed_job_response_body(stale))
                 return _json(404, {"error": "Job link not found or expired."})
             return _json(200, {"job": public_job_payload(job)})
 
@@ -347,12 +357,15 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
             job = await resolve_public_job(db, config.database_url, parsed["code"], parsed.get("companySlug"))
             if not job:
+                stale = await asyncio.to_thread(find_job_by_code_any_status, db, parsed["code"], config.database_url)
+                if stale:
+                    return _json(410, closed_job_response_body(stale))
                 return _json(404, {"error": "Job link not found or expired."})
             session_email = await runtime.require_auth_email(request)
             body_email = str(body.get("candidateEmail") or "").strip().lower()
             if body_email and body_email != session_email:
                 return _json(403, {"error": "Application email must match your signed-in candidate account."})
-            u = find_user(db, email=session_email)
+            u = await asyncio.to_thread(find_user, db, email=session_email)
             if u and u.get("role") == "employer":
                 return _json(
                     403,
@@ -374,11 +387,18 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 db,
                 job,
                 {
-                    "candidateName": body.get("candidateName") or profile.get("fullName") or profile.get("name") or (u or {}).get("name"),
+                    # The name on the resume being sent (or the profile resume), never a name typed over it.
+                    "candidateName": candidate_display_name(
+                        db,
+                        session_email,
+                        resume_text=resume_text,
+                        given=profile.get("fullName") or body.get("candidateName") or profile.get("name"),
+                        account_name=(u or {}).get("name"),
+                    ),
                     "candidatePhone": body.get("candidatePhone") or profile.get("contactPhone") or (u or {}).get("phone"),
                     "candidateRole": body.get("candidateRole") or profile.get("currentRole") or "",
                     "experienceYears": body.get("experienceYears") or profile.get("totalExperience") or "",
-                    "resumeName": body.get("resumeName") or profile.get("resumeName") or "HireRight profile",
+                    "resumeName": body.get("resumeName") or profile.get("resumeName") or "HireRighttt profile",
                     "resumeText": resume_text,
                     "candidateEmail": session_email,
                     "candidateUserId": (u or {}).get("id"),
@@ -408,7 +428,31 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 {"match": body.get("match")},
             )
             if persistence_ready(config.database_url):
-                await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, application)
+                import psycopg
+
+                try:
+                    await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, application)
+                except psycopg.errors.UniqueViolation:
+                    # Double submit: a parallel request from this candidate created the application first (unique
+                    # job_id + candidate_email). Nothing from this request is saved; answer with the existing one.
+                    def _existing_id() -> str | None:
+                        with db_store.db_pool(config.database_url).connection() as conn:
+                            row = conn.execute(
+                                "SELECT id FROM employer_applications WHERE job_id = %s AND lower(candidate_email) = %s",
+                                (job["id"], session_email),
+                            ).fetchone()
+                        return (row or {}).get("id") if isinstance(row, dict) else (row[0] if row else None)
+
+                    existing_id = await asyncio.to_thread(_existing_id)
+                    return _json(
+                        200,
+                        {
+                            "applicationId": existing_id,
+                            "alreadyApplied": True,
+                            "job": public_job_payload(job),
+                            "organizationId": job["organizationId"],
+                        },
+                    )
                 await asyncio.to_thread(
                     db_store.upsert_job_application_record, config.database_url, session_email, candidate_application
                 )
@@ -504,6 +548,56 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             await ctx.save_db(db)
             return _json(200, {"ok": True, "jobId": job_id, "candidateApplicationsUpdated": marked["updated"]})
 
+        if method == "PATCH" and re.match(r"^/api/vendor/jobs/[^/]+$", path):
+            # Edit a job and / or move it through its lifecycle (draft / published / closed / archived).
+            # Owner and admin may change any job of their organisation; a recruiter only the jobs they created.
+            # Another organisation's job is a 404 (never reveal that it exists); a non-recruiter member is a 403.
+            db = ctx.load_db()
+            access = await runtime.require_employer_tenant(request, db)
+            body = await runtime.read_json_body(request)
+            job_id = path.split("/")[4]
+            org_id = access["tenant"]["organization"]["id"]
+            member_role = (access["tenant"].get("membership") or {}).get("role")
+            if persistence_ready(config.database_url):
+                await asyncio.to_thread(db_store.sync_org_jobs_from_database, config.database_url, db, org_id)
+            job = (
+                get_org_job(db, org_id, job_id)
+                if member_role in ("owner", "admin")
+                else get_org_job_for_recruiter(db, org_id, job_id, _vendor_recruiter_scope(access))
+            )
+            if not job:
+                return _json(404, {"error": "Job not found."})
+            before = {k: job.get(k) for k in ("title", "status")}
+            try:
+                outcome = update_vendor_job(job, body)
+            except ValueError as err:
+                return _json(getattr(err, "status", 400), {"error": str(err)})
+            if outcome["changed"]:
+                await ctx.save_db(db)
+                if persistence_ready(config.database_url):
+                    await asyncio.to_thread(db_store.upsert_job_record, config.database_url, job)
+                audit.fire(
+                    audit.JOB_UPDATED,
+                    user_id=access["user"].get("id"),
+                    organization_id=org_id,
+                    entity_type="job",
+                    entity_id=job_id,
+                    meta={
+                        "fields": outcome["changed"],
+                        "statusFrom": outcome["from"],
+                        "statusTo": outcome["to"],
+                        "titleBefore": before["title"] if "title" in outcome["changed"] else None,
+                    },
+                )
+            counts = employer_app_counts_for_org(db, org_id)
+            return _json(
+                200,
+                {
+                    "job": {**public_job_payload(job), "applicantCount": counts.get(str(job_id), 0)},
+                    "changed": outcome["changed"],
+                },
+            )
+
         if method == "DELETE" and re.match(r"^/api/vendor/jobs/[^/]+$", path):
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
@@ -566,10 +660,26 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             job = get_org_job_for_recruiter(db, access["tenant"]["organization"]["id"], job_id, scope)
             if not job:
                 return _json(404, {"error": "Job not found."})
-            applicants = [
-                attach_candidate_report_to_application(db, app, app.get("candidateEmail"), {"attachInterviewReport": True})
-                for app in list_job_applications(db, access["tenant"]["organization"]["id"], job_id)
-            ]
+            from app.services.vendor.applicant_ranking import rank_job_applicants
+
+            from app.db.finders import interviews_for_emails, profiles_for_emails
+
+            def _ranked() -> list[dict]:
+                # Blocking (database): a worker thread. Profiles and stored interviews for every applicant are
+                # loaded in two queries instead of two round trips per applicant (QA: 25 applicants ~107 ms p50).
+                apps = list_job_applications(db, access["tenant"]["organization"]["id"], job_id)
+                emails = [str(a.get("candidateEmail") or "").strip().lower() for a in apps]
+                profiles_for_emails(db, emails)
+                interviews_for_emails(db, emails)
+                # Best candidates first (interview score, then Role Skills Fit, then who finished first), numbered.
+                return rank_job_applicants(
+                    [
+                        attach_candidate_report_to_application(db, app, app.get("candidateEmail"), {"attachInterviewReport": True})
+                        for app in apps
+                    ]
+                )
+
+            applicants = await asyncio.to_thread(_ranked)
             return _json(200, {"job": job, "applicants": applicants, "total": len(applicants)})
 
         if method == "GET" and path == "/api/vendor/candidates":
@@ -611,7 +721,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 )
                 profile = await asyncio.to_thread(candidate_profile_for_documents, db, candidate_email)
                 candidate_account = await asyncio.to_thread(find_user, db, email=candidate_email)
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 signed = await resolve_resume_download_from_profile(
                     profile,
                     pool,
@@ -683,7 +793,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not ai_eval.vendor_report_needs_refresh(app.get("data"), force) and app.get("data", {}).get("vendorReport"):
                 return _json(200, {"report": app["data"]["vendorReport"], "application": app})
             report = await ai_eval.generate_vendor_assessment_sheet(
-                candidateName=app["data"].get("candidateName") or app.get("candidateEmail"),
+                candidateName=candidate_display_name(
+                    db,
+                    app.get("candidateEmail"),
+                    resume_text=app["data"].get("resumeText"),
+                    given=app["data"].get("candidateName"),
+                ),
                 jobTitle=(job or {}).get("title") or app["data"].get("jobTitle"),
                 company=(job or {}).get("company") or app["data"].get("company"),
                 jobDescription=(job or {}).get("jobDescription") or "",
@@ -746,6 +861,10 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 skill_focus = ia.vendor_skill_focus(skill_analysis, required) if skill_analysis else []
                 total_turns = ia.resolve_interview_total_turns(profile, level, digest)
                 fresher = ia._is_fresher(profile, level, digest)
+                # The preview matches what the candidate will get: the JD-first mix for a job with a JD.
+                preview_jd_first = is_jd_first_interview(question_mode="vendor_jd", job_description=jd)
+                if preview_jd_first:
+                    total_turns = JD_INTERVIEW_TURN_COUNT
             except Exception as err:
                 logger.warning("Interview plan preview failed for application %s: %s", app_id, err)
                 return _json(503, {"error": "Could not prepare the interview preview right now. Please try again.", "code": "LLM_QUESTION_FAILED"})
@@ -781,6 +900,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "totalTurns": total_turns,
                         "fresher": fresher,
                         "skillFocus": skill_focus,
+                        "jdFirst": preview_jd_first,
+                        "jdSkills": (skill_analysis or {}).get("jdSkills") or required,
                     }
                 )
                 questions = []
@@ -794,7 +915,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "role": role,
                     "level": level,
                     "skillAnalysis": skill_analysis,
-                    "questions": [{"text": q["text"], "category": q.get("category"), "topic": q.get("topic")} for q in questions],
+                    "questions": [
+                        {"text": q["text"], "category": q.get("category"), "topic": q.get("topic"), "planSlot": q.get("planSlot")}
+                        for q in questions
+                    ],
+                    "jdFirst": bool(batch.get("jdFirst")),
+                    "durationMinutes": batch.get("durationMinutes"),
                 }
 
             try:
@@ -820,7 +946,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 )
             invite_token = ""
             if body.get("inviteToken") and persistence_ready(config.database_url):
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 invite = await get_interview_invite_by_token(pool, str(body["inviteToken"]))
                 access = validate_invite_start(invite, email)
                 if not access.get("ok"):
@@ -859,7 +985,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             )
             retake_charged = False
             free_claim = False
-            payments_db = persistence_ready(config.database_url) and database_provider() != "dynamodb"
+            payments_db = persistence_ready(config.database_url)
             if not is_job and payments_db:
                 from psycopg.rows import dict_row
 
@@ -938,6 +1064,10 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 if question_mode in ("vendor_jd", "employer") and skill_analysis
                 else []
             )
+            # Recruiter job link / invite with a JD: JD-first mix (~80% JD, ~20% resume-to-JD, >=1 behavioural), 20 min.
+            jd_first = is_jd_first_interview(
+                question_mode=question_mode, job_description=effective_jd, invite_token=invite_token
+            )
             try:
                 batch = await ia.generate_adaptive_question_batch(
                     {
@@ -951,9 +1081,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "totalTurns": interview_total_turns,
                         "fresher": fresher,
                         "skillFocus": skill_focus,
+                        "jdFirst": jd_first,
+                        "jdSkills": (skill_analysis or {}).get("jdSkills") or required_skills,
                     }
                 )
                 questions = batch["questions"]
+                jd_first = bool(batch.get("jdFirst"))
                 first = questions[0]
                 session_fallback_turn = batch.get("fallbackTurn")
                 session_closing_turn = batch.get("closingTurn")
@@ -1028,6 +1161,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "varietySeed": variety_seed,
                 "preloadedQuestionBatch": preloaded_question_batch,
                 "fallbackTurn": session_fallback_turn,
+                "jdFirst": jd_first,
+                "durationMinutes": JD_INTERVIEW_DURATION_MINUTES if jd_first else None,
                 "closingTurn": session_closing_turn,
                 "integrity": {"faceViolations": 0, "singlePersonOk": True, "maxFacesSeen": 1},
                 "consent": consent_record,
@@ -1048,6 +1183,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "question": questions[0],
                     "questions": questions,
                     "varietySeed": variety_seed,
+                    "jdFirst": jd_first,
+                    "durationMinutes": JD_INTERVIEW_DURATION_MINUTES if jd_first else None,
                     "profileDigest": digest,
                     "questionMode": question_mode,
                     "skillAnalysis": (
@@ -1179,6 +1316,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     "integrity": client_integrity,
                     "accountName": user.get("name") if user else None,
                     "durationSeconds": duration_seconds,
+                    # Job / vendor interviews: the job's skills (stored on the session when it started).
+                    "requiredSkills": (session.get("primarySkills") or []) if session.get("applicationId") else [],
                 }
             )
             result["sessionId"] = session_id
@@ -1226,7 +1365,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 ) -> None:
                     try:
                         await art_store.persist_interview_transcript_to_s3(
-                            pool=db_store.db_pool(config.database_url or "dynamodb"),
+                            pool=db_store.db_pool(config.database_url),
                             db={"interviewSessions": {session_id: session_copy}},
                             requesterEmail=email,
                             account=account,
@@ -1262,9 +1401,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
+            given_id = body.get("id")
+            if given_id is not None and not isinstance(given_id, (str, int)) or isinstance(given_id, bool):
+                return _json(400, {"error": "Application id must be a string."})
+            if given_id is not None and len(str(given_id)) > 100:
+                return _json(400, {"error": "Application id is too long."})
             record = {
                 **body,
-                "id": body.get("id") or secrets.token_hex(6),
+                "id": str(given_id) if given_id not in (None, "") else secrets.token_hex(6),
                 "appliedAt": body.get("appliedAt") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "status": body.get("status") or "Applied",
             }
@@ -1344,7 +1488,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 account = await asyncio.to_thread(find_user, db, email=email)
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 uploaded = await upload_resume_to_object_storage(
                     pool=pool,
                     candidateEmail=email,
@@ -1383,7 +1527,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 db = ctx.load_db()
                 profile = await asyncio.to_thread(lambda: (db.get("profiles") or {}).get(email) or {})
                 account = await asyncio.to_thread(find_user, db, email=email)
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 # The stored key must be inside THIS account's users/<id>/resume/ folder (V-02).
                 signed = await resolve_resume_download_for_user(
                     requesterEmail=email, profile=profile, pool=pool, ownerUserId=(account or {}).get("id")
@@ -1429,8 +1573,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session = (db.get("interviewSessions") or {}).get(session_id)
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
-            profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = find_user(db, email=email)
+            profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
+            account = await asyncio.to_thread(find_user, db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             history = runtime.merge_turn_into_interview_history(
                 body.get("history") or session.get("history") or [], body.get("lastQuestion"), body.get("lastAnswer")
@@ -1487,19 +1631,20 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
-            profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            digest = ia.summarize_profile(profile, (find_user(db, email=email) or {}).get("name"))
+            profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
+            account = await asyncio.to_thread(find_user, db, email=email)
+            digest = ia.summarize_profile(profile, (account or {}).get("name"))
             turn = await ia.generate_interview_turn(
                 {
                     "ctx": digest,
                     "profile": profile,
                     "role": body.get("role") or "Full Stack Engineer",
                     "level": body.get("level") or "1–3 years",
-                    "question": body.get("question") or {},
+                    "question": body.get("question") if isinstance(body.get("question"), dict) else {},
                     "answer": str(body.get("answer") or ""),
                     "questionIndex": _int_param(body.get("questionIndex"), 0, lo=0, hi=100),
                     "totalQuestions": _int_param(body.get("totalQuestions"), 0, lo=0, hi=100),
-                    "nextQuestion": body.get("nextQuestion") or {},
+                    "nextQuestion": body.get("nextQuestion") if isinstance(body.get("nextQuestion"), dict) else {},
                 }
             )
             return _json(200, turn)
@@ -1508,8 +1653,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             email = await runtime.require_auth_email(request)
             body = await runtime.read_json_body(request)
             db = ctx.load_db()
-            profile = runtime.merge_interview_profile(db, email, body.get("profile"))
-            account = find_user(db, email=email)
+            profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
+            account = await asyncio.to_thread(find_user, db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             result = ia.process_interview_interactive(
                 {
@@ -1689,7 +1834,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 account = await asyncio.to_thread(find_user, db, email=email)
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 out = await rec_store.store_interview_recording_bytes(
                     pool=pool,
                     db=db,
@@ -1719,7 +1864,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 account = find_user(db, email=email)
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 out = await rec_store.authorize_interview_recording_upload(
                     pool=pool,
                     db=db,
@@ -1745,7 +1890,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(503, {"error": "Database required for interview recordings."})
             body = await runtime.read_json_body(request)
             try:
-                pool = db_store.db_pool(config.database_url or "dynamodb")
+                pool = db_store.db_pool(config.database_url)
                 duration = body.get("durationSeconds")
                 out = await rec_store.complete_interview_recording_upload(
                     pool=pool,
@@ -1766,7 +1911,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(400, {"error": "Invite token required."})
             if not persistence_ready(config.database_url):
                 return _json(503, {"error": "Database required for interview invites."})
-            pool = db_store.db_pool(config.database_url or "dynamodb")
+            pool = db_store.db_pool(config.database_url)
             row = await get_interview_invite_by_token(pool, token)
             if not row:
                 return _json(404, {"error": "Invite not found."})
@@ -1805,7 +1950,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "token": row.get("token"),
                         "serverNow": server_now.isoformat().replace("+00:00", "Z"),
                         "candidateEmail": row.get("candidate_email"),
-                        "candidateName": row.get("candidate_name"),
+                        "candidateName": candidate_display_name(
+                            db, row.get("candidate_email"), resume_text=resume_text, given=row.get("candidate_name")
+                        ),
                         "jobTitle": row.get("job_title") or (job or {}).get("title") or ctx_json.get("jobTitle"),
                         "scheduledStart": row.get("scheduled_start"),
                         "scheduledEnd": row.get("scheduled_end"),
@@ -1821,8 +1968,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "experienceLevel": ctx_json.get("experienceLevel") or (job or {}).get("experienceLevel") or "",
                         "company": (job or {}).get("company") or "",
                         "primarySkills": ctx_json.get("primarySkills") or (app or {}).get("data", {}).get("primarySkills") or (job or {}).get("requiredSkills") or [],
-                        "atsScore": (app or {}).get("data", {}).get("atsScore"),
-                        "jdMatchScore": (app or {}).get("data", {}).get("jdMatchScore"),
+                        # Recruiter-side match scores: only for the signed-in invitee, not for anyone holding the link.
+                        "atsScore": (app or {}).get("data", {}).get("atsScore") if is_invitee else None,
+                        "jdMatchScore": (app or {}).get("data", {}).get("jdMatchScore") if is_invitee else None,
                         "contextSource": ctx_json.get("source"),
                         "status": access.get("status"),
                         "canStart": access.get("canStart"),
@@ -1848,6 +1996,10 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return _json(404, {"error": "Candidate not found or not visible."})
             interview = await asyncio.to_thread(lambda: (db.get("interviews") or {}).get(candidate["email"]))
             redacted = await asyncio.to_thread(redact_talent_hits, db, org_id, [candidate])
+            if redacted[0].get("contactHidden"):
+                # No link to this organization: the score is discoverable, the report (answers, feedback,
+                # proctoring, recording session) is not.
+                interview = discovery_interview_summary(interview)
             return _json(200, {"candidate": redacted[0], "interview": interview})
 
     except HTTPException as exc:

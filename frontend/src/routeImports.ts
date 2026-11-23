@@ -87,7 +87,13 @@ export function routeChunkForPath(pathname: string): RouteChunk | null {
   if (path === '/interview/now') return 'interviewNow'
   if (path === '/interview/complete') return 'interviewComplete'
   if (path.startsWith('/interview/invite/')) return 'interviewInvite'
-  if (path === '/employer/jobs' || path === '/employer/candidates' || path === '/candidates') return 'employer'
+  if (
+    path === '/employer/jobs' ||
+    path === '/employer/applicants' ||
+    path === '/employer/candidates' ||
+    path === '/candidates'
+  )
+    return 'employer'
   if (path === '/employer/dashboard' || path === '/employer') return 'vendorDashboard'
   if (path.startsWith('/apply/')) return 'apply'
   if (path.startsWith('/jobs/')) return 'jobInvite'
@@ -102,7 +108,7 @@ export function routeChunkForPath(pathname: string): RouteChunk | null {
 /** Paths rendered inside AppShell (see App.tsx); their first render also needs the shell's code. */
 const APP_SHELL_PATHS = new Set([
   '/dashboard', '/dashboard/report', '/pricing/retake', '/employer', '/employer/dashboard', '/employer/jobs',
-  '/employer/candidates', '/candidates', '/resumes', '/talent-vault', '/jobs', '/applications', '/profile',
+  '/employer/applicants', '/employer/candidates', '/candidates', '/resumes', '/talent-vault', '/jobs', '/applications', '/profile',
   '/settings', '/admin',
 ])
 

@@ -19,8 +19,8 @@ from app.db.finders import find_organization, find_plan, find_user, memberships_
 from app.node_config import config
 from app.server import ratelimit
 
-# Legacy DynamoDB mode only: the whole database in one process. With Postgres every request gets its own unit of
-# work (app/db/uow.py) that loads only the rows it touches, so the API can run as many instances as needed.
+# In-memory database used only by tests (set_db_cache). With Postgres every request gets its own unit of work
+# (app/db/uow.py) that loads only the rows it touches, so the API can run as many instances as needed.
 _db_cache: dict[str, Any] = empty_db()
 
 
@@ -29,33 +29,14 @@ _memory_db_url: str | None = None
 
 
 def _uses_unit_of_work() -> bool:
-    from app.db.dynamo_config import database_provider
-
     if _memory_db_url is not None and _memory_db_url == config.database_url:
         return False
-    return database_provider() != "dynamodb" and bool(config.database_url.strip())
+    return bool(config.database_url.strip())
 
 
 def load_db_sync() -> dict[str, Any]:
     """Startup: make sure the schema exists and (dev only) the demo accounts. Nothing is loaded into memory."""
     global _db_cache
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb":
-        from app.demo_accounts import seed_demo_users_if_needed
-
-        _db_cache = load_db_from_store("")
-        _db_cache, changed = seed_demo_users_if_needed(_db_cache)
-        if changed:
-            from app.db.dynamo_config import use_neon
-
-            if use_neon() and config.database_url.strip():
-                persist_db(_db_cache, config.database_url)
-            else:
-                from app.db.dynamo_relational import mirror_db_to_dynamo
-
-                mirror_db_to_dynamo(_db_cache)
-        return _db_cache
     if config.database_url.strip():
         from app.db.store import _ensure_schema
         from app.db.uow import new_uow
@@ -75,7 +56,7 @@ def load_db_sync() -> dict[str, Any]:
 
 
 def set_db_cache(db: dict[str, Any]) -> None:
-    """Use `db` as an in-memory database for the current DATABASE_URL (tests, legacy DynamoDB mode).
+    """Use `db` as an in-memory database for the current DATABASE_URL (tests).
 
     Production code never calls this: with Postgres each request has its own unit of work instead."""
     global _db_cache, _memory_db_url
@@ -92,7 +73,7 @@ NO_READ_CACHE_COLLECTIONS = frozenset(
 
 
 def load_db() -> dict[str, Any]:
-    """The request's database handle. Postgres: a per-request unit of work. DynamoDB (legacy): the shared dict."""
+    """The request's database handle. Postgres: a per-request unit of work. Tests: the in-memory dict."""
     if _uses_unit_of_work():
         from app.db.uow import current_uow
 
@@ -118,14 +99,8 @@ async def save_db(db: dict[str, Any] | None = None) -> None:
         return
     if db is not None:
         _db_cache = db
-    from app.db.dynamo_config import database_provider, use_neon
-
-    if use_neon() and config.database_url.strip():
+    if config.database_url.strip():
         await asyncio.to_thread(persist_db, _db_cache, config.database_url)
-    elif database_provider() == "dynamodb":
-        from app.db.dynamo_relational import mirror_db_to_dynamo
-
-        await asyncio.to_thread(mirror_db_to_dynamo, _db_cache)
 
 
 def rate_limit(key: str, limit: int = 30, window_ms: int = 60_000, *, strict: bool = False) -> bool:
@@ -246,36 +221,31 @@ def _is_demo_display_name(name: str) -> bool:
 
 
 def merge_interview_profile(db: dict[str, Any], email: str, body_profile: dict | None) -> dict:
-    from app.services.interview_agent import resolve_candidate_name
+    from app.services.candidate_name import apply_resume_name
 
     account = find_user(db, email=email)
     stored = dict((db.get("profiles") or {}).get(email) or {})
-    merged = {**stored, **(body_profile or {})}
-    client_name = str(
-        (body_profile or {}).get("fullName")
-        or (body_profile or {}).get("name")
-        or merged.get("fullName")
-        or merged.get("name")
-        or ""
-    ).strip()
-    if client_name and not _is_demo_display_name(client_name):
-        merged = {**merged, "fullName": client_name, "name": client_name}
-    # One rule for the name everywhere: a saved name that matches neither the current resume nor the account name is
-    # stale (left over from an older resume) and is replaced, so the interview never greets someone by another name.
-    resolved = resolve_candidate_name(merged, account.get("name") if account else "")
-    return {**merged, "fullName": resolved, "name": resolved}
+    # A non-object "profile" from the browser is ignored (a string here was a TypeError -> 500).
+    merged = {**stored, **(body_profile if isinstance(body_profile, dict) else {})}
+    # One rule for the name everywhere: the name on the resume wins (a name the browser sends that contradicts the
+    # resume is ignored); only without a readable resume name does the signup name take over.
+    return apply_resume_name(merged, account.get("name") if account else "")
 
 
 def merge_turn_into_interview_history(history: list, last_question: dict | None, last_answer: str) -> list:
-    lst = list(history or [])
+    # Browser-supplied: keep only well-formed turns (junk here was an AttributeError -> 500).
+    lst = [t for t in (history if isinstance(history, list) else []) if isinstance(t, dict)]
     if not last_question:
         return lst
-    q_text = str(last_question.get("text") or last_question or "").strip()
+    if not isinstance(last_question, dict):
+        last_question = {"text": str(last_question)}
+    q_text = str(last_question.get("text") or "").strip()
     if not q_text:
         return lst
     if lst:
         last = lst[-1]
-        prev_q = str((last.get("question") or {}).get("text") or last.get("question") or "").strip()
+        prev = last.get("question")
+        prev_q = str((prev.get("text") if isinstance(prev, dict) else prev) or "").strip()
         if prev_q == q_text:
             last["answer"] = str(last_answer or "")
             return lst
@@ -346,8 +316,14 @@ def is_platform_admin(email: str | None) -> bool:
 async def read_json_body(request: Request) -> dict:
     from fastapi import HTTPException
 
+    import json
+
+    def _no_constants(token: str):
+        # NaN / Infinity are not JSON: Postgres jsonb and the JSON responses reject them later (a 500).
+        raise ValueError(f"Unsupported JSON constant {token}")
+
     try:
-        body = await request.json()
+        body = json.loads(await request.body(), parse_constant=_no_constants)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid JSON object") from exc
     if body is None or not isinstance(body, dict):

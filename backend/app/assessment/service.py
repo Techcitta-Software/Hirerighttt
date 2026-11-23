@@ -29,20 +29,14 @@ from app.node_config import config
 from app.server import background
 
 logger = logging.getLogger("hireright.assessment")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
-# Every database block below is synchronous (psycopg pool / DynamoDB): handlers run them with asyncio.to_thread so
+# Every database block below is synchronous (psycopg pool): handlers run them with asyncio.to_thread so
 # they never stall the event loop, and no connection is held while awaiting the AI provider.
 
 
 def _pool():
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb":
-        from app.db.dynamo_assessment import DynamoAssessmentPool
-
-        return DynamoAssessmentPool()
-    from app.db.dynamo_config import persistence_ready
-
+    from app.db.persistence import persistence_ready
     if not persistence_ready(config.database_url):
         raise AssessmentError(503, "Database required for assessments.")
     return db_pool(config.database_url)
@@ -63,6 +57,17 @@ def _view(session: dict, questions: list) -> dict:
         "started_at": session.get("started_at"),
         "completed_at": session.get("completed_at"),
     }
+
+
+def _version(body: dict) -> int:
+    """The client's optimistic-lock version; junk (None, "abc", objects) was a TypeError/ValueError -> 500."""
+    raw = body.get("version")
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise AssessmentError(400, "Session version is required")
+    try:
+        return int(raw)
+    except ValueError:
+        raise AssessmentError(400, "Session version is required") from None
 
 
 def _questions(conn, plan_id) -> list[dict]:
@@ -111,7 +116,10 @@ def extract_resume_text(body: dict) -> str:
     check(re.search(r"\.(pdf|docx)$", filename, re.I) and len(filename) <= 200, "Only PDF and DOCX resumes are supported")
     raw = body.get("file_base64") or ""
     check(isinstance(raw, str) and len(raw) <= 2_800_000, "Invalid or oversized resume upload")
-    buf = base64.b64decode(raw)
+    try:
+        buf = base64.b64decode(raw, validate=True)
+    except ValueError:  # binascii.Error: not base64 (was a 500)
+        raise AssessmentError(400, "Invalid or oversized resume upload") from None
     check(0 < len(buf) <= 2_000_000, "Resume must be at most 2 MB")
     from app.services.resume_text import docx_text, pdf_text
 
@@ -282,6 +290,8 @@ def _store_plan(actor: dict, job: dict, generated: dict) -> tuple[dict, dict]:
 async def _generate(actor: dict, body: dict) -> tuple[int, dict]:
     check(actor["role"] == "jobseeker", "Candidate account required", 403)
     check(body.get("consent") is True, "Consent to share this assessment with the job organization is required")
+    for key in ("job_id", "resume_id"):  # not a UUID -> Postgres InvalidTextRepresentation (was a 500)
+        check(isinstance(body.get(key), str) and _UUID.fullmatch(body[key]), f"Invalid {key}")
     job, resume = await asyncio.to_thread(_generate_inputs, actor, body)
     check(resume, "Your unexpired resume is required", 404)
     if isinstance(job.get("competencies"), str):
@@ -339,7 +349,7 @@ def _approve(actor: dict, sid: str, body: dict) -> dict:
         conn.row_factory = dict_row
         session = _load_session(conn, sid, actor, recruiter_only=True)
         check(session["status"] == "ready", "Plan cannot change after the interview starts", 409)
-        check(int(body.get("version")) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
+        check(_version(body) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
         conn.execute(
             "UPDATE interview_plans SET status='ready',approved_by=%s,approved_at=NOW(),version=version+1 WHERE id=%s",
             (actor["id"], session["plan_id"]),
@@ -357,7 +367,7 @@ def _transition(actor: dict, sid: str, action: str, body: dict) -> dict:
     with _pool().connection() as conn:
         conn.row_factory = dict_row
         session = _load_session(conn, sid, actor, candidate_only=True)
-        check(int(body.get("version")) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
+        check(_version(body) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
         questions = _questions(conn, session["plan_id"])
         if action == "start":
             check(session["status"] in ("ready", "paused"), "Interview cannot start in this state", 409)
@@ -400,7 +410,7 @@ def _record_answer(actor: dict, sid: str, body: dict, message: str) -> dict:
             return {
                 "repeat": {**_view(session, questions), "response": spoken, "intent": "repeat_question", "source": "quick_response"}
             }
-        check(int(body.get("version")) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
+        check(_version(body) == int(session["version"]), "Session changed; reload and retry with its current version", 409)
         check(session["status"] == "in_progress", "Interview is not in progress", 409)
         question = questions[int(session.get("current_index") or 0)]
         check(question and question["question_id"] == body.get("question_id"), "Answer must match the active question", 409)

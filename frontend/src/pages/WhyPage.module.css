@@ -350,8 +350,9 @@
 }
 
 .main .smallprint {
-  color: #8b90ad !important;
-  font-size: 0.7rem;
+  color: #5f6584 !important; /* ≥4.5:1 on white (was #8b90ad, 3.1:1) */
+  font-size: 0.75rem;
+  max-width: 70ch;
   margin: 15px 0 0;
   line-height: 1.6;
 }

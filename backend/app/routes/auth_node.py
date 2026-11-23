@@ -19,7 +19,8 @@ from app.node_config import config, is_prod_like
 from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import background, runtime
 from app.services import audit, login_guard, password_reset as pw_reset
-from app.services.interview_invites import public_app_origin
+from app.services.candidate_name import apply_resume_name, is_candidate_account
+from app.services.interview_invites import public_app_origin, trusted_request_origin
 from app.services.mail_service import send_mail, smtp_configured
 
 router = APIRouter()
@@ -63,12 +64,11 @@ async def signup(request: Request, body: dict) -> dict:
         )
     if await asyncio.to_thread(find_user_by_phone_in_db, db, phone_raw):
         raise HTTPException(status_code=409, detail="An account with this mobile number already exists.")
-    from app.db.dynamo_config import persistence_ready
-
+    from app.db.persistence import persistence_ready
     if not persistence_ready(config.database_url):
         raise HTTPException(
             status_code=503,
-            detail="Database not configured. Set DATABASE_PROVIDER=dynamodb with AWS credentials, or DATABASE_URL for Neon.",
+            detail="Database not configured. Set DATABASE_URL.",
         )
     role = "employer" if body.get("role") == "employer" else "jobseeker"
     company_name = str(body.get("companyName") or "").strip()
@@ -99,13 +99,7 @@ async def signup(request: Request, body: dict) -> dict:
         raise HTTPException(status_code=409, detail=str(err)) from err
     if role != "employer":
         await upsert_candidate_talent(config.database_url or "", user, {}, None)
-        from app.db.dynamo_config import database_provider
-
-        if database_provider() == "dynamodb":
-            db = runtime.load_db()
-            db.setdefault("profiles", {})[email] = {"completedSteps": 0}
-            await runtime.save_db(db)
-        elif config.database_url.strip():
+        if config.database_url.strip():
 
             def _create_profile() -> None:
                 pool = db_pool(config.database_url)
@@ -213,8 +207,7 @@ async def forgot_password(request: Request, body: dict) -> dict:
     response = {"ok": True, "message": pw_reset.GENERIC_REQUEST_MESSAGE}
     if not runtime.rate_limit(f"pwforgot-email:{email}", 3, 60 * 60_000, strict=True):
         return response
-    from app.db.dynamo_config import persistence_ready
-
+    from app.db.persistence import persistence_ready
     if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
     db = runtime.load_db()
@@ -224,7 +217,7 @@ async def forgot_password(request: Request, body: dict) -> dict:
     token = pw_reset.new_reset_token()
     await asyncio.to_thread(pw_reset.store_reset_token, config.database_url or "", email, token, ip)
     try:
-        link = f"{public_app_origin()}/reset-password?token={token}"
+        link = f"{public_app_origin(trusted_request_origin(request))}/reset-password?token={token}"
     except RuntimeError:
         logger.error("Password reset requested but PUBLIC_APP_URL is not set; email not sent.")
         return response
@@ -259,8 +252,7 @@ async def reset_password(request: Request, body: dict) -> dict:
     password_error = pw_reset.validate_new_password(password)
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
-    from app.db.dynamo_config import persistence_ready
-
+    from app.db.persistence import persistence_ready
     if not persistence_ready(config.database_url):
         raise HTTPException(status_code=503, detail="Password reset is unavailable right now.")
     email = await asyncio.to_thread(pw_reset.consume_reset_token, config.database_url or "", token)
@@ -279,6 +271,38 @@ async def reset_password(request: Request, body: dict) -> dict:
     await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
     await asyncio.to_thread(login_guard.clear, config.database_url, email)
     return {"ok": True, "message": "Your password has been reset. Log in with your new password."}
+
+
+@router.post("/password/change")
+async def change_password(request: Request, body: dict) -> dict:
+    """Signed-in password change (Settings > Email & password). Needs the current password; signs out every other
+    session and returns a fresh token for this one."""
+    email = await runtime.require_auth_email(request)
+    if not runtime.rate_limit(f"pwchange:{email}", 10, 15 * 60_000, strict=True):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
+    current = str(body.get("currentPassword") or "")
+    new_password = str(body.get("newPassword") or "")
+    if not current:
+        raise HTTPException(status_code=400, detail="Enter your current password.")
+    password_error = pw_reset.validate_new_password(new_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+    if new_password == current:
+        raise HTTPException(status_code=400, detail="Choose a password different from your current one.")
+    db = runtime.load_db()
+    user = await asyncio.to_thread(find_user, db, email=email)
+    if not user or user.get("status") != "active":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if len(current) > 1024 or not await asyncio.to_thread(verify_password, current, user.get("passwordHash") or ""):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    user["passwordHash"] = await asyncio.to_thread(hash_password, new_password)
+    await runtime.save_db(db)
+    runtime.forget_sessions(email=email)
+    if config.database_url:
+        await asyncio.to_thread(pw_reset.revoke_all_sessions, config.database_url, email)
+    token = secrets.token_hex(16)
+    await runtime.register_session(token, email)
+    return {"ok": True, "token": token, "message": "Password updated. Other devices were signed out."}
 
 
 @router.post("/logout")
@@ -356,6 +380,20 @@ PROFILE_VISIBILITY_VALUES = ("marketplace", "organization_only", "private")
 MAX_PROFILE_KEYS = 200
 
 
+def _has_non_finite(value, depth: int = 0) -> bool:
+    import math
+
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if depth > 20:
+        return False
+    if isinstance(value, dict):
+        return any(_has_non_finite(v, depth + 1) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_non_finite(v, depth + 1) for v in value)
+    return False
+
+
 def sanitize_profile_patch(body: dict) -> dict:
     """The client's profile patch minus server-owned fields, with the few typed fields validated."""
     if not isinstance(body, dict):
@@ -363,6 +401,9 @@ def sanitize_profile_patch(body: dict) -> dict:
     if len(body) > MAX_PROFILE_KEYS:
         raise HTTPException(status_code=400, detail="Too many profile fields.")
     patch = {k: v for k, v in body.items() if isinstance(k, str) and k not in SERVER_OWNED_PROFILE_FIELDS}
+    if _has_non_finite(patch):
+        # NaN / Infinity parse in Python but are not JSON: Postgres jsonb rejected them with an unhandled 500.
+        raise HTTPException(status_code=400, detail="Invalid JSON object")
     if "profileVisibility" in patch and patch["profileVisibility"] not in PROFILE_VISIBILITY_VALUES:
         patch.pop("profileVisibility")
     if "shareContactWithRecruiters" in patch:
@@ -379,6 +420,10 @@ async def put_profile(request: Request, body: dict) -> dict:
     def _merge() -> dict:
         prev = dict((db.get("profiles") or {}).get(email) or {})
         prev.update(patch)  # server-owned fields (resume storage key, ...) keep their stored values
+        account = find_user(db, email=email)
+        if is_candidate_account(account):
+            # The candidate's name always comes from the resume (a contradicting name in the patch is dropped).
+            prev = apply_resume_name(prev, (account or {}).get("name") or "")
         prev["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         db.setdefault("profiles", {})[email] = prev
         return prev

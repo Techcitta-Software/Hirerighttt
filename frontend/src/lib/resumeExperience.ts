@@ -178,6 +178,18 @@ export function dateRangesIn(text: string, now = new Date()): Interval[] {
   return out
 }
 
+/** The experience ranges the resume parser produces; forms that edit `totalExperience` must offer exactly these. */
+export const EXPERIENCE_RANGE_LABELS = [
+  'Fresher / 0 years',
+  '0 – 1 Years',
+  '1 – 2 Years',
+  '2 – 3 Years',
+  '3 – 5 Years',
+  '5 – 8 Years',
+  '8 – 12 Years',
+  '12+ Years',
+] as const
+
 export function monthsToLabel(months: number): string {
   const years = months / 12
   if (years <= 1) return '0 – 1 Years'

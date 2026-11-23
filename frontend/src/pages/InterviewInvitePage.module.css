@@ -2,11 +2,14 @@
 
 .page {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--ds-bg, #faf9ff);
   color: var(--ds-text, #141638);
 }
 
 .main {
+  flex: 1 0 auto;
   width: 100%;
   max-width: calc(var(--page-max-reading, 720px) + 2 * var(--layout-gutter, 32px));
   margin-inline: auto;

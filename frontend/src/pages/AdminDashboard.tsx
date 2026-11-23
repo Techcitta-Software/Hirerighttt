@@ -96,6 +96,12 @@ export function AdminDashboard() {
               <p className={shell.pageSub}>
                 Applications, AI match scores, interview scores and pipeline progress in one place.
               </p>
+              {/* The admin workspace runs on sample data kept in this browser (lib/adminAts), not the organisation's
+                  real applicants: say so instead of presenting fictional people as real ones (vendor QA). */}
+              <p className="ds-alert ds-alert--info" role="note" data-testid="admin-sample-data">
+                Sample data: this workspace is a preview and is not connected to your organisation’s jobs or applicants.
+                Use Jobs and Applicants for real hiring.
+              </p>
             </div>
           </header>
 

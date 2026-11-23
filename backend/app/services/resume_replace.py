@@ -6,9 +6,9 @@ import json
 from typing import Any
 
 from app.db import db_pool
-from app.db.dynamo_config import database_provider, use_neon
 from app.db.talent_index import upsert_candidate_talent
 from app.services import interview_api as ia
+from app.services.candidate_name import apply_resume_name
 from app.services.storage.resume_storage import (
     object_storage_configured,
     parse_resume_upload_body,
@@ -33,6 +33,7 @@ RESUME_SOURCED_KEYS = (
     "noPriorWorkExperience",
     "fullName",
     "name",
+    "resumeFullName",
     "currentRole",
     "totalExperience",
     "currentLocation",
@@ -49,6 +50,8 @@ def build_resume_replacement_profile(prev: dict, *, extract: dict, upload: dict,
     for key in RESUME_SOURCED_KEYS:
         base.pop(key, None)
     patch = dict(extract or {})
+    if patch.get("fullName") and not patch.get("resumeFullName"):
+        patch["resumeFullName"] = patch["fullName"]  # the parsed resume name (checked against the text below)
     if patch.get("fullName") and not patch.get("name"):
         patch["name"] = patch["fullName"]
     from datetime import datetime, timezone
@@ -123,23 +126,6 @@ async def _purge_prior_artifacts(pool, email: str, prev: dict, db: dict, owner_u
         recordings, artifacts = counts["recordings"], counts["artifacts"]
     db.setdefault("interviews", {})
     db.setdefault("interviewSessions", {})
-    if database_provider() == "dynamodb":
-        # DynamoDB-only: purge there (saving the in-memory data only adds/updates items, it never removes them).
-        from app.db import dynamo_repos as dr
-
-        prev_key = str(prev.get("resumeStoragePath") or "")
-        if s3_storage_configured() and key_belongs_to_candidate(prev_key, user_id=owner_user_id, email=email, kind="resume"):
-            delete_object(prev_key)
-        session_ids = [sid for sid, _session in session_items_for_email(db, email)]
-
-        def _owned_delete(key: str) -> None:
-            if key_belongs_to_candidate(str(key), user_id=owner_user_id, email=email):
-                delete_object(str(key))
-
-        counts = dr.purge_candidate_interview_data_dynamo(
-            email, session_ids=session_ids, delete_object=_owned_delete if s3_storage_configured() else None
-        )
-        recordings, artifacts = counts["recordings"], counts["artifacts"]
     db["interviews"].pop(email, None)
     for sid, _session in session_items_for_email(db, email):
         db["interviewSessions"].pop(sid, None)
@@ -163,8 +149,7 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     db.setdefault("profiles", {})
     account = await asyncio.to_thread(find_user, db, email=email)
     prev = dict(db["profiles"].get(email) or {})
-    # Neon is only touched when it is the active store; with DATABASE_PROVIDER=dynamodb nothing is written there.
-    pool = db_pool(config.database_url) if (config.database_url and use_neon()) else None
+    pool = db_pool(config.database_url) if config.database_url else None
     owner_id = account.get("id") if account else None
     purged = await _purge_prior_artifacts(pool, email, prev, db, owner_id)
     extract = body.get("extract") if isinstance(body.get("extract"), dict) else None
@@ -203,6 +188,8 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
         },
         filename=parsed["filename"],
     )
+    # The new resume's name replaces the old one everywhere (profile, talent index, recruiter views).
+    profile_patch = apply_resume_name(profile_patch, (account or {}).get("name") or "")
     db["profiles"][email] = profile_patch
     await save_db(db)
     if pool:

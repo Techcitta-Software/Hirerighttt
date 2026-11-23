@@ -36,6 +36,7 @@ NATIVE_API_EXACT = frozenset(
         "/api/logout",
         "/api/password/forgot",
         "/api/password/reset",
+        "/api/password/change",
         "/api/me",
         "/api/profile",
         "/api/llm-status",
@@ -55,9 +56,7 @@ def _use_native_handler(path: str) -> bool:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     assert_production_config()
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb" or config.database_url.strip():
+    if config.database_url.strip():
         await asyncio.to_thread(runtime.load_db_sync)
     yield
     # Close the Postgres pool while the interpreter is still running. Left to garbage collection it logged a
@@ -88,6 +87,13 @@ def create_app() -> FastAPI:
     app.include_router(auth_node_router, prefix="/api")
     app.include_router(meta_node_router, prefix="/api")
     app.include_router(tts_node_router, prefix="/api")
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # Native routes (signup, login, profile, ...) have no dispatch catch-all: answer JSON, never a bare text 500.
+        logger.exception("Unhandled error for %s %s", request.method, request.url.path)
+        observability.capture_exception(exc)
+        return JSONResponse(status_code=500, content={"error": "Server error"})
 
     @app.get("/api/health/live", include_in_schema=False)
     async def live() -> dict[str, bool]:

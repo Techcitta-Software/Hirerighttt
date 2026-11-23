@@ -28,6 +28,11 @@ export type VendorApplicant = {
   candidateUserId?: string | null
   status: string
   appliedAt: string
+  /** Position in the job's ranking (1 = top candidate); null when not interviewed. Set by the applicants API. */
+  rank?: number | null
+  rankInterviewScore?: number | null
+  rankRoleSkillsFit?: number | null
+  interviewCompletedAt?: string | null
   data: {
     candidateName?: string
     experienceYears?: string
@@ -185,6 +190,33 @@ export async function createVendorJob(payload: {
   return parse<{ job: VendorJob }>(res)
 }
 
+/** Lifecycle of a vendor job. "active" (older jobs) reads as published. */
+export type VendorJobStatus = 'draft' | 'published' | 'closed' | 'archived'
+
+export function vendorJobStatus(job: Pick<VendorJob, 'status'> | null | undefined): VendorJobStatus {
+  const s = String(job?.status || 'published').toLowerCase()
+  return s === 'draft' || s === 'closed' || s === 'archived' ? s : 'published'
+}
+
+export type VendorJobPatch = {
+  title?: string
+  jobDescription?: string
+  requiredSkills?: string[]
+  roleTrack?: string
+  experienceLevel?: string
+  location?: string
+  status?: VendorJobStatus
+}
+
+/** Edit a job and / or change its status (PATCH /api/vendor/jobs/{id}). */
+export async function updateVendorJob(jobId: string, patch: VendorJobPatch) {
+  const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
+  return parse<{ job: VendorJob; changed: string[] }>(res)
+}
+
 export async function deleteVendorJob(jobId: string) {
   const res = await apiFetch(`/api/vendor/jobs/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',
@@ -229,6 +261,24 @@ export type OrgCandidateRecord = {
   status?: string
   /** Set by GET /api/vendor/candidates — no video URL until recording endpoint is called. */
   interviewRecordingAvailable?: boolean
+  /** Set by the API when contact fields were removed (no link to this organisation and no opt-in). */
+  contactHidden?: boolean
+  /** Every job of the organisation this person applied to (one row per person). */
+  appliedJobIds?: string[]
+  /** Each of those applications with its own status and scores. */
+  applications?: Array<{
+    applicationId: string
+    jobId: string
+    jobTitle?: string
+    status?: string
+    atsScore?: number | null
+    jdMatchScore?: number | null
+    appliedAt?: string
+    interviewScore?: number | null
+    interviewed?: boolean
+  }>
+  /** The job the attached interview was taken for. */
+  interviewJobId?: string | null
 }
 
 export type VendorCandidateRecordingLink = VendorCandidateDocumentLink & {
@@ -299,11 +349,12 @@ export async function fetchOrganizationCandidates(params?: {
   experienceYears?: string
   keywords?: string
   jobId?: string
-  /** 'org' = only this organisation's own candidates (no platform roster / talent pool). Default: all. */
+  /** 'org' = this organisation's applicants. 'all' = platform talent pool (explicit opt-in). Default: org. */
   scope?: 'org' | 'all'
 }, opts?: { background?: boolean }) {
   const qs = new URLSearchParams()
-  if (params?.scope === 'org') qs.set('scope', 'org')
+  const scope = params?.scope ?? 'org'
+  if (scope === 'org') qs.set('scope', 'org')
   if (params?.name) qs.set('name', params.name)
   if (params?.job) qs.set('job', params.job)
   if (params?.experienceYears) qs.set('experienceYears', params.experienceYears)

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { firstName, getUser } from '../lib/store'
+import { accountDisplayName, firstName, getUser } from '../lib/store'
 import { openSignOutModal } from '../lib/signOutModal'
 import { easeOut } from '../motion/variants'
 import { BrandLogo } from './BrandLogo'
@@ -40,7 +40,7 @@ export function TopBar({ userName }: TopBarProps) {
   }
 
   const currentUser = getUser()
-  const displayName = currentUser?.name ?? name
+  const displayName = accountDisplayName(currentUser) || name
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)

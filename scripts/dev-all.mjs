@@ -1,108 +1,147 @@
-import { spawn, execSync } from 'node:child_process'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { loadEnv } from '../env/loadEnv.mjs'
+/**
+ * Start Vite (5173) + Python API (8787). Repo root: npm run dev:all
+ */
+import { execSync, spawn } from "node:child_process";
+import net from "node:net";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-loadEnv()
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, "..");
+const API_PORT = Number(process.env.PORT || 8787);
+const WEB_PORT = Number(process.env.VITE_DEV_PORT || 5173);
+const API_HOST = "127.0.0.1";
+const HEALTH_URL = `http://${API_HOST}:${API_PORT}/api/health`;
+const MAX_WAIT_MS = 120_000;
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
-const apiPort = Number(process.env.PORT || 8787)
-const frontendPort = Number(process.env.VITE_DEV_PORT || 5173)
-const viteCmd = join(
-  repoRoot,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'vite.cmd' : 'vite',
-)
+function portFree(port, host = "127.0.0.1") {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => {
+      srv.close(() => resolve(true));
+    });
+    srv.listen(port, host);
+  });
+}
 
-for (const script of ['ensure-dev-api-port.mjs', 'ensure-dev-frontend-port.mjs']) {
+/** Vite binds 0.0.0.0 — checking only 127.0.0.1 can falsely report the port as free. */
+async function webDevPortFree(port) {
+  if (!(await portFree(port, "0.0.0.0"))) return false;
+  return portFree(port, "127.0.0.1");
+}
+
+function windowsListenerPids(port) {
+  if (process.platform !== "win32") return [];
   try {
-    execSync(`node scripts/${script}`, { stdio: 'inherit', cwd: repoRoot })
+    const out = execSync(`netstat -ano | findstr ":${port}" | findstr LISTENING`, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.trim().match(/\s+(\d+)\s*$/);
+      if (m) pids.add(Number(m[1]));
+    }
+    return [...pids];
   } catch {
-    process.exit(1)
+    return [];
   }
 }
 
-const children = []
-
-function shutdown(code = 0) {
-  for (const child of children) {
-    if (child.exitCode == null && child.pid) {
-      try {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', shell: false })
-        } else {
-          child.kill('SIGTERM')
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
-  setTimeout(() => process.exit(code), 300).unref()
-}
-
-process.on('SIGINT', () => {
-  console.log('\n[dev] Shutting down…')
-  shutdown(0)
-})
-process.on('SIGTERM', () => shutdown(0))
-
-function run(command, args, options = {}) {
-  const env = { ...process.env, PORT: String(apiPort), VITE_DEV_PORT: String(frontendPort) }
-  if (process.env.CHOKIDAR_USEPOLLING === 'true') {
-    env.CHOKIDAR_USEPOLLING = 'true'
-  }
-  const child = spawn(command, args, {
-    stdio: 'inherit',
-    shell: options.shell === true,
-    env,
-    cwd: options.cwd ?? repoRoot,
-  })
-  child.on('error', (err) => {
-    console.error(err)
-  })
-  children.push(child)
-  return child
-}
-
-async function waitForApiHealth(maxMs = 120_000) {
-  const url = `http://127.0.0.1:${apiPort}/api/health`
-  const started = Date.now()
-  process.stdout.write('[dev] Waiting for API (Neon bootstrap can take 30–60s)')
-  while (Date.now() - started < maxMs) {
+function tryReleasePort(port) {
+  const pids = windowsListenerPids(port);
+  if (!pids.length) return false;
+  let killed = false;
+  for (const pid of pids) {
+    if (pid === process.pid) continue;
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(3_000) })
-      if (res.ok) {
-        process.stdout.write('\n')
-        console.log(`[dev] API ready on port ${apiPort}`)
-        return true
-      }
+      execSync(`taskkill /PID ${pid} /F`, { stdio: "ignore" });
+      console.warn(`[dev] Stopped stale process ${pid} that was using port ${port}.`);
+      killed = true;
     } catch {
-      // API still starting or DB connecting
+      console.warn(`[dev] Could not stop PID ${pid} on port ${port} — close it manually.`);
     }
-    process.stdout.write('.')
-    await new Promise((r) => setTimeout(r, 800))
   }
-  process.stdout.write('\n')
-  console.warn(
-    `[dev] API did not respond on ${url} within ${Math.round(maxMs / 1000)}s — starting Vite anyway (check Neon/network).`,
-  )
-  return false
+  return killed;
 }
 
-const uvicornArgs = [
-  '-m',
-  'uvicorn',
-  'app.main:app',
-  '--host',
-  '0.0.0.0',
-  '--port',
-  String(apiPort),
-  '--reload',
-]
-run('python', uvicornArgs, { cwd: join(repoRoot, 'backend') })
-await waitForApiHealth()
-run(viteCmd, [], { cwd: join(repoRoot, 'frontend'), shell: true })
+async function waitForHealth() {
+  const start = Date.now();
+  while (Date.now() - start < MAX_WAIT_MS) {
+    try {
+      const res = await fetch(HEALTH_URL, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) return true;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
 
-console.log(`[dev] Frontend → http://127.0.0.1:${frontendPort}/  (API proxy → http://127.0.0.1:${apiPort})`)
+function npmScript(name, extraEnv = {}) {
+  const isWin = process.platform === "win32";
+  const cmd = isWin ? "npm.cmd" : "npm";
+  return spawn(cmd, ["run", name], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, ...extraEnv },
+    shell: isWin,
+  });
+}
+
+const apiFree = await portFree(API_PORT);
+let webFree = await webDevPortFree(WEB_PORT);
+if (!apiFree) console.warn(`[dev] Port ${API_PORT} may already be in use.`);
+else console.log(`[dev] Port ${API_PORT} is free.`);
+
+if (!webFree) {
+  console.warn(`[dev] Frontend port ${WEB_PORT} is in use.`);
+  if (tryReleasePort(WEB_PORT)) {
+    await new Promise((r) => setTimeout(r, 800));
+    webFree = await webDevPortFree(WEB_PORT);
+  }
+}
+if (!webFree) {
+  const pids = windowsListenerPids(WEB_PORT);
+  console.error(
+    `[dev] Cannot start Vite on port ${WEB_PORT}. Stop the other process${
+      pids.length ? ` (PID: ${pids.join(", ")})` : ""
+    } or set VITE_DEV_PORT to another port.`,
+  );
+  process.exit(1);
+}
+console.log(`[dev] Frontend port ${WEB_PORT} is free.`);
+
+console.log("[dev] Waiting for API (bootstrap can take 30–60s).");
+const api = npmScript("dev:backend");
+const web = npmScript("dev");
+
+let shuttingDown = false;
+function shutdown(code = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log("\n[dev] Shutting down…");
+  api.kill("SIGTERM");
+  web.kill("SIGTERM");
+  setTimeout(() => process.exit(code), 500);
+}
+
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
+
+api.on("exit", (code) => {
+  if (!shuttingDown) shutdown(code ?? 1);
+});
+web.on("exit", (code) => {
+  if (!shuttingDown) shutdown(code ?? 1);
+});
+
+const ok = await waitForHealth();
+if (ok) {
+  console.log(`\n[dev] API ready on port ${API_PORT}`);
+  console.log(`[dev] Frontend → http://127.0.0.1:${WEB_PORT}/  (API proxy → http://127.0.0.1:${API_PORT})\n`);
+} else {
+  console.error(`[dev] API did not become healthy at ${HEALTH_URL} within ${MAX_WAIT_MS / 1000}s`);
+}

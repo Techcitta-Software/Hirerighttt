@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
 import { candidateFullName, firstName, getInterviewResult, getUser } from '../lib/store'
-import { finalizePendingJobApplication, getPendingJob } from '../lib/pendingJobApply'
+import { finalizePendingJobApplication, getPendingJob, resolveInterviewJobContext } from '../lib/pendingJobApply'
+import { interviewDurationMinutes } from '../lib/interviewDuration'
 import { CareerIntelligenceDashboard } from './CareerIntelligenceDashboard'
 import styles from './CompleteStep.module.css'
 
@@ -36,6 +37,8 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   const [showDossier, setShowDossier] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [applyNote, setApplyNote] = useState('')
+  // A job-link interview (JD-first) is 20 minutes; read before the pending job is applied and cleared below.
+  const [minutes] = useState(() => interviewDurationMinutes(resolveInterviewJobContext()))
 
   useEffect(() => {
     if (!getPendingJob()) return
@@ -52,13 +55,13 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
   const scheduled = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
   const dateText = scheduled ? scheduled.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' }) : 'Choose your interview date'
   const timeText = scheduled ? `${scheduled.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }).toUpperCase()} (IST)` : 'Choose your interview time'
-  const message = `Hi ${name},\n\nYour 15-minute AI interview ${scheduled ? 'is scheduled' : 'is ready to schedule'}.\n${scheduled ? `${dateText}\n${timeText}\n` : ''}\nWe look forward to meeting you!\n\n– Team HireRight`
+  const message = `Hi ${name},\n\nYour ${minutes}-minute AI interview ${scheduled ? 'is scheduled' : 'is ready to schedule'}.\n${scheduled ? `${dateText}\n${timeText}\n` : ''}\nWe look forward to meeting you!\n\n– Team HireRight`
   function downloadCalendar() {
     if (!scheduled) { onEditStep(4); return }
     // The calendar event opens the candidate's own invite link (their slot, their job), not a generic interview.
     const inviteLink = localStorage.getItem('hireright.lastInviteUrl') || `${window.location.origin}/interview`
     const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRight//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + 15 * 60000))}`, 'SUMMARY:HireRight 15-Minute AI Interview', `URL:${inviteLink}`, `DESCRIPTION:Join your AI interview: ${inviteLink} — prepare your camera and microphone.`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
+    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRight//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + minutes * 60000))}`, `SUMMARY:HireRight ${minutes}-Minute AI Interview`, `URL:${inviteLink}`, `DESCRIPTION:Join your AI interview: ${inviteLink} — prepare your camera and microphone.`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
     const url = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
@@ -84,7 +87,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
         <div className={styles.bannerText}>
           <h2 id="complete-title">All set, {name}</h2>
           <p className={styles.bannerLead}>
-            {scheduled ? 'Your 15-minute AI interview is confirmed.' : 'You’re ready for your AI interview.'}
+            {scheduled ? `Your ${minutes}-minute AI interview is confirmed.` : 'You’re ready for your AI interview.'}
           </p>
           <p className={styles.bannerSub}>
             We’re excited to connect with you and help you take the next step in your career journey.
@@ -104,7 +107,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
             </div>
             <div className={styles.infoItem}>
               <span className={styles.infoIcon}><Icon kind="clock" /></span>
-              <div><dt>Time</dt><dd>{timeText} <small className={styles.durationTag}>15 min</small></dd></div>
+              <div><dt>Time</dt><dd>{timeText} <small className={styles.durationTag}>{minutes} min</small></dd></div>
             </div>
             <div className={styles.infoItem}>
               <span className={styles.infoIcon}><Icon kind="video" /></span>
@@ -162,10 +165,10 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
             <p className={styles.metaLine}>Subject: Your AI interview {scheduled ? 'is confirmed' : 'details'}</p>
             <div className={styles.message}>
               <p>Hi {name},</p>
-              <p>{scheduled ? 'Great news! Your 15-minute AI interview is confirmed.' : 'Your 15-minute AI interview is ready to schedule.'}</p>
+              <p>{scheduled ? `Great news! Your ${minutes}-minute AI interview is confirmed.` : `Your ${minutes}-minute AI interview is ready to schedule.`}</p>
               <p>Date: {dateText}<br />Time: {timeText}</p>
               <p>We look forward to meeting you!</p>
-              <p>– Team HireRight</p>
+              <p>– Team HireRighttt</p>
             </div>
             <a
               className={styles.outlineButton}
@@ -183,10 +186,10 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
             <p className={styles.metaLine}>Your interview details, ready to share</p>
             <div className={styles.message}>
               <p>Hi {name},</p>
-              <p>Your 15-minute AI interview {scheduled ? 'is confirmed.' : 'is ready to schedule.'}</p>
+              <p>Your {minutes}-minute AI interview {scheduled ? 'is confirmed.' : 'is ready to schedule.'}</p>
               <p><strong>{dateText}</strong><br />{timeText}</p>
               <p>We’re excited to connect with you and help you find the right opportunities.</p>
-              <p>– Team HireRight</p>
+              <p>– Team HireRighttt</p>
             </div>
             <a className={styles.outlineButton} href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">
               Open WhatsApp

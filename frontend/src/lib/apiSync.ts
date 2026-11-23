@@ -1,4 +1,4 @@
-import { apiMe, apiSaveInterview } from './api'
+import { apiHealth, apiMe, apiSaveInterview, apiSaveProfile } from './api'
 import type { InterviewResult, SavedProfile, User } from './store'
 import {
   clearEmployerPortalCache,
@@ -35,7 +35,22 @@ export async function pullProfileFromApi(): Promise<SavedProfile | null> {
         updatedAt: remote.updatedAt || new Date().toISOString(),
         resumeName: remote.resumeName ?? local?.resumeName ?? null,
       }
+      if (
+        user.email?.toLowerCase() === 'demo@hireright.com' &&
+        !String(merged.noticePeriod || '').trim()
+      ) {
+        merged.noticePeriod = 'Immediate'
+      }
       localStorage.setItem(profileKey(user.email), JSON.stringify(merged))
+      if (
+        user.email?.toLowerCase() === 'demo@hireright.com' &&
+        merged.noticePeriod === 'Immediate' &&
+        !String(remote.noticePeriod || '').trim()
+      ) {
+        void apiHealth()
+          .then((ok) => (ok ? apiSaveProfile(merged, { background: true }) : undefined))
+          .catch(() => undefined)
+      }
       return merged
     }
     return local

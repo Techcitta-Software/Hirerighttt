@@ -25,6 +25,17 @@ interface Props {
   localPreviewUrl?: string | null
   /** Embedded under another page's h1 (profile, vendor viewer): render the candidate name as an h2. */
   embedded?: boolean
+  /**
+   * 'summary' (default): the one-page report shown when the interview ends and saved as the PDF. It does not list
+   * the questions asked. 'detailed': adds the per-question breakdown (candidate profile, recruiter review).
+   */
+  variant?: 'summary' | 'detailed'
+  /**
+   * 'recruiter': the employer's view (applicant drawer, recruiter report modal). No level words or band legend
+   * (product decision: the number carries the meaning), and none of the candidate-only copy ("Your career score...",
+   * resume visibility, career track, recommended roles, coaching, the inner logo and second Download button).
+   */
+  audience?: 'candidate' | 'recruiter'
 }
 
 function hashString(str: string): number {
@@ -45,14 +56,17 @@ export function CareerIntelligenceDashboard({
   onRetake,
   onContinue,
   embedded = false,
+  variant = 'summary',
+  audience = 'candidate',
 }: Props) {
+  const recruiter = audience === 'recruiter'
   const NameHeading = embedded ? 'h2' : 'h1'
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState('')
   const sc = result.scorecard
   const overall = result.overall
-  const careerScore =
-    sc?.careerScore ?? Math.min(980, Math.max(50, Math.round(overall * 10)))
+  /* The career score IS the interview score: one 0–100 number, no x10 scale and no bands. */
+  const careerScore = Math.max(0, Math.min(100, Math.round(overall)))
 
   const tagFor = (score: number) =>
     score >= 75 ? 'Strong' : score >= 50 ? 'Moderate' : score >= 25 ? 'Developing' : 'Needs work'
@@ -62,7 +76,7 @@ export function CareerIntelligenceDashboard({
   const toneFor = (score: number) =>
     score >= 75 ? styles.toneSuccess : score >= 50 ? styles.toneWarning : styles.toneNeutral
   const fillFor = (score: number) =>
-    score >= 75 ? styles.dotSuccess : score >= 50 ? styles.dotWarning : styles.dotNeutral
+    recruiter ? '' : score >= 75 ? styles.dotSuccess : score >= 50 ? styles.dotWarning : styles.dotNeutral
 
   const roleKey = candidateRole || result.role || 'Candidate'
   const candidateId = useMemo(() => {
@@ -78,19 +92,14 @@ export function CareerIntelligenceDashboard({
   const displayRole = candidateRole || result.role || 'Candidate'
   const displayExperience = candidateExperience?.trim() || 'Experience on profile'
 
-  const statusLabel =
-    sc?.finalCareerStatus ??
-    (careerScore >= 850
-      ? 'Premium Market-Ready'
-      : careerScore >= 700
-        ? 'Industry Ready'
-        : careerScore >= 550
-          ? 'Growth Potential'
-          : 'Skill Enhancement Recommended')
+  /* How the score was produced, not a tier label. */
+  const statusLabel = result.scoring && !result.scoring.reliable ? 'Provisional score' : 'AI-evaluated'
 
   const bandInterpretation =
-    sc?.bandInterpretation ??
-    `${candidateName} scored ${overall}/100 for ${result.role || displayRole}. ${result.strengths[0] || ''} ${result.improvements[0] ? `Focus: ${result.improvements[0]}` : ''}`.trim()
+    `${candidateName} scored ${careerScore}/100 for ${result.role || displayRole}. ${result.strengths[0] || ''} ${result.improvements[0] ? `Focus: ${result.improvements[0]}` : ''}`.trim()
+
+  const proctorPenalty =
+    typeof result.proctorScorePenalty === 'number' && result.proctorScorePenalty > 0 ? result.proctorScorePenalty : 0
 
   const scoreSubHint =
     sc?.scoreSubHint ??
@@ -100,6 +109,7 @@ export function CareerIntelligenceDashboard({
     sc?.industryAlignment ?? Math.max(1, Math.min(99, result.resumeFitScore ?? overall))
 
   const roleSkillsMeta = result.roleSkillsAnalysis
+  const roleSkillRows = roleSkillsMeta?.skills ?? []
   const industryAlignmentCaption =
     sc?.industryAlignmentCaption ??
     (roleSkillsMeta?.requiredSkills?.length
@@ -213,12 +223,6 @@ export function CareerIntelligenceDashboard({
     sc?.coachNotes ??
     `${candidateName}, your overall interview score is ${overall}/100. Review strengths and growth areas below to improve your market readiness.`
   const sessionStats = sc?.sessionStats
-  const careerPaths =
-    sc?.careerPaths ?? [
-      { role: displayRole, match: Math.max(1, Math.min(99, overall)) },
-      { role: `${displayRole} (Senior)`, match: Math.max(1, Math.min(99, overall - 3)) },
-      { role: result.role || displayRole, match: Math.max(1, Math.min(99, Math.round(overall * 0.92))) },
-    ]
   const priorities =
     sc?.priorities ??
     result.improvements.slice(0, 4).map((text, i) => ({
@@ -242,25 +246,26 @@ export function CareerIntelligenceDashboard({
   }, [radarAxes])
 
 
-  const careerScorePct = Math.max(0, Math.min(100, careerScore / 10))
+  const careerScorePct = careerScore
   const separateCategoryScores = Boolean(sc?.healthMetrics) && donuts.length > 0
-  const interviewScore = sessionStats?.overallInterviewScore ?? overall
-  const statusTone =
-    careerScore >= 700 ? styles.toneSuccess : careerScore >= 550 ? styles.toneWarning : styles.toneNeutral
+  const statusTone = toneFor(careerScore)
   const starCount = (stars: string) => (stars.match(/★/g) ?? []).length
 
   return (
-    <div className={styles.dashboardContainer} id="career-intelligence-dashboard">
+    <div className={styles.dashboardContainer} id="career-intelligence-dashboard" data-report-variant={variant}>
       {result.scoring && !result.scoring.reliable ? (
         <div className={styles.provisionalBanner} role="status">
           <strong>Provisional score.</strong>{' '}
-          {result.scoring.notice ||
-            'The AI evaluator was unavailable, so this result uses basic checks only.'}
+          {(recruiter
+            ? // Recruiter view only: the notice already starts with "Provisional score:", which repeated the label.
+              result.scoring.notice?.replace(/^Provisional score:\s*/i, '').replace(/^./, (c) => c.toUpperCase())
+            : result.scoring.notice) || 'The AI evaluator was unavailable, so this result uses basic checks only.'}
         </div>
       ) : null}
 
       {/* ── Header: who, what, when ── */}
       <header className={styles.headerCard}>
+        {recruiter ? null : (
         <div className={styles.brandRow}>
           <div className={styles.logoTitle}>
             <BrandLogo size="md" />
@@ -296,6 +301,7 @@ export function CareerIntelligenceDashboard({
             ) : null}
           </div>
         </div>
+        )}
 
         <div className={styles.candidateProfileRow}>
           <div className={styles.candidateLeftBlock}>
@@ -322,20 +328,24 @@ export function CareerIntelligenceDashboard({
                 <HrIcon name="check" size={14} /> Completed
               </dd>
             </div>
-            <div className={styles.metaItem}>
-              <dt className={styles.metaLabel}>Career track</dt>
-              <dd className={styles.metaValue}>{result.role || displayRole}</dd>
-            </div>
+            {recruiter ? null : (
+              <div className={styles.metaItem}>
+                <dt className={styles.metaLabel}>Career track</dt>
+                <dd className={styles.metaValue}>{result.role || displayRole}</dd>
+              </div>
+            )}
             <div className={styles.metaItem}>
               <dt className={styles.metaLabel}>Candidate ID</dt>
               <dd className={styles.metaValue}>{candidateId}</dd>
             </div>
-            <div className={styles.metaItem}>
-              <dt className={styles.metaLabel}>Resume visibility</dt>
-              <dd className={`${styles.metaValue} ${styles.metaPrivate}`}>
-                <HrIcon name="lock" size={14} /> Private, not shared
-              </dd>
-            </div>
+            {recruiter ? null : (
+              <div className={styles.metaItem}>
+                <dt className={styles.metaLabel}>Resume visibility</dt>
+                <dd className={`${styles.metaValue} ${styles.metaPrivate}`}>
+                  <HrIcon name="lock" size={14} /> Private, not shared
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
       </header>
@@ -343,24 +353,31 @@ export function CareerIntelligenceDashboard({
       {/* ── Summary: one hero score, band, plain-language summary ── */}
       <section className={`${styles.card} ${styles.summaryCard}`} aria-labelledby="report-summary-heading">
         <div className={styles.summaryScore}>
-          <h2 id="report-summary-heading" className={styles.cardTitle}>Career score</h2>
+          <h2 id="report-summary-heading" className={styles.cardTitle}>{recruiter ? 'Interview score' : 'Career score'}</h2>
           <div className={styles.scoreLine}>
             <span className={styles.scoreValue}>{careerScore}</span>
-            <span className={styles.scoreOutOf}>/1000</span>
+            <span className={styles.scoreOutOf}>/100</span>
           </div>
-          <span className={`${styles.statusPill} ${statusTone}`}>{statusLabel}</span>
+          <span className={`${styles.statusPill} ${recruiter ? styles.toneNeutral : statusTone}`}>{statusLabel}</span>
+          {recruiter ? null : <p className={styles.scoreSubHint}>Your career score is your interview score.</p>}
+          {proctorPenalty ? (
+            <p className={styles.scoreSubHint}>
+              Includes a −{proctorPenalty} point camera proctoring deduction
+              {typeof result.scoreBeforeProctorPenalty === 'number'
+                ? ` (${result.scoreBeforeProctorPenalty}/100 before the deduction)`
+                : ''}
+              .
+            </p>
+          ) : null}
           <p className={styles.scoreSubHint}>{scoreSubHint}</p>
 
           <div className={styles.scoreScale} aria-hidden="true">
             <div className={styles.scoreScaleTrack}>
               <span className={styles.scoreScaleFill} style={{ width: `${careerScorePct}%` }} />
-              <span className={styles.scoreScaleTick} style={{ left: '55%' }} />
-              <span className={styles.scoreScaleTick} style={{ left: '70%' }} />
-              <span className={styles.scoreScaleTick} style={{ left: '85%' }} />
             </div>
             <div className={styles.scoreScaleEnds}>
               <span>0</span>
-              <span>1000</span>
+              <span>100</span>
             </div>
           </div>
         </div>
@@ -373,7 +390,7 @@ export function CareerIntelligenceDashboard({
             <div>
               <dt>Interview score</dt>
               <dd>
-                {interviewScore}
+                {careerScore}
                 <small>/100</small>
               </dd>
             </div>
@@ -389,30 +406,13 @@ export function CareerIntelligenceDashboard({
               </dd>
             </div>
             <div>
-              <dt>Industry status</dt>
-              <dd className={styles.summaryStatText}>{statusLabel}</dd>
+              <dt>Role skills fit</dt>
+              <dd>
+                {industryAlignment}
+                <small>%</small>
+              </dd>
             </div>
           </dl>
-
-          <h3 className={styles.subTitle}>Score bands</h3>
-          <ul className={styles.scoreBandList}>
-            <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>850–1000</span>
-              <span className={styles.bandLabel}>Premium market-ready talent</span>
-            </li>
-            <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>700–849</span>
-              <span className={styles.bandLabel}>Industry ready</span>
-            </li>
-            <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>550–699</span>
-              <span className={styles.bandLabel}>Growth potential</span>
-            </li>
-            <li className={styles.bandItem}>
-              <span className={styles.bandBadge}>Below 550</span>
-              <span className={styles.bandLabel}>Skill enhancement recommended</span>
-            </li>
-          </ul>
         </div>
       </section>
 
@@ -420,11 +420,15 @@ export function CareerIntelligenceDashboard({
       <section className={styles.card} aria-labelledby="report-areas-heading">
         <div className={styles.cardHead}>
           <h2 id="report-areas-heading" className={styles.cardTitle}>Score by area</h2>
-          <div className={styles.donutLegend} aria-hidden="true">
-            <span><span className={`${styles.legendDot} ${styles.dotSuccess}`} /> Strong (75%+)</span>
-            <span><span className={`${styles.legendDot} ${styles.dotWarning}`} /> Moderate (50–74%)</span>
-            <span><span className={`${styles.legendDot} ${styles.dotNeutral}`} /> Developing (below 50%)</span>
-          </div>
+          {recruiter ? (
+            <p className={styles.cardNote}>Bars show score out of 100</p>
+          ) : (
+            <div className={styles.donutLegend} aria-hidden="true">
+              <span><span className={`${styles.legendDot} ${styles.dotSuccess}`} /> Strong (75%+)</span>
+              <span><span className={`${styles.legendDot} ${styles.dotWarning}`} /> Moderate (50–74%)</span>
+              <span><span className={`${styles.legendDot} ${styles.dotNeutral}`} /> Developing (below 50%)</span>
+            </div>
+          )}
         </div>
         <ul className={styles.healthList}>
           {healthMetrics.map((hm, i) => (
@@ -434,9 +438,11 @@ export function CareerIntelligenceDashboard({
                 <div className={`${styles.barFill} ${fillFor(hm.score)}`} style={{ width: `${hm.score}%` }} />
               </div>
               <span className={styles.healthScoreNum}>{hm.score}%</span>
-              <span className={`${styles.healthPerformanceTag} ${styles.statusPill} ${toneFor(hm.score)}`}>
-                {hm.tag}
-              </span>
+              {recruiter ? null : (
+                <span className={`${styles.healthPerformanceTag} ${styles.statusPill} ${toneFor(hm.score)}`}>
+                  {hm.tag}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -449,9 +455,11 @@ export function CareerIntelligenceDashboard({
                 <li key={`${d.label}-${i}`} className={styles.donutCol}>
                   <span className={styles.donutValue}>{d.score}%</span>
                   <span className={styles.donutLabel}>{d.label}</span>
-                  <span className={`${styles.donutTag} ${styles.statusPill} ${toneFor(d.score)}`}>
-                    {d.tag}
-                  </span>
+                  {recruiter ? null : (
+                    <span className={`${styles.donutTag} ${styles.statusPill} ${toneFor(d.score)}`}>
+                      {d.tag}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -488,7 +496,8 @@ export function CareerIntelligenceDashboard({
         </div>
       </section>
 
-      {/* ── Per-question detail ── */}
+      {/* ── Per-question detail: only on the detailed report (profile, recruiter review), never the one-pager ── */}
+      {variant === 'detailed' ? (
       <section className={`${styles.card} ${styles.tableCard}`} aria-labelledby="report-questions-heading">
         <div className={styles.cardHead}>
           <h2 id="report-questions-heading" className={styles.cardTitle}>Questions and scores</h2>
@@ -501,7 +510,7 @@ export function CareerIntelligenceDashboard({
             <thead>
               <tr>
                 <th scope="col" className={styles.numCol}>#</th>
-                <th scope="col" className={styles.topicCol}>Topic</th>
+                <th scope="col">Topic</th>
                 <th scope="col" className={styles.questionCol}>Question</th>
                 <th scope="col" className={styles.scoreCol}>Correct</th>
                 <th scope="col" className={styles.scoreCol}>Depth</th>
@@ -555,10 +564,12 @@ export function CareerIntelligenceDashboard({
             </tbody>
           </table>
         </div>
+      </section>
+      ) : null}
 
-        {ratingByTopic.length > 0 ? (
-          <>
-            <h3 className={styles.subTitle}>Interview performance summary</h3>
+      {ratingByTopic.length > 0 ? (
+        <section className={styles.card} aria-labelledby="report-topics-heading">
+            <h3 id="report-topics-heading" className={styles.subTitle}>Interview performance summary</h3>
             <ul className={styles.starSummaryGrid}>
               {ratingByTopic.map((p, i) => (
                 <li key={`${p.name}-${i}`} className={styles.starSummaryItem}>
@@ -567,15 +578,20 @@ export function CareerIntelligenceDashboard({
                     <span aria-hidden="true">{p.stars}</span>
                     <span className="ds-sr-only">{starCount(p.stars)} of 5 stars</span>
                   </span>
-                  <span className={styles.starLevelTag}>{p.level}</span>
+                  {recruiter ? null : <span className={styles.starLevelTag}>{p.level}</span>}
                 </li>
               ))}
             </ul>
-          </>
-        ) : null}
-      </section>
+            {variant === 'summary' ? (
+              <p className={styles.cardNote} data-download-exclude>
+                The question-by-question breakdown is on <a href="/profile">your profile</a>.
+              </p>
+            ) : null}
+        </section>
+      ) : null}
 
-      {/* ── What to do next ── */}
+      {/* ── What to do next (candidate coaching; not on the recruiter view) ── */}
+      {recruiter ? null : (
       <section className={styles.rowGridTwo} aria-label="Improvement plan">
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>What to work on</h2>
@@ -605,6 +621,7 @@ export function CareerIntelligenceDashboard({
           </div>
         </div>
       </section>
+      )}
 
       {/* ── Career fit ── */}
       <section className={styles.rowGridThree} aria-label="Career fit">
@@ -646,20 +663,29 @@ export function CareerIntelligenceDashboard({
         </div>
 
         <div className={styles.card}>
-          <h2 className={styles.cardTitle}>Role fit</h2>
-          <ul className={styles.growthList}>
-            {careerPaths.map((g, i) => (
-              <li key={`${g.role}-${i}`}>
-                <div className={styles.growthItemHeader}>
-                  <span>{g.role}</span>
-                  <span>{g.match}%</span>
-                </div>
-                <div className={styles.barTrack} aria-hidden="true">
-                  <div className={styles.barFill} style={{ width: `${g.match}%` }} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <h2 className={styles.cardTitle}>Role skills fit</h2>
+          {roleSkillRows.length > 0 ? (
+            <ul className={styles.growthList}>
+              {roleSkillRows.map((g) => (
+                <li key={g.skill}>
+                  <div className={styles.growthItemHeader}>
+                    <span>{g.skill}</span>
+                    <span>{g.points}/100</span>
+                  </div>
+                  <div className={styles.barTrack} aria-hidden="true">
+                    <div className={styles.barFill} style={{ width: `${g.points}%` }} />
+                  </div>
+                  <p className={styles.alignCaption}>
+                    {g.onResume ? 'On résumé' : 'Not on résumé'} ·{' '}
+                    {g.demonstrated ? 'shown in interview' : 'not shown in interview'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={styles.cardNote}>No per-skill breakdown for this report.</p>
+          )}
+          {roleSkillsMeta?.method ? <p className={styles.cardNote}>{roleSkillsMeta.method}</p> : null}
         </div>
 
         <div className={styles.card}>
@@ -671,13 +697,16 @@ export function CareerIntelligenceDashboard({
           <div className={styles.barTrack} aria-hidden="true">
             <div className={styles.barFill} style={{ width: `${industryAlignment}%` }} />
           </div>
-          <p className={styles.privateNote}>
-            <HrIcon name="lock" size={14} /> Your resume is currently kept private and not shared with recruiters.
-          </p>
+          {recruiter ? null : (
+            <p className={styles.privateNote}>
+              <HrIcon name="lock" size={14} /> Your resume is currently kept private and not shared with recruiters.
+            </p>
+          )}
         </div>
       </section>
 
-      {/* ── Resume positioning + skills ── */}
+      {/* ── Resume positioning + skills (candidate advice; not on the recruiter view) ── */}
+      {recruiter ? null : (
       <section className={styles.card} aria-labelledby="report-positioning-heading">
         <h2 id="report-positioning-heading" className={styles.cardTitle}>Resume suggestions</h2>
         {positioningItems.length > 0 ? (
@@ -708,17 +737,19 @@ export function CareerIntelligenceDashboard({
           )}
         </div>
       </section>
+      )}
 
       {/* ── Footer: status, recommended roles, one forward action ── */}
       <footer className={styles.footerRibbon}>
         <div className={styles.footerTopRow}>
           <div className={styles.finalStatusGroup}>
-            <span className={styles.footerLabel}>Final career status</span>
-            <span className={`${styles.statusPill} ${styles.finalStatusPill} ${statusTone}`}>
-              <HrIcon name="check" size={14} /> {statusLabel}
+            <span className={styles.footerLabel}>{recruiter ? 'Interview score' : 'Career score'}</span>
+            <span className={`${styles.statusPill} ${styles.finalStatusPill} ${recruiter ? styles.toneNeutral : statusTone}`}>
+              <HrIcon name="check" size={14} /> {careerScore}/100 · {statusLabel}
             </span>
           </div>
 
+          {recruiter ? null : (
           <div className={styles.recommendedRoles}>
             <span className={styles.footerLabel}>Recommended for</span>
             <div className={styles.rolePills}>
@@ -729,12 +760,15 @@ export function CareerIntelligenceDashboard({
               ))}
             </div>
           </div>
+          )}
         </div>
 
+        {recruiter ? null : (
         <div className={styles.nextStepBox}>
           <strong>Next step</strong>
           <span>{nextRecommendedStep}</span>
         </div>
+        )}
 
         {onRetake || onContinue ? (
           <div className={styles.actionButtonRow} data-download-exclude>

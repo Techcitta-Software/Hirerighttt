@@ -1,9 +1,37 @@
-"""Role catalog skills vs résumé and interview answers — mirrors backend/node/roleSkillsFitScoring.mjs."""
+"""Role Skills Fit: a deterministic, explainable 0-100 score.
+
+How the number is built (the same rule everywhere; the browser only displays what the API returns):
+
+* Required skills come from the job (JD / recruiter's required skills) when the interview is for a job,
+  otherwise from the role catalog (data/roleSkills.json), otherwise from the candidate's own resume skills.
+  At most ``MAX_REQUIRED_SKILLS`` are used, in the order given.
+* Each required skill earns up to 100 points:
+    - ``RESUME_POINTS`` (40) when the skill is evidenced on the resume (parsed skills or resume text), and
+    - ``INTERVIEW_POINTS`` (60) when it was demonstrated in the interview: an answer about that skill scored
+      at least ``TARGETED_MIN_SCORE`` (60), or an answer that names the skill scored at least
+      ``MENTION_MIN_SCORE`` (50). Buzzwords inside a weak answer do not count.
+* Role Skills Fit = the average of the per-skill points, rounded.
+
+No embeddings, cosine similarity or randomness: the same resume, questions, answers and answer scores always
+produce the same number, and the response lists which skills matched and which were missed.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
+
+MAX_REQUIRED_SKILLS = 6
+RESUME_POINTS = 40
+INTERVIEW_POINTS = 60
+TARGETED_MIN_SCORE = 60
+MENTION_MIN_SCORE = 50
+
+METHOD_TEXT = (
+    f"Each required skill earns {RESUME_POINTS} points when it is on the resume and {INTERVIEW_POINTS} points "
+    f"when it was demonstrated in the interview (an answer about it scored {TARGETED_MIN_SCORE}+ or an answer "
+    f"naming it scored {MENTION_MIN_SCORE}+). Role Skills Fit is the average across the required skills."
+)
 
 
 def _clean(value: Any) -> str:
@@ -48,22 +76,23 @@ def _blob_includes_skill(blob: str, skill: str) -> bool:
     return False
 
 
-def normalize_required_role_skills(required_skills: list[str] | None) -> list[str]:
+def normalize_required_role_skills(required_skills: list[str] | None, limit: int = MAX_REQUIRED_SKILLS) -> list[str]:
+    """Trimmed, de-duplicated (case-insensitive) skills in the order given, at most ``limit``."""
     seen: set[str] = set()
     out: list[str] = []
     for raw in required_skills or []:
         s = _clean(raw)
-        if not s or s in seen:
+        if not s or s.lower() in seen:
             continue
-        seen.add(s)
+        seen.add(s.lower())
         out.append(s)
-        if len(out) >= 3:
+        if len(out) >= limit:
             break
     return out
 
 
 def skill_evidence_on_resume(skill: str, ctx: dict[str, Any]) -> bool:
-    blob = " ".join([*(ctx.get("skills") or []), _clean(ctx.get("resumeSnippet"))])
+    blob = " ".join([*(str(s) for s in ctx.get("skills") or []), _clean(ctx.get("resumeSnippet"))])
     return _blob_includes_skill(blob, skill)
 
 
@@ -71,73 +100,109 @@ def skill_evidence_in_answer(skill: str, answer: str) -> bool:
     return _blob_includes_skill(_clean(answer), skill)
 
 
-def compute_question_role_skills_fit(
-    question: dict[str, Any], answer: str, ctx: dict[str, Any], required_skills: list[str]
-) -> int | None:
-    required = normalize_required_role_skills(required_skills)
-    if not required:
-        return None
-
-    q_text = f"{_clean(question.get('topic'))} {_clean(question.get('text'))}".lower()
-    targeted = None
-    for s in required:
-        if _clean(s).lower() in q_text:
-            targeted = s
-            break
-    if not targeted:
-        for s in required:
-            if any(len(t) >= 3 and t in q_text for t in _skill_tokens(s)):
-                targeted = s
-                break
-
-    if targeted:
-        on_resume = skill_evidence_on_resume(targeted, ctx)
-        in_answer = skill_evidence_in_answer(targeted, answer)
-        if on_resume and in_answer:
-            return 100
-        if on_resume and not in_answer:
-            return 52
-        if not on_resume and in_answer:
-            return 68
-        return 22
-
-    # The question is not about a required role skill (e.g. opening, microservices design). Penalising the
-    # answer for not naming React/Node/SQL would punish good answers, so this sub-score does not apply.
-    return None
-
-
-def compute_session_role_skills_fit(
-    ctx: dict[str, Any], required_skills: list[str], answers: list[str]
-) -> dict[str, Any]:
-    required = normalize_required_role_skills(required_skills)
-    if not required:
-        return {
-            "fitScore": 0,
-            "requiredSkills": [],
-            "onResume": [],
-            "evidencedInAnswers": [],
-            "resumeMatchCount": 0,
-            "answerMatchCount": 0,
-        }
-
-    joined = " ".join(_clean(a) for a in answers)
-    on_resume = [s for s in required if skill_evidence_on_resume(s, ctx)]
-    evidenced = [s for s in required if skill_evidence_in_answer(s, joined)]
-    n = len(required)
-    fit_score = _clamp((len(on_resume) / n) * 50 + (len(evidenced) / n) * 50)
-    return {
-        "fitScore": fit_score,
-        "requiredSkills": required,
-        "onResume": on_resume,
-        "evidencedInAnswers": evidenced,
-        "resumeMatchCount": len(on_resume),
-        "answerMatchCount": len(evidenced),
-    }
-
-
 def question_targets_skill(question: dict[str, Any], skill: str) -> bool:
     q_text = f"{_clean(question.get('topic'))} {_clean(question.get('text'))}".lower()
     return _clean(skill).lower() in q_text or any(len(tok) >= 3 and tok in q_text for tok in _skill_tokens(skill))
+
+
+def compute_question_role_skills_fit(
+    question: dict[str, Any], answer: str, ctx: dict[str, Any], required_skills: list[str]
+) -> int | None:
+    """Per-answer rubric value for a question about one required skill (None when the question is about none).
+
+    Same points as the session score: resume evidence 40 + named in the answer 60.
+    """
+    required = normalize_required_role_skills(required_skills)
+    if not required:
+        return None
+    q_text = f"{_clean(question.get('topic'))} {_clean(question.get('text'))}".lower()
+    targeted = next((s for s in required if _clean(s).lower() in q_text), None) or next(
+        (s for s in required if question_targets_skill(question, s)), None
+    )
+    if not targeted:
+        # Not about a required skill (opening, behavioural, system design): this sub-score does not apply.
+        return None
+    return (RESUME_POINTS if skill_evidence_on_resume(targeted, ctx) else 0) + (
+        INTERVIEW_POINTS if skill_evidence_in_answer(targeted, answer) else 0
+    )
+
+
+def _empty_result(skill_source: str) -> dict[str, Any]:
+    return {
+        "fitScore": 0,
+        "requiredSkills": [],
+        "skills": [],
+        "matchedSkills": [],
+        "missingSkills": [],
+        "onResume": [],
+        "evidencedInAnswers": [],
+        "resumeMatchCount": 0,
+        "answerMatchCount": 0,
+        "skillSource": skill_source,
+        "weights": {"resume": RESUME_POINTS, "interview": INTERVIEW_POINTS},
+        "method": METHOD_TEXT,
+    }
+
+
+def compute_role_skills_fit(
+    ctx: dict[str, Any],
+    required_skills: list[str] | None,
+    questions: list[dict[str, Any]] | None,
+    answers: list[str] | None,
+    answer_scores: list[int | float | None] | None,
+    *,
+    skill_source: str = "role",
+) -> dict[str, Any]:
+    """The Role Skills Fit score and its per-skill breakdown (see the module docstring)."""
+    required = normalize_required_role_skills(required_skills)
+    if not required:
+        return _empty_result(skill_source)
+    questions = questions or []
+    answers = answers or []
+    answer_scores = answer_scores or []
+
+    rows: list[dict[str, Any]] = []
+    for skill in required:
+        on_resume = skill_evidence_on_resume(skill, ctx)
+        demonstrated_in: int | None = None
+        for i, answer in enumerate(answers):
+            score = answer_scores[i] if i < len(answer_scores) else None
+            if score is None or not _clean(answer):
+                continue
+            q = questions[i] if i < len(questions) else {}
+            if (score >= TARGETED_MIN_SCORE and question_targets_skill(q, skill)) or (
+                score >= MENTION_MIN_SCORE and skill_evidence_in_answer(skill, answer)
+            ):
+                demonstrated_in = i + 1
+                break
+        points = (RESUME_POINTS if on_resume else 0) + (INTERVIEW_POINTS if demonstrated_in else 0)
+        rows.append(
+            {
+                "skill": skill,
+                "onResume": on_resume,
+                "demonstrated": demonstrated_in is not None,
+                "evidenceQuestion": demonstrated_in,
+                "points": points,
+                "status": "matched" if points == 100 else "partial" if points else "missing",
+            }
+        )
+
+    fit = _clamp(sum(r["points"] for r in rows) / len(rows))
+    on_resume_list = [r["skill"] for r in rows if r["onResume"]]
+    evidenced = [r["skill"] for r in rows if r["demonstrated"]]
+    return {
+        **_empty_result(skill_source),
+        "fitScore": fit,
+        "requiredSkills": required,
+        "skills": rows,
+        "matchedSkills": [r["skill"] for r in rows if r["points"] > 0],
+        "missingSkills": [r["skill"] for r in rows if r["points"] == 0],
+        "onResume": on_resume_list,
+        "evidencedInAnswers": evidenced,
+        "resumeMatchCount": len(on_resume_list),
+        "answerMatchCount": len(evidenced),
+        "evidenceRule": "answer-quality",
+    }
 
 
 def compute_session_role_skills_fit_scored(
@@ -147,33 +212,12 @@ def compute_session_role_skills_fit_scored(
     answers: list[str],
     answer_scores: list[int | None],
 ) -> dict[str, Any]:
-    """Role fit using the evaluator's per-answer scores, so it measures demonstrated skill, not keywords.
+    """Backward-compatible name for :func:`compute_role_skills_fit`."""
+    return compute_role_skills_fit(ctx, required_skills, questions, answers, answer_scores)
 
-    A required skill is evidenced when
-      * it is named in an answer that scored at least 50 (buzzwords inside a wrong answer do not count), or
-      * a question about that skill was answered well (score >= 60), even if the answer never repeated its name
-        (a correct explanation of Python generators is evidence of Python).
-    """
-    base = compute_session_role_skills_fit(ctx, required_skills, [])
-    required = base["requiredSkills"]
-    if not required:
-        return base
-    evidenced: list[str] = []
-    for skill in required:
-        for i, answer in enumerate(answers):
-            score = answer_scores[i] if i < len(answer_scores) else None
-            if score is None:
-                continue
-            q = questions[i] if i < len(questions) else {}
-            if (score >= 50 and skill_evidence_in_answer(skill, answer)) or (score >= 60 and question_targets_skill(q, skill)):
-                evidenced.append(skill)
-                break
-    on_resume = base["onResume"]
-    n = len(required)
-    return {
-        **base,
-        "fitScore": _clamp((len(on_resume) / n) * 50 + (len(evidenced) / n) * 50),
-        "evidencedInAnswers": evidenced,
-        "answerMatchCount": len(evidenced),
-        "evidenceRule": "answer-quality",
-    }
+
+def compute_session_role_skills_fit(
+    ctx: dict[str, Any], required_skills: list[str], answers: list[str]
+) -> dict[str, Any]:
+    """Resume-only view (no interview scores yet): interview evidence counts as not demonstrated."""
+    return compute_role_skills_fit(ctx, required_skills, [], [], [])

@@ -13,13 +13,6 @@
 
 `ALLOW_DEMO_ACCOUNTS` must not be set in production; the API refuses to start if it is.
 
-## DynamoDB (alongside Neon)
-* Two tables per env: `hireright-{env}-main` + `hireright-{env}-audit`. Neon is not dropped when these are created.
-* Provision: `npm run db:dynamo:init` (or CloudFormation `infra/dynamodb/hireright-tables.yaml`).
-* Seed catalog rows: `npm run db:dynamo:seed`
-* Copy data from Neon (read-only on Postgres): `npm run db:dynamo:migrate` (optional `--dry-run`).
-* Entity map: `backend/app/db/dynamo/neon_entity_map.md`
-* Switch runtime later with `DATABASE_PROVIDER` (`neon` | `dual` | `dynamodb`).
 
 ## Schema migrations
 Add `backend/db/migrations/NNNN_description.sql` (idempotent SQL). They are applied once, in order, at startup /
@@ -47,8 +40,6 @@ so run as many workers and containers as needed behind a load balancer.
 * `DB_POOL_MAX`: connections per worker (default 10). Total connections = containers x workers x `DB_POOL_MAX`;
   keep it under the database limit, or put RDS Proxy / PgBouncer in front.
 * `REDIS_URL`: required with more than one instance, so rate limits are shared.
-* Use `DATABASE_PROVIDER=neon` (Postgres). `dynamodb` still uses the legacy whole-database-in-memory mode and must
-  stay at one instance.
 * A log line `Full table load of <table>` means some code path iterated a whole table; give it a finder.
 * Measured locally (100,000 users, one laptop): API memory 81 MB, flat, regardless of user count (was about 1 GB);
   startup 1.9 s (was 9.9 s); a profile save 28 ms (it never finished before); `/api/me` 400 req/s with 4 workers.

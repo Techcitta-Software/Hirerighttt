@@ -29,6 +29,20 @@ export function clearSessionValidationCache() {
   sessionValidCache = null
 }
 
+/** True when a recent `/api/me` check succeeded for the current local user. */
+export function sessionRecentlyValidated(): boolean {
+  const user = getUser()
+  if (!user?.email?.trim()) return false
+  const expected = user.email.trim().toLowerCase()
+  const now = Date.now()
+  return Boolean(
+    sessionValidCache &&
+      sessionValidCache.email === expected &&
+      sessionValidCache.ok &&
+      now - sessionValidCache.at < SESSION_VALID_CACHE_MS,
+  )
+}
+
 export function clearStoredAuth() {
   setApiToken(null)
   logout()
@@ -58,6 +72,15 @@ export async function isApiSessionValid(): Promise<boolean> {
     const me = (await apiMe()) as { user?: { email?: string } }
     const tokenEmail = me.user?.email?.trim().toLowerCase()
     if (!tokenEmail || tokenEmail !== expected) {
+      if (tokenEmail && getApiToken()) {
+        const { syncSessionFromApi } = await import('./apiSync')
+        const synced = await syncSessionFromApi()
+        const aligned = synced?.email?.trim().toLowerCase()
+        if (aligned && aligned === tokenEmail) {
+          sessionValidCache = { email: tokenEmail, ok: true, at: now }
+          return true
+        }
+      }
       setApiToken(null)
       sessionValidCache = { email: expected, ok: false, at: now }
       return false

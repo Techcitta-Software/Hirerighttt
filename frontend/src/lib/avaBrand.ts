@@ -2,7 +2,7 @@
 
 export const AVA_NAME = 'Ava'
 export const AVA_AI_INTERVIEW = 'Ava AI Interview'
-export const AVA_TAGLINE = 'Your HireRight AI interviewer'
+export const AVA_TAGLINE = 'Your HireRighttt AI interviewer'
 export const AVA_STATUS_READY = 'Ava AI interview is ready'
 export const AVA_STATUS_SYNCED = 'Ava AI interview · synced with your profile'
 export const AVA_STATUS_JOB =

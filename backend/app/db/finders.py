@@ -1,8 +1,8 @@
 """Indexed lookups for the request's `db`.
 
 Every function takes the `db` the route already has. With the Postgres unit of work it runs ONE indexed query (and
-remembers the rows, so a change to a returned object is saved by `runtime.save_db`). With a plain dict (unit tests,
-the legacy DynamoDB mode) it falls back to scanning the in-memory lists, so behaviour is identical either way.
+remembers the rows, so a change to a returned object is saved by `runtime.save_db`). With a plain dict (unit tests)
+it falls back to scanning the in-memory lists, so behaviour is identical either way.
 """
 
 from __future__ import annotations

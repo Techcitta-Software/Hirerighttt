@@ -254,6 +254,125 @@ def delete_vendor_job(db: dict, organization_id: str, job_id: str) -> dict:
     return {"id": jid, "title": job.get("title")}
 
 
+# --- Job lifecycle (PATCH /api/vendor/jobs/{id}) -----------------------------------------------------------------
+# "active" is the legacy spelling of "published" (jobs created before the lifecycle existed).
+JOB_STATUSES = ("draft", "published", "closed", "archived")
+JOB_CLOSED_MESSAGE = "This job is no longer accepting applications."
+# Allowed moves. draft <-> published is publish / unpublish, published <-> closed is close / reopen;
+# archive hides the job from the employer's list (applicants and reports stay), restoring brings it back closed.
+JOB_STATUS_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    "draft": ("published", "archived"),
+    "published": ("draft", "closed", "archived"),
+    "closed": ("published", "archived"),
+    "archived": ("closed",),
+}
+_EDITABLE_TEXT_FIELDS = {
+    # body key -> (job key, max length, label)
+    "title": ("title", 200, "Title"),
+    "roleTrack": ("roleTrack", 120, "Role"),
+    "experienceLevel": ("experienceLevel", 80, "Years of experience"),
+    "location": ("location", 120, "Location"),
+}
+
+
+def job_status(job: dict | None) -> str:
+    """Canonical lifecycle status of a job ("active" and missing both read as published)."""
+    raw = str((job or {}).get("status") or "published").strip().lower()
+    return "published" if raw in ("active", "published", "") else raw
+
+
+def _bad_request(message: str, status: int = 400) -> ValueError:
+    err = ValueError(message)
+    err.status = status  # type: ignore[attr-defined]
+    return err
+
+
+def update_vendor_job(job: dict, body: dict) -> dict:
+    """Apply an edit / status change to `job` in place. Returns {"changed": [...fields], "from": old, "to": new}.
+
+    Raises ValueError (with .status) on invalid input. The caller has already checked tenant and role.
+    Interviews that already ran keep the questions they were asked (they are stored on the session / result);
+    only interviews started after this edit read the new description and skills."""
+    if not isinstance(body, dict) or not body:
+        raise _bad_request("Nothing to update.")
+    allowed = set(_EDITABLE_TEXT_FIELDS) | {"jobDescription", "requiredSkills", "status"}
+    unknown = sorted(k for k in body if k not in allowed)
+    if unknown:
+        raise _bad_request(f"These fields cannot be changed: {', '.join(unknown)}.")
+    updates: dict[str, Any] = {}
+    for key, (job_key, max_len, label) in _EDITABLE_TEXT_FIELDS.items():
+        if key not in body:
+            continue
+        value = body[key]
+        if not isinstance(value, str) or not value.strip():
+            raise _bad_request(f"{label} is required.")
+        value = value.strip()
+        if len(value) > max_len:
+            raise _bad_request(f"{label} must be {max_len} characters or less.")
+        updates[job_key] = value
+    if "jobDescription" in body:
+        jd = body["jobDescription"]
+        if not isinstance(jd, str) or not (30 <= len(jd.strip()) <= 20000):
+            raise _bad_request("Provide a complete JD (30–20,000 characters).")
+        updates["jobDescription"] = jd.strip()
+    if "requiredSkills" in body:
+        raw = body["requiredSkills"]
+        if isinstance(raw, str):
+            raw = raw.split(",")
+        if not isinstance(raw, list) or any(not isinstance(s, str) for s in raw):
+            raise _bad_request("Skills must be a list of names.")
+        skills = list(dict.fromkeys(s.strip() for s in raw if s.strip()))
+        if not skills:
+            raise _bad_request("Add at least one skill.")
+        if len(skills) > 40 or any(len(s) > 100 for s in skills):
+            raise _bad_request("Provide at most 40 skills, each up to 100 characters.")
+        updates["requiredSkills"] = skills
+    old_status = job_status(job)
+    new_status = old_status
+    if "status" in body:
+        wanted = str(body["status"] or "").strip().lower()
+        if wanted == "active":
+            wanted = "published"
+        if wanted not in JOB_STATUSES:
+            raise _bad_request(f"Status must be one of: {', '.join(JOB_STATUSES)}.")
+        if wanted != old_status and wanted not in JOB_STATUS_TRANSITIONS.get(old_status, ()):
+            raise _bad_request(f"A {old_status} job cannot be moved to {wanted}.", 409)
+        new_status = wanted
+    changed = [k for k, v in updates.items() if job.get(k) != v]
+    for k in changed:
+        job[k] = updates[k]
+    if new_status != old_status:
+        job["status"] = new_status
+        changed.append("status")
+    if changed:
+        from datetime import datetime, timezone
+
+        job["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return {"changed": changed, "from": old_status, "to": new_status}
+
+
+def find_job_by_code_any_status(db: dict, code: str, database_url: str = "") -> dict | None:
+    """The job behind a share link whatever its status (to tell "closed" apart from "never existed")."""
+    c = _normalize_shareable_code(code)
+    if not c:
+        return None
+    matches = jobs_by_shareable_code(db, c)
+    if matches:
+        return matches[0]
+    if database_url.strip() and not isinstance(db, UnitOfWork):
+        return find_job_by_shareable_code(database_url, c, include_inactive=True)
+    return None
+
+
+def closed_job_response_body(job: dict) -> dict:
+    """What a share / apply link answers for a job that exists but no longer takes applications (HTTP 410)."""
+    return {
+        "error": JOB_CLOSED_MESSAGE,
+        "code": "JOB_CLOSED",
+        "job": {"title": job.get("title"), "company": job.get("company"), "status": job_status(job)},
+    }
+
+
 def _merge_application_payload(application: dict, job: dict, payload: dict) -> None:
     resume_text = str(payload.get("resumeText") or application.get("data", {}).get("resumeText") or "")
     ats = payload.get("atsEvaluation")
@@ -385,6 +504,12 @@ def attach_candidate_report_to_application(
     if not email or not application.get("data"):
         return application
     profile = (db.get("profiles") or {}).get(email) or {}
+    from app.services.candidate_name import candidate_display_name
+
+    # The applicant is shown by the name on their (current) resume, never a signup / typed name that differs.
+    application["data"]["candidateName"] = candidate_display_name(
+        db, email, resume_text=application["data"].get("resumeText"), given=application["data"].get("candidateName")
+    )
     if not application["data"].get("candidateRole"):
         application["data"]["candidateRole"] = str(options.get("candidateRole") or profile.get("currentRole") or "").strip()
     for key, pkey in (
@@ -458,7 +583,9 @@ def public_job_payload(job: dict) -> dict:
         "jobDescription": job.get("jobDescription"),
         "requiredSkills": job.get("requiredSkills") or [],
         "shareableCode": job.get("shareableCode"),
+        "status": job_status(job),
         "createdAt": job.get("createdAt"),
+        "updatedAt": job.get("updatedAt"),
     }
 
 

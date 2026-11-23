@@ -111,7 +111,8 @@ export function WhyPage() {
                 className={styles.inlineLink}
                 onClick={(e) => {
                   e.preventDefault()
-                  document.getElementById('difference')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+                  document.getElementById('difference')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
                 }}
               >
                 There&apos;s a better place to begin <span aria-hidden="true">↗</span>

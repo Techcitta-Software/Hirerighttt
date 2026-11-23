@@ -21,6 +21,16 @@ os.environ["ENVIRONMENT"] = "development"
 os.environ["NODE_ENV"] = "development"
 os.environ.pop("REDIS_URL", None)  # the rate limiter uses its in-memory fallback in tests
 os.environ.pop("SENTRY_DSN", None)
+# Tests never reach real S3, and tenant-scoped assertions assume the default "platform" tenant id —
+# a QA shell exporting S3_DEFAULT_TENANT_ID=qa-... otherwise flips recording-access results.
+# (Set to "" rather than popped: load_env() uses setdefault, so a popped key would be re-read from .env.)
+for _k in ("S3_BUCKET", "S3_EXPECTED_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "PADDLE_OCR_URL"):
+    os.environ[_k] = ""
+os.environ.pop("S3_DEFAULT_TENANT_ID", None)
+# Never send real email from tests, whatever the developer's shell or .env says.
+# Never call a real LLM either: tests mock it (an unmocked call fails fast instead of spending quota).
+for _k in ("SMTP_EMAIL", "SMTP_APP_PASSWORD", "RESEND_API_KEY", "GEMINI_API_KEY", "GEMINI_API_KEYS", "OPENROUTER_API_KEY"):
+    os.environ[_k] = ""
 
 from app.main import app  # noqa: E402
 

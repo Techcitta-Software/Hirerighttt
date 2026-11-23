@@ -13,3 +13,12 @@ export function findUserByPhone<T extends { phone?: string }>(users: T[], raw: s
   if (!norm) return undefined
   return users.find((u) => normalizePhone(u.phone || '') === norm)
 }
+
+/** Read-only display: "919845012345" → "+91 98450 12345", "9845012345" → "98450 12345"; anything else as typed. */
+export function formatPhoneForDisplay(raw: string): string {
+  const value = String(raw || '').trim()
+  const digits = value.replace(/\D/g, '')
+  if (digits.length === 12 && digits.startsWith('91')) return `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`
+  if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`
+  return value
+}

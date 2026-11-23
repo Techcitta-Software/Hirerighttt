@@ -19,14 +19,7 @@
     "preview": "npm --prefix frontend run preview",
     "start": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8787",
     "db:init": "cd backend && python db_init.py",
-    "db:verify": "cd backend && python db_init.py --verify",
-    "db:dynamo:init": "cd backend && python dynamo_init.py",
-    "db:dynamo:verify": "cd backend && python dynamo_init.py --verify",
-    "db:dynamo:seed": "cd backend && python dynamo_init.py --seed",
-    "db:dynamo:migrate": "cd backend && python dynamo_init.py --migrate",
-    "db:dynamo:probe": "cd backend && python scripts/dynamo_probe.py",
-    "db:dynamo:inventory": "cd backend && python scripts/dynamo_inventory.py",
-    "db:dynamo:e2e": "cd backend && python scripts/e2e_dynamo_full_check.py"
+    "db:verify": "cd backend && python db_init.py --verify"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

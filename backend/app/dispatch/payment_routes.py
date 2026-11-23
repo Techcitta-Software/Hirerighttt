@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from psycopg.rows import dict_row
 
 from app.db import store as db_store
-from app.db.dynamo_config import database_provider, persistence_ready
+from app.db.persistence import persistence_ready
 from app.dispatch.context import DispatchContext
 from app.node_config import config
 from app.server import runtime
@@ -26,7 +26,7 @@ _PATHS = ("/api/payments/retake/status", "/api/payments/retake/order", "/api/pay
 
 
 def _db_ready() -> bool:
-    return persistence_ready(config.database_url) and database_provider() != "dynamodb"
+    return persistence_ready(config.database_url)
 
 
 async def try_payment_routes(

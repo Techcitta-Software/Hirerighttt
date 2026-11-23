@@ -38,14 +38,6 @@ def parse_invite_context(row: dict) -> dict:
 
 
 async def insert_interview_invite(pool, row: dict) -> None:
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb":
-        import asyncio
-        from app.db import dynamo_repos as dr
-
-        await asyncio.to_thread(dr.insert_interview_invite_dynamo, row)
-        return
     import asyncio
 
     await asyncio.to_thread(_insert_invite_sync, pool, row)
@@ -77,13 +69,6 @@ def _insert_invite_sync(pool, row: dict) -> None:
 
 
 async def get_interview_invite_by_token(pool, token: str) -> dict | None:
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb":
-        import asyncio
-        from app.db import dynamo_repos as dr
-
-        return await asyncio.to_thread(dr.get_interview_invite_dynamo, token)
     import asyncio
 
     token = str(token or "")[:128]
@@ -124,22 +109,54 @@ def validate_invite_start(invite: dict | None, candidate_email: str, now: dateti
     return {"ok": True}
 
 
-def public_app_origin() -> str:
-    explicit = next(
-        (os.environ.get(k) for k in ("PUBLIC_APP_URL", "FRONTEND_URL", "APP_URL") if os.environ.get(k)),
-        None,
-    )
-    if explicit:
-        u = urlparse(explicit.strip())
-        if u.scheme in ("http", "https") and u.path in ("", "/"):
-            return u.scheme + "://" + u.netloc
+PUBLIC_URL_ENV_KEYS = ("PUBLIC_APP_URL", "VITE_PUBLIC_APP_URL", "FRONTEND_URL", "APP_URL")
+
+
+def _origin_of(url: str | None, *, require_root: bool = False) -> str | None:
+    u = urlparse(str(url or "").strip())
+    if u.scheme not in ("http", "https") or not u.netloc:
+        return None
+    if require_root and u.path not in ("", "/"):
+        return None
+    return f"{u.scheme}://{u.netloc}"
+
+
+def trusted_request_origin(request: Any) -> str | None:
+    """The site the request came from (Origin, else Referer), but only when it is one of our CORS origins.
+
+    Links in emails must never follow a header an attacker can set (a reset link to their own site), so an origin
+    that is not on the allowlist is ignored."""
+    if request is None:
+        return None
+    headers = getattr(request, "headers", None) or {}
+    origin = _origin_of(headers.get("origin")) or _origin_of(headers.get("referer"))
+    if not origin:
+        return None
+    from app.node_config import config
+
+    allowed = {o.rstrip("/") for o in config.cors_origins if o and o != "*"}
+    return origin if origin in allowed else None
+
+
+def public_app_origin(request_origin: str | None = None) -> str:
+    """Origin used for links in emails (invites, reminders, password resets).
+
+    1. PUBLIC_APP_URL (or VITE_PUBLIC_APP_URL / FRONTEND_URL / APP_URL), scheme + host only;
+    2. else the origin of the browser request that triggered the email, when it is an allowed CORS origin;
+    3. else, outside production, the Vite dev server; in production it is an error (no localhost links)."""
+    for key in PUBLIC_URL_ENV_KEYS:
+        explicit = _origin_of(os.environ.get(key), require_root=True)
+        if explicit:
+            return explicit
+    if request_origin:
+        return request_origin.rstrip("/")
     if os.environ.get("NODE_ENV") != "production":
         return "http://localhost:5173"
     raise RuntimeError("PUBLIC_APP_URL is required to create working email links in production.")
 
 
-def invite_public_url(token: str) -> str:
-    return f"{public_app_origin()}/interview/invite/{token}"
+def invite_public_url(token: str, request_origin: str | None = None) -> str:
+    return f"{public_app_origin(request_origin)}/interview/invite/{token}"
 
 
 IST = timezone(timedelta(hours=5, minutes=30))

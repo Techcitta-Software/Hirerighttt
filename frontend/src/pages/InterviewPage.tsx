@@ -1,7 +1,7 @@
 import { attachInterviewContentGuard, looksLikeVirtualCamera, type ContentGuardEvent } from '../lib/interviewContentGuard'
 import { ReviewEventTracker, saveReviewEvents } from '../lib/interviewReview'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   mapExperienceToLevel,
@@ -32,15 +32,14 @@ import {
   isServerInterviewSession,
   processInterviewTurn,
   scoreInterviewRemote,
-  startInterviewSession,
   type IntegritySnapshot,
+  RETAKE_PAYMENT_REQUIRED_ERROR,
 } from '../lib/interviewAgentClient'
 import { buildInterviewConsent, type InterviewConsent } from '../lib/interviewConsent'
 import { InterviewRecorder } from '../lib/interviewRecorder'
 import {
   inviteAccessFromStored,
   isImmediateInterviewAllowed,
-  readInviteInterviewContext,
   readStoredInterviewInvite,
 } from '../lib/interviewInviteGate'
 import {
@@ -85,6 +84,13 @@ import {
   type LobbySttSnapshot,
 } from '../lib/interviewLobbySttGate'
 import {
+  beginLobbySessionPrep,
+  invalidateLobbySessionPrep,
+  lobbySessionPrepKey,
+  runLobbySessionPrep,
+} from '../lib/interviewLobbySessionPrep'
+import { displayNameFromSessionProfile } from '../lib/interviewStartContext'
+import {
   attachInterviewRoomGuard,
   exitInterviewFullscreen,
   fullscreenDeniedUserMessage,
@@ -95,11 +101,20 @@ import {
 } from '../lib/interviewRoomLock'
 import { CareerIntelligenceDashboard } from '../components/CareerIntelligenceDashboard'
 import { startInterviewFinishJob } from '../lib/interviewFinishJob'
+import { clearPendingJob, resolveInterviewJobContext } from '../lib/pendingJobApply'
+import { interviewDurationMinutes, isInterviewOverBudget } from '../lib/interviewDuration'
 import { HrIcon } from '../components/HrIcon'
 import { BrandLogo } from '../components/BrandLogo'
 import { easeOut } from '../motion/variants'
 import styles from './InterviewPage.module.css'
-import { answerDoneCommand, silenceAdvanceMs, stripAnswerDoneCommand } from '../lib/answerTiming'
+import {
+  MIN_ANSWER_CHARS,
+  NO_ANSWER_NOTICE_HOLD_MS,
+  NO_ANSWER_PROMPT,
+  NO_ANSWER_SPEECH_MAX_MS,
+  decideAnswerTick,
+  stripAnswerDoneCommand,
+} from '../lib/answerTiming'
 
 /** Silero VAD + onnxruntime-web JS (~300 KB) load only once the mic stream is ready, not with the page. */
 const createMoonshineVadSttController: typeof import('../lib/moonshineVadStt').createMoonshineVadSttController = async (
@@ -121,9 +136,7 @@ const QUESTION_SECONDS = 180
 /** Silence before an answer counts as finished: answerTiming.silenceAdvanceMs (2.8-5 s by answer length). */
 /** Longest the next question waits for Ava's bridge sentence to finish (a stuck audio callback never blocks). */
 const BRIDGE_MAX_WAIT_MS = 9000
-/** If the candidate never speaks after Ava finishes the question, advance silently (no UI). */
-const NO_ANSWER_SKIP_MS = 10_000
-const MIN_ANSWER_CHARS = 10
+/** No answer at all after the question: answerTiming.NO_ANSWER_TIMEOUT_MS, then Ava says NO_ANSWER_PROMPT and moves on. */
 
 const LOBBY_TIPS = [
   'Only you on camera, facing the screen. Brief glances away are fine.',
@@ -157,27 +170,13 @@ export function InterviewPage() {
   const profile = useMemo(() => getProfile(), [])
   const profileSkills = profile?.skills ?? []
 
-  const targetJobRaw = useMemo(() => {
-    const str = sessionStorage.getItem('hireright.targetJob')
-    if (!str) return null
-    try {
-      return JSON.parse(str) as {
-        title: string
-        company: string
-        role: string
-        level: string
-        jd?: string
-        jobId?: string
-        applicationId?: string
-        organizationId?: string
-        primarySkills?: string[]
-        atsScore?: number
-        jdMatchScore?: number
-      }
-    } catch {
-      return null
-    }
-  }, [])
+  // The job this interview is for: the apply page / invite, or a job link carried through sign-up or log-in
+  // (pendingJobApply) so its JD is preloaded instead of a generic resume interview.
+  const targetJobRaw = useMemo(() => resolveInterviewJobContext(), [])
+  /** The job as linked when the interview started (after a job-link application was saved: has applicationId). */
+  const activeJobRef = useRef(targetJobRaw)
+  /** Whole-interview time budget in minutes (20 for a job-link interview); 0 = no budget. */
+  const budgetMinutesRef = useRef(0)
 
   const [stage, setStage] = useState<Stage>('setup')
   const [role] = useState<string>(() => {
@@ -196,11 +195,14 @@ export function InterviewPage() {
   const [result, setResult] = useState<InterviewResult | null>(null)
   const [listening, setListening] = useState(false)
   const [aiSpeaking, setAiSpeaking] = useState(false)
+  /** Shown (and spoken) when the candidate has not answered: NO_ANSWER_PROMPT. */
+  const [noAnswerNotice, setNoAnswerNotice] = useState('')
   const [advancing, setAdvancing] = useState(false)
   const [camOn, setCamOn] = useState(true)
   const [micOn, setMicOn] = useState(true)
   const [streamReady, setStreamReady] = useState(false)
   const [deviceError, setDeviceError] = useState('')
+  const [retakePaymentRequired, setRetakePaymentRequired] = useState(false)
   const [skipCamera, setSkipCamera] = useState(false)
   const [showTypeFallback, setShowTypeFallback] = useState(false)
   const [mediaBusy, setMediaBusy] = useState(false)
@@ -208,11 +210,8 @@ export function InterviewPage() {
   const interviewLockRequireFullscreenRef = useRef(false)
   const roomGuardDetachRef = useRef<(() => void) | null>(null)
   const [starting, setStarting] = useState(false)
-  /** What "Enter interview room" is waiting on (null when not joining). */
-  const [joinProgress, setJoinProgress] = useState<{
-    questions: 'pending' | 'done'
-    voice: 'pending' | 'done' | 'fallback'
-  } | null>(null)
+  const [jobDetailsOpen, setJobDetailsOpen] = useState(false)
+  const lobbyVoicePrepRef = useRef(false)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const sttPhaseRef = useRef(sttPhase)
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
@@ -323,6 +322,7 @@ export function InterviewPage() {
     if (isImmediateInterviewAllowed()) return null
     return inviteAccessFromStored(readStoredInterviewInvite(), scheduleClock)
   }, [scheduleClock])
+
   const [customJd] = useState(
     targetJobRaw?.jd
       ? targetJobRaw.jd
@@ -353,6 +353,19 @@ export function InterviewPage() {
     version: 'no-prompt',
   }))
   const recordingConsent = interviewConsent !== null
+
+  const lobbySessionKey = useMemo(
+    () =>
+      lobbySessionPrepKey({
+        role,
+        level,
+        targetJobRaw,
+        customJd,
+        interviewConsent,
+      }),
+    [role, level, targetJobRaw, customJd, interviewConsent],
+  )
+
   const sessionIdRef = useRef<string | null>(null)
   const varietySeedRef = useRef<string>('')
   const totalTurnsRef = useRef(MAX_ADAPTIVE_QUESTIONS)
@@ -622,7 +635,13 @@ export function InterviewPage() {
       }
 
       if (stageRef.current === 'interview' && !pendingClipRef.current) {
-        reviewRef.current.sample(status, Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000))
+        // Offsets are seconds since the recording started; the observation adds head-movement / phone intervals.
+        reviewRef.current.sample(
+          status,
+          Math.max(0, (Date.now() - interviewStartedAtRef.current) / 1000),
+          Date.now(),
+          tracker.lastObservation,
+        )
         integrityRef.current.logs = reviewRef.current.events
         proctorRef.current?.observe(tracker.lastObservation)
       }
@@ -936,6 +955,7 @@ export function InterviewPage() {
     lastSpeechAtRef.current = 0
     answerWindowStartedAtRef.current = 0
     noAnswerSkipTriggeredRef.current = false
+    setNoAnswerNotice('')
     setDraft('')
     draftRef.current = ''
     baseDraftRef.current = ''
@@ -1019,27 +1039,21 @@ export function InterviewPage() {
       ) {
         return
       }
-      const text = draftRef.current.trim()
-      const phase = sttPhaseRef.current
-      if (text && answerDoneCommand(text) !== null) {
-        submitAnswerRef.current() // "...next question": move on now, no silence wait
-        return
-      }
-      if (text.length >= MIN_ANSWER_CHARS) {
-        const last = lastSpeechAtRef.current
-        if (!last) return
-        if (Date.now() - last < silenceAdvanceMs(text)) return
+      // Rules (and the no-answer timeout) live in answerTiming.decideAnswerTick.
+      const decision = decideAnswerTick({
+        now: Date.now(),
+        transcript: draftRef.current,
+        sttPhase: sttPhaseRef.current,
+        lastSpeechAt: lastSpeechAtRef.current,
+        answerWindowStartedAt: answerWindowStartedAtRef.current,
+        noAnswerHandled: noAnswerSkipTriggeredRef.current,
+      })
+      if (decision === 'submit' || decision === 'submit-now') {
         submitAnswerRef.current()
-        return
+      } else if (decision === 'no-answer') {
+        noAnswerSkipTriggeredRef.current = true
+        announceNoAnswerAndAdvance()
       }
-      if (text.length > 0 || phase === 'capturing' || phase === 'transcribing') {
-        return
-      }
-      const windowStart = answerWindowStartedAtRef.current
-      if (!windowStart || noAnswerSkipTriggeredRef.current) return
-      if (Date.now() - windowStart < NO_ANSWER_SKIP_MS) return
-      noAnswerSkipTriggeredRef.current = true
-      submitAnswerRef.current()
     }, 400)
     return () => window.clearInterval(id)
   }, [stage, current, interviewBanned])
@@ -1147,60 +1161,31 @@ export function InterviewPage() {
       banned: false,
     }
     stopAllSpeech()
-    const voiceAlreadyReady =
-      webSpeechFallbackRef.current || isLobbyLocalSttReady(lobbySttSnapshotRef.current)
-    setJoinProgress({ questions: 'pending', voice: voiceAlreadyReady ? 'done' : 'pending' })
     try {
-      const freshProfile = getProfile()
-      const inviteCtx = readInviteInterviewContext()
-      const baseProfile = freshProfile ?? profile
-      const mergedProfile =
-        baseProfile && inviteCtx?.resumeText?.trim()
-          ? { ...baseProfile, resumeText: inviteCtx.resumeText }
-          : baseProfile
-      if (mergedProfile) {
-        setCandidateDisplayName(resolveCandidateName(mergedProfile, getUser()) || candidateDisplayName)
-      }
       historyRef.current = []
       interviewStartedAtRef.current = Date.now()
-      const effectiveJd =
-        inviteCtx?.jobDescription?.trim() ||
-        customJd.trim() ||
-        targetJobRaw?.jd?.trim() ||
-        ''
-      const explicitTrack =
-        roleTrackExplicitRef.current ||
-        Boolean(targetJobRaw) ||
-        effectiveJd.length >= 40
-      // The session request and the on-device voice model run in parallel; the voice wait is capped and falls back
-      // to the browser's own speech recognition, so joining never hangs on a slow model download.
-      const voicePromise = prepareVoiceForRoom().then((outcome) => {
-        setJoinProgress((p) => (p ? { ...p, voice: outcome } : p))
-        return outcome
-      })
-      const startPromise = startInterviewSession(role, level, mergedProfile, {
-        jobDescription: effectiveJd,
-        explicitRoleTrack: explicitTrack,
-        jobId: targetJobRaw?.jobId,
-        applicationId: targetJobRaw?.applicationId,
-        organizationId: targetJobRaw?.organizationId,
-        questionMode:
-          targetJobRaw?.applicationId || targetJobRaw?.jobId
-            ? undefined
-            : targetJobRaw || effectiveJd.length >= 40
-              ? 'individual_jd'
-              : undefined,
-        primarySkills: targetJobRaw?.primarySkills,
-        atsScore: targetJobRaw?.atsScore,
-        jdMatchScore: targetJobRaw?.jdMatchScore,
-        consent: interviewConsent ?? undefined,
-      })
-      void startPromise.then(
-        () => setJoinProgress((p) => (p ? { ...p, questions: 'done' } : p)),
-        () => undefined,
+      // Session + question batch may already be in flight from the waiting room (no extra UI for that).
+      const voicePromise = prepareVoiceForRoom()
+      const sessionPromise = beginLobbySessionPrep(lobbySessionKey, () =>
+        runLobbySessionPrep({
+          role,
+          level,
+          profile,
+          customJd,
+          targetJobRaw,
+          roleTrackExplicit: roleTrackExplicitRef.current,
+          interviewConsent,
+        }),
       )
-      const [started, voice] = await Promise.all([startPromise, voicePromise])
+      const [sessionPayload, voice] = await Promise.all([sessionPromise, voicePromise])
+      const { started, targetJob, mergedProfile } = sessionPayload
+      activeJobRef.current = targetJob
+      const nameFromProfile = displayNameFromSessionProfile(mergedProfile, candidateDisplayName)
+      if (nameFromProfile && nameFromProfile !== candidateDisplayName) {
+        setCandidateDisplayName(nameFromProfile)
+      }
       adaptiveRef.current = started.adaptive !== false
+      budgetMinutesRef.current = started.jdFirst ? interviewDurationMinutes(targetJob, started.durationMinutes) : 0
       sessionIdRef.current = started.sessionId
       varietySeedRef.current = started.varietySeed || varietySeedRef.current
       totalTurnsRef.current = Math.max(
@@ -1234,10 +1219,10 @@ export function InterviewPage() {
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
       window.setTimeout(() => attachStream(roomVideoRef.current), 300)
     } catch (err) {
+      setRetakePaymentRequired(err instanceof Error && err.name === RETAKE_PAYMENT_REQUIRED_ERROR)
       setDeviceError(err instanceof Error ? err.message : 'We couldn’t start your interview. Please try again.')
     } finally {
       setStarting(false)
-      setJoinProgress(null)
     }
   }
 
@@ -1275,6 +1260,35 @@ export function InterviewPage() {
     return gate.ok ? 'done' : fallBack()
   }
 
+  /** Warm voice models in the lobby so join only waits on the session API (no step list in UI). */
+  useEffect(() => {
+    if (stage !== 'setup' || !streamReady || !interviewConsent || lobbyVoicePrepRef.current) return
+    lobbyVoicePrepRef.current = true
+    void prepareVoiceForRoom()
+    // prepareVoiceForRoom is stable for lobby lifecycle
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, streamReady, interviewConsent])
+
+  /** Question batch + session start run silently while the candidate is in the waiting room. */
+  useEffect(() => {
+    if (stage !== 'setup' || !interviewConsent) return
+    if (scheduledInviteAccess && !scheduledInviteAccess.canStart) return
+    void beginLobbySessionPrep(lobbySessionKey, () =>
+      runLobbySessionPrep({
+        role,
+        level,
+        profile,
+        customJd,
+        targetJobRaw,
+        roleTrackExplicit: roleTrackExplicitRef.current,
+        interviewConsent,
+      }),
+    ).catch(() => {
+      /* join will retry; never surface “preparing questions” in the lobby */
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, interviewConsent, lobbySessionKey, scheduledInviteAccess?.canStart])
+
   function endInterviewEarly() {
     if (finishingRef.current || stage !== 'interview') return
     stopAllSpeech()
@@ -1295,6 +1309,32 @@ export function InterviewPage() {
     }
     finishingRef.current = true
     finish(next, false)
+  }
+
+  /**
+   * The candidate stayed silent after the question (answerTiming.NO_ANSWER_TIMEOUT_MS): Ava says so out loud and on
+   * screen, waits NO_ANSWER_NOTICE_HOLD_MS, then moves on with an empty answer.
+   */
+  function announceNoAnswerAndAdvance() {
+    const gen = speakGenRef.current
+    listenAfterTtsRef.current = false
+    stopListening()
+    setNoAnswerNotice(NO_ANSWER_PROMPT)
+    setAiSpeaking(true)
+    aiSpeakingRef.current = true
+    let done = false
+    const advance = () => {
+      if (done) return
+      done = true
+      if (gen !== speakGenRef.current || finishingRef.current || stageRef.current !== 'interview') return
+      setNoAnswerNotice('')
+      setAiSpeaking(false)
+      aiSpeakingRef.current = false
+      submitAnswerRef.current()
+    }
+    const holdThenAdvance = () => window.setTimeout(advance, NO_ANSWER_NOTICE_HOLD_MS)
+    speakText(NO_ANSWER_PROMPT, { onEnd: holdThenAdvance, onError: holdThenAdvance })
+    window.setTimeout(advance, NO_ANSWER_SPEECH_MAX_MS + NO_ANSWER_NOTICE_HOLD_MS)
   }
 
   async function submitAnswer() {
@@ -1340,6 +1380,12 @@ export function InterviewPage() {
       adaptiveRef.current &&
       historyRef.current.length >= totalTurnsRef.current
     ) {
+      finishingRef.current = true
+      finish(next, false)
+      return
+    }
+    // Job-link interviews are budgeted at 20 minutes: when time is up, wrap up after this answer.
+    if (isInterviewOverBudget(interviewStartedAtRef.current, Date.now(), budgetMinutesRef.current)) {
       finishingRef.current = true
       finish(next, false)
       return
@@ -1505,7 +1551,7 @@ export function InterviewPage() {
     const serverSessionId = isServerInterviewSession(sessionId) ? sessionId : null
     const reviewEvents = [...reviewRef.current.events]
     const integrity = { ...integrityRef.current, logs: reviewEvents }
-    const targetJob = targetJobRaw
+    const targetJob = activeJobRef.current ?? targetJobRaw
     const scoreProfile = getProfile() ?? profile
 
     const clipPromise = pendingClipRef.current
@@ -1581,6 +1627,7 @@ export function InterviewPage() {
             // ignore if already applied or score too low
           }
           sessionStorage.removeItem('hireright.targetJob')
+          clearPendingJob() // this job's interview is done; the next one is not for it
         }
         try {
           await markCandidateOnboardingCompleteAfterInterview()
@@ -1600,6 +1647,8 @@ export function InterviewPage() {
   }
 
   function retake() {
+    invalidateLobbySessionPrep()
+    lobbyVoicePrepRef.current = false
     finishingRef.current = false
     answersRef.current = []
     sessionIdRef.current = null
@@ -1805,7 +1854,17 @@ export function InterviewPage() {
                     ? 'Without the camera check, your interview may be flagged for the recruiter to review.'
                     : 'Your camera stays on for the whole interview.'}
                 </p>
-                {deviceError && <p className={styles.deviceError}>{deviceError}</p>}
+                {deviceError && (
+                  <p className={styles.deviceError} role="alert">
+                    {deviceError}
+                    {retakePaymentRequired ? (
+                      <>
+                        {' '}
+                        <Link to="/pricing/retake">See retake options</Link>
+                      </>
+                    ) : null}
+                  </p>
+                )}
                 {!skipCamera && (
                   <div
                     className={`${styles.faceBadge} ${
@@ -1825,18 +1884,87 @@ export function InterviewPage() {
 
               <div className={styles.lobbySide}>
                 {targetJobRaw && (
-                  <div className={styles.autoConfigBanner}>
-                    <div className={styles.autoConfigLeft}>
-                      <span className={styles.autoConfigIcon}>
-                        <HrIcon name="target" size={20} />
-                      </span>
-                      <div>
-                        <strong>Interview for this job</strong>
-                        <p>
-                          <strong>{targetJobRaw.title}</strong> at <strong>{targetJobRaw.company}</strong>
-                        </p>
+                  <div className={styles.jobCard}>
+                    <div className={styles.autoConfigBanner}>
+                      <div className={styles.autoConfigLeft}>
+                        <span className={styles.autoConfigIcon}>
+                          <HrIcon name="target" size={20} />
+                        </span>
+                        <div className={styles.autoConfigCopy}>
+                          <span className={styles.autoConfigEyebrow}>Interview for this job</span>
+                          <strong className={styles.autoConfigTitle}>{targetJobRaw.title}</strong>
+                          <p className={styles.autoConfigMeta}>
+                            {targetJobRaw.company}
+                            {targetJobRaw.role ? ` · ${targetJobRaw.role}` : ''}
+                            {targetJobRaw.level ? ` · ${targetJobRaw.level}` : ''}
+                          </p>
+                          <p className={styles.autoConfigBlurb}>
+                            About{' '}
+                            {interviewDurationMinutes(
+                              targetJobRaw,
+                              null,
+                              Boolean(readStoredInterviewInvite()?.token),
+                            )}{' '}
+                            minutes · tailored questions from this role and your profile
+                          </p>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        className={styles.jobDetailsToggle}
+                        aria-expanded={jobDetailsOpen}
+                        aria-controls="interview-job-details"
+                        onClick={() => setJobDetailsOpen((open) => !open)}
+                      >
+                        {jobDetailsOpen ? 'Hide job details' : 'View job details'}
+                      </button>
                     </div>
+                    {jobDetailsOpen ? (
+                      <div id="interview-job-details" className={styles.jobDetailsPanel}>
+                        <dl className={styles.jobDetailsStats}>
+                          {targetJobRaw.atsScore != null ? (
+                            <div>
+                              <dt>ATS fit</dt>
+                              <dd>{Math.round(targetJobRaw.atsScore)}%</dd>
+                            </div>
+                          ) : null}
+                          {targetJobRaw.jdMatchScore != null ? (
+                            <div>
+                              <dt>JD match</dt>
+                              <dd>{Math.round(targetJobRaw.jdMatchScore)}%</dd>
+                            </div>
+                          ) : null}
+                        </dl>
+                        {targetJobRaw.primarySkills && targetJobRaw.primarySkills.length > 0 ? (
+                          <div className={styles.jobSkills}>
+                            <p className={styles.jobSkillsLabel}>Skills we may ask about</p>
+                            <ul>
+                              {targetJobRaw.primarySkills.map((skill) => (
+                                <li key={skill}>{skill}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {targetJobRaw.jd?.trim() ? (
+                          <div className={styles.jobDescription}>
+                            <p className={styles.jobSkillsLabel}>Job description</p>
+                            <div
+                              className={styles.jobDescriptionBody}
+                              tabIndex={0}
+                              role="region"
+                              aria-label="Job description"
+                            >
+                              {targetJobRaw.jd.trim()}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className={styles.jobDescriptionEmpty}>
+                            Full description wasn&apos;t saved with this application. Questions still follow the role
+                            and company you applied for.
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 )}
 
@@ -1865,23 +1993,10 @@ export function InterviewPage() {
                   className={styles.joinBtn}
                   onClick={() => void joinInterviewRoom()}
                   disabled={!canStart}
+                  aria-busy={starting}
                 >
                   {lobbyEnterButtonLabel({ starting })}
                 </motion.button>
-                {joinProgress && (
-                  <ul className={styles.joinSteps} aria-live="polite">
-                    <li data-state={joinProgress.questions}>
-                      {joinProgress.questions === 'done' ? 'Questions ready' : 'Preparing your questions…'}
-                    </li>
-                    <li data-state={joinProgress.voice === 'pending' ? 'pending' : 'done'}>
-                      {joinProgress.voice === 'pending'
-                        ? 'Setting up voice answers…'
-                        : joinProgress.voice === 'fallback'
-                          ? 'Voice answers ready (browser speech)'
-                          : 'Voice answers ready'}
-                    </li>
-                  </ul>
-                )}
                 {savedReport && !starting && (
                   <button
                     type="button"
@@ -1998,6 +2113,11 @@ export function InterviewPage() {
 
                 <div className={styles.ccBox}>
                   <p>{question.text}</p>
+                  {noAnswerNotice && (
+                    <p className={styles.noAnswerNotice} role="status" aria-live="polite">
+                      {noAnswerNotice}
+                    </p>
+                  )}
                 </div>
 
                 <div className={styles.youLabel}>

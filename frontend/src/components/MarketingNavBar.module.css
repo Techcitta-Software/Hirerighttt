@@ -111,6 +111,33 @@
   gap: 1.25rem;
 }
 
+.navSignIn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md, 10px);
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #141638;
+  white-space: nowrap;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.navSignIn:hover {
+  color: var(--hr-brand-solid);
+  background: rgb(79 70 229 / 6%);
+}
+
+.navSignIn:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
+}
+
 .navCtaBtn {
   composes: hr-brand-gradient-bg from global;
   display: inline-flex;

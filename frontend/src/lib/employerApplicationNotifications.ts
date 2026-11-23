@@ -3,6 +3,8 @@ import { addNotification, getUser } from './store'
 
 const BASELINE_SUFFIX = 'hireright.employerAppAlertBaseline'
 const SYNCED_IDS_SUFFIX = 'hireright.employerAppAlertSynced'
+/** Unread applications this recent are shown on a browser's first sign-in. */
+const RECENT_ALERT_MS = 7 * 24 * 60 * 60 * 1000
 
 function baselineKey(email: string) {
   return `${BASELINE_SUFFIX}.${email}`
@@ -33,12 +35,15 @@ export function syncEmployerApplicationNotifications(alerts: EmployerApplication
   const synced = loadSyncedIds(email)
 
   if (!localStorage.getItem(baselineKey(email))) {
+    // First sign-in on this browser: only old alerts are skipped. Unread applications from the last week still
+    // reach the bell (before, a new device showed "You're all caught up" over 24 unread applications).
+    const cutoff = Date.now() - RECENT_ALERT_MS
     for (const alert of alerts) {
-      if (alert.id) synced.add(alert.id)
+      const at = Date.parse(alert.createdAt || '')
+      if (alert.id && !(Number.isFinite(at) && at >= cutoff)) synced.add(alert.id)
     }
     saveSyncedIds(email, synced)
     localStorage.setItem(baselineKey(email), new Date().toISOString())
-    return
   }
 
   let changed = false
@@ -58,7 +63,8 @@ export function syncEmployerApplicationNotifications(alerts: EmployerApplication
         jobId: alert.jobId,
         title: 'New application',
         body: `${alert.candidateName} applied for ${alert.jobTitle}.${extras.length ? ` ${extras.join(' · ')}.` : ''}`,
-        href: `/employer/candidates?jobId=${encodeURIComponent(alert.jobId)}`,
+        href: `/employer/applicants?jobId=${encodeURIComponent(alert.jobId)}`,
+        createdAt: alert.createdAt,
       },
       email,
     )

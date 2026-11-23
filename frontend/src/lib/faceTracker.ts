@@ -6,7 +6,12 @@
  * every frame) against a small downscaled frame, and the page samples it at ~3 Hz.
  */
 
-import { FaceLandmarker, FilesetResolver, type FaceLandmarkerResult } from '@mediapipe/tasks-vision'
+import {
+  FaceLandmarker,
+  FilesetResolver,
+  ObjectDetector,
+  type FaceLandmarkerResult,
+} from '@mediapipe/tasks-vision'
 
 export type FaceIssue =
   | 'ok'
@@ -37,6 +42,8 @@ export type FaceObservation = {
   pitchDeg: number
   gazeScore: number
   gazeDirection: 'left' | 'right' | 'center'
+  /** A phone was in the last object-detection pass (best effort; undefined when the detector is unavailable). */
+  phoneDetected?: boolean
 }
 
 /** Match installed @mediapipe/tasks-vision version (see package.json). */
@@ -60,6 +67,35 @@ const YAW_FULL_SCALE_DEG = 60
 const SECONDARY_FACE_MIN_RATIO = 0.15
 
 let landmarkerPromise: Promise<FaceLandmarker | null> | null = null
+
+/** COCO object detector, used only to notice a phone in view (proctoring review timeline). */
+const PHONE_MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite'
+/** Run phone detection on every Nth face sample (≈1 Hz at the 3 Hz face rate). */
+const PHONE_EVERY_N_FRAMES = 3
+let phoneDetectorPromise: Promise<ObjectDetector | null> | null = null
+let phoneDetector: ObjectDetector | null = null
+
+/** Loads in the background; face tracking never waits for it, and a failed load just means no phone signal. */
+function ensurePhoneDetector(): void {
+  if (phoneDetectorPromise) return
+  phoneDetectorPromise = (async () => {
+    try {
+      const vision = await FilesetResolver.forVisionTasks(WASM_URL)
+      phoneDetector = await ObjectDetector.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: PHONE_MODEL_URL, delegate: 'CPU' },
+        runningMode: 'VIDEO',
+        categoryAllowlist: ['cell phone'],
+        scoreThreshold: 0.45,
+        maxResults: 1,
+      })
+      return phoneDetector
+    } catch (err) {
+      console.warn('[face-tracker] phone detector unavailable', err)
+      return null
+    }
+  })()
+}
 
 async function getLandmarker(): Promise<FaceLandmarker | null> {
   if (!landmarkerPromise) {
@@ -300,6 +336,9 @@ export class FaceTracker {
   private videoTime = -1
   private frameAt = performance.now()
   private disposed = false
+  private phoneTs = -1
+  private phoneFrame = 0
+  private phoneSeen: boolean | undefined = undefined
   /** Measurements from the last analysed frame (null when no frame could be analysed). */
   lastObservation: FaceObservation | null = null
   multiPersonStreak = 0
@@ -377,7 +416,7 @@ export class FaceTracker {
     const count = countRealFaces(areas)
     const { yawDeg, pitchDeg } = headAnglesFromMatrix(result.facialTransformationMatrixes?.[0]?.data)
     const gaze = eyeGazeFromBlendshapes(result.faceBlendshapes?.[0]?.categories)
-    this.lastObservation = { faceCount: count, yawDeg, pitchDeg, ...gaze }
+    this.lastObservation = { faceCount: count, yawDeg, pitchDeg, ...gaze, phoneDetected: this.detectPhone(canvas) }
 
     if (count > 1) {
       this.multiPersonStreak += 1
@@ -397,6 +436,23 @@ export class FaceTracker {
     }
     const yaw = Math.max(-1, Math.min(1, yawDeg / YAW_FULL_SCALE_DEG))
     return buildStatus(count, { yaw, area: bestArea, lookingForward: Math.abs(yaw) < YAW_WARN })
+  }
+
+  /** Best-effort phone check on the same downscaled frame, about once a second. */
+  private detectPhone(canvas: HTMLCanvasElement): boolean | undefined {
+    ensurePhoneDetector()
+    if (!phoneDetector) return undefined
+    this.phoneFrame = (this.phoneFrame + 1) % PHONE_EVERY_N_FRAMES
+    if (this.phoneFrame !== 0) return this.phoneSeen
+    let ts = Math.floor(performance.now())
+    if (ts <= this.phoneTs) ts = this.phoneTs + 1
+    this.phoneTs = ts
+    try {
+      this.phoneSeen = phoneDetector.detectForVideo(canvas, ts).detections.length > 0
+    } catch {
+      this.phoneSeen = undefined
+    }
+    return this.phoneSeen
   }
 
   dispose() {

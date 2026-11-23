@@ -42,13 +42,16 @@ const STATUS_LABEL: Partial<Record<EmployerApplicant['status'], string>> = {
   'In Review': 'In review',
 }
 
-/** Everyone who applied to one job — from the job board or a shared link — ranked by JD fit and interview. */
+/**
+ * Everyone who applied to one job — from the job board or a shared link. Ranked by top candidature by default
+ * (the API's order: interview score, then Role Skills Fit, then who finished the interview first).
+ */
 export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplicant }: Props) {
   const [f, setF] = useState<JobApplicantFilters>(DEFAULT_JOB_APPLICANT_FILTERS)
   const visible = useMemo(() => filterJobApplicants(rows, f), [rows, f])
   const summary = useMemo(() => summarizeJobApplicants(rows), [rows])
   const set = (patch: Partial<JobApplicantFilters>) => setF((prev) => ({ ...prev, ...patch }))
-  const filtered = JSON.stringify({ ...f, sort: 'ats' }) !== JSON.stringify({ ...DEFAULT_JOB_APPLICANT_FILTERS, sort: 'ats' })
+  const filtered = JSON.stringify({ ...f, sort: 'rank' }) !== JSON.stringify({ ...DEFAULT_JOB_APPLICANT_FILTERS, sort: 'rank' })
 
   if (loading) {
     return (
@@ -159,6 +162,7 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
         <label className={styles.filterField}>
           <span>Sort by</span>
           <select aria-label="Sort by" value={f.sort} onChange={(e) => set({ sort: e.target.value as JobApplicantFilters['sort'] })}>
+            <option value="rank">Top applicants</option>
             <option value="ats">Best ATS score</option>
             <option value="jd">Best JD match</option>
             <option value="interview">Best HireRighttt score</option>
@@ -196,7 +200,10 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
           <table className={styles.table}>
             <thead>
               <tr>
-                <th scope="col">Candidate</th>
+                <th scope="col" className={styles.num} title="Ranked by interview score, then role skills fit, then who finished first">
+                  Rank
+                </th>
+                <th scope="col">Applicant</th>
                 <th scope="col" className={styles.num}>
                   ATS score
                 </th>
@@ -219,6 +226,17 @@ export function JobApplicantsPanel({ rows, loading, onViewDocument, onOpenApplic
                 const iv = interviewScoreOf(a)
                 return (
                   <tr key={a.id}>
+                    <td className={styles.num}>
+                      {typeof a.rank === 'number' ? (
+                        <strong className="ds-num" aria-label={`Rank ${a.rank}`}>
+                          #{a.rank}
+                        </strong>
+                      ) : (
+                        <span className={styles.muted} title="Ranked after the interview">
+                          —
+                        </span>
+                      )}
+                    </td>
                     <td className={styles.who}>
                       <button type="button" className={styles.name} onClick={() => onOpenApplicant(a)}>
                         {a.candidateName}

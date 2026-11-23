@@ -165,7 +165,8 @@ def valid_signature(order_id: str, payment_id: str, signature: str, secret: str 
     if not (order_id and payment_id and signature and secret):
         return False
     expected = hmac.new(secret.encode(), f"{order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature.strip())
+    # Compare bytes: str compare_digest raises TypeError on non-ASCII input (a junk signature was a 500).
+    return hmac.compare_digest(expected.encode(), signature.strip().encode("utf-8", "replace"))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -341,9 +342,16 @@ def verify_payment(conn, email: str, order_id: str, payment_id: str, signature: 
     if row["status"] in ("paid", "used"):
         # Idempotent: the browser may call verify twice. The same order never creates a second credit.
         return {"ok": True, "alreadyRecorded": True, **retake_status(conn, email)}
-    conn.execute(
-        """UPDATE interview_retake_payments SET status = 'paid', provider_payment_id = %s, paid_at = NOW()
-           WHERE id = %s AND status = 'created'""",
-        (payment_id, row["id"]),
-    )
+    import psycopg
+
+    try:
+        conn.execute(
+            """UPDATE interview_retake_payments SET status = 'paid', provider_payment_id = %s, paid_at = NOW()
+               WHERE id = %s AND status = 'created'""",
+            (payment_id, row["id"]),
+        )
+    except psycopg.errors.UniqueViolation as err:
+        # This Razorpay payment id is already recorded against another order (a replay): refuse, not a 500.
+        conn.rollback()
+        raise RetakePaymentError(409, "This payment was already used.", "PAYMENT_ALREADY_USED") from err
     return {"ok": True, **retake_status(conn, email)}

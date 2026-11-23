@@ -16,9 +16,10 @@ describe('loading tracker', () => {
   })
 
   it('counts requests the user is waiting on', () => {
-    for (const path of ['/api/vendor/jobs', '/api/jobs?scope=all', '/api/profile', '/api/interview/start', '/api/interview-invites/abc/reschedule']) {
+    for (const path of ['/api/vendor/jobs', '/api/jobs?scope=all', '/api/profile', '/api/interview-invites/abc/reschedule']) {
       expect(isQuietRequest(path)).toBe(false)
     }
+    expect(isQuietRequest('/api/interview/start')).toBe(true)
   })
 
   it('tracks pending requests and settles each once', () => {

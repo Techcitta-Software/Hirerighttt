@@ -105,6 +105,38 @@ body {
   line-height: var(--line-height-relaxed);
 }
 
+/* Keyboard focus: visible ring on marketing links and controls without changing mouse UX. */
+a:focus-visible,
+button:focus-visible,
+[role='button']:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--hr-brand-solid, #5046e5);
+  outline-offset: 2px;
+}
+
+/* Authenticated route changes: brief fade-in (Page wrapper in App.tsx). */
+/* Opacity-only enter: transform in fill-mode `both` would pin `position: fixed` modals to this wrapper. */
+.hr-route-enter {
+  animation: hr-route-enter 0.28s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+@keyframes hr-route-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hr-route-enter {
+    animation: none;
+  }
+}
+
 /* Tier 0: Hero / Page Title */
 h1,
 .site-h1 {

@@ -627,6 +627,25 @@
   border-top: 1px solid var(--ds-border, #e5e5ef);
 }
 
+.jobCardFootActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2, 8px);
+}
+
+.jobsInlineCta {
+  font-weight: 600;
+  color: var(--ds-brand, #5046e5);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.jobsInlineCta:hover {
+  color: var(--hr-brand-solid-hover, #4338ca);
+}
+
 .jobPosted {
   font-size: var(--fs-xs);
   color: var(--ds-text-muted, #5f6686);

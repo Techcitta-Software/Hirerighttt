@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { prefetchOnIntent, prefetchRouteChunk } from '../routeImports'
+import { getUser } from '../lib/store'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
@@ -19,7 +20,7 @@ const MARKETING_NAV: readonly NavItem[] = [
     match: ['/career-view', '/360-career-view', '/career'],
   },
   {
-    to: '/for-recruiters',
+    to: '/organizations',
     label: 'Organisations',
     match: ['/for-recruiters', '/organizations', '/organizations/signup', '/solutions'],
   },
@@ -48,6 +49,8 @@ function navLinkClass(pathname: string, match: readonly string[]) {
  */
 export function MarketingNavBar() {
   const { pathname } = useLocation()
+  const user = getUser()
+  const dashboardTo = user?.role === 'employer' ? '/employer/dashboard' : '/dashboard'
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const headerRef = useRef<HTMLElement>(null)
 
@@ -96,9 +99,20 @@ export function MarketingNavBar() {
         </nav>
 
         <div className={styles.navActions}>
-          <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} {...prefetchOnIntent('/signup')}>
-            Get started
-          </Link>
+          {user ? (
+            <Link to={dashboardTo} className={styles.navCtaBtn} {...prefetchOnIntent(dashboardTo)}>
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link to="/login" state={{ explicitLogin: true }} className={styles.navSignIn} {...prefetchOnIntent('/login')}>
+                Sign in
+              </Link>
+              <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} {...prefetchOnIntent('/signup')}>
+                Get started
+              </Link>
+            </>
+          )}
         </div>
 
         <button
@@ -123,9 +137,20 @@ export function MarketingNavBar() {
             </Link>
           ))}
           <div className={styles.mobileAuthActions}>
-            <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={close}>
-              Get started
-            </Link>
+            {user ? (
+              <Link to={dashboardTo} className={styles.navCtaBtn} onClick={close}>
+                Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link to="/login" state={{ explicitLogin: true }} className={styles.navSignIn} onClick={close} {...prefetchOnIntent('/login')}>
+                  Sign in
+                </Link>
+                <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={close}>
+                  Get started
+                </Link>
+              </>
+            )}
           </div>
         </nav>
       ) : null}

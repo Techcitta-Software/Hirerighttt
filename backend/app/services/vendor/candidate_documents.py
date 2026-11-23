@@ -95,8 +95,25 @@ def candidate_shares_contact(profile: dict | None) -> bool:
     return bool(isinstance(profile, dict) and profile.get("shareContactWithRecruiters") is True)
 
 
+# Interview fields an unlinked organization may see (discovery: the score and the score by area). The answers,
+# per-question feedback, proctoring logs, session id (recording) and strengths/improvements are the candidate's
+# report and stay with organizations the candidate applied to / was invited or interviewed by.
+DISCOVERY_INTERVIEW_KEYS = ("overall", "role", "level", "date", "categories", "scoring")
+
+
+def discovery_interview_summary(interview: dict | None) -> dict | None:
+    if not isinstance(interview, dict):
+        return interview
+    out = {k: interview[k] for k in DISCOVERY_INTERVIEW_KEYS if k in interview}
+    # Shape the report UI expects (lists), with nothing of the report itself in them.
+    out.update({"answers": [], "strengths": [], "improvements": [], "reportRestricted": True})
+    return out
+
+
 def hide_roster_contact(row: dict) -> dict:
     out = {**row, "candidateEmail": "", "candidatePhone": "", "resumeText": "", "resumeName": None, "contactHidden": True}
+    if "interviewResult" in out:
+        out["interviewResult"] = discovery_interview_summary(out.get("interviewResult"))
     out.pop("resumeTextTruncated", None)
     out.pop("resumeTextLength", None)
     return out

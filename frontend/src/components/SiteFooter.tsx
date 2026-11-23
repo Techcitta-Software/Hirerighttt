@@ -3,6 +3,12 @@ import { PlatformWorkflowSection } from './PlatformWorkflowSection'
 import { BrandLogo } from './BrandLogo'
 import styles from './SiteFooter.module.css'
 
+/**
+ * Official HireRighttt social profiles. Hidden until the owner supplies real URLs —
+ * generic linkedin.com / instagram.com / facebook.com home pages were misleading.
+ */
+const SOCIAL_LINKS: readonly { href: string; label: string; short: string }[] = []
+
 type SiteFooterProps = {
   /** Set false on /how-it-works where the same block is already in the page body */
   showWorkflow?: boolean
@@ -52,17 +58,15 @@ export function SiteFooter({ showWorkflow = false, tone = 'dark' }: SiteFooterPr
           <span aria-hidden>·</span>
           <Link to="/cookies">Cookies</Link>
         </span>
-        <div className={styles.social}>
-          <a href="https://linkedin.com" aria-label="LinkedIn">
-            in
-          </a>
-          <a href="https://instagram.com" aria-label="Instagram">
-            ig
-          </a>
-          <a href="https://facebook.com" aria-label="Facebook">
-            fb
-          </a>
-        </div>
+        {SOCIAL_LINKS.length > 0 ? (
+          <div className={styles.social}>
+            {SOCIAL_LINKS.map((l) => (
+              <a key={l.href} href={l.href} aria-label={l.label} target="_blank" rel="noopener noreferrer">
+                {l.short}
+              </a>
+            ))}
+          </div>
+        ) : null}
       </div>
     </footer>
     </>

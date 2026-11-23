@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { IntegrityLogEvent, InterviewFlagSection, InterviewProctoringSummary } from '../lib/store'
 import { apiFetch } from '../lib/api'
 import { canViewInterviewVideo } from '../lib/adminAccess'
+import { ProctorTimelineBar } from './ProctorTimelineBar'
+import { normalizeFlagSections, proctoringNeedsReview } from '../lib/reviewEventsToFlagSections'
 import styles from './VideoProctorTimeline.module.css'
 
 type Props = {
@@ -13,6 +15,8 @@ type Props = {
   /** Optional when interview result is already loaded (employer applicant modal). */
   proctoring?: InterviewProctoringSummary | null
   durationSec?: number
+  /** The drawer already has its own heading for this section: skip the inner one. */
+  hideTitle?: boolean
 }
 
 const clock = (s: number) =>
@@ -24,12 +28,16 @@ function flagLabel(type: InterviewFlagSection['type']) {
   return 'Looking away'
 }
 
+/** Stable default: a new [] on every render would re-run the review effect forever when a report has no logs. */
+const NO_LOGS: IntegrityLogEvent[] = []
+
 function VideoProctorTimelineInner({
   sessionId,
   candidateEmail,
-  logs = [],
+  logs = NO_LOGS,
   proctoring: proctoringProp,
   durationSec = 0,
+  hideTitle = false,
 }: Props) {
   const video = useRef<HTMLVideoElement>(null)
   const clipEnd = useRef<number | null>(null)
@@ -42,6 +50,7 @@ function VideoProctorTimelineInner({
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(durationSec)
   const [retry, setRetry] = useState(0)
+  const [recordingDuration, setRecordingDuration] = useState<number | null>(null)
 
   useEffect(() => {
     setProctoring(proctoringProp ?? null)
@@ -61,6 +70,7 @@ function VideoProctorTimelineInner({
       })
       void apiFetch(`/api/vendor/interview-review?${qs}`)
         .then(async (r) => {
+          if (r.status === 404) throw new Error('No recording was found for this interview.')
           if (!r.ok) throw new Error('Video review is restricted to authorized reviewers.')
           return r.json()
         })
@@ -69,6 +79,11 @@ function VideoProctorTimelineInner({
           setEvents(data.events || [])
           if (data.proctoring) setProctoring(data.proctoring)
           setSource(data.videoUrl)
+          setRecordingDuration(
+            typeof data.recordingDurationSec === 'number' && data.recordingDurationSec > 0
+              ? data.recordingDurationSec
+              : null,
+          )
           setMessage(data.recordingStatus)
         })
         .catch((e) => {
@@ -80,7 +95,9 @@ function VideoProctorTimelineInner({
     }
   }, [sessionId, candidateEmail, retry, durationSec, logs])
 
-  const flaggedSections = proctoring?.flaggedSections ?? []
+  // The server's sections use { startOffsetSec, type: 'MULTIPLE_FACES_DETECTED' }; normalise to the UI shape.
+  const flaggedSections = normalizeFlagSections(proctoring?.flaggedSections)
+  const eventTotal = proctoring?.counts?.total ?? 0
   const end = Math.max(
     duration,
     ...events.map((e) => (e.startOffsetSec || 0) + (e.durationSec || 0)),
@@ -97,18 +114,22 @@ function VideoProctorTimelineInner({
 
   return (
     <section className={styles.container} aria-label="Interview video and proctoring review">
-      <h3>Interview recording & proctoring</h3>
+      {hideTitle ? null : <h3 className={styles.title}>Interview recording & proctoring</h3>}
       <p className={styles.intro}>
-        Flagged sections are time ranges where the camera detected sustained looking away, multiple
-        people, or an empty frame. They are for recruiter review only and do not change the
-        candidate&apos;s interview score.
+        Flagged sections are time ranges where the camera detected looking away, multiple people, or an
+        empty frame. Review them before deciding; any score deduction for camera deviations is shown in the
+        report summary.
       </p>
 
       {proctoring ? (
         <p className={styles.proctorSummary} role="status">
           Proctor integrity: <strong>{proctoring.integrityScore}/100</strong> ·{' '}
-          {proctoring.status === 'FLAGGED' ? 'Review recommended' : 'No major flags'} ·{' '}
-          {proctoring.counts.total} flagged section{proctoring.counts.total === 1 ? '' : 's'}
+          {proctoringNeedsReview(proctoring) ? 'Review recommended' : 'No major flags'}
+          {flaggedSections.length
+            ? ` · ${flaggedSections.length} flagged section${flaggedSections.length === 1 ? '' : 's'}`
+            : eventTotal > 0
+              ? ` · ${eventTotal} brief event${eventTotal === 1 ? '' : 's'} · no sustained sections`
+              : ''}
         </p>
       ) : null}
 
@@ -136,35 +157,20 @@ function VideoProctorTimelineInner({
       ) : (
         <p role="status">{message}</p>
       )}
+      {source ? (
+        // Red marks under the video wherever proctoring recorded a deviation; click one to jump there.
+        <ProctorTimelineBar
+          videoRef={video}
+          events={events}
+          flaggedSections={flaggedSections}
+          durationHint={recordingDuration ?? (durationSec || null)}
+        />
+      ) : null}
       {source ? <p role="status">{message}</p> : null}
       {sessionId ? (
         <button type="button" onClick={() => setRetry((n) => n + 1)}>
           Reload recording
         </button>
-      ) : null}
-
-      {source && end > 0 ? (
-        <div className={styles.timelineBar} aria-hidden={flaggedSections.length === 0}>
-          {flaggedSections.map((flag, flagIndex) => {
-            const leftPct = Math.min(99, (flag.startSec / end) * 100)
-            const widthPct = Math.max(1.2, ((flag.endSec - flag.startSec) / end) * 100)
-            const bgColor = flag.type === 'MULTI_FACE' ? '#ef4444' : '#f59e0b'
-            return (
-              <button
-                key={flag.id ?? `flag-${flagIndex}`}
-                type="button"
-                title={`Turn ${flag.turnIndex}: ${flag.reason}`}
-                className={styles.sectionMarker}
-                style={{
-                  left: `${leftPct}%`,
-                  width: `${widthPct}%`,
-                  backgroundColor: bgColor,
-                }}
-                onClick={() => seek(Math.max(0, flag.startSec - 0.5), flag.endSec + 0.5)}
-              />
-            )
-          })}
-        </div>
       ) : null}
 
       {flaggedSections.length > 0 ? (
@@ -181,7 +187,8 @@ function VideoProctorTimelineInner({
                   onClick={() => seek(Math.max(0, flag.startSec - 0.5), flag.endSec + 0.5)}
                 >
                   <span className={styles.flagSectionTitle}>
-                    {flagLabel(flag.type)} · Turn #{flag.turnIndex} · {clock(flag.startSec)}–
+                    {flagLabel(flag.type)}
+                    {flag.turnIndex > 0 ? ` · Turn #${flag.turnIndex}` : ''} · {clock(flag.startSec)}–
                     {clock(flag.endSec)} ({flag.durationSec}s)
                   </span>
                   <span className={styles.flagSectionReason}>{flag.reason}</span>
@@ -193,7 +200,7 @@ function VideoProctorTimelineInner({
             ))}
           </ul>
         </div>
-      ) : proctoring ? (
+      ) : proctoring && eventTotal === 0 ? (
         <p className={styles.noFlags}>No sustained proctoring flags for this session.</p>
       ) : null}
 

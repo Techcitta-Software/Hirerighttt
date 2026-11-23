@@ -42,8 +42,8 @@ export function extractNameFromText(text: string): string | null {
   for (const rawLine of lines.slice(0, 10)) {
     // 1. Check if line explicitly has "Name: John Doe" or "Full Name: John Doe"
     const namePrefixMatch = rawLine.match(/(?:^|\b)(?:full\s*name|name)\s*[:-]\s*([A-Za-z.'-]+(?:\s+[A-Za-z.'-]+){1,3})/i)
-    if (namePrefixMatch) {
-      return namePrefixMatch[1].trim()
+    if (namePrefixMatch && !namePrefixMatch[1].split(/\s+/).some((w) => NOT_NAME_WORDS.test(w))) {
+      return normalizePersonName(namePrefixMatch[1])
     }
 
     // 2. Strip common header labels
@@ -87,13 +87,33 @@ export function extractNameFromText(text: string): string | null {
   return null
 }
 
+/** "KAVYA  IYER" -> "Kavya Iyer"; names that already mix cases ("McDonald", "K. Rao") stay as written. */
+export function normalizePersonName(value: string | null | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(fixNameCase)
+    .join(' ')
+}
+
+/** True for a short run of name-like words that is not a job title, a technology or a section heading. */
+export function looksLikePersonName(value: string | null | undefined): boolean {
+  const words = String(value ?? '').trim().split(/\s+/).filter(Boolean)
+  if (words.length < 1 || words.length > 5) return false
+  if (!words.every((w) => /^[A-Za-z.'-]+$/.test(w))) return false
+  if (words.some((w) => NOT_NAME_WORDS.test(w.replace(/\./g, '')))) return false
+  if (/summary|objective|profile|experience|education|skills|projects|contact|declaration|email|phone/i.test(words.join(' '))) return false
+  return words.some((w) => w.replace(/[^A-Za-z]/g, '').length >= 2)
+}
+
 /**
  * "PRIYA" / "priya" -> "Priya", "D'SOUZA" -> "D'Souza". A name that already mixes cases ("McDonald",
  * "DeSouza", "K.") is exactly what the person wrote, so it is left alone.
  */
 function fixNameCase(word: string): string {
   const letters = word.replace(/[^A-Za-z]/g, '')
-  if (letters.length <= 1) return word
+  if (letters.length <= 1) return word.length === 1 ? word.toUpperCase() : word
   const mixed = letters !== letters.toUpperCase() && letters !== letters.toLowerCase()
   if (mixed) return word
   return word

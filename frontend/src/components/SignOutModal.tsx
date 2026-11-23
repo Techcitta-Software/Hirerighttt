@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getUser, logout } from '../lib/store'
+import { accountDisplayName, getUser, logout } from '../lib/store'
 import { apiLogout } from '../lib/api'
 import { supabaseSignOut } from '../lib/supabaseAuth'
 import { OPEN_SIGNOUT_EVENT } from '../lib/signOutModal'
@@ -17,7 +17,7 @@ export function SignOutModal() {
   useEffect(() => {
     function handleOpen() {
       const user = getUser()
-      setUserName(user?.name || '')
+      setUserName(accountDisplayName(user))
       setUserEmail(user?.email || '')
       setSigningOut(false)
       setIsOpen(true)

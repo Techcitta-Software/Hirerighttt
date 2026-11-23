@@ -1,6 +1,6 @@
 import { getSupabase, isSupabaseEnabled } from './supabaseClient'
 import type { InterviewResult, SavedProfile } from './store'
-import { getProfile, getUser, profileKey } from './store'
+import { getProfile, getUser, profileKey, resolveCandidateName } from './store'
 
 /** Pull cloud profile into localStorage (newer wins). */
 export async function pullProfileFromSupabase(): Promise<SavedProfile | null> {
@@ -50,7 +50,7 @@ export async function syncProfileToSupabase(profile: SavedProfile | null): Promi
   const payload = {
     id: uid,
     email: user.email.toLowerCase(),
-    full_name: profile.fullName || profile.name || user.name,
+    full_name: resolveCandidateName(profile, user),  // the resume name, else the signup name
     role: user.role || 'jobseeker',
     company_name: user.companyName || null,
     data: profile,

@@ -12,7 +12,7 @@ const SOLUTION_CARDS = [
     iconType: 'orange',
     title: 'Staffing & Recruitment Agencies',
     desc: 'Manage multiple clients, jobs, and candidates in one place. Improve submission rates and deliver better matches faster.',
-    link: '/signup',
+    link: '/organizations/signup',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
@@ -28,7 +28,7 @@ const SOLUTION_CARDS = [
     iconType: 'purple',
     title: 'Enterprise Hiring Teams',
     desc: 'Streamline high-volume hiring with structured workflows, approvals, and advanced analytics.',
-    link: '/signup',
+    link: '/organizations/signup',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="4" y="2" width="16" height="20" rx="2" ry="2" />
@@ -48,7 +48,7 @@ const SOLUTION_CARDS = [
     iconType: 'blue',
     title: 'Campus Hiring Solutions',
     desc: 'Engage talent early, conduct assessments, and build a strong pipeline of future-ready professionals.',
-    link: '/signup',
+    link: '/organizations/signup',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
@@ -62,7 +62,7 @@ const SOLUTION_CARDS = [
     iconType: 'cyan',
     title: 'Diversity & Inclusion Hiring',
     desc: 'Build diverse teams with inclusive hiring workflows and unbiased AI-powered candidate matching.',
-    link: '/signup',
+    link: '/organizations/signup',
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
@@ -384,12 +384,13 @@ export function SolutionsPage() {
                     <div className={styles.waveBar} style={{ animationDelay: '0.5s' }} />
                   </div>
 
-                  <button type="button" className={styles.micButton} aria-label="Microphone active">
+                  {/* Illustration only: a <span>, not a focusable button that does nothing. */}
+                  <span className={styles.micButton} aria-hidden="true">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                     </svg>
-                  </button>
+                  </span>
                 </div>
 
                 {/* Right score gauge */}
@@ -463,8 +464,8 @@ export function SolutionsPage() {
                       <h3 className={styles.cardTitle}>{card.title}</h3>
                       <p className={styles.cardDesc}>{card.desc}</p>
                     </div>
-                    <Link to={card.link} className={styles.cardLink}>
-                      Explore Solution <span>→</span>
+                    <Link to={card.link} className={styles.cardLink} aria-label={`Explore solution: ${card.title}`}>
+                      Explore Solution <span aria-hidden="true">→</span>
                     </Link>
                   </div>
                 )
@@ -612,7 +613,7 @@ export function SolutionsPage() {
             </div>
 
             <div className={styles.ctaRight}>
-              <Link to="/signup" className={styles.btnPrimary}>
+              <Link to="/organizations/signup" className={styles.btnPrimary}>
                 Get Started Free
               </Link>
               <Link to="/contact?demo=1" className={styles.btnSecondary}>

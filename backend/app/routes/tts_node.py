@@ -27,7 +27,9 @@ async def speak(request: Request):
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Send JSON with a text field.")
-    text = tts.clean_text((body or {}).get("text"))
+    if not isinstance(body, dict):  # a JSON list / string here was an AttributeError -> 500
+        raise HTTPException(status_code=400, detail="Send JSON with a text field.")
+    text = tts.clean_text(body.get("text"))
     if not text:
         raise HTTPException(status_code=400, detail="Nothing to say.")
     try:

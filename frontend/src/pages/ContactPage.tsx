@@ -4,6 +4,7 @@ import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
 import { HrIcon } from '../components/HrIcon'
 import { apiFetch } from '../lib/api'
+import { accountDisplayName, getUser } from '../lib/store'
 import styles from './ContactPage.module.css'
 
 export function ContactPage() {
@@ -13,9 +14,13 @@ export function ContactPage() {
   const isDemo = mode === 'demo'
 
   const [sent, setSent] = useState(false)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [message, setMessage] = useState(() => (initialMode === 'demo' ? 'I would like to book a demo of HireRighttt.' : ''))
+  // Signed-in visitors (e.g. a candidate requesting account deletion from their profile) get name and email filled in.
+  const [name, setName] = useState(() => accountDisplayName())
+  const [email, setEmail] = useState(() => getUser()?.email || '')
+  const [message, setMessage] = useState(() => {
+    if (initialMode === 'demo') return 'I would like to book a demo of HireRighttt.'
+    return (params.get('message') || '').slice(0, 2000)
+  })
   const [dataConsent, setDataConsent] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')

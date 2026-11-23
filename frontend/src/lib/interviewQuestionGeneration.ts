@@ -5,7 +5,8 @@ import { selectFresherConcept } from './fresherConcepts'
  */
 import type { Question } from './interviewEngine'
 import type { SavedProfile } from './store'
-import { candidateFullName } from './store'
+import { candidateFullName, getUser } from './store'
+import { resolveCandidateNameFrom } from './candidateName'
 import { clientLlmAllowed } from './clientLlm'
 import {
   resolveExactInterviewRole,
@@ -59,47 +60,10 @@ function isDemoPlaceholderName(name: string): boolean {
   return t === DEMO_ACCOUNT_NAME || /^arjun\s+sharma$/i.test(t)
 }
 
+/** The candidate's name: the name on the resume always wins, else the signup name (lib/candidateName.ts). */
 export function resolveCandidateName(profile: SavedProfile | null, accountName = ''): string {
-  if (!profile) return clean(accountName) || 'Candidate'
-  const fromProfile = clean(profile.fullName) || clean(profile.name)
-  if (fromProfile && !isDemoPlaceholderName(fromProfile)) return fromProfile
-
-  const resume = clean(profile.resumeText)
-  if (resume) {
-    const lines = resume
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter(Boolean)
-    for (const line of lines.slice(0, 10)) {
-      if (
-        line.length >= 4 &&
-        line.length <= 64 &&
-        /^[A-Z][A-Za-z.'-]+(\s+[A-Z][A-Za-z.'-]+){0,4}$/.test(line)
-      ) {
-        return line
-      }
-    }
-  }
-
-  if (profile.resumeName) {
-    const words = profile.resumeName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/[_-]/g, ' ')
-      .replace(
-        /\b(resume|cv|biodata|profile|fullstack|frontend|backend|engineer|developer)\b/gi,
-        '',
-      )
-      .trim()
-      .split(/\s+/)
-      .filter((w) => w.length >= 2 && /^[A-Za-z]+$/.test(w))
-    if (words.length >= 2 && words.length <= 4) {
-      return words.map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-    }
-  }
-
-  const acct = clean(accountName) || candidateFullName()
-  if (acct && acct !== 'Candidate' && !isDemoPlaceholderName(acct)) return acct
-  return 'Candidate'
+  if (!profile) return clean(accountName) && !isDemoPlaceholderName(accountName) ? clean(accountName) : candidateFullName()
+  return resolveCandidateNameFrom(profile, clean(accountName) || getUser()?.name || '')
 }
 
 export function firstNameFromFull(full: string): string {

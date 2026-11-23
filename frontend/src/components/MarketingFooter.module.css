@@ -84,7 +84,7 @@
   font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: -0.01em;
-  color: #6b7289;
+  color: #9aa0b8; /* ≥4.5:1 on the dark footer (was #6b7289, 4.0:1) */
 }
 
 @media (max-width: 860px) {

@@ -36,13 +36,30 @@ def _experienced_closing_turn_number() -> int:
 
 
 from app.services.gemini_client import generate_content  # noqa: E402
+from app.services.interview_jd_plan import (  # noqa: E402
+    DIFFICULTY_BY_TIER,
+    JD_INTERVIEW_DURATION_MINUTES,
+    MIN_JD_CHARS,
+    annotate_slot_question,
+    build_jd_first_plan,
+    fallback_question_for_slot,
+    jd_question_mix,
+    plan_mix_counts,
+    seniority_tier,
+    validate_slot_question,
+)
 
 
 def _system_prompt(*, turn: int, total: int, role: str, level: str) -> str:
     return f"""You are Ava, a professional interviewer. Generate exactly ONE interview question as JSON only.
 Turn {turn} of {total}. Role: {role}. Experience: {level}.
 Rules:
-- Sound natural, one clear idea, short sentences.
+- Sound natural, one clear idea, short sentences (at most two sentences, under 45 words).
+- Be specific, never generic: name the exact skill, tool, project or employer the question is about. "Tell me about
+  yourself" or "What are your strengths" style questions are not allowed.
+- Pitch difficulty to the experience level: entry = fundamentals applied in practice; mid = design choices, debugging,
+  trade-offs; senior = architecture, scaling, failure modes, ownership.
+- Never repeat or rephrase anything in priorQuestions; cover a new angle.
 - Theory/skill turns: conceptual only (define, compare, how it works). NO scenarios, NO "tell me about a time", NO hypotheticals, NO live coding.
 - Experience/project turns: may reference resume context when provided.
 - Never invent employers or projects not in the payload.
@@ -65,7 +82,10 @@ Rules:
 - Ask ONE short question per turn (at most two sentences, under 45 words). Never combine two questions.
 - category must be exactly one of: Technical, Experience, Problem Solving, Communication.
 - {skip}
-- Each question must be distinct. Theory turns: conceptual only. Project turns: use resume context only.
+- Each question must be distinct (no two on the same concept). Theory turns: conceptual only. Project turns: use resume context only.
+- Be specific, never generic: every question names the exact skill, tool, project or employer it is about.
+- Pitch difficulty to the experience level: entry = fundamentals applied in practice; mid = design choices, debugging,
+  trade-offs; senior = architecture, scaling, failure modes, ownership.
 - If the payload has "alreadyAsked", those questions are already in the session: never repeat or rephrase them.
 Return ONLY: {{"questions":[{{"turnNumber":1,"question":{{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"..."}}}}, ...]}}"""
 
@@ -274,6 +294,9 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
     level = str(input.get("level") or "1–3 years")
     ctx = input.get("ctx") or summarize_profile(profile, input.get("accountName") or "Candidate")
     fresher = bool(input.get("fresher")) if "fresher" in input else _is_fresher(profile, level, ctx)
+    if input.get("jdFirst") and len(str(input.get("jobDescription") or "").strip()) >= MIN_JD_CHARS:
+        # Recruiter job link / invite: JD-first question mix (interview_jd_plan).
+        return await _generate_jd_first_batch(input, profile=profile, level=level, ctx=ctx, fresher=fresher)
     total = int(input.get("totalTurns") or (7 if fresher else EXPERIENCED_INTERVIEW_TURN_COUNT))
     role = str(input.get("role") or "Full Stack Engineer")
     fallback_turn = None if fresher else _experienced_fallback_turn_number()
@@ -369,3 +392,124 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
         "LLM_QUESTION_FAILED",
         "Gemini could not produce a valid interview question batch. Please try again.",
     )
+
+
+def _jd_batch_system_prompt(*, total: int, role: str, level: str, tier: str) -> str:
+    return f"""You are Ava, a professional interviewer hiring for a specific job. Write the questions for this interview
+in ONE JSON response. Total turns: {total}. Role: {role}. Candidate experience: {level}.
+The interview is JOB-DESCRIPTION FIRST: about 80% of questions test the requirements in "jobDescription"
+(required skills, tools, responsibilities); about 20% ask how the candidate's own past work (candidateSummary)
+relates to those requirements; at least one is behavioural.
+Rules:
+- Generate exactly one question per item in "turns" and follow that item's "slot", "target" and "purpose" exactly.
+- slot "jd": ask about the named target as it is used in THIS job. Name the skill/tool/duty in the question. Not a
+  story question, not a textbook definition on its own: ask how/why/which trade-off in the context of the job's work.
+- slot "jd-alignment": name a specific employer, project or duty that IS in candidateSummary and connect it to the
+  target requirement. Never invent employers, projects or numbers.
+- slot "behavioural": ask for one specific past situation (start with "Tell me about a time" or "Describe a
+  situation"), tied to the target duty.
+- {DIFFICULTY_BY_TIER.get(tier, "")}
+- One question per turn, at most two sentences, under 45 words. Never two questions in one.
+- No generic questions ("tell me about yourself", "what are your strengths", "why should we hire you").
+- Every question distinct: different concept and angle. Never repeat or rephrase anything in "alreadyAsked".
+- category must be one of: Technical, Experience, Problem Solving, Communication.
+Return ONLY: {{"questions":[{{"turnNumber":1,"question":{{"text":"...","category":"...","keywords":["..."],"hint":"...","topic":"..."}}}}, ...]}}"""
+
+
+async def _generate_jd_first_batch(
+    input: dict, *, profile: Any, level: str, ctx: dict[str, Any], fresher: bool
+) -> dict[str, Any]:
+    """Job-link interview: the JD-first slot plan (interview_jd_plan) worded by the model, validated slot by slot.
+
+    Off-plan output (wrong kind, off-target, duplicate) is rejected and only those slots are asked for again; any slot
+    still empty after the retries gets a deterministic job-specific question, so the mix is always enforced."""
+    from app.services.vendor.ats_score import extract_primary_skills_from_jd
+
+    role = str(input.get("role") or "this role")
+    jd = str(input.get("jobDescription") or "")
+    skills = [str(s) for s in (input.get("skillFocus") or []) if str(s).strip()]
+    for s in input.get("jdSkills") or extract_primary_skills_from_jd(jd, []):
+        if str(s).strip() and all(str(s).lower() != k.lower() for k in skills):
+            skills.append(str(s))
+    plan = build_jd_first_plan(
+        job_description=jd,
+        jd_skills=skills[:8],
+        level=level,
+        fresher=fresher,
+        resume_jobs=[str(j) for j in (ctx.get("jobs") or [])[:2]],
+    )
+    total = len(plan) + 1  # + spoken closing
+    tier = seniority_tier(level, fresher)
+    by_turn = {p["turnNumber"]: p for p in plan}
+    ordered: list[dict[str, Any] | None] = [None] * total
+    ordered[total - 1] = closing_statement(role, str(input.get("varietySeed") or ""))
+    base_payload = {
+        "totalTurns": total,
+        "role": role,
+        "experienceLevel": level,
+        "seniority": tier,
+        "varietySeed": input.get("varietySeed"),
+        "jobDescription": jd[:5000],
+        "turns": [{k: p[k] for k in ("turnNumber", "slot", "target", "purpose")} for p in plan],
+        "candidateSummary": {
+            "skills": (ctx.get("skills") or [])[:16],
+            "jobs": (ctx.get("jobs") or [])[:4],
+            "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
+        },
+    }
+    system = _jd_batch_system_prompt(total=total, role=role, level=level, tier=tier)
+
+    def missing() -> list[int]:
+        return [p["turnNumber"] for p in plan if ordered[p["turnNumber"] - 1] is None]
+
+    def apply(raw: str) -> None:
+        match = re.search(r"\{[\s\S]*\}", raw or "")
+        if not match:
+            return
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return
+        items = data.get("questions") if isinstance(data.get("questions"), list) else []
+        for turn in missing():
+            item = next(
+                (x for x in items if isinstance(x, dict) and str(x.get("turnNumber") or "").isdigit() and int(x["turnNumber"]) == turn),
+                None,
+            )
+            if not item or not isinstance(item.get("question"), dict):
+                continue
+            prior = [str(q.get("text") or "") for q in ordered[:-1] if q and q.get("text")]
+            q = _parse_question(json.dumps({"question": item["question"]}), prior)
+            if q and validate_slot_question(q, by_turn[turn], prior, jd):
+                ordered[turn - 1] = annotate_slot_question(q, by_turn[turn])
+
+    deadline = time.time() + REQUEST_DEADLINE_SECONDS
+    for temperature in (0.5, 0.4, 0.3):
+        need = missing()
+        if not need or time.time() > deadline:
+            break
+        payload = dict(base_payload)
+        if len(need) < len(plan):
+            payload["turns"] = [t for t in base_payload["turns"] if t["turnNumber"] in need]
+            payload["alreadyAsked"] = [q["text"] for q in ordered[:-1] if q and q.get("text")]
+        raw = await _gemini_generate(system, json.dumps(payload), temperature=temperature, max_tokens=8192)
+        apply(raw)
+    if len(missing()) == len(plan):
+        # The model produced nothing usable at all: same contract as the normal batch (the caller shows a retry).
+        raise InterviewLlmQuestionError(
+            "LLM_QUESTION_FAILED",
+            "Gemini could not produce a valid interview question batch. Please try again.",
+        )
+    for turn in missing():
+        ordered[turn - 1] = fallback_question_for_slot(by_turn[turn], role)
+    questions = [q for q in ordered if q]
+    return {
+        "questions": questions,
+        "fallbackTurn": None,
+        "closingTurn": None,
+        "totalTurns": total,
+        "jdFirst": True,
+        "durationMinutes": JD_INTERVIEW_DURATION_MINUTES,
+        "questionMix": plan_mix_counts(questions),
+        "plannedMix": jd_question_mix(len(plan)),
+    }

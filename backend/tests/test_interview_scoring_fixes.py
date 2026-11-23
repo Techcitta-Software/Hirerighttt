@@ -186,9 +186,9 @@ def test_camera_penalty_restates_every_score_on_the_report():
         "improvements": [],
         "scorecard": {
             "overallInterviewScore": 70,
-            "careerScore": 700,
-            "finalCareerStatus": "Industry Ready",
-            "bandInterpretation": "Kavya scored 70/100 on the Frontend Developer (3–6 years) interview — Industry Ready.",
+            "careerScore": 70,
+            "finalCareerStatus": "AI-evaluated interview score",
+            "bandInterpretation": "Kavya scored 70/100 on the Frontend Developer (3–6 years) interview.",
             "coachNotes": "Kavya, your interview score is 70/100. Clear answers.",
             "radarAxes": [{"label": "Correctness", "val": 71}, {"label": "Overall", "val": 70}],
             "sessionStats": {"overallInterviewScore": 70},
@@ -199,6 +199,7 @@ def test_camera_penalty_restates_every_score_on_the_report():
     assert out["overall"] == 65 and sc["overallInterviewScore"] == 65
     assert "65/100" in sc["bandInterpretation"] and "70/100" not in sc["bandInterpretation"]
     assert sc["coachNotes"].startswith("Kavya, your interview score is 65/100")
-    assert sc["careerScore"] == 650 and sc["finalCareerStatus"] == "Growth Potential"
-    assert sc["bandInterpretation"].endswith("Growth Potential.")
+    # The career score is the interview score itself (0-100), penalised by the same points; no band label.
+    assert sc["careerScore"] == 65
+    assert out["scoreBeforeProctorPenalty"] == 70 and out["proctorScorePenalty"] == 5
     assert [a["val"] for a in sc["radarAxes"]] == [71, 65]

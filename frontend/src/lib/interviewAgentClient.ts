@@ -36,10 +36,7 @@ function enrichProfileForAgent(profile: SavedProfile | null): SavedProfile | nul
 }
 
 function candidateFirstName(profile: SavedProfile | null): string {
-  const full =
-    profile?.fullName?.trim() ||
-    profile?.name?.trim() ||
-    candidateFullName()
+  const full = profile ? resolveCandidateName(profile, getUser()) : candidateFullName()
   if (!full || full === 'Candidate') return 'there'
   return full.trim().replace(/\s+/g, ' ')
 }
@@ -55,6 +52,9 @@ const GEMINI_FLASH_LITE =
   import.meta.env.VITE_PRIMARY_MODEL || 'gemini-3.1-flash-lite'
 const GEMINI_MODEL = GEMINI_FLASH_LITE
 
+/** Error name thrown when /api/interview/start answers 402: the candidate must pay for a retake first. */
+export const RETAKE_PAYMENT_REQUIRED_ERROR = 'RetakePaymentRequiredError'
+
 export type InterviewStartResponse = {
   sessionId: string | null
   agent: string
@@ -66,6 +66,10 @@ export type InterviewStartResponse = {
   adaptive?: boolean
   /** Stable per session — rotates concepts/skills when the same résumé is interviewed again. */
   varietySeed?: string
+  /** Job-link interview with the JD-first question mix (backend interview_jd_plan). */
+  jdFirst?: boolean
+  /** Time budget for the whole interview (20 for JD-first interviews). */
+  durationMinutes?: number
 }
 
 export type JobLinkedInterviewMeta = {
@@ -227,6 +231,14 @@ export async function startInterviewSession(
       consentErr.name = 'ConsentRequiredError'
       throw consentErr
     }
+    if (res.status === 402 || (data as { code?: string }).code === 'RETAKE_PAYMENT_REQUIRED') {
+      // The free interview is used up: never fall back to an offline session (it would not be saved or scored).
+      const payErr = new Error(
+        String((data as { error?: string }).error || 'You have used your free interview. Retakes are paid.'),
+      )
+      payErr.name = RETAKE_PAYMENT_REQUIRED_ERROR
+      throw payErr
+    }
     if (res.ok) {
       const adaptive = data.adaptive !== false && Boolean(data.adaptive ?? data.mode === 'adaptive')
       const questions = data.questions as Question[] | undefined
@@ -296,6 +308,8 @@ export async function startInterviewSession(
           offline: false,
           adaptive,
           varietySeed,
+          jdFirst: data.jdFirst === true,
+          durationMinutes: typeof data.durationMinutes === 'number' ? data.durationMinutes : undefined,
         }
       }
       if (isVendorJob) {
@@ -309,7 +323,12 @@ export async function startInterviewSession(
       )
     }
   } catch (err) {
-    if (isVendorJob || (err instanceof Error && err.name === 'ConsentRequiredError')) throw err
+    if (
+      isVendorJob ||
+      (err instanceof Error && (err.name === 'ConsentRequiredError' || err.name === RETAKE_PAYMENT_REQUIRED_ERROR))
+    ) {
+      throw err
+    }
     console.warn('[interview] server start failed — continuing offline (no video/review sync):', err)
   }
 
@@ -454,10 +473,7 @@ Return ONLY valid JSON. Use candidate-facing category labels (NOT internal rubri
     level: options.level,
     candidateFirstName: candidateFirstName(options.profile),
     candidateFullName:
-      options.profile?.fullName ||
-      options.profile?.name ||
-      candidateFullName() ||
-      'Candidate',
+      (options.profile ? resolveCandidateName(options.profile, getUser()) : candidateFullName()) || 'Candidate',
     resumeSkills: options.profile?.skills || [],
     qas,
   })

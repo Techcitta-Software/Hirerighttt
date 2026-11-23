@@ -35,12 +35,6 @@ def purge_expired(pool: Any, *, delete_object=None) -> dict[str, int]:
     `delete_object(key)` removes one S3 object; pass None to skip object deletion (rows are then kept so the
     file is not orphaned and can be retried on the next run).
     """
-    from app.db.dynamo_config import database_provider
-
-    if database_provider() == "dynamodb":
-        from app.db import dynamo_repos as dr
-
-        return dr.purge_expired_dynamo(delete_object=delete_object)
     counts = {"sessions": 0, "reset_tokens": 0, "audit_rows": 0, "recordings": 0, "artifacts": 0}
     with pool.connection() as conn:
         counts["sessions"] = conn.execute("DELETE FROM hireright_sessions WHERE expires_at < NOW()").rowcount or 0

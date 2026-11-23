@@ -66,16 +66,6 @@ config = NodeConfig(
 
 
 def assert_database_config() -> None:
-    provider = (os.environ.get("DATABASE_PROVIDER") or "neon").strip().lower()
-    if provider == "dynamodb":
-        if not (os.environ.get("AWS_REGION") and os.environ.get("AWS_ACCESS_KEY_ID")):
-            print(
-                "[config] DATABASE_PROVIDER=dynamodb requires AWS_REGION and AWS_ACCESS_KEY_ID "
-                "(DynamoDB tables: npm run db:dynamo:init).",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
-        return
     if not config.database_url.strip():
         print(
             "[config] DATABASE_URL is required.\n"
@@ -87,12 +77,11 @@ def assert_database_config() -> None:
 
 
 def assert_production_config() -> None:
-    provider = (os.environ.get("DATABASE_PROVIDER") or "neon").strip().lower()
     if is_prod_like:
         assert_database_config()
-    elif not config.database_url.strip() and provider != "dynamodb":
+    elif not config.database_url.strip():
         print(
-            "[config] DATABASE_URL not set — auth and data routes need Neon (or set DATABASE_PROVIDER=dynamodb). "
+            "[config] DATABASE_URL not set — auth and data routes need Postgres. "
             "Copy .env.example to repo-root .env for full local dev.",
             file=sys.stderr,
         )
