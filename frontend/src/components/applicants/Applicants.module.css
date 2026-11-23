@@ -201,6 +201,11 @@
   align-items: start;
 }
 
+/* Job applications have no filter rail, so the results must take the only column. */
+.layoutSingle {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* ── Filter rail (desktop) / sheet (below 900px) ── */
 .sidebar {
   position: sticky;
@@ -1426,6 +1431,66 @@
   overflow-wrap: anywhere;
 }
 
+/* Candidates: the original file, as a document on a desk, the way a resume database shows a CV. */
+.panelOriginal {
+  width: min(1080px, 78vw);
+}
+
+.resumeCanvas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  margin: calc(var(--space-4, 16px) * -1) calc(var(--space-5, 20px) * -1) calc(var(--space-8, 32px) * -1);
+  padding: var(--space-4, 16px) var(--space-5, 20px) var(--space-8, 32px);
+  background: #e7e9ef;
+  min-height: 100%;
+}
+
+.resumeCanvasLabel {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5c6278;
+}
+
+.resumeSheet {
+  margin: 0 auto;
+  width: min(820px, 100%);
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(20 22 56 / 8%), 0 16px 40px rgb(20 22 56 / 14%);
+}
+
+.resumeSheet .pdfFrame,
+.resumeSheet .docxPage,
+.resumeSheet .pageSkeleton,
+.resumeSheet .panelNote {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+.resumeSheet .pdfFrame {
+  height: min(82vh, 1100px);
+}
+
+.resumeSheetText {
+  padding: 36px 40px 48px;
+}
+
+.resumeSheetName {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  color: #141638;
+}
+
+.resumeSheetRole {
+  margin: 4px 0 16px;
+  color: #5c6278;
+}
+
 .pdfFrame {
   width: 100%;
   height: min(75vh, 960px);
@@ -1814,4 +1879,20 @@
   color: var(--ds-text-muted, #5f6686);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Score from another job's interview: the note sits under the score (full job name in the tooltip), instead of
+   squeezing beside it as "Senior Frontend …". */
+.signals > .sigScore dd:has(.sigNote) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 2px;
+}
+
+.signals > .sigScore dd .sigNote {
+  flex-basis: 100%;
+  max-width: 22ch;
+  margin-left: auto;
+  text-align: right;
 }

@@ -53,6 +53,7 @@ function render(url = '/employer/applicants', props: Partial<ApplicantsSearchPro
       MemoryRouter,
       { initialEntries: [url] },
       createElement(ApplicantsSearch, {
+        mode: 'applications',
         applicants: ROWS,
         jobs: [
           { id: 'job-fe', title: 'Frontend Engineer' },
@@ -86,17 +87,30 @@ describe('Applicants page', () => {
     expect(html).toMatch(/<li><article[^>]+aria-labelledby="tuple-name-ana"/)
   })
 
-  it('applies filters and keywords from the URL, with removable chips and facet counts', () => {
-    const html = render('/employer/applicants?skill=Python')
-    expect(names(html)).toEqual(['vik'])
-    expect(html).toContain('aria-label="Remove filter Python"')
-
+  it('applies the job and keywords from the URL and ignores hidden filters', () => {
     const byJob = render('/employer/applicants?jobId=job-fe')
     expect(names(byJob)).toEqual(['ana'])
 
     const kw = render('/employer/applicants?q=typescript')
     expect(names(kw)).toEqual(['ana'])
     expect(kw).toContain('<mark')
+
+    // A skill param would hide Ananya; it must not, or the job view would filter with no control for it.
+    expect(names(render('/employer/applicants?jobId=job-fe&skill=Python'))).toEqual(['ana'])
+    expect(names(render('/employer/applicants?score=80%2B'))).toEqual(['ana', 'vik', 'hid'])
+  })
+
+  it('does not show the filter rail, its sheet, or filter actions', () => {
+    const html = render()
+    expect(html).not.toContain('id="applicant-filters"')
+    expect(html).not.toContain('aria-controls="applicant-filters"')
+    expect(html).not.toContain('Current role')
+    expect(html).not.toContain('Clear all')
+    const none = render('/employer/applicants?q=kubernetes')
+    expect(none).toContain('Clear search')
+    expect(none).not.toContain('Clear all filters')
+    expect(none).not.toContain('Search all jobs')
+    expect(none).not.toContain('Remove “')
   })
 
   it('sorts from the URL', () => {
@@ -111,13 +125,129 @@ describe('Applicants page', () => {
     expect(err).toContain('data-testid="applicants-error"')
     expect(err).toContain('Retry')
     expect(render('/employer/applicants', { applicants: [] })).toContain('No applicants yet')
+    expect(render('/employer/applicants', { applicants: [] })).toContain('Post a job')
     const none = render('/employer/applicants?q=kubernetes')
     expect(none).toContain('No applicants match “kubernetes”')
-    expect(none).toContain('Clear all filters')
+    expect(none).toContain('Clear search')
+  })
+})
+
+describe('Candidates mode', () => {
+  function rail(html: string) {
+    const start = html.indexOf('id="applicant-filters"')
+    const end = html.indexOf('</aside>')
+    return html.slice(start, end)
+  }
+
+  it('shows the candidates groups and says candidates', () => {
+    const html = render('/employer/applicants', { mode: 'candidates' })
+    expect(html).toContain('Showing 1–3 of 3 candidates')
+    expect(html).toContain('aria-label="Search candidates"')
+    expect(html).toContain('Show 3 candidates')
+    const filters = rail(html)
+    expect(filters).toContain('Current role')
+    expect(filters).toContain('Frontend Developer')
+    expect(filters).toContain('Key skills')
+    expect(filters).toContain('Find a role')
+    expect(filters).toContain('0–1 yr')
+    expect(filters).toContain('1–3 yrs')
+    expect(filters).toContain('3–5 yrs')
+    expect(filters).toContain('5–8 yrs')
+    expect(filters).toContain('8+ yrs')
+    expect(filters).toContain('Location (mentioned in resume)')
+    expect(filters).toContain('Bengaluru')
+    expect(filters).toContain('Delhi NCR')
+    expect(filters).toContain('Interviewed')
+    expect(filters).toContain('Score 80 and above')
+    expect(filters).toContain('Score 60 and above')
+    expect(filters).toContain('Not interviewed yet')
+    expect(filters).toContain('Has a resume')
+    expect(filters).toContain('No resume yet')
+    expect(filters).toContain('Any time')
+    expect(filters).toContain('Last 7 days')
+    expect(filters).toContain('Last 90 days')
+    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Current role/)
+    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Key skills/)
+    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Experience/)
+    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Location \(mentioned in resume\)/)
+    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Interview/)
+    expect(html).toMatch(/aria-expanded="false"[^>]*>\s*Resume/)
+    expect(html).toMatch(/aria-expanded="false"[^>]*>\s*Last active/)
+    expect(filters).not.toContain('id="fgroup-jobs"')
+    expect(filters).not.toContain('id="fgroup-fit"')
+    expect(filters).not.toContain('id="fgroup-source"')
+    expect(filters).not.toContain('id="fgroup-lists"')
+    expect(filters).not.toContain('id="fgroup-score"')
+    expect(filters).not.toContain('Has proctoring flags')
+    expect(filters).not.toContain('Your lists')
+    expect(filters).not.toContain('City in the resume')
+    expect(html).not.toContain('Export')
+    const empty = render('/employer/applicants', { mode: 'candidates', applicants: [] })
+    expect(empty).not.toContain('Post a job')
+  })
+
+  it('filters by skill from the URL with one chip, and ignores a stale job link', () => {
+    const skill = render('/employer/applicants?skill=Python', { mode: 'candidates' })
+    expect(names(skill)).toEqual(['vik'])
+    expect(skill).toContain('aria-label="Remove filter Python"')
+    expect(names(render('/employer/applicants?jobId=job-fe&fit=80%2B&short=1&saved=1&review=1', { mode: 'candidates' }))).toEqual([
+      'ana',
+      'vik',
+      'hid',
+    ])
+    expect(names(render('/employer/applicants?role=Frontend%20Developer', { mode: 'candidates' }))).toEqual(['ana'])
+  })
+
+  it('shows one chip for the score-60 interview choice', () => {
+    const html = render('/employer/applicants?score=80%2B&score=60-79', { mode: 'candidates' })
+    expect(html).toContain('aria-label="Remove filter Score 60 and above"')
+    expect(html).not.toContain('Score 60 – 79')
+    expect(html).not.toContain('Score 80 – 100')
+  })
+
+  it('selects no experience radio when the top bar holds a custom range', () => {
+    const html = render('/employer/applicants?emin=2&emax=4', { mode: 'candidates' })
+    const tags = html.match(/<input[^>]*name="experience-range"[^>]*>/g) || []
+    expect(tags.length).toBe(6)
+    expect(tags.some((tag) => tag.includes('checked'))).toBe(false)
+  })
+
+  it('lists the top eight roles and offers the rest', () => {
+    const people = Array.from({ length: 9 }, (_, i) =>
+      app({ id: `p${i}`, candidateName: `Person ${i}`, role: `Role ${String.fromCharCode(65 + i)}` }),
+    )
+    const filters = rail(render('/employer/applicants', { mode: 'candidates', applicants: people }))
+    expect(filters).toContain('Show all 9')
+    expect(filters).toContain('>Role A<')
+    expect(filters).not.toContain('>Role I<')
   })
 })
 
 describe('Applicant drawer', () => {
+  it('opens the original stored resume for a candidate, even when contact details are hidden', () => {
+    const html = render('/talent-vault?applicant=hid', {
+      mode: 'candidates',
+      applicants: [
+        app({
+          id: 'hid',
+          jobId: '',
+          jobTitle: '',
+          recordSource: 'platform',
+          candidateName: 'Hidden Person',
+          candidateEmail: '',
+          candidatePhone: '',
+          contactHidden: true,
+          candidateUserId: 'user-hid',
+          hasResumeFile: true,
+          resumeText: 'SKILLS\nGo',
+        }),
+      ],
+    })
+    expect(html).toContain('Original resume')
+    expect(html).toContain('Loading the resume')
+    expect(html).not.toContain('Highlighted text')
+  })
+
   it('is closed without ?applicant and opens as a dialog for the applicant in the URL', () => {
     expect(render()).not.toContain('data-testid="applicant-panel"')
     const html = render('/employer/applicants?applicant=ana')
@@ -141,12 +271,13 @@ describe('Applicant drawer', () => {
 })
 
 describe('Rename: Candidates → Applicants (vendor side)', () => {
-  it('the employer footer links to Jobs and Talent vault, not a separate applicants page', () => {
+  it('the employer footer links to Jobs and Candidates, not a separate applicants page', () => {
     localStorage.setItem('hireright.users', JSON.stringify([{ email: 'r@acme.test', password: 'x', role: 'employer', name: 'R' }]))
     localStorage.setItem('hireright.session', 'r@acme.test')
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AppFooter)))
     expect(html).toContain('href="/employer/jobs"')
     expect(html).toContain('href="/talent-vault"')
+    expect(html).toContain('>Candidates<')
     expect(html).not.toContain('href="/employer/applicants"')
   })
 })

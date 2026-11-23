@@ -14,6 +14,7 @@
  *   -angular                leave out resumes that mention a word
  */
 import { candidateScore, needsIntegrityReview } from './candidateSearch'
+import { hasResumeContent } from './employerCandidateUtils'
 import { compareTopCandidature, roleSkillsFitOf } from './jobApplicantFilters'
 import type { EmployerApplicant } from './store'
 
@@ -248,7 +249,7 @@ export function sourceLabel(source: string | undefined): string {
     case 'interview_report':
       return 'Shared an interview'
     case 'vault':
-      return 'Talent vault'
+      return 'Candidates'
     case 'talent':
     case 'platform':
       return 'HireRighttt talent pool'
@@ -263,6 +264,53 @@ export type ScoreBucket = '80+' | '60-79' | '40-59' | '<40'
 /** Same cut-offs as the score buckets, so the two filter groups read the same way. */
 export type FitBucket = '80+' | '60-79' | '40-59' | '<40'
 export type ActiveWithin = 0 | 7 | 15 | 30 | 90
+export type ResumeFilter = '' | 'yes' | 'no'
+
+/**
+ * Candidates experience radios. Adjacent buckets share an edge: the lower bound is inclusive and the upper bound
+ * is exclusive, so 2.5 and 5.5 years each land in exactly one bucket. 8+ is `>= 8`.
+ */
+export const CANDIDATE_EXPERIENCE_PRESETS: { id: string; label: string; min: string; max: string }[] = [
+  { id: '0-1', label: '0–1 yr', min: '0', max: '1' },
+  { id: '1-3', label: '1–3 yrs', min: '1', max: '3' },
+  { id: '3-5', label: '3–5 yrs', min: '3', max: '5' },
+  { id: '5-8', label: '5–8 yrs', min: '5', max: '8' },
+  { id: '8+', label: '8+ yrs', min: '8', max: '' },
+]
+
+/** `'any'` when both bounds are empty; a preset id when the bounds match one; null for a custom top-bar range. */
+export function experiencePresetId(expMin: string, expMax: string): string | null {
+  const min = expMin.trim()
+  const max = expMax.trim()
+  if (min === '' && max === '') return 'any'
+  return CANDIDATE_EXPERIENCE_PRESETS.find((p) => p.min === min && p.max === max)?.id ?? null
+}
+
+/** Cities offered on the candidates rail, in display order. Matched on resume text and role, with word boundaries. */
+const CANDIDATE_CITIES: { value: string; pattern: RegExp }[] = [
+  { value: 'Bengaluru', pattern: /\b(?:bengaluru|bangalore)\b/i },
+  { value: 'Hyderabad', pattern: /\bhyderabad\b/i },
+  { value: 'Chennai', pattern: /\bchennai\b/i },
+  { value: 'Pune', pattern: /\bpune\b/i },
+  { value: 'Mumbai', pattern: /\bmumbai\b/i },
+  { value: 'Delhi NCR', pattern: /\b(?:delhi|gurgaon|gurugram|noida)\b/i },
+  { value: 'Kolkata', pattern: /\bkolkata\b/i },
+]
+
+function citiesMentioned(resumeText: string | undefined, role: string | undefined): string[] {
+  const text = `${resumeText ?? ''}\n${role ?? ''}`
+  if (!text.trim()) return []
+  return CANDIDATE_CITIES.filter((c) => c.pattern.test(text)).map((c) => c.value)
+}
+
+function canonicalCities(values: string[]): string[] {
+  const out: string[] = []
+  for (const raw of values) {
+    const hit = CANDIDATE_CITIES.find((c) => c.value.toLowerCase() === raw.trim().toLowerCase())
+    if (hit && !out.includes(hit.value)) out.push(hit.value)
+  }
+  return out
+}
 
 export type ApplicantFilters = {
   keywords: string
@@ -275,6 +323,12 @@ export type ApplicantFilters = {
   score: ScoreBucket[]
   fit: FitBucket[]
   skills: string[]
+  /** Current-role checkboxes (any of). Values are trimmed lower-case role text. */
+  roles: string[]
+  /** City checkboxes (any of). Canonical names from the candidates location list. */
+  cities: string[]
+  /** Resume radio. Empty means any. */
+  resume: ResumeFilter
   sources: string[]
   activeWithin: ActiveWithin
   integrityReviewOnly: boolean
@@ -292,11 +346,77 @@ export const EMPTY_APPLICANT_FILTERS: ApplicantFilters = {
   score: [],
   fit: [],
   skills: [],
+  roles: [],
+  cities: [],
+  resume: '',
   sources: [],
   activeWithin: 0,
   integrityReviewOnly: false,
   savedOnly: false,
   shortlistedOnly: false,
+}
+
+/** Candidates mode drops these so a stale applicants link cannot filter the resume database with no control for it. */
+export function stripCandidateIgnoredFilters(filters: ApplicantFilters): ApplicantFilters {
+  return {
+    ...filters,
+    jobs: [],
+    fit: [],
+    sources: [],
+    integrityReviewOnly: false,
+    savedOnly: false,
+    shortlistedOnly: false,
+  }
+}
+
+/**
+ * Filters actually applied by ApplicantsSearch.
+ * Applications keeps the job scope plus the search card. Candidates drops the rail groups that page does not show.
+ */
+export function filtersForApplicantSearch(
+  mode: 'candidates' | 'applications',
+  filters: ApplicantFilters,
+): ApplicantFilters {
+  if (mode === 'applications') {
+    return {
+      ...EMPTY_APPLICANT_FILTERS,
+      keywords: filters.keywords,
+      location: filters.location,
+      expMin: filters.expMin,
+      expMax: filters.expMax,
+      jobs: filters.jobs,
+    }
+  }
+  return stripCandidateIgnoredFilters(filters)
+}
+
+export type InterviewRadio = 'any' | 'interviewed' | '80' | '60' | 'not'
+
+/** Which candidates Interview radio matches the current interview + score filters. Null when the combo is custom. */
+export function interviewRadioOf(f: Pick<ApplicantFilters, 'interview' | 'score'>): InterviewRadio | null {
+  const noScore = f.score.length === 0
+  const noInterview = f.interview.length === 0
+  if (noInterview && noScore) return 'any'
+  if (noScore && f.interview.length === 1 && f.interview[0] === 'completed') return 'interviewed'
+  if (noInterview && f.score.length === 1 && f.score[0] === '80+') return '80'
+  if (noInterview && f.score.length === 2 && f.score.includes('80+') && f.score.includes('60-79')) return '60'
+  if (noScore && f.interview.length === 1 && f.interview[0] === 'not_interviewed') return 'not'
+  return null
+}
+
+export function filtersForInterviewRadio(value: InterviewRadio): Pick<ApplicantFilters, 'interview' | 'score'> {
+  switch (value) {
+    case 'any':
+      return { interview: [], score: [] }
+    case 'interviewed':
+      return { interview: ['completed'], score: [] }
+    case '80':
+      return { interview: [], score: ['80+'] }
+    case '60':
+      return { interview: [], score: ['80+', '60-79'] }
+    case 'not':
+      return { interview: ['not_interviewed'], score: [] }
+  }
 }
 
 export type ApplicantSort = 'relevance' | 'score' | 'fit' | 'recent' | 'experience'
@@ -340,6 +460,13 @@ export type IndexedApplicant = {
   education: string
   /** Title / company / location from the resume headline line (empty when the resume has none). */
   headline: ResumeHeadline
+  /** Trimmed lower-case role (applicant.role, else the headline title). Empty when neither exists. */
+  roleKey: string
+  /** First spelling of that role on this person. */
+  roleLabel: string
+  /** Canonical cities mentioned in the resume or role. */
+  cities: string[]
+  hasResume: boolean
   /** Lower-case search fields. */
   fields: { name: string; role: string; skills: string; job: string; contact: string; resume: string }
 }
@@ -348,6 +475,8 @@ const lc = (v: unknown) => String(v ?? '').toLowerCase()
 
 export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
   const skills = applicantSkills(a)
+  const headline = resumeHeadline(a.resumeText)
+  const roleLabel = (a.role ?? '').trim() || headline.title.trim()
   return {
     applicant: a,
     skills,
@@ -360,7 +489,11 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
     lastActive: lastActiveAt(a),
     interview: interviewStatusOf(a),
     education: resumeEducation(a.resumeText),
-    headline: resumeHeadline(a.resumeText),
+    headline,
+    roleKey: roleLabel.toLowerCase(),
+    roleLabel,
+    cities: citiesMentioned(a.resumeText, roleLabel),
+    hasResume: hasResumeContent(a),
     fields: {
       name: lc(a.candidateName),
       role: lc(a.role),
@@ -410,7 +543,27 @@ function daysSince(iso: string, now: number): number {
 }
 
 /** Which filter group a check belongs to; facet counts ignore their own group (standard faceted search). */
-type Group = 'base' | 'jobs' | 'interview' | 'score' | 'fit' | 'skills' | 'sources' | 'active'
+type Group = 'base' | 'jobs' | 'interview' | 'score' | 'fit' | 'skills' | 'sources' | 'active' | 'roles' | 'cities' | 'resume'
+
+/** Preset radios use [min, max). Any other min/max (the top bar) stays inclusive on both ends. */
+function matchesExperience(years: number | null, expMin: string, expMax: string): boolean {
+  const minRaw = expMin.trim()
+  const maxRaw = expMax.trim()
+  const min = minRaw === '' ? null : Number(minRaw)
+  const max = maxRaw === '' ? null : Number(maxRaw)
+  const hasMin = min !== null && Number.isFinite(min)
+  const hasMax = max !== null && Number.isFinite(max)
+  if (!hasMin && !hasMax) return true
+  if (years === null) return false
+  const preset = CANDIDATE_EXPERIENCE_PRESETS.some((p) => p.min === minRaw && p.max === maxRaw)
+  if (hasMin && years < (min as number)) return false
+  if (preset) {
+    if (hasMax && years >= (max as number)) return false
+  } else if (hasMax && years > (max as number)) {
+    return false
+  }
+  return true
+}
 
 function passes(
   row: IndexedApplicant,
@@ -424,13 +577,7 @@ function passes(
     if (loc && !row.fields.resume.includes(loc) && !row.fields.role.includes(loc) && !row.fields.job.includes(loc)) {
       return false
     }
-    const min = f.expMin.trim() === '' ? null : Number(f.expMin)
-    const max = f.expMax.trim() === '' ? null : Number(f.expMax)
-    if ((min !== null && Number.isFinite(min)) || (max !== null && Number.isFinite(max))) {
-      if (row.experience === null) return false
-      if (min !== null && Number.isFinite(min) && row.experience < min) return false
-      if (max !== null && Number.isFinite(max) && row.experience > max) return false
-    }
+    if (!matchesExperience(row.experience, f.expMin, f.expMax)) return false
     if (f.integrityReviewOnly && !row.review) return false
     if (f.savedOnly && !ctx.saved.has(a.id)) return false
     if (f.shortlistedOnly && a.status !== 'Shortlisted') return false
@@ -447,6 +594,13 @@ function passes(
     if (!b || !f.fit.includes(b)) return false
   }
   if (skip !== 'skills' && f.skills.length && !f.skills.every((s) => row.skillKeys.has(s.toLowerCase()))) return false
+  if (skip !== 'roles' && f.roles.length) {
+    const wanted = new Set(f.roles.map((r) => r.trim().toLowerCase()).filter(Boolean))
+    if (!row.roleKey || !wanted.has(row.roleKey)) return false
+  }
+  if (skip !== 'cities' && f.cities.length && !row.cities.some((c) => f.cities.includes(c))) return false
+  if (skip !== 'resume' && f.resume === 'yes' && !row.hasResume) return false
+  if (skip !== 'resume' && f.resume === 'no' && row.hasResume) return false
   if (skip !== 'sources' && f.sources.length && !f.sources.includes(row.applicant.recordSource || '')) return false
   if (skip !== 'active' && f.activeWithin > 0 && daysSince(row.lastActive, ctx.now) > f.activeWithin) return false
   return true
@@ -460,6 +614,11 @@ export type ApplicantFacets = {
   score: FacetCount[]
   fit: FacetCount[]
   skills: FacetCount[]
+  roles: FacetCount[]
+  cities: FacetCount[]
+  resume: FacetCount[]
+  /** Counts for the candidates Interview radio, with interview and score filters cleared. */
+  interviewChoices: { interviewed: number; score80: number; score60: number; notInterviewed: number }
   sources: FacetCount[]
   active: FacetCount[]
   /** Counts for "Has proctoring flags", "Shortlisted" and "Saved for later". */
@@ -588,13 +747,65 @@ export function searchApplicants(
     saved: rows.filter((r) => ctx.saved.has(r.applicant.id) && passes(r, { ...filters, savedOnly: false }, ctx)).length,
   }
 
-  return { rows: matched, facets: { jobs, interview, score, fit, skills, sources, active, lists }, terms: queryTerms(query) }
+  const roleLabels = new Map<string, string>()
+  for (const r of rows) {
+    if (r.roleKey && !roleLabels.has(r.roleKey)) roleLabels.set(r.roleKey, r.roleLabel)
+  }
+  const rolePool = pool('roles')
+  const roleCounts = tally(rolePool, (r) => (r.roleKey ? r.roleKey : null))
+  const roles = Array.from(roleCounts.entries())
+    .map(([value, count]) => ({ value, label: roleLabels.get(value) || value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  for (const role of filters.roles) {
+    const key = role.trim().toLowerCase()
+    if (!key || roles.some((x) => x.value === key)) continue
+    roles.unshift({ value: key, label: roleLabels.get(key) || role.trim(), count: 0 })
+  }
+
+  const cityPool = pool('cities')
+  const cityCounts = tally(cityPool, (r) => r.cities)
+  const cities = CANDIDATE_CITIES.map((c) => ({
+    value: c.value,
+    label: c.value,
+    count: cityCounts.get(c.value) ?? 0,
+  }))
+
+  const resumePool = pool('resume')
+  const resumeYes = resumePool.filter((r) => r.hasResume).length
+  const resume: FacetCount[] = [
+    { value: 'yes', label: 'Has a resume', count: resumeYes },
+    { value: 'no', label: 'No resume yet', count: resumePool.length - resumeYes },
+  ]
+
+  const interviewPool = rows.filter((r) => passes(r, { ...filters, interview: [], score: [] }, ctx))
+  const interviewChoices = {
+    interviewed: interviewPool.filter((r) => r.interview === 'completed').length,
+    score80: interviewPool.filter((r) => scoreBucketOf(r.score) === '80+').length,
+    score60: interviewPool.filter((r) => {
+      const bucket = scoreBucketOf(r.score)
+      return bucket === '80+' || bucket === '60-79'
+    }).length,
+    notInterviewed: interviewPool.filter((r) => r.interview === 'not_interviewed').length,
+  }
+
+  return {
+    rows: matched,
+    facets: { jobs, interview, score, fit, skills, roles, cities, resume, interviewChoices, sources, active, lists },
+    terms: queryTerms(query),
+  }
 }
 
 /** Applied-filter chips: one per active value, each with the patch that removes it. */
+const INTERVIEW_RADIO_LABEL: Record<Exclude<InterviewRadio, 'any'>, string> = {
+  interviewed: 'Interviewed',
+  '80': 'Score 80 and above',
+  '60': 'Score 60 and above',
+  not: 'Not interviewed yet',
+}
+
 export function activeFilterChips(
   f: ApplicantFilters,
-  labels: { jobs?: Record<string, string> } = {},
+  labels: { jobs?: Record<string, string>; roles?: Record<string, string> } = {},
 ): { key: string; label: string; clear: Partial<ApplicantFilters> }[] {
   const chips: { key: string; label: string; clear: Partial<ApplicantFilters> }[] = []
   if (f.keywords.trim()) chips.push({ key: 'kw', label: `Keywords: ${f.keywords.trim()}`, clear: { keywords: '' } })
@@ -604,12 +815,31 @@ export function activeFilterChips(
     chips.push({ key: 'exp', label: `Experience: ${label}`, clear: { expMin: '', expMax: '' } })
   }
   for (const id of f.jobs) chips.push({ key: `job-${id}`, label: labels.jobs?.[id] || 'Job', clear: { jobs: f.jobs.filter((j) => j !== id) } })
-  for (const s of f.interview) {
-    chips.push({ key: `iv-${s}`, label: s === 'completed' ? 'Interview completed' : 'Not interviewed', clear: { interview: f.interview.filter((x) => x !== s) } })
+  const interviewChoice = interviewRadioOf(f)
+  if (interviewChoice && interviewChoice !== 'any') {
+    chips.push({ key: 'iv', label: INTERVIEW_RADIO_LABEL[interviewChoice], clear: { interview: [], score: [] } })
+  } else if (interviewChoice === null) {
+    for (const s of f.interview) {
+      chips.push({ key: `iv-${s}`, label: s === 'completed' ? 'Interview completed' : 'Not interviewed', clear: { interview: f.interview.filter((x) => x !== s) } })
+    }
+    for (const b of f.score) chips.push({ key: `sc-${b}`, label: `Score ${SCORE_LABELS[b]}`, clear: { score: f.score.filter((x) => x !== b) } })
   }
-  for (const b of f.score) chips.push({ key: `sc-${b}`, label: `Score ${SCORE_LABELS[b]}`, clear: { score: f.score.filter((x) => x !== b) } })
   for (const b of f.fit) chips.push({ key: `fit-${b}`, label: `Skills fit ${FIT_LABELS[b]}`, clear: { fit: f.fit.filter((x) => x !== b) } })
   for (const s of f.skills) chips.push({ key: `sk-${s}`, label: s, clear: { skills: f.skills.filter((x) => x !== s) } })
+  for (const role of f.roles) {
+    const key = role.trim().toLowerCase()
+    if (!key) continue
+    chips.push({
+      key: `role-${key}`,
+      label: labels.roles?.[key] || labels.roles?.[role] || role.trim(),
+      clear: { roles: f.roles.filter((r) => r.trim().toLowerCase() !== key) },
+    })
+  }
+  for (const city of f.cities) {
+    chips.push({ key: `city-${city}`, label: city, clear: { cities: f.cities.filter((c) => c !== city) } })
+  }
+  if (f.resume === 'yes') chips.push({ key: 'cv', label: 'Has a resume', clear: { resume: '' } })
+  if (f.resume === 'no') chips.push({ key: 'cv', label: 'No resume yet', clear: { resume: '' } })
   for (const s of f.sources) chips.push({ key: `src-${s}`, label: sourceLabel(s), clear: { sources: f.sources.filter((x) => x !== s) } })
   if (f.activeWithin) chips.push({ key: 'active', label: `Active in ${f.activeWithin} days`, clear: { activeWithin: 0 } })
   if (f.integrityReviewOnly) chips.push({ key: 'review', label: 'Needs integrity review', clear: { integrityReviewOnly: false } })
@@ -618,12 +848,18 @@ export function activeFilterChips(
   return chips
 }
 
-/** "Showing 1–20 of 134 applicants" */
-export function resultRangeLabel(page: number, pageSize: number, total: number): string {
-  if (total === 0) return 'No applicants found'
+/** "Showing 1–20 of 134 applicants" (or candidates, on the resume database). */
+export function resultRangeLabel(
+  page: number,
+  pageSize: number,
+  total: number,
+  noun: 'applicant' | 'candidate' = 'applicant',
+): string {
+  const plural = `${noun}s`
+  if (total === 0) return `No ${plural} found`
   const from = (page - 1) * pageSize + 1
   const to = Math.min(total, page * pageSize)
-  return `Showing ${from}–${to} of ${total} applicant${total === 1 ? '' : 's'}`
+  return `Showing ${from}–${to} of ${total} ${total === 1 ? noun : plural}`
 }
 
 export function relativeActive(iso: string, now: number): string {
@@ -718,6 +954,9 @@ export function readApplicantsUrl(params: URLSearchParams): ApplicantsUrlState {
       score: all('score').filter((v): v is ScoreBucket => SCORE_BUCKETS.includes(v as ScoreBucket)),
       fit: all('fit').filter((v): v is FitBucket => FIT_BUCKETS.includes(v as FitBucket)),
       skills: all('skill'),
+      roles: Array.from(new Set(all('role').map((r) => r.trim().toLowerCase()).filter(Boolean))),
+      cities: canonicalCities(all('city')),
+      resume: params.get('cv') === 'yes' || params.get('cv') === 'no' ? (params.get('cv') as ResumeFilter) : '',
       sources: all('src'),
       activeWithin: ACTIVE_WINDOWS.includes(active) ? active : 0,
       integrityReviewOnly: params.get('review') === '1',
@@ -744,6 +983,9 @@ export function writeApplicantsUrl(state: ApplicantsUrlState): URLSearchParams {
   f.score.forEach((v) => p.append('score', v))
   f.fit.forEach((v) => p.append('fit', v))
   f.skills.forEach((v) => p.append('skill', v))
+  f.roles.forEach((v) => p.append('role', v))
+  f.cities.forEach((v) => p.append('city', v))
+  if (f.resume === 'yes' || f.resume === 'no') p.set('cv', f.resume)
   f.sources.forEach((v) => p.append('src', v))
   if (f.activeWithin) p.set('active', String(f.activeWithin))
   if (f.integrityReviewOnly) p.set('review', '1')

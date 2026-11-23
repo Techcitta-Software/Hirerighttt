@@ -120,6 +120,7 @@ describe('two-job applicant', () => {
         MemoryRouter,
         { initialEntries: [url] },
         createElement(ApplicantsSearch, {
+          mode: 'applications',
           applicants: [TWO_JOBS],
           jobs: [
             { id: 'job-fe', title: 'Frontend Engineer' },

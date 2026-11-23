@@ -253,6 +253,10 @@ export type OrgCandidateRecord = {
   company?: string
   resumeName?: string | null
   resumeText?: string
+  /** Scrubbed resume text when contact details were removed from the row. */
+  resumePublicText?: string
+  /** The original upload is in S3. The list does not include the storage key. */
+  hasResumeFile?: boolean
   interviewResult?: unknown
   atsScore?: number
   jdMatchScore?: number
@@ -296,15 +300,23 @@ export type VendorCandidateDocumentLink = {
   sessionId?: string
 }
 
-export async function fetchVendorCandidateResumeDocument(candidateEmail: string) {
-  const qs = new URLSearchParams({ email: candidateEmail })
+function resumeDocumentQuery(candidateEmail: string, userId?: string | null, raw = false) {
+  const qs = new URLSearchParams()
+  if (userId) qs.set('userId', userId)
+  if (candidateEmail) qs.set('email', candidateEmail)
+  if (raw) qs.set('raw', '1')
+  return qs
+}
+
+export async function fetchVendorCandidateResumeDocument(candidateEmail: string, opts?: { userId?: string | null }) {
+  const qs = resumeDocumentQuery(candidateEmail, opts?.userId)
   const res = await apiFetch(`/api/vendor/candidate-documents/resume?${qs}`)
   return parse<VendorCandidateDocumentLink>(res)
 }
 
 /** The stored resume file itself (via the API, so the browser needs no cross-origin S3 access). */
-export async function fetchVendorCandidateResumeFile(candidateEmail: string): Promise<ArrayBuffer> {
-  const qs = new URLSearchParams({ email: candidateEmail, raw: '1' })
+export async function fetchVendorCandidateResumeFile(candidateEmail: string, opts?: { userId?: string | null }): Promise<ArrayBuffer> {
+  const qs = resumeDocumentQuery(candidateEmail, opts?.userId, true)
   const res = await apiFetch(`/api/vendor/candidate-documents/resume?${qs}`)
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string }
@@ -363,6 +375,27 @@ export async function fetchOrganizationCandidates(params?: {
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
   const res = await apiFetch(`/api/vendor/candidates${suffix}`, { background: opts?.background })
   return parse<{ organizationId: string; total: number; candidates: OrgCandidateRecord[] }>(res)
+}
+
+/** Every job seeker visible to employers. The API pages at 50 rows; this walks the pages. */
+export async function fetchAllPlatformCandidates(signal?: AbortSignal): Promise<OrgCandidateRecord[]> {
+  const all: OrgCandidateRecord[] = []
+  const limit = 50
+  let offset = 0
+  let total = Number.POSITIVE_INFINITY
+  // The shared client timeout is 45s. This directory query returns full resumes, so give one request room to finish.
+  const listSignal = signal ?? (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120_000) : undefined)
+  while (offset < total && all.length < 5000) {
+    const qs = new URLSearchParams({ scope: 'platform', limit: String(limit), offset: String(offset) })
+    const res = await apiFetch(`/api/vendor/candidates?${qs}`, listSignal ? { signal: listSignal } : {})
+    const page = await parse<{ total: number; candidates: OrgCandidateRecord[] }>(res)
+    const rows = page.candidates || []
+    total = typeof page.total === 'number' ? page.total : rows.length
+    all.push(...rows)
+    if (!rows.length || rows.length < limit) break
+    offset += rows.length
+  }
+  return all
 }
 
 export async function fetchJobCandidatesRoster(

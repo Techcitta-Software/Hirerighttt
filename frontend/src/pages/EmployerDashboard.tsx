@@ -31,6 +31,7 @@ import {
 import { readJobDescriptionFile } from '../lib/jobDescriptionImport'
 import {
   createVendorJob,
+  updateVendorJob,
   deleteVendorJob,
   markVendorJobDeletedForCandidates,
   fetchJobApplicants,
@@ -42,8 +43,16 @@ import {
 import { subscribeEmployerApplicationAlerts } from '../lib/employerAlertsFeed'
 import { mapWithConcurrency } from '../lib/concurrency'
 import { JobLifecycleActions, JobStatusBadge } from '../components/jobs/JobLifecycle'
+import { jobEditPatch, validateJobEdit } from '../components/jobs/jobStatusRules'
 import type { VendorJob } from '../lib/vendorApi'
+import { StatTiles } from '../components/StatTiles'
+import { jobApplicantStats } from '../lib/jobApplicantStats'
 import styles from './EmployerDashboard.module.css'
+
+/** Marks a create-job field that was filled from the uploaded job description (it stays editable). */
+function FilledFromDocTag({ show }: { show: boolean }) {
+  return show ? <span className={styles.filledTag}>From document · editable</span> : null
+}
 
 function slugifyCompanyName(name: string) {
   const base = name
@@ -112,6 +121,7 @@ export function EmployerDashboard() {
   const user = getUser()
   const [jobs, setJobs] = useState<EmployerJob[]>([])
   const [applicants, setApplicants] = useState<EmployerApplicant[]>([])
+  const jobStats = useMemo(() => jobApplicantStats(applicants, selectedJobId), [applicants, selectedJobId])
   const [jobCounts, setJobCounts] = useState<Record<string, number>>({})
   const [portalLoading, setPortalLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -124,6 +134,8 @@ export function EmployerDashboard() {
   )
   const [creatingJob, setCreatingJob] = useState(false)
   const [createJobError, setCreateJobError] = useState('')
+  // Edit job reuses the Create job dialog and its fields (incl. the document import), filled from the job.
+  const [editingJob, setEditingJob] = useState<EmployerJob | null>(null)
   const [pendingDeleteJob, setPendingDeleteJob] = useState<EmployerJob | null>(null)
   const [deleteJobError, setDeleteJobError] = useState('')
 
@@ -149,6 +161,8 @@ export function EmployerDashboard() {
   const [newJobSkills, setNewJobSkills] = useState('')
   const [jobSource, setJobSource] = useState<'type' | 'upload'>('type')
   const [jobDocName, setJobDocName] = useState('')
+  /** Presentation only: which create-job fields the last imported document filled (shown as tags). */
+  const [jobDocFilled, setJobDocFilled] = useState<string[]>([])
   const [jobDocError, setJobDocError] = useState('')
   const [jobDocReading, setJobDocReading] = useState(false)
   const [jobDocDragging, setJobDocDragging] = useState(false)
@@ -247,7 +261,9 @@ export function EmployerDashboard() {
     const { candidates } = await fetchOrganizationCandidates({ ...filters, scope: 'org' }, opts)
     const jobSeekers = filterJobSeekerCandidates(candidates)
     setApplicants(jobSeekers.map((c) => normalizeApplicant(mapOrgCandidate(c))))
-    setPortalSyncNote(`${jobSeekers.length} candidate profiles available.`)
+    // No "N profiles available" note: the list's own count says it, and on a job page the org-wide total was
+    // misleading (24 shown above a job with 12 applicants). The note is kept for real outcomes (job saved/closed).
+    setPortalSyncNote('')
   }
 
   useEffect(() => {
@@ -352,9 +368,100 @@ export function EmployerDashboard() {
     if (creatingJob || jobDocReading) return
     setShowCreateJobModal(false)
     setJobDocDragging(false)
+    if (editingJob) {
+      setEditingJob(null)
+      resetJobForm()
+    }
+  }
+
+  function resetJobForm() {
+    setNewJobTitle('')
+    setNewJobDescription('')
+    setNewJobSkills('')
+    setNewJobRoleTrack(DEFAULT_JOB_ROLE)
+    setNewJobExp('3-5 years')
+    setNewJobLocation('Hyderabad / Remote')
+    setJobSource('type')
+    setJobDocName('')
+    setJobDocError('')
+  }
+
+  /** Open the job form on an existing job (from the jobs list or its applicants dialog). */
+  function openEditJob(job: EmployerJob) {
+    if (isOptimisticJobId(job.id) || creatingJob) return
+    setJobRosterOpen(null)
+    setEditingJob(job)
+    setNewJobTitle(job.title)
+    setNewJobRoleTrack(job.roleTrack || DEFAULT_JOB_ROLE)
+    setNewJobExp(job.experienceLevel)
+    setNewJobLocation(job.location)
+    setNewJobDescription(job.jobDescription)
+    setNewJobSkills(job.requiredSkills.join(', '))
+    setJobSource('type')
+    setJobDocName('')
+    setJobDocError('')
+    setCreateJobError('')
+    setShowCreateJobModal(true)
+  }
+
+  async function handleEditJob(e: React.FormEvent) {
+    e.preventDefault()
+    const job = editingJob
+    if (!job || creatingJob || jobDocReading) return
+    const draft = {
+      title: newJobTitle,
+      roleTrack: newJobRoleTrack,
+      experienceLevel: newJobExp,
+      location: newJobLocation,
+      jobDescription: newJobDescription,
+      skills: newJobSkills,
+    }
+    const problem = validateJobEdit(draft)
+    if (problem) {
+      setCreateJobError(problem)
+      return
+    }
+    const patch = jobEditPatch(job, draft)
+    if (!Object.keys(patch).length) {
+      setEditingJob(null)
+      setShowCreateJobModal(false)
+      resetJobForm()
+      setPortalSyncNote('No changes to save.')
+      return
+    }
+    setCreatingJob(true)
+    setCreateJobError('')
+    try {
+      await ensureApiSession()
+      const { job: saved, changed } = await updateVendorJob(job.id, patch)
+      setEditingJob(null)
+      setShowCreateJobModal(false)
+      resetJobForm()
+      applySavedJob(
+        saved,
+        changed.some((c) => c === 'jobDescription' || c === 'requiredSkills')
+          ? `“${saved.title}” saved. New interviews use the updated description; completed interviews keep their questions.`
+          : `“${saved.title}” saved.`,
+      )
+    } catch (err) {
+      setCreateJobError(
+        err instanceof Error && err.message ? `The job was not saved. ${err.message}` : 'The job was not saved. Please try again.',
+      )
+    } finally {
+      setCreatingJob(false)
+    }
   }
 
   function applyImportedJob(fileName: string, draft: Awaited<ReturnType<typeof readJobDescriptionFile>>) {
+    setJobDocFilled(
+      [
+        draft.title ? 'title' : '',
+        draft.location ? 'location' : '',
+        draft.experienceLevel ? 'experience' : '',
+        draft.skills.length ? 'skills' : '',
+        draft.description ? 'description' : '',
+      ].filter(Boolean),
+    )
     if (draft.title) setNewJobTitle(draft.title)
     if (draft.location) setNewJobLocation(draft.location)
     if (draft.experienceLevel) setNewJobExp(draft.experienceLevel)
@@ -639,10 +746,30 @@ export function EmployerDashboard() {
               </button>
               <h1 className={styles.pageTitle}>
                 {jobs.find((j) => j.id === selectedJobId)?.title ?? 'Applications'}
+                {jobs.some((j) => j.id === selectedJobId) ? (
+                  <JobStatusBadge inline status={jobs.find((j) => j.id === selectedJobId)?.status} />
+                ) : null}
               </h1>
               <p className={styles.pageSub}>Everyone who applied to this job, with their interview results.</p>
+              {portalSyncNote && !loadError ? (
+                <p className={styles.syncNote} role="status">
+                  {portalSyncNote}
+                </p>
+              ) : null}
             </div>
             <div className={styles.pageActions}>
+              {(() => {
+                const openJob = jobs.find((j) => j.id === selectedJobId)
+                return openJob ? (
+                  <JobLifecycleActions
+                    job={openJob}
+                    compact={false}
+                    onEdit={openEditJob}
+                    onChanged={(saved) => applySavedJob(saved, '')}
+                    onNotice={(text) => setPortalSyncNote(text)}
+                  />
+                ) : null
+              })()}
               <button type="button" className={styles.btnPrimary} onClick={() => setShowInviteDialog(true)}>
                 <HrIcon name="calendar" size={16} /> Invite to interview
               </button>
@@ -816,23 +943,24 @@ export function EmployerDashboard() {
                               >
                                 View applicants
                               </button>
+                              {/* One clear row action; Edit, status moves and Delete sit in the "⋯" menu. */}
                               {isPending ? null : (
                                 <JobLifecycleActions
                                   job={job}
+                                  variant="menu"
                                   disabled={isDeleting}
+                                  deleting={isDeleting}
+                                  onEdit={openEditJob}
+                                  onDelete={requestDeleteJob}
                                   onChanged={(saved) => applySavedJob(saved, '')}
                                   onNotice={(text) => setPortalSyncNote(text)}
                                 />
                               )}
-                              <button
-                                type="button"
-                                className={`${styles.btnDanger} ${styles.btnSm}`}
-                                disabled={isPending || isDeleting}
-                                onClick={() => requestDeleteJob(job)}
-                                aria-label={`Delete job ${job.title}`}
-                              >
-                                {isDeleting ? 'Deleting…' : 'Delete'}
-                              </button>
+                              {isDeleting ? (
+                                <span className={styles.mutedCell} role="status">
+                                  Deleting…
+                                </span>
+                              ) : null}
                             </td>
                           </tr>
                         )
@@ -847,7 +975,17 @@ export function EmployerDashboard() {
 
         {isCandidatesView && (
           <>
+            {!loadError ? (
+              <StatTiles
+                stats={jobStats}
+                label="Numbers for this job"
+                totalLabel="Total applicants"
+                totalHint="Applied to this job"
+                loading={portalLoading && applicants.length === 0}
+              />
+            ) : null}
             <ApplicantsSearch
+              mode="applications"
               applicants={applicants}
               jobs={inviteJobs}
               loading={portalLoading}
@@ -898,15 +1036,22 @@ export function EmployerDashboard() {
               ref={createJobDialogRef}
               tabIndex={-1}
               className={`${styles.modal} ${styles.modalLg}`}
-              onSubmit={handleCreateJob}
+              onSubmit={editingJob ? handleEditJob : handleCreateJob}
             >
               <div className={styles.modalHeader}>
                 <div>
-                  <h2 id="create-job-title">Create job</h2>
+                  <h2 id="create-job-title">{editingJob ? 'Edit job' : 'Create job'}</h2>
+                  {editingJob ? (
+                    <p className={styles.modalSub}>
+                      Changes apply to new interviews. Interviews already completed keep the questions they were
+                      asked. The apply link stays the same.
+                    </p>
+                  ) : (
                   <p className={styles.modalSub}>
                     Type the opening, or upload a PDF or Word file. Applicants get an AI interview based on
                     this description and their resume.
                   </p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -942,7 +1087,10 @@ export function EmployerDashboard() {
 
                 {jobSource === 'upload' ? (
                   <div
-                    className={`${styles.jdDrop} ${jobDocDragging ? styles.jdDropDragging : ''}`}
+                    className={`${styles.jdDrop} ${jobDocDragging ? styles.jdDropDragging : ''} ${
+                      jobDocReading ? styles.jdDropBusy : ''
+                    } ${jobDocName && !jobDocError && !jobDocReading ? styles.jdDropDone : ''}`}
+                    aria-busy={jobDocReading || undefined}
                     onDragEnter={(e) => {
                       e.preventDefault()
                       setJobDocDragging(true)
@@ -958,7 +1106,9 @@ export function EmployerDashboard() {
                       void importJobDocument(e.dataTransfer.files?.[0])
                     }}
                   >
-                    <HrIcon name="upload" size={18} />
+                    <span className={styles.jdIcon} aria-hidden="true">
+                      {jobDocReading ? <span className="ds-spinner" /> : <HrIcon name="upload" size={20} />}
+                    </span>
                     <strong>{jobDocReading ? 'Reading the document…' : 'Drop a PDF or Word file'}</strong>
                     <span>Selectable text only. Scanned images are not read.</span>
                     <input
@@ -979,9 +1129,13 @@ export function EmployerDashboard() {
                     >
                       Choose file
                     </button>
-                    {jobDocName && !jobDocError ? (
+                    {jobDocName && !jobDocError && !jobDocReading ? (
                       <p className={styles.jdNote} role="status">
-                        Filled from {jobDocName}. Check the details below, then create the job.
+                        <HrIcon name="check" size={16} />
+                        <span>
+                          Filled from <strong>{jobDocName}</strong>. Check the details below, then{' '}
+                          {editingJob ? 'save the changes' : 'create the job'}.
+                        </span>
                       </p>
                     ) : null}
                     {jobDocError ? (
@@ -995,7 +1149,9 @@ export function EmployerDashboard() {
                 <section className={styles.formSection} aria-labelledby="create-job-role">
                   <h3 id="create-job-role" className={styles.formSectionTitle}>Role</h3>
                 <div className={styles.formGroup}>
-                  <label htmlFor="employer-job-title">Job title</label>
+                  <label htmlFor="employer-job-title">
+                    Job title <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('title')} />
+                  </label>
                   <input
                     id="employer-job-title"
                     type="text"
@@ -1019,6 +1175,9 @@ export function EmployerDashboard() {
                       value={newJobRoleTrack}
                       onChange={(e) => setNewJobRoleTrack(e.target.value)}
                     >
+                      {editingJob && !JOB_ROLE_GROUPS.some((g) => g.roles.includes(newJobRoleTrack)) ? (
+                        <option value={newJobRoleTrack}>{newJobRoleTrack}</option>
+                      ) : null}
                       {JOB_ROLE_GROUPS.map((group) => (
                         <optgroup key={group.label} label={group.label}>
                           {group.roles.map((role) => (
@@ -1032,13 +1191,18 @@ export function EmployerDashboard() {
                   </div>
 
                   <div className={styles.formGroup}>
-                    <label htmlFor="employer-job-experience">Years of experience</label>
+                    <label htmlFor="employer-job-experience">
+                      Years of experience <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('experience')} />
+                    </label>
                     <select
                       id="employer-job-experience"
                       required
                       value={newJobExp}
                       onChange={(e) => setNewJobExp(e.target.value)}
                     >
+                      {editingJob && !['0-2 years', '3-5 years', '6+ years'].includes(newJobExp) ? (
+                        <option value={newJobExp}>{newJobExp || 'Choose…'}</option>
+                      ) : null}
                       <option value="0-2 years">0-2 years (Junior)</option>
                       <option value="3-5 years">3-5 years (Mid-Level)</option>
                       <option value="6+ years">6+ years (Senior / Lead)</option>
@@ -1047,7 +1211,9 @@ export function EmployerDashboard() {
                 </div>
 
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
-                  <label htmlFor="employer-job-location">Location</label>
+                  <label htmlFor="employer-job-location">
+                    Location <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('location')} />
+                  </label>
                   <input
                     id="employer-job-location"
                     type="text"
@@ -1062,7 +1228,9 @@ export function EmployerDashboard() {
                 <section className={styles.formSection} aria-labelledby="create-job-description-heading">
                   <h3 id="create-job-description-heading" className={styles.formSectionTitle}>Description</h3>
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
-                  <label htmlFor="employer-job-description">Job description</label>
+                  <label htmlFor="employer-job-description">
+                    Job description <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('description')} />
+                  </label>
                   <textarea
                     id="employer-job-description"
                     required
@@ -1087,7 +1255,10 @@ export function EmployerDashboard() {
                   <h3 id="create-job-skills-heading" className={styles.formSectionTitle}>Skills</h3>
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-skills">
-                    Required skills <span className={styles.optionalText}>(optional)</span>
+                    Required skills <span className={styles.optionalText}>(optional)</span>{' '}
+                    <FilledFromDocTag
+                      show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('skills')}
+                    />
                   </label>
                   <input
                     id="employer-job-skills"
@@ -1120,7 +1291,7 @@ export function EmployerDashboard() {
                   Cancel
                 </button>
                 <button type="submit" className={styles.btnPrimary} disabled={creatingJob || jobDocReading} aria-busy={creatingJob}>
-                  {creatingJob ? 'Creating…' : 'Create job'}
+                  {editingJob ? (creatingJob ? 'Saving…' : 'Save changes') : creatingJob ? 'Creating…' : 'Create job'}
                 </button>
               </div>
             </form>
@@ -1189,7 +1360,7 @@ export function EmployerDashboard() {
                 <div>
                   <h2 id="job-roster-title">
                     Applicants · {jobRosterOpen.title}
-                    <JobStatusBadge status={jobs.find((j) => j.id === jobRosterOpen.jobId)?.status} />
+                    <JobStatusBadge inline status={jobs.find((j) => j.id === jobRosterOpen.jobId)?.status} />
                   </h2>
                   <p className={styles.modalSub}>
                     Everyone who applied from the job board or your shared link, scored against this job.
@@ -1226,6 +1397,7 @@ export function EmployerDashboard() {
                     <JobLifecycleActions
                       job={rosterJob}
                       compact={false}
+                      onEdit={openEditJob}
                       onChanged={(saved) => applySavedJob(saved, '')}
                       onNotice={(text) => {
                         setJobRosterNotice(text)

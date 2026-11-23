@@ -50,7 +50,7 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
     const a = r.applicant
     mark([a.id], 'download')
     try {
-      const link = await fetchVendorCandidateResumeDocument(a.candidateEmail)
+      const link = await fetchVendorCandidateResumeDocument(a.candidateEmail, { userId: a.candidateUserId })
       window.open(link.downloadUrl || link.viewUrl, '_blank', 'noopener,noreferrer')
     } catch {
       if (a.resumeText?.trim()) downloadResumeFile(a)

@@ -37,6 +37,8 @@ type Props = {
   onInvite: () => void
   onDownload: () => void
   onOpenFullReport: () => void
+  /** Candidates: open the original S3 file, laid out as a document, instead of the extracted text. */
+  originalResume?: boolean
 }
 
 /**
@@ -61,6 +63,7 @@ export function ApplicantResumePanel({
   onInvite,
   onDownload,
   onOpenFullReport,
+  originalResume = false,
 }: Props) {
   const a = row.applicant
   const hasText = Boolean(a.resumeText?.trim())
@@ -96,7 +99,7 @@ export function ApplicantResumePanel({
 
   return (
     <div
-      className={styles.panel}
+      className={`${styles.panel}${originalResume ? ` ${styles.panelOriginal}` : ''}`}
       data-applicant-panel
       role="dialog"
       aria-modal="true"
@@ -160,9 +163,15 @@ export function ApplicantResumePanel({
             type="button"
             className={styles.actBtn}
             onClick={onDownload}
-            disabled={!contactVisible || busy === 'download'}
+            disabled={(originalResume ? !a.hasResumeFile && !contactVisible : !contactVisible) || busy === 'download'}
             aria-label={`Download ${a.candidateName}'s resume`}
-            title={contactVisible ? 'Download the resume' : 'Contact details are hidden'}
+            title={
+              originalResume && a.hasResumeFile
+                ? 'Download the original resume'
+                : contactVisible
+                  ? 'Download the resume'
+                  : 'Contact details are hidden'
+            }
           >
             <HrIcon name="download" size={14} /> Download
           </button>
@@ -203,40 +212,69 @@ export function ApplicantResumePanel({
       <div className={styles.panelBody} ref={bodyRef}>
         {tab === 'resume' ? (
           <section id="applicant-tabpanel-resume" role="tabpanel" aria-labelledby="applicant-tab-resume" tabIndex={0}>
-            {hasText && contactVisible ? (
-              <div className={styles.segmented} role="group" aria-label="Resume view">
-                <button type="button" aria-pressed={resumeView === 'text'} onClick={() => setResumeView('text')}>
-                  Highlighted text
-                </button>
-                <button type="button" aria-pressed={resumeView === 'file'} onClick={() => setResumeView('file')}>
-                  Original file
-                </button>
+            {originalResume ? (
+              <div className={styles.resumeCanvas}>
+                <p className={styles.resumeCanvasLabel}>Original resume</p>
+                {a.hasResumeFile && (a.candidateUserId || a.candidateEmail) ? (
+                  <div className={styles.resumeSheet}>
+                    <ResumeFilePreview
+                      candidateEmail={a.candidateEmail}
+                      candidateUserId={a.candidateUserId}
+                      candidateName={a.candidateName}
+                      fallbackText={a.resumeText}
+                      onDownload={onDownload}
+                    />
+                  </div>
+                ) : hasText ? (
+                  <article className={`${styles.resumeSheet} ${styles.resumeSheetText}`}>
+                    <h3 className={styles.resumeSheetName}>{a.candidateName}</h3>
+                    {a.role ? <p className={styles.resumeSheetRole}>{a.role}</p> : null}
+                    <div className={styles.resumeText} data-testid="resume-text">
+                      <Highlighted text={a.resumeText || ''} terms={terms} />
+                    </div>
+                  </article>
+                ) : (
+                  <p className={styles.panelNote}>No resume is stored for this candidate.</p>
+                )}
               </div>
-            ) : null}
-            {resumeView === 'text' && hasText ? (
-              <>
-                {row.skills.length ? (
-                  <ul className={styles.panelSkills} aria-label="Key skills">
-                    {row.skills.slice(0, 16).map((s) => (
-                      <li key={s} className={styles.skillChip}>
-                        <Highlighted text={s} terms={terms} />
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                <div className={styles.resumeText} data-testid="resume-text">
-                  <Highlighted text={a.resumeText || ''} terms={terms} />
-                </div>
-              </>
-            ) : contactVisible ? (
-              <ResumeFilePreview
-                candidateEmail={a.candidateEmail}
-                candidateName={a.candidateName}
-                fallbackText={a.resumeText}
-                onDownload={onDownload}
-              />
             ) : (
-              <p className={styles.panelNote}>No resume is available for this applicant.</p>
+              <>
+                {hasText && contactVisible ? (
+                  <div className={styles.segmented} role="group" aria-label="Resume view">
+                    <button type="button" aria-pressed={resumeView === 'text'} onClick={() => setResumeView('text')}>
+                      Highlighted text
+                    </button>
+                    <button type="button" aria-pressed={resumeView === 'file'} onClick={() => setResumeView('file')}>
+                      Original file
+                    </button>
+                  </div>
+                ) : null}
+                {resumeView === 'text' && hasText ? (
+                  <>
+                    {row.skills.length ? (
+                      <ul className={styles.panelSkills} aria-label="Key skills">
+                        {row.skills.slice(0, 16).map((s) => (
+                          <li key={s} className={styles.skillChip}>
+                            <Highlighted text={s} terms={terms} />
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <div className={styles.resumeText} data-testid="resume-text">
+                      <Highlighted text={a.resumeText || ''} terms={terms} />
+                    </div>
+                  </>
+                ) : contactVisible ? (
+                  <ResumeFilePreview
+                    candidateEmail={a.candidateEmail}
+                    candidateName={a.candidateName}
+                    fallbackText={a.resumeText}
+                    onDownload={onDownload}
+                  />
+                ) : (
+                  <p className={styles.panelNote}>No resume is available for this applicant.</p>
+                )}
+              </>
             )}
           </section>
         ) : tab === 'report' ? (

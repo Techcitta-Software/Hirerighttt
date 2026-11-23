@@ -324,6 +324,10 @@ export type EmployerApplicant = {
   interviewJobId?: string | null
   /** The API removed contact details (candidate has no link to this organisation and did not opt in). */
   contactHidden?: boolean
+  /** Account id, used to open the original resume in S3 when the e-mail is not on the row. */
+  candidateUserId?: string | null
+  /** The original upload is stored. The key itself is not sent to the browser. */
+  hasResumeFile?: boolean
 }
 
 const USERS_KEY = 'hireright.users'

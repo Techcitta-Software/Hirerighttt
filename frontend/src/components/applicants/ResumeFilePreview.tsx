@@ -13,6 +13,8 @@ function isPdf(link: VendorCandidateDocumentLink): boolean {
 
 type Props = {
   candidateEmail: string
+  /** Opens the stored file when the row has no e-mail (Candidates, contact hidden). */
+  candidateUserId?: string | null
   candidateName: string
   /** Extracted resume text, offered when the file itself cannot be shown. */
   fallbackText?: string
@@ -24,7 +26,7 @@ type Props = {
  * sanitised HTML, anything else as an "Open file" link. Same endpoints and access checks as
  * EmployerCandidateDocumentModal (the API decides who may see the file).
  */
-export function ResumeFilePreview({ candidateEmail, candidateName, fallbackText, onDownload }: Props) {
+export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateName, fallbackText, onDownload }: Props) {
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState<{
     loading: boolean
@@ -38,11 +40,12 @@ export function ResumeFilePreview({ candidateEmail, candidateName, fallbackText,
     setState({ loading: true, failed: false, link: null, docxHtml: '' })
     void (async () => {
       try {
-        const link = await fetchVendorCandidateResumeDocument(candidateEmail)
+        const who = { userId: candidateUserId }
+        const link = await fetchVendorCandidateResumeDocument(candidateEmail, who)
         if (cancelled) return
         if (isDocxDocument(link.contentType, link.filename)) {
           try {
-            const html = await docxToSafeHtml(await fetchVendorCandidateResumeFile(candidateEmail))
+            const html = await docxToSafeHtml(await fetchVendorCandidateResumeFile(candidateEmail, who))
             if (!cancelled) setState({ loading: false, failed: false, link, docxHtml: html })
           } catch {
             if (!cancelled) setState({ loading: false, failed: true, link, docxHtml: '' })
@@ -57,7 +60,7 @@ export function ResumeFilePreview({ candidateEmail, candidateName, fallbackText,
     return () => {
       cancelled = true
     }
-  }, [candidateEmail, attempt])
+  }, [candidateEmail, candidateUserId, attempt])
 
   const { loading, failed, link, docxHtml } = state
   if (loading) {

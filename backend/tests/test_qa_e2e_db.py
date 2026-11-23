@@ -599,6 +599,30 @@ def test_self_booked_interview_can_be_rescheduled(client, world, monkeypatch):
     assert client.post("/api/interview-invites/doesnotexist/reschedule", json={"scheduledStart": new}, headers=cand["h"]).status_code == 403
 
 
+def test_slot_booking_is_saved_when_email_is_not_configured(client, world, monkeypatch):
+    """E2E journey: with email off, "Confirm slot" returned 503 before saving anything, so the candidate was stuck on
+    onboarding step 2 and no booking / reminder / reschedule link existed. The booking must not depend on email."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.dispatch import route_extensions
+
+    async def must_not_send(**_kw):
+        raise AssertionError("no email may be sent when mail is not configured")
+
+    monkeypatch.setattr(route_extensions, "smtp_configured", lambda: False)
+    monkeypatch.setattr(route_extensions, "send_mail", must_not_send)
+    cand = world["cand"]
+    when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+    res = client.post("/api/interview/confirmation-email", json={"scheduledStart": when.isoformat(), "durationMinutes": 20},
+                      headers=cand["h"])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["emailSent"] is False and body["emailError"] and body["smtpConfigured"] is False
+    assert body["token"] and body["inviteUrl"].endswith(body["token"])
+    page = client.get(f"/api/interview-invites/{body['token']}", headers=cand["h"])
+    assert page.status_code == 200, page.text
+
+
 def test_bulk_invite_send_validation(client, world):
     h = world["a"]["h"]
     for body in ({}, {"emails": "x"}, {"emails": ["not-an-email"]}, {"emails": ["a@b.co"] * 600}):

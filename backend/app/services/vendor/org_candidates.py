@@ -551,7 +551,9 @@ async def list_organization_candidates(
     def add(row: dict | None) -> None:
         if not row or not row.get("candidateEmail"):
             return
-        key = str(row.get("candidateUserId") or row.get("candidateEmail") or "").lower()
+        # One row per person, keyed by e-mail: an application saved without candidateUserId and the same person's
+        # talent / interview record (keyed by user id before) showed the candidate twice with different scores.
+        key = str(row.get("candidateEmail") or "").strip().lower()
         prev = by_key.get(key)
         by_key[key] = _merge_records(prev, row) if prev else row
 

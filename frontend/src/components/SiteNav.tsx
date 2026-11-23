@@ -33,7 +33,7 @@ const JOBSEEKER_NAV = [
 const EMPLOYER_NAV = [
   { to: '/employer/dashboard', label: 'Dashboard' },
   { to: '/employer/jobs', label: 'Jobs' },
-  { to: '/talent-vault', label: 'Talent vault' },
+  { to: '/talent-vault', label: 'Candidates' },
 ]
 
 type SiteNavProps = {

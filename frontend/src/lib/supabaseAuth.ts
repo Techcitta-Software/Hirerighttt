@@ -46,7 +46,10 @@ export async function supabaseSignIn(email: string, password: string) {
 
 export async function supabaseSignOut() {
   const sb = await getSupabase()
-  if (sb) await sb.auth.signOut()
+  // Without Supabase the stored token is the API session token: leave it for apiLogout(), which revokes it on the
+  // server and then clears it. Clearing it here made sign-out skip POST /api/logout, so the session stayed valid.
+  if (!sb) return
+  await sb.auth.signOut()
   setApiToken(null)
 }
 

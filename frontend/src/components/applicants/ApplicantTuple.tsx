@@ -261,7 +261,11 @@ export const ApplicantTuple = memo(function ApplicantTuple({
                   {Math.round(row.score)}
                   <span className={styles.scoreMax}>/100</span>
                 </span>
-                {scoreFrom ? <span className={styles.sigNote}>{scoreFrom} interview</span> : null}
+                {scoreFrom ? (
+                  <span className={styles.sigNote} title={`Interview taken for ${scoreFrom}`}>
+                    {scoreFrom} interview
+                  </span>
+                ) : null}
               </>
             ) : (
               <span className={styles.notInterviewed}>Not interviewed</span>

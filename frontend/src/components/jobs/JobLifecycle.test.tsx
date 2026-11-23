@@ -57,9 +57,9 @@ describe('job status', () => {
 
   it('shows a badge and the right buttons per status', () => {
     const open = renderToStaticMarkup(
-      createElement(JobLifecycleActions, { job: JOB, onChanged: () => {}, onNotice: () => {} }),
+      createElement(JobLifecycleActions, { job: JOB, onEdit: () => {}, onChanged: () => {}, onNotice: () => {} }),
     )
-    expect(open).toContain('Edit')
+    expect(open).toContain('>Edit<')
     expect(open).toContain('Close job')
     expect(open).toContain('Unpublish')
     expect(open).not.toContain('Reopen')
@@ -75,9 +75,14 @@ describe('job status', () => {
 
   it('disables every action while the row is busy', () => {
     const html = renderToStaticMarkup(
-      createElement(JobLifecycleActions, { job: JOB, disabled: true, onChanged: () => {}, onNotice: () => {} }),
+      createElement(JobLifecycleActions, { job: JOB, disabled: true, onEdit: () => {}, onChanged: () => {}, onNotice: () => {} }),
     )
     expect(html.match(/disabled=""/g)?.length).toBe(3)
+    // without an edit handler there is no Edit button (the form lives in the Create job dialog)
+    const noEdit = renderToStaticMarkup(
+      createElement(JobLifecycleActions, { job: JOB, onChanged: () => {}, onNotice: () => {} }),
+    )
+    expect(noEdit).not.toContain('>Edit<')
   })
 })
 
@@ -127,5 +132,25 @@ describe('closed share link (candidate side)', () => {
     apiFetch.mockReturnValue(respond(404, { error: 'Job link not found or expired.' }))
     const out = await resolvePublicJob('nope')
     expect(isJobClosedError(out.error)).toBe(false)
+  })
+})
+
+describe('JobLifecycleActions menu variant (list rows)', () => {
+  it('renders one accessible "More actions" trigger instead of inline Edit / status / Delete buttons', () => {
+    const html = renderToStaticMarkup(
+      createElement(JobLifecycleActions, {
+        job: JOB,
+        variant: 'menu',
+        onEdit: () => {},
+        onDelete: () => {},
+        onChanged: () => {},
+        onNotice: () => {},
+      }),
+    )
+    expect(html).toContain('aria-haspopup="menu"')
+    expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('aria-label="More actions for Backend Engineer"')
+    expect(html).not.toContain('>Edit<')
+    expect(html).not.toContain('>Close job<')
   })
 })

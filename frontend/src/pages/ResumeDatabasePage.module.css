@@ -9,56 +9,6 @@
   margin: 0 0 var(--space-4);
 }
 
-/* ── Stat strip (§2.15): four stat cards ── */
-.kpiGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-6);
-}
-
-.kpiCard {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: var(--space-4) var(--space-5);
-  background: var(--ds-surface, #ffffff);
-  border: 1px solid var(--ds-border, #e5e5ef);
-  border-radius: var(--radius-lg, 14px);
-}
-
-.kpiLabel {
-  font-size: var(--fs-xs, 0.8125rem);
-  font-weight: 600;
-  line-height: 1.45;
-  color: var(--ds-text-muted, #5f6686);
-}
-
-.kpiValue {
-  margin-top: var(--space-1);
-  font-size: var(--fs-stat, 1.5rem);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  color: var(--ds-text, #141638);
-}
-
-.kpiUnit {
-  margin-left: var(--space-0-5);
-  font-size: var(--fs-sm, 0.875rem);
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--ds-text-muted, #5f6686);
-}
-
-.kpiHelp {
-  margin-top: var(--space-0-5);
-  font-size: var(--fs-2xs, 0.75rem);
-  line-height: 1.4;
-  color: var(--ds-text-muted, #5f6686);
-}
-
 /* ── Toolbar ── */
 .toolbar {
   display: flex;
@@ -494,22 +444,7 @@ button.copiedBtn:hover {
   margin: var(--space-3) 0 0;
 }
 
-@media (max-width: 900px) {
-  .kpiGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 640px) {
-  .kpiGrid {
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-  }
-
-  .kpiCard {
-    padding: var(--space-4);
-  }
-
   .filterGroup {
     width: 100%;
   }

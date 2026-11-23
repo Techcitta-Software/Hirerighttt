@@ -46,9 +46,6 @@ import {
   applyToJob,
   attachInterviewToApplicant,
   candidateFullName,
-  getUser,
-  resolveCandidateName,
-
   getInterviewResult,
   getProfile,
   saveInterviewResult,

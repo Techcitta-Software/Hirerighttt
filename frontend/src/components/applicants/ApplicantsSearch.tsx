@@ -1,17 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  CANDIDATE_EXPERIENCE_PRESETS,
   SAVE_HINT,
   SHORTLIST_HINT,
   SORT_LABELS,
   activeFilterChips,
+  experiencePresetId,
+  filtersForApplicantSearch,
+  filtersForInterviewRadio,
+  interviewRadioOf,
   resultRangeLabel,
   searchApplicants,
   type ActiveWithin,
+  type ApplicantFilters,
   type ApplicantSort,
   type FacetCount,
   type IndexedApplicant,
+  type InterviewRadio,
 } from '../../lib/applicantSearch'
+import type { ApplicantsSearchMode } from './useApplicantsUrl'
 import type { EmployerApplicant } from '../../lib/store'
 import { EmployerCandidateDocumentModal } from '../EmployerCandidateDocumentModal'
 import { HrIcon } from '../HrIcon'
@@ -27,6 +35,7 @@ import styles from './Applicants.module.css'
 export const APPLICANTS_PAGE_SIZE = 20
 
 export type ApplicantsSearchProps = {
+  mode: ApplicantsSearchMode
   applicants: EmployerApplicant[]
   jobs: { id: string; title: string }[]
   loading: boolean
@@ -139,12 +148,31 @@ function toggleIn<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((x) => x !== value) : [...list, value]
 }
 
-const EXPERIENCE_PRESETS: { label: string; min: string; max: string }[] = [
-  { label: '0 – 2 yrs', min: '0', max: '2' },
-  { label: '3 – 5 yrs', min: '3', max: '5' },
-  { label: '6 – 10 yrs', min: '6', max: '10' },
-  { label: '10+ yrs', min: '10', max: '' },
-]
+function RadioList({
+  name,
+  options,
+  value,
+  onChange,
+}: {
+  name: string
+  options: { value: string; label: string; count?: number }[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <ul className={styles.checkList}>
+      {options.map((o) => (
+        <li key={o.value}>
+          <label className={styles.checkRow}>
+            <input type="radio" name={name} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} />
+            <span className={styles.checkLabel}>{o.label}</span>
+            {typeof o.count === 'number' ? <span className={styles.checkCount}>{o.count}</span> : null}
+          </label>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 /** Placeholder row with the exact tuple layout, so nothing moves when the data arrives. */
 function TupleSkeleton() {
@@ -186,6 +214,7 @@ function TupleSkeleton() {
  * URL. Works on the list the page already loaded, decorated with each job's ranking.
  */
 export function ApplicantsSearch({
+  mode,
   applicants,
   jobs,
   loading,
@@ -198,8 +227,11 @@ export function ApplicantsSearch({
   now: nowProp,
 }: ApplicantsSearchProps) {
   const [now] = useState(() => nowProp ?? Date.now())
-  const { url, commit, draft, setDraft, submitDraft, patchFilters, clearFilters } = useApplicantsUrl()
-  const { filters, sort, page, applicant: activeId, tab } = url
+  const { url, commit, draft, setDraft, submitDraft, patchFilters, clearFilters } = useApplicantsUrl(mode)
+  const person = mode === 'candidates' ? 'candidate' : 'applicant'
+  const people = `${person}s`
+  const { filters, sort: urlSort, page, applicant: activeId, tab } = url
+  const sort = mode === 'candidates' && urlSort === 'fit' ? 'relevance' : urlSort
   // Under a job filter, a person who applied to several jobs shows THAT job's application (id, status, scores, rank).
   const jobFilterKey = filters.jobs.join(',')
   const shownApplicants = useMemo(
@@ -215,10 +247,12 @@ export function ApplicantsSearch({
   const [reportFor, setReportFor] = useState<EmployerApplicant | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set(['jobs', 'interview', 'score', 'fit', 'skills', 'experience']),
+    () => new Set(['role', 'skills', 'experience', 'location', 'interview']),
   )
   const [skillQuery, setSkillQuery] = useState('')
   const [showAllSkills, setShowAllSkills] = useState(false)
+  const [roleQuery, setRoleQuery] = useState('')
+  const [showAllRoles, setShowAllRoles] = useState(false)
   const resultsTopRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const panelTriggerRef = useRef<HTMLElement | null>(null)
@@ -227,15 +261,20 @@ export function ApplicantsSearch({
   useDialogFocus(filtersOpen, sheetRef)
 
   const jobTitles = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j.title])), [jobs])
+  const effectiveFilters = useMemo(() => filtersForApplicantSearch(mode, filters), [mode, filters])
   const result = useMemo(
-    () => searchApplicants(indexed, filters, sort, { saved, now, jobTitles }),
-    [indexed, filters, sort, saved, now, jobTitles],
+    () => searchApplicants(indexed, effectiveFilters, sort, { saved, now, jobTitles }),
+    [indexed, effectiveFilters, sort, saved, now, jobTitles],
   )
 
   const pageCount = Math.max(1, Math.ceil(result.rows.length / APPLICANTS_PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
   const pageRows = result.rows.slice((safePage - 1) * APPLICANTS_PAGE_SIZE, safePage * APPLICANTS_PAGE_SIZE)
-  const chips = activeFilterChips(filters, { jobs: jobTitles })
+  const roleLabels = useMemo(
+    () => Object.fromEntries(result.facets.roles.map((r) => [r.value, r.label])),
+    [result.facets.roles],
+  )
+  const chips = activeFilterChips(effectiveFilters, { jobs: jobTitles, roles: roleLabels })
   const filterChipCount = chips.filter((c) => c.key !== 'kw').length
 
   const activeRow = useMemo(
@@ -272,7 +311,13 @@ export function ApplicantsSearch({
 
   function clearAll() {
     setSkillQuery('')
+    setRoleQuery('')
     clearFilters()
+  }
+
+  /** Job applications: drop the search card only. The job scope stays, so the recruiter remains on this job. */
+  function clearSearch() {
+    patchFilters({ keywords: '', location: '', expMin: '', expMax: '' })
   }
 
   const toggleGroup = useCallback((id: string) => {
@@ -441,10 +486,20 @@ export function ApplicantsSearch({
     skillQuery.trim() ? s.label.toLowerCase().includes(skillQuery.trim().toLowerCase()) : true,
   )
   const skillsShown = showAllSkills || skillQuery.trim() ? visibleSkills : visibleSkills.slice(0, 10)
+  const visibleRoles = result.facets.roles.filter((r) =>
+    roleQuery.trim() ? r.label.toLowerCase().includes(roleQuery.trim().toLowerCase()) : true,
+  )
+  const rolesShown =
+    showAllRoles || roleQuery.trim()
+      ? visibleRoles
+      : visibleRoles.filter(
+          (r, i) => i < 8 || effectiveFilters.roles.some((v) => v.toLowerCase() === r.value.toLowerCase()),
+        )
   const showSkeleton = loading && applicants.length === 0
   const refreshing = loading && applicants.length > 0
-  const experiencePreset = EXPERIENCE_PRESETS.find((p) => p.min === filters.expMin && p.max === filters.expMax)
   const removable = chips.filter((c) => c.key !== 'kw').slice(0, 2)
+  const experienceValue = experiencePresetId(effectiveFilters.expMin, effectiveFilters.expMax) ?? ''
+  const interviewValue = interviewRadioOf(effectiveFilters) ?? ''
 
   return (
     <div
@@ -452,7 +507,7 @@ export function ApplicantsSearch({
       className={`${styles.root} ${selected.size ? styles.rootWithBulk : ''} ${pushPad ? styles.rootWithPanel : ''}`}
       style={pushPad ? { paddingRight: pushPad } : undefined}
     >
-      <form className={styles.searchCard} onSubmit={submitSearch} role="search" aria-label="Search applicants">
+      <form className={styles.searchCard} onSubmit={submitSearch} role="search" aria-label={`Search ${people}`}>
         <div className={styles.searchGrid}>
           <label className={`${styles.field} ${styles.fieldKeywords}`}>
             <span className={styles.fieldLabel}>Keywords</span>
@@ -464,7 +519,6 @@ export function ApplicantsSearch({
                 value={draft.keywords}
                 onChange={(e) => setDraft((d) => ({ ...d, keywords: e.target.value }))}
                 placeholder="Search skills, titles, companies or keywords"
-                aria-describedby="applicants-search-hint"
                 autoComplete="off"
               />
             </span>
@@ -511,16 +565,6 @@ export function ApplicantsSearch({
           <button type="submit" className={styles.searchBtn}>
             <HrIcon name="search" size={16} /> Search
           </button>
-          <details className={styles.tips}>
-            <summary id="applicants-search-hint" aria-label="Search tips">
-              Tips
-            </summary>
-            <p>
-              All words are required. <kbd>react OR vue</kbd> finds either, <kbd>"design system"</kbd> finds the exact
-              phrase and <kbd>-intern</kbd> leaves out resumes that mention it. Location matches the resume text.
-              Press <kbd>/</kbd> to jump to the search box.
-            </p>
-          </details>
         </div>
       </form>
 
@@ -546,7 +590,8 @@ export function ApplicantsSearch({
         </div>
       ) : null}
 
-      <div className={styles.layout}>
+      <div className={`${styles.layout}${mode === 'applications' ? ` ${styles.layoutSingle}` : ''}`}>
+        {mode === 'candidates' ? (
         <aside
           ref={sheetRef}
           className={`${styles.sidebar} ${filtersOpen ? styles.sidebarOpen : ''}`}
@@ -582,55 +627,33 @@ export function ApplicantsSearch({
               </p>
             ) : (
               <>
-            <FilterGroup id="jobs" title="Job" open={openGroups.has('jobs')} onToggle={toggleGroup}>
-              <CheckList
-                name="job"
-                options={result.facets.jobs}
-                values={filters.jobs}
-                onToggle={(v) => patchFilters({ jobs: toggleIn(filters.jobs, v) })}
+            <FilterGroup id="role" title="Current role" open={openGroups.has('role')} onToggle={toggleGroup}>
+              <input
+                type="search"
+                className={styles.fSearch}
+                value={roleQuery}
+                onChange={(e) => setRoleQuery(e.target.value)}
+                placeholder="Find a role"
+                aria-label="Find a role"
               />
-            </FilterGroup>
-
-            <FilterGroup id="interview" title="Interview status" open={openGroups.has('interview')} onToggle={toggleGroup}>
-              <CheckList
-                name="interview"
-                options={result.facets.interview}
-                values={filters.interview}
-                onToggle={(v) => patchFilters({ interview: toggleIn(filters.interview, v as 'completed') })}
-              />
-              <label
-                className={`${styles.checkRow} ${!result.facets.lists.review && !filters.integrityReviewOnly ? styles.checkRowMuted : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={filters.integrityReviewOnly}
-                  disabled={!result.facets.lists.review && !filters.integrityReviewOnly}
-                  onChange={(e) => patchFilters({ integrityReviewOnly: e.target.checked })}
+              {rolesShown.length ? (
+                <CheckList
+                  name="role"
+                  options={rolesShown}
+                  values={effectiveFilters.roles}
+                  onToggle={(v) => patchFilters({ roles: toggleIn(effectiveFilters.roles, v) })}
                 />
-                <span className={styles.checkLabel}>Has proctoring flags</span>
-                <span className={styles.checkCount}>{result.facets.lists.review}</span>
-              </label>
+              ) : (
+                <p className={styles.fEmpty}>{roleQuery.trim() ? 'No roles found' : 'No data yet'}</p>
+              )}
+              {!roleQuery.trim() && visibleRoles.length > 8 ? (
+                <button type="button" className={styles.linkBtn} onClick={() => setShowAllRoles((v) => !v)}>
+                  {showAllRoles ? 'Show fewer' : `Show all ${visibleRoles.length}`}
+                </button>
+              ) : null}
             </FilterGroup>
 
-            <FilterGroup id="score" title="Interview score" open={openGroups.has('score')} onToggle={toggleGroup}>
-              <CheckList
-                name="score"
-                options={result.facets.score}
-                values={filters.score}
-                onToggle={(v) => patchFilters({ score: toggleIn(filters.score, v as '80+') })}
-              />
-            </FilterGroup>
-
-            <FilterGroup id="fit" title="Skills fit" open={openGroups.has('fit')} onToggle={toggleGroup}>
-              <CheckList
-                name="fit"
-                options={result.facets.fit}
-                values={filters.fit}
-                onToggle={(v) => patchFilters({ fit: toggleIn(filters.fit, v as '80+') })}
-              />
-            </FilterGroup>
-
-            <FilterGroup id="skills" title="Skills" open={openGroups.has('skills')} onToggle={toggleGroup}>
+            <FilterGroup id="skills" title="Key skills" open={openGroups.has('skills')} onToggle={toggleGroup}>
               {result.facets.skills.length > 6 ? (
                 <input
                   type="search"
@@ -644,7 +667,7 @@ export function ApplicantsSearch({
               {skillsShown.length ? (
                 <div className={styles.chipCloud}>
                   {skillsShown.map((s) => {
-                    const on = filters.skills.some((x) => x.toLowerCase() === s.value.toLowerCase())
+                    const on = effectiveFilters.skills.some((x) => x.toLowerCase() === s.value.toLowerCase())
                     return (
                       <button
                         key={s.value}
@@ -655,8 +678,8 @@ export function ApplicantsSearch({
                         onClick={() =>
                           patchFilters({
                             skills: on
-                              ? filters.skills.filter((x) => x.toLowerCase() !== s.value.toLowerCase())
-                              : [...filters.skills, s.value],
+                              ? effectiveFilters.skills.filter((x) => x.toLowerCase() !== s.value.toLowerCase())
+                              : [...effectiveFilters.skills, s.value],
                           })
                         }
                       >
@@ -674,100 +697,83 @@ export function ApplicantsSearch({
                   {showAllSkills ? 'Show fewer' : `Show all ${visibleSkills.length}`}
                 </button>
               ) : null}
-              {filters.skills.length > 1 ? <p className={styles.fEmpty}>Applicants with all selected skills.</p> : null}
+              {effectiveFilters.skills.length > 1 ? <p className={styles.fEmpty}>Candidates with all selected skills.</p> : null}
             </FilterGroup>
 
             <FilterGroup id="experience" title="Experience" open={openGroups.has('experience')} onToggle={toggleGroup}>
-              <div className={styles.chipCloud}>
-                {EXPERIENCE_PRESETS.map((p) => {
-                  const on = experiencePreset === p
-                  return (
-                    <button
-                      key={p.label}
-                      type="button"
-                      className={`${styles.fChip} ${on ? styles.fChipOn : ''}`}
-                      aria-pressed={on}
-                      onClick={() => patchFilters(on ? { expMin: '', expMax: '' } : { expMin: p.min, expMax: p.max })}
-                    >
-                      {p.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </FilterGroup>
-
-            <FilterGroup id="location" title="Location" open={openGroups.has('location')} onToggle={toggleGroup}>
-              <input
-                type="search"
-                className={styles.fSearch}
-                value={draft.location}
-                onChange={(e) => setDraft((d) => ({ ...d, location: e.target.value }))}
-                placeholder="City in the resume"
-                aria-label="Location in the resume"
+              <RadioList
+                name="experience-range"
+                value={experienceValue}
+                onChange={(id) => {
+                  if (id === 'any') {
+                    patchFilters({ expMin: '', expMax: '' })
+                    return
+                  }
+                  const preset = CANDIDATE_EXPERIENCE_PRESETS.find((p) => p.id === id)
+                  if (preset) patchFilters({ expMin: preset.min, expMax: preset.max })
+                }}
+                options={[
+                  { value: 'any', label: 'Any' },
+                  ...CANDIDATE_EXPERIENCE_PRESETS.map((p) => ({ value: p.id, label: p.label })),
+                ]}
               />
             </FilterGroup>
 
-            <FilterGroup id="active" title="Activity" open={openGroups.has('active')} onToggle={toggleGroup}>
-              <ul className={styles.checkList}>
-                {result.facets.active.map((o) => {
-                  const d = Number(o.value) as ActiveWithin
-                  return (
-                    <li key={o.value}>
-                      <label className={styles.checkRow}>
-                        <input
-                          type="radio"
-                          name="active-within"
-                          checked={filters.activeWithin === d}
-                          onChange={() => patchFilters({ activeWithin: d })}
-                        />
-                        <span className={styles.checkLabel}>Active in the {o.label.toLowerCase()}</span>
-                        <span className={styles.checkCount}>{o.count}</span>
-                      </label>
-                    </li>
-                  )
-                })}
-                <li>
-                  <label className={styles.checkRow}>
-                    <input
-                      type="radio"
-                      name="active-within"
-                      checked={filters.activeWithin === 0}
-                      onChange={() => patchFilters({ activeWithin: 0 })}
-                    />
-                    <span className={styles.checkLabel}>Any time</span>
-                  </label>
-                </li>
-              </ul>
-            </FilterGroup>
-
-            <FilterGroup id="source" title="Source" open={openGroups.has('source')} onToggle={toggleGroup}>
+            <FilterGroup id="location" title="Location (mentioned in resume)" open={openGroups.has('location')} onToggle={toggleGroup}>
               <CheckList
-                name="source"
-                options={result.facets.sources}
-                values={filters.sources}
-                onToggle={(v) => patchFilters({ sources: toggleIn(filters.sources, v) })}
+                name="city"
+                options={result.facets.cities}
+                values={effectiveFilters.cities}
+                onToggle={(v) => patchFilters({ cities: toggleIn(effectiveFilters.cities, v) })}
               />
             </FilterGroup>
 
-            <FilterGroup id="lists" title="Your lists" open={openGroups.has('lists')} onToggle={toggleGroup}>
-              <label className={styles.checkRow}>
-                <input
-                  type="checkbox"
-                  checked={filters.shortlistedOnly}
-                  onChange={(e) => patchFilters({ shortlistedOnly: e.target.checked })}
-                />
-                <span className={styles.checkLabel} title={SHORTLIST_HINT}>
-                  Shortlisted
-                </span>
-                <span className={styles.checkCount}>{result.facets.lists.shortlisted}</span>
-              </label>
-              <label className={styles.checkRow}>
-                <input type="checkbox" checked={filters.savedOnly} onChange={(e) => patchFilters({ savedOnly: e.target.checked })} />
-                <span className={styles.checkLabel} title={SAVE_HINT}>
-                  Saved for later
-                </span>
-                <span className={styles.checkCount}>{result.facets.lists.saved}</span>
-              </label>
+            <FilterGroup id="interview" title="Interview" open={openGroups.has('interview')} onToggle={toggleGroup}>
+              <RadioList
+                name="interview-choice"
+                value={interviewValue}
+                onChange={(v) => patchFilters(filtersForInterviewRadio(v as InterviewRadio))}
+                options={[
+                  { value: 'any', label: 'Any' },
+                  { value: 'interviewed', label: 'Interviewed', count: result.facets.interviewChoices.interviewed },
+                  { value: '80', label: 'Score 80 and above', count: result.facets.interviewChoices.score80 },
+                  { value: '60', label: 'Score 60 and above', count: result.facets.interviewChoices.score60 },
+                  { value: 'not', label: 'Not interviewed yet', count: result.facets.interviewChoices.notInterviewed },
+                ]}
+              />
+            </FilterGroup>
+
+            <FilterGroup id="resume" title="Resume" open={openGroups.has('resume')} onToggle={toggleGroup}>
+              <RadioList
+                name="resume-choice"
+                value={effectiveFilters.resume || 'any'}
+                onChange={(v) => patchFilters({ resume: v === 'any' ? '' : (v as ApplicantFilters['resume']) })}
+                options={[
+                  { value: 'any', label: 'Any' },
+                  {
+                    value: 'yes',
+                    label: 'Has a resume',
+                    count: result.facets.resume.find((r) => r.value === 'yes')?.count ?? 0,
+                  },
+                  {
+                    value: 'no',
+                    label: 'No resume yet',
+                    count: result.facets.resume.find((r) => r.value === 'no')?.count ?? 0,
+                  },
+                ]}
+              />
+            </FilterGroup>
+
+            <FilterGroup id="active" title="Last active" open={openGroups.has('active')} onToggle={toggleGroup}>
+              <RadioList
+                name="active-within"
+                value={String(effectiveFilters.activeWithin)}
+                onChange={(v) => patchFilters({ activeWithin: Number(v) as ActiveWithin })}
+                options={[
+                  { value: '0', label: 'Any time' },
+                  ...result.facets.active.map((o) => ({ value: o.value, label: o.label, count: o.count })),
+                ]}
+              />
             </FilterGroup>
               </>
             )}
@@ -778,10 +784,11 @@ export function ApplicantsSearch({
               Clear all
             </button>
             <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={() => setFiltersOpen(false)}>
-              Show {result.rows.length} applicant{result.rows.length === 1 ? '' : 's'}
+              Show {result.rows.length} {result.rows.length === 1 ? person : people}
             </button>
           </div>
         </aside>
+        ) : null}
 
         <section className={styles.results} aria-labelledby="applicants-results-title" aria-busy={loading}>
           <div ref={resultsTopRef} className={styles.toolbar}>
@@ -795,48 +802,45 @@ export function ApplicantsSearch({
                   }}
                   onChange={toggleSelectPage}
                   disabled={!pageRows.length}
-                  aria-label="Select all applicants on this page"
+                  aria-label={`Select all ${people} on this page`}
                 />
               </label>
               <h2 id="applicants-results-title" className={styles.resultCount} aria-live="polite">
-                {showSkeleton ? 'Loading applicants…' : resultRangeLabel(safePage, APPLICANTS_PAGE_SIZE, result.rows.length)}
+                {showSkeleton
+                  ? `Loading ${people}…`
+                  : resultRangeLabel(safePage, APPLICANTS_PAGE_SIZE, result.rows.length, person)}
               </h2>
             </div>
             <div className={styles.toolbarRight}>
-              <button
-                type="button"
-                className={`${styles.actBtn} ${styles.filtersToggle}`}
-                aria-expanded={filtersOpen}
-                aria-controls="applicant-filters"
-                onClick={() => setFiltersOpen(true)}
-              >
-                <HrIcon name="settings" size={14} /> Filters{filterChipCount ? ` (${filterChipCount})` : ''}
-              </button>
+              {mode === 'candidates' ? (
+                <button
+                  type="button"
+                  className={`${styles.actBtn} ${styles.filtersToggle}`}
+                  aria-expanded={filtersOpen}
+                  aria-controls="applicant-filters"
+                  onClick={() => setFiltersOpen(true)}
+                >
+                  <HrIcon name="settings" size={14} /> Filters{filterChipCount ? ` (${filterChipCount})` : ''}
+                </button>
+              ) : null}
               <label className={styles.sortLabel}>
                 <span>Sort by</span>
                 <select value={sort} onChange={(e) => commit({ sort: e.target.value as ApplicantSort, page: 1 })}>
-                  {(Object.keys(SORT_LABELS) as ApplicantSort[]).map((s) => (
+                  {(Object.keys(SORT_LABELS) as ApplicantSort[])
+                    .filter((s) => mode === 'applications' || s !== 'fit')
+                    .map((s) => (
                     <option key={s} value={s}>
                       {SORT_LABELS[s]}
                     </option>
                   ))}
                 </select>
               </label>
-              <button
-                type="button"
-                className={`${styles.actBtn} ${styles.exportBtn}`}
-                onClick={() => actions.exportCsv(result.rows, now)}
-                disabled={!result.rows.length}
-                title="Download these results as a spreadsheet (CSV)"
-              >
-                <HrIcon name="download" size={14} /> Export
-              </button>
             </div>
           </div>
 
-          {refreshing ? <div className={styles.progress} role="progressbar" aria-label="Updating applicants" /> : null}
+          {refreshing ? <div className={styles.progress} role="progressbar" aria-label={`Updating ${people}`} /> : null}
 
-          {chips.length ? (
+          {mode === 'candidates' && chips.length ? (
             <div className={styles.chipsBar} aria-label="Applied filters">
               {chips.map((c) => (
                 <button
@@ -890,9 +894,6 @@ export function ApplicantsSearch({
                 >
                   <HrIcon name="download" size={14} /> {bulkBusy === 'zip' ? 'Preparing…' : 'Download resumes (zip)'}
                 </button>
-                <button type="button" className={styles.actBtn} onClick={() => actions.exportCsv(selectedRows, now)}>
-                  <HrIcon name="document" size={14} /> Export CSV
-                </button>
                 <button
                   type="button"
                   className={styles.actBtn}
@@ -913,7 +914,7 @@ export function ApplicantsSearch({
               <span className="ds-empty__icon" aria-hidden="true">
                 <HrIcon name="warning" size={20} />
               </span>
-              <p className="ds-empty__title">We couldn’t load your applicants</p>
+              <p className="ds-empty__title">We couldn’t load your {people}</p>
               <p className="ds-empty__body">Check your connection and try again.</p>
               <div className="ds-empty__actions">
                 <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={onRetry}>
@@ -934,21 +935,26 @@ export function ApplicantsSearch({
               <span className="ds-empty__icon" aria-hidden="true">
                 <HrIcon name="users" size={20} />
               </span>
-              <p className="ds-empty__title">No applicants yet</p>
+              <p className="ds-empty__title">{mode === 'candidates' ? 'No candidates yet' : 'No applicants yet'}</p>
               <p className="ds-empty__body">
-                Share a job’s apply link or email interview links. People appear here as soon as they apply or share an
-                interview with you.
+                {mode === 'candidates'
+                  ? 'People who are visible to employers show up here. Search by role, skills, location and experience.'
+                  : 'Share a job’s apply link or email interview links. People appear here as soon as they apply or share an interview with you.'}
               </p>
-              <div className="ds-empty__actions">
-                <Link to="/employer/jobs" state={{ createJob: true }} className={`${styles.actBtn} ${styles.actPrimary}`}>
-                  Post a job
-                </Link>
-                {onInviteByEmail ? (
-                  <button type="button" className={styles.actBtn} onClick={onInviteByEmail}>
-                    Invite to interview
-                  </button>
-                ) : null}
-              </div>
+              {mode === 'applications' || onInviteByEmail ? (
+                <div className="ds-empty__actions">
+                  {mode === 'applications' ? (
+                    <Link to="/employer/jobs" state={{ createJob: true }} className={`${styles.actBtn} ${styles.actPrimary}`}>
+                      Post a job
+                    </Link>
+                  ) : null}
+                  {onInviteByEmail ? (
+                    <button type="button" className={styles.actBtn} onClick={onInviteByEmail}>
+                      Invite to interview
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : result.rows.length === 0 ? (
             <div className={`ds-empty ${styles.empty}`} data-testid="applicants-no-results">
@@ -956,24 +962,34 @@ export function ApplicantsSearch({
                 <HrIcon name="search" size={20} />
               </span>
               <p className="ds-empty__title">
-                No applicants match{filters.keywords.trim() ? ` “${filters.keywords.trim()}”` : ' these filters'}
-                {filterChipCount && filters.keywords.trim() ? ` + ${filterChipCount} filter${filterChipCount === 1 ? '' : 's'}` : ''}
+                No {people} match{effectiveFilters.keywords.trim() ? ` “${effectiveFilters.keywords.trim()}”` : mode === 'candidates' ? ' these filters' : ' this search'}
+                {mode === 'candidates' && filterChipCount && effectiveFilters.keywords.trim()
+                  ? ` + ${filterChipCount} filter${filterChipCount === 1 ? '' : 's'}`
+                  : ''}
               </p>
               <p className="ds-empty__body">Try fewer words, OR between alternatives, or a skill instead of a full title.</p>
               <div className="ds-empty__actions">
-                {removable.map((c) => (
-                  <button key={c.key} type="button" className={styles.actBtn} onClick={() => patchFilters(c.clear)}>
-                    Remove “{c.label}”
+                {mode === 'applications' ? (
+                  <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={clearSearch}>
+                    Clear search
                   </button>
-                ))}
-                {filters.jobs.length ? (
-                  <button type="button" className={styles.actBtn} onClick={() => patchFilters({ jobs: [] })}>
-                    Search all jobs
-                  </button>
-                ) : null}
-                <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={clearAll}>
-                  Clear all filters
-                </button>
+                ) : (
+                  <>
+                    {removable.map((c) => (
+                      <button key={c.key} type="button" className={styles.actBtn} onClick={() => patchFilters(c.clear)}>
+                        Remove “{c.label}”
+                      </button>
+                    ))}
+                    {effectiveFilters.jobs.length ? (
+                      <button type="button" className={styles.actBtn} onClick={() => patchFilters({ jobs: [] })}>
+                        Search all jobs
+                      </button>
+                    ) : null}
+                    <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={clearAll}>
+                      Clear all filters
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -1036,7 +1052,9 @@ export function ApplicantsSearch({
         </section>
       </div>
 
-      {filtersOpen ? <div className={styles.sheetBackdrop} onClick={() => setFiltersOpen(false)} aria-hidden="true" /> : null}
+      {mode === 'candidates' && filtersOpen ? (
+        <div className={styles.sheetBackdrop} onClick={() => setFiltersOpen(false)} aria-hidden="true" />
+      ) : null}
 
       {activeRow ? (
         <>
@@ -1058,6 +1076,7 @@ export function ApplicantsSearch({
             onInvite={() => void actions.invite([activeRow])}
             onDownload={() => void actions.download(activeRow)}
             onOpenFullReport={() => setReportFor(activeRow.applicant)}
+            originalResume={mode === 'candidates'}
           />
         </>
       ) : null}

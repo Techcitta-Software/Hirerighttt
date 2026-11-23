@@ -80,6 +80,38 @@ def candidate_profile_for_documents(db: dict, candidate_email: str) -> dict:
     return dict((db.get("profiles") or {}).get(email) or {})
 
 
+def assert_vendor_may_open_stored_resume(
+    db: dict,
+    organization_id: str,
+    user_id: str,
+    recruiter_scope: dict | None = None,
+) -> dict:
+    """The original resume file for someone already on the Candidates list.
+
+    Marketplace-visible job seekers can be opened by any employer (that page is the resume database). A private or
+    organisation-only profile can be opened only when this organisation already has a link to them. Returns the user.
+    The caller's email and phone stay off this response; only the stored file is served.
+    """
+    uid = str(user_id or "").strip()
+    if not uid:
+        err = ValueError("Candidate is required.")
+        err.status = 400  # type: ignore[attr-defined]
+        raise err
+    user = find_user(db, user_id=uid)
+    if not user or _is_recruiter_account(db, user) or str(user.get("role") or "") == "employer":
+        err = ValueError("Candidate not found.")
+        err.status = 404  # type: ignore[attr-defined]
+        raise err
+    email = str(user.get("email") or "").strip().lower()
+    profile = (db.get("profiles") or {}).get(email) or {}
+    visibility = str(profile.get("profileVisibility") or "marketplace")
+    if visibility in ("private", "organization_only") and not candidate_shares_contact(profile):
+        assert_vendor_may_view_candidate_documents(
+            db, organization_id, email, recruiter_scope, require_link=True
+        )
+    return user
+
+
 # --------------------------------------------------------------------------------------------------------------
 # V-05: contact data (e-mail, phone, resume) of candidates who have no link to the employer.
 #

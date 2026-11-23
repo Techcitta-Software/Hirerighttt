@@ -427,7 +427,7 @@ export function VendorDashboardPage() {
                 <HrIcon name="users" size={16} /> Review applicants and reports
               </Link>
               <Link to="/resumes" className={styles.action}>
-                <HrIcon name="folder" size={16} /> Open the talent vault
+                <HrIcon name="folder" size={16} /> Open candidates
               </Link>
             </div>
           </section>

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   EMPTY_APPLICANT_FILTERS,
   readApplicantsUrl,
+  stripCandidateIgnoredFilters,
   writeApplicantsUrl,
   type ApplicantFilters,
   type ApplicantsUrlState,
@@ -20,20 +21,29 @@ function draftOf(f: ApplicantFilters): Draft {
   return { keywords: f.keywords, location: f.location, expMin: f.expMin, expMax: f.expMax }
 }
 
+export type ApplicantsSearchMode = 'candidates' | 'applications'
+
+/** Candidates ignores job, fit, source and list params so a stale link cannot filter with no control on screen. */
+function readForMode(params: URLSearchParams, mode: ApplicantsSearchMode): ApplicantsUrlState {
+  const state = readApplicantsUrl(params)
+  if (mode !== 'candidates') return state
+  return { ...state, filters: stripCandidateIgnoredFilters(state.filters) }
+}
+
 /**
  * The Applicants view state lives in the URL (search, filters, sort, page, open applicant, drawer tab), so reload,
  * a shared link and Back / Forward all reproduce the view. Discrete changes push a history entry; typing (debounced)
  * and browsing between applicants replace it.
  */
-export function useApplicantsUrl() {
+export function useApplicantsUrl(mode: ApplicantsSearchMode) {
   const [params, setParams] = useSearchParams()
-  const url = useMemo(() => readApplicantsUrl(params), [params])
+  const url = useMemo(() => readForMode(params, mode), [params, mode])
 
   const commit = useCallback(
     (patch: Partial<ApplicantsUrlState>, opts: { replace?: boolean } = {}) => {
-      setParams((prev) => writeApplicantsUrl({ ...readApplicantsUrl(prev), ...patch }), { replace: opts.replace })
+      setParams((prev) => writeApplicantsUrl({ ...readForMode(prev, mode), ...patch }), { replace: opts.replace })
     },
-    [setParams],
+    [setParams, mode],
   )
 
   const [draft, setDraft] = useState<Draft>(() => draftOf(url.filters))
@@ -56,14 +66,14 @@ export function useApplicantsUrl() {
       committedRef.current = draft
       setParams(
         (prev) => {
-          const cur = readApplicantsUrl(prev)
+          const cur = readForMode(prev, mode)
           return writeApplicantsUrl({ ...cur, filters: { ...cur.filters, ...draft }, page: 1 })
         },
         { replace: true },
       )
     }, SEARCH_DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [draft, setParams])
+  }, [draft, setParams, mode])
 
   /** Search button / Enter: apply the inputs now, as a new history entry. */
   const submitDraft = useCallback(() => {

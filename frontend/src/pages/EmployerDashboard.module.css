@@ -991,13 +991,40 @@
 .jdDrop {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2, 8px);
   margin-bottom: var(--space-5, 20px);
-  padding: var(--space-4, 16px);
-  border: 1px dashed var(--ds-border-strong, #d6d7e5);
+  padding: var(--space-6, 24px) var(--space-4, 16px);
+  border: 1.5px dashed var(--ds-border-strong, #d6d7e5);
   border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface-subtle, #f6f6fb);
+  text-align: center;
+  transition:
+    border-color var(--ds-duration-fast, 140ms) ease,
+    background-color var(--ds-duration-fast, 140ms) ease;
+}
+
+/* Upload states: reading (busy), done (filled from the document). Dragging is .jdDropDragging below. */
+.jdIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full, 9999px);
   background: var(--ds-surface, #ffffff);
+  color: var(--ds-brand, #5046e5);
+  box-shadow: var(--shadow-xs);
+}
+
+.jdDropBusy {
+  border-style: solid;
+  border-color: var(--ds-brand-border, #c7d2fe);
+}
+
+.jdDropDone {
+  border-style: solid;
+  border-color: var(--ds-success-border, #a7f3d0);
 }
 
 .jdDrop strong {
@@ -1027,10 +1054,30 @@
 }
 
 .jdNote {
-  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  width: 100%;
+  margin: var(--space-2, 8px) 0 0;
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border: 1px solid var(--ds-success-border, #a7f3d0);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--ds-success-soft, #ecfdf5);
   font-size: var(--fs-sm, 0.875rem);
   line-height: 1.45;
+  text-align: left;
   color: var(--ds-text, #141638);
+}
+
+.jdNote > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--ds-success, #047857);
+}
+
+.jdNote strong {
+  font-size: inherit;
+  overflow-wrap: anywhere;
 }
 
 .formSection {
@@ -1565,4 +1612,33 @@
     animation-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* An import error inside the (centred) drop zone reads left-aligned across its full width. */
+.jdDrop > [role='alert'] {
+  width: 100%;
+  margin: var(--space-2, 8px) 0 0;
+  text-align: left;
+}
+
+.filledTag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2, 8px);
+  padding: 1px 8px;
+  border-radius: var(--radius-full, 9999px);
+  background: var(--ds-success-soft, #ecfdf5);
+  color: var(--ds-success, #047857);
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* In a page header (job page) the outcome notice hugs its text and sits under the subtitle, instead of a
+   wide empty bar competing with the header actions. */
+.pageHeader .syncNote {
+  width: fit-content;
+  max-width: 100%;
+  margin: var(--space-3, 12px) 0 0;
+  padding: var(--space-2, 8px) var(--space-3, 12px);
 }

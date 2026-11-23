@@ -1,19 +1,11 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { handleDialogKeyDown, useDialogFocus } from '../useDialog'
-import { HrIcon } from '../HrIcon'
-import { DEFAULT_JOB_ROLE, JOB_ROLE_GROUPS } from '../../data/jobRoles'
 import { ensureApiSession } from '../../lib/apiSession'
 import { updateVendorJob, vendorJobStatus, type VendorJob, type VendorJobStatus } from '../../lib/vendorApi'
 import type { EmployerJob } from '../../lib/store'
-import { JOB_STATUS_LABEL, jobEditPatch, jobStatusActions, splitSkills, validateJobEdit, type JobEditDraft, type JobStatusAction } from './jobStatusRules'
+import { JOB_STATUS_LABEL, jobStatusActions, type JobStatusAction } from './jobStatusRules'
 import dash from '../../pages/EmployerDashboard.module.css'
 import styles from './JobLifecycle.module.css'
-
-const EXPERIENCE_OPTIONS = [
-  { value: '0-2 years', label: '0-2 years (Junior)' },
-  { value: '3-5 years', label: '3-5 years (Mid-Level)' },
-  { value: '6+ years', label: '6+ years (Senior / Lead)' },
-]
 
 const BADGE_CLASS: Record<VendorJobStatus, string> = {
   published: styles.badgePublished,
@@ -22,10 +14,10 @@ const BADGE_CLASS: Record<VendorJobStatus, string> = {
   archived: styles.badgeArchived,
 }
 
-export function JobStatusBadge({ status }: { status: string | undefined }) {
+export function JobStatusBadge({ status, inline = false }: { status: string | undefined; inline?: boolean }) {
   const s = vendorJobStatus({ status })
   return (
-    <span className={`${styles.badge} ${BADGE_CLASS[s]}`} data-testid="job-status-badge" data-status={s}>
+    <span className={`${styles.badge} ${inline ? styles.badgeInline : ''} ${BADGE_CLASS[s]}`} data-testid="job-status-badge" data-status={s}>
       {JOB_STATUS_LABEL[s]}
     </span>
   )
@@ -41,25 +33,102 @@ export function JobLifecycleActions({
   job,
   onChanged,
   onNotice,
+  onEdit,
   disabled = false,
   showEdit = true,
   compact = true,
+  primaryOnly = false,
+  variant = 'buttons',
+  onDelete,
+  deleting = false,
 }: {
   job: EmployerJob
   onChanged: (job: VendorJob) => void
   onNotice: Notice
+  /** Opens the job form (the Create job dialog in edit mode). No Edit button without it. */
+  onEdit?: (job: EmployerJob) => void
   disabled?: boolean
   showEdit?: boolean
   compact?: boolean
+  /** Only the main status move (Close job / Reopen / Publish), for tight table rows. */
+  primaryOnly?: boolean
+  /**
+   * 'menu': Edit, every status move and Delete live behind one accessible "More actions" (⋯) button, for list
+   * rows. The confirm dialogs are the same in both variants.
+   */
+  variant?: 'buttons' | 'menu'
+  /** Menu variant only: adds a destructive "Delete job" item (the caller owns the delete confirm). */
+  onDelete?: (job: EmployerJob) => void
+  deleting?: boolean
 }) {
   const [pending, setPending] = useState<JobStatusAction | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [editing, setEditing] = useState(false)
   const confirmRef = useRef<HTMLDivElement>(null)
   useDialogFocus(Boolean(pending), confirmRef)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+
+  // Fixed position from the trigger, so the menu is never clipped by a scrolling table or card wrapper; it opens
+  // upwards when there is no room below, and closes on scroll or resize instead of drifting.
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) return
+    const r = triggerRef.current.getBoundingClientRect()
+    const menuH = menuRef.current?.offsetHeight ?? 180
+    const below = window.innerHeight - r.bottom
+    const right = Math.max(8, window.innerWidth - r.right)
+    setMenuStyle(
+      below < menuH + 12 && r.top > menuH + 12
+        ? { position: 'fixed', bottom: window.innerHeight - r.top + 4, right, top: 'auto' }
+        : { position: 'fixed', top: r.bottom + 4, right },
+    )
+    const close = () => setMenuOpen(false)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [menuOpen])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true })
+    function onPointer(e: PointerEvent) {
+      const t = e.target as Node
+      if (!menuRef.current?.contains(t) && !triggerRef.current?.contains(t)) setMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    return () => document.removeEventListener('pointerdown', onPointer)
+  }, [menuOpen])
+
+  function closeMenu(focusTrigger = true) {
+    setMenuOpen(false)
+    if (focusTrigger) triggerRef.current?.focus()
+  }
+
+  function onMenuKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]
+    const at = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      closeMenu()
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const next = e.key === 'ArrowDown' ? (at + 1) % items.length : (at - 1 + items.length) % items.length
+      items[next]?.focus()
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
+    } else if (e.key === 'Tab') {
+      setMenuOpen(false)
+    }
+  }
   const status = vendorJobStatus(job)
-  const actions = jobStatusActions(status)
+  const actions = jobStatusActions(status).slice(0, primaryOnly ? 1 : undefined)
   const btn = compact ? `${dash.btnSm}` : ''
 
   function close() {
@@ -84,15 +153,83 @@ export function JobLifecycleActions({
     }
   }
 
+  const menuActions = jobStatusActions(status)
+  const controls =
+    variant === 'menu' ? (
+      <span className={styles.menuWrap}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`${dash.btnSecondary} ${btn} ${styles.menuTrigger}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label={`More actions for ${job.title}`}
+          disabled={disabled || busy || deleting}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <span aria-hidden="true">⋯</span>
+        </button>
+        {menuOpen ? (
+          <div ref={menuRef} className={styles.menu} style={menuStyle} role="menu" aria-label={`Actions for ${job.title}`} onKeyDown={onMenuKeyDown}>
+            {showEdit && onEdit ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.menuItem}
+                onClick={() => {
+                  closeMenu(false)
+                  onEdit(job)
+                }}
+              >
+                Edit job
+              </button>
+            ) : null}
+            {menuActions.map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                role="menuitem"
+                className={styles.menuItem}
+                onClick={() => {
+                  closeMenu(false)
+                  setError('')
+                  setPending(a)
+                }}
+              >
+                {a.label}
+              </button>
+            ))}
+            {onDelete ? (
+              <>
+                <span className={styles.menuSep} role="separator" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`${styles.menuItem} ${styles.menuItemDanger}`}
+                  onClick={() => {
+                    closeMenu(false)
+                    onDelete(job)
+                  }}
+                >
+                  Delete job
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </span>
+    ) : null
+
   return (
     <>
+      {controls ?? (
       <span className={styles.actions}>
-        {showEdit ? (
+        {showEdit && onEdit ? (
           <button
             type="button"
             className={`${dash.btnSecondary} ${btn}`}
             disabled={disabled || busy}
-            onClick={() => setEditing(true)}
+            onClick={() => onEdit?.(job)}
             aria-label={`Edit job ${job.title}`}
           >
             Edit
@@ -114,10 +251,11 @@ export function JobLifecycleActions({
           </button>
         ))}
       </span>
+      )}
 
       {pending ? (
         <div
-          className={dash.modalOverlay}
+          className={`${dash.modalOverlay} ${styles.dialog}`}
           role="alertdialog"
           aria-modal="true"
           aria-labelledby={`job-status-title-${job.id}`}
@@ -144,7 +282,7 @@ export function JobLifecycleActions({
               </button>
               <button
                 type="button"
-                className={pending.danger ? dash.btnDanger : dash.btnPrimary}
+                className={pending.danger ? `${dash.btnPrimary} ${styles.confirmDanger}` : dash.btnPrimary}
                 disabled={busy}
                 aria-busy={busy}
                 onClick={() => void confirm(pending)}
@@ -155,195 +293,6 @@ export function JobLifecycleActions({
           </div>
         </div>
       ) : null}
-
-      {editing ? (
-        <EditJobDialog
-          job={job}
-          onClose={() => setEditing(false)}
-          onSaved={(saved, changed) => {
-            setEditing(false)
-            if (!changed.length) {
-              onNotice('No changes to save.')
-              return
-            }
-            onChanged(saved)
-            onNotice(
-              changed.some((c) => c === 'jobDescription' || c === 'requiredSkills')
-                ? `“${saved.title}” saved. New interviews use the updated description; completed ones keep their questions.`
-                : `“${saved.title}” saved.`,
-              'success',
-            )
-          }}
-        />
-      ) : null}
     </>
-  )
-}
-
-/** Edit a job's title, role, experience, location, description and skills. Sends only what changed. */
-export function EditJobDialog({
-  job,
-  onClose,
-  onSaved,
-}: {
-  job: EmployerJob
-  onClose: () => void
-  onSaved: (job: VendorJob, changed: string[]) => void
-}) {
-  const [draft, setDraft] = useState<JobEditDraft>(() => ({
-    title: job.title,
-    roleTrack: job.roleTrack || DEFAULT_JOB_ROLE,
-    experienceLevel: job.experienceLevel,
-    location: job.location,
-    jobDescription: job.jobDescription,
-    skills: job.requiredSkills.join(', '),
-  }))
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const formRef = useRef<HTMLFormElement>(null)
-  useDialogFocus(true, formRef, 'field')
-  const roleKnown = JOB_ROLE_GROUPS.some((g) => g.roles.includes(draft.roleTrack))
-  const expKnown = EXPERIENCE_OPTIONS.some((o) => o.value === draft.experienceLevel)
-  const descLength = draft.jobDescription.trim().length
-  const idp = `edit-job-${job.id}`
-
-  function set<K extends keyof JobEditDraft>(key: K, value: JobEditDraft[K]) {
-    setDraft((d) => ({ ...d, [key]: value }))
-  }
-
-  function close() {
-    if (!saving) onClose()
-  }
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    if (saving) return
-    const problem = validateJobEdit(draft)
-    if (problem) {
-      setError(problem)
-      return
-    }
-    const patch = jobEditPatch(job, draft)
-    if (!Object.keys(patch).length) {
-      onSaved({ ...(job as unknown as VendorJob) }, [])
-      return
-    }
-    setSaving(true)
-    setError('')
-    try {
-      await ensureApiSession()
-      const { job: saved, changed } = await updateVendorJob(job.id, patch)
-      onSaved(saved, changed)
-    } catch (err) {
-      setError(err instanceof Error && err.message ? `Not saved. ${err.message}` : 'Not saved. Please try again.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div
-      className={dash.modalOverlay}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={`${idp}-title`}
-      onKeyDown={(e) => handleDialogKeyDown(e, close)}
-    >
-      <form ref={formRef} tabIndex={-1} className={`${dash.modal} ${dash.modalLg}`} onSubmit={submit} noValidate>
-        <div className={dash.modalHeader}>
-          <div>
-            <h2 id={`${idp}-title`}>Edit job</h2>
-            <p className={dash.modalSub}>
-              Changes apply to new interviews. Interviews already completed keep the questions they were asked.
-            </p>
-          </div>
-          <button type="button" className={dash.closeBtn} onClick={close} aria-label="Close" disabled={saving}>
-            <HrIcon name="close" size={16} />
-          </button>
-        </div>
-
-        <div className={dash.modalBody}>
-          <div className={dash.formGroup}>
-            <label htmlFor={`${idp}-name`}>Job title</label>
-            <input id={`${idp}-name`} type="text" required maxLength={200} value={draft.title} onChange={(e) => set('title', e.target.value)} />
-          </div>
-          <div className={dash.formGrid}>
-            <div className={dash.formGroup}>
-              <label htmlFor={`${idp}-role`}>Role</label>
-              <select id={`${idp}-role`} required value={draft.roleTrack} onChange={(e) => set('roleTrack', e.target.value)}>
-                {!roleKnown ? <option value={draft.roleTrack}>{draft.roleTrack}</option> : null}
-                {JOB_ROLE_GROUPS.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.roles.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
-            <div className={dash.formGroup}>
-              <label htmlFor={`${idp}-exp`}>Years of experience</label>
-              <select id={`${idp}-exp`} required value={draft.experienceLevel} onChange={(e) => set('experienceLevel', e.target.value)}>
-                {!expKnown ? <option value={draft.experienceLevel}>{draft.experienceLevel || 'Choose…'}</option> : null}
-                {EXPERIENCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className={dash.formGroup}>
-            <label htmlFor={`${idp}-loc`}>Location</label>
-            <input id={`${idp}-loc`} type="text" required value={draft.location} onChange={(e) => set('location', e.target.value)} />
-          </div>
-          <div className={dash.formGroup}>
-            <label htmlFor={`${idp}-jd`}>Job description</label>
-            <textarea
-              id={`${idp}-jd`}
-              required
-              aria-describedby={`${idp}-jd-hint`}
-              value={draft.jobDescription}
-              onChange={(e) => set('jobDescription', e.target.value)}
-            />
-            <span
-              id={`${idp}-jd-hint`}
-              className={`${dash.fieldHint} ${dash.fieldHintCounter} ${descLength >= 30 ? dash.fieldHintOk : ''}`}
-            >
-              {descLength >= 30 ? `${descLength} characters` : `At least 30 characters (${descLength}/30)`}
-            </span>
-          </div>
-          <div className={`${dash.formGroup} ${dash.formGroupLast}`}>
-            <label htmlFor={`${idp}-skills`}>Required skills</label>
-            <input
-              id={`${idp}-skills`}
-              type="text"
-              aria-describedby={`${idp}-skills-hint`}
-              value={draft.skills}
-              onChange={(e) => set('skills', e.target.value)}
-            />
-            <span id={`${idp}-skills-hint`} className={dash.fieldHint}>
-              Separate skills with commas ({splitSkills(draft.skills).length} listed).
-            </span>
-          </div>
-          {error ? (
-            <p className={`ds-alert ds-alert--error ${dash.modalError}`} role="alert">
-              {error}
-            </p>
-          ) : null}
-        </div>
-
-        <div className={dash.modalFooter}>
-          <button type="button" className={dash.btnSecondary} onClick={close} disabled={saving}>
-            Cancel
-          </button>
-          <button type="submit" className={dash.btnPrimary} disabled={saving} aria-busy={saving}>
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </form>
-    </div>
   )
 }

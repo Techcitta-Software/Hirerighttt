@@ -99,6 +99,7 @@ from app.services.vendor.candidate_applications import (
     record_candidate_job_application,
 )
 from app.services.vendor.candidate_documents import (
+    assert_vendor_may_open_stored_resume,
     assert_vendor_may_view_candidate_documents,
     candidate_profile_for_documents,
     discovery_interview_summary,
@@ -128,6 +129,7 @@ from app.services.vendor.jobs import (
 )
 from app.services.vendor import interview_plan_cache as plan_cache
 from app.services.vendor.org_candidates import list_job_candidates, list_organization_candidates
+from app.services.vendor.platform_candidates import list_platform_candidates
 
 PADDLE_SCRIPT = Path(__file__).resolve().parents[2] / "paddle_resume_parser.py"
 # 2 MB file -> ~2.67 MB of base64 (+ a data: URL prefix). Checked before decoding.
@@ -689,6 +691,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 await asyncio.to_thread(db_store.sync_employer_applications_from_database, config.database_url, db)
             org_id = access["tenant"]["organization"]["id"]
             params = request.query_params
+            if str(params.get("scope") or "").strip().lower() == "platform":
+                # The Candidates page: every job seeker visible to employers, one row per person, paginated here.
+                if not ctx.rate_limit(f"platform-candidates:{org_id}", 600, 3_600_000):
+                    return _json(429, {"error": "Too many searches. Please wait a few minutes and try again."})
+                page = await list_platform_candidates(
+                    db, org_id, config.database_url, dict(params), _vendor_recruiter_scope(access)
+                )
+                return _json(200, {"organizationId": org_id, **page})
             filters = {
                 "name": params.get("name") or "",
                 "job": params.get("job") or "",
@@ -708,25 +718,38 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             db = ctx.load_db()
             access = await runtime.require_employer_tenant(request, db)
             candidate_email = str(request.query_params.get("email") or "").strip()
+            candidate_user_id = str(request.query_params.get("userId") or "").strip()
             try:
-                # V-05: the resume FILE is contact data: only for candidates linked to this organization
-                # (application / invite / interview) or who opted in to sharing contact details with recruiters.
-                await asyncio.to_thread(
-                    assert_vendor_may_view_candidate_documents,
-                    db,
-                    access["tenant"]["organization"]["id"],
-                    candidate_email,
-                    _vendor_recruiter_scope(access),
-                    contact=True,
-                )
+                org_id = access["tenant"]["organization"]["id"]
+                scope = _vendor_recruiter_scope(access)
+                if candidate_user_id:
+                    # Candidates page: the original S3 file for a person already listed there.
+                    owner = await asyncio.to_thread(
+                        assert_vendor_may_open_stored_resume, db, org_id, candidate_user_id, scope
+                    )
+                    candidate_email = str(owner.get("email") or "").strip().lower()
+                    owner_user_id = owner.get("id")
+                else:
+                    # V-05: by e-mail, the file is contact data: only a link to this organization or an opt-in.
+                    await asyncio.to_thread(
+                        assert_vendor_may_view_candidate_documents,
+                        db,
+                        org_id,
+                        candidate_email,
+                        scope,
+                        contact=True,
+                    )
+                    owner_user_id = None
                 profile = await asyncio.to_thread(candidate_profile_for_documents, db, candidate_email)
                 candidate_account = await asyncio.to_thread(find_user, db, email=candidate_email)
+                if owner_user_id is None:
+                    owner_user_id = (candidate_account or {}).get("id")
                 pool = db_store.db_pool(config.database_url)
                 signed = await resolve_resume_download_from_profile(
                     profile,
                     pool,
                     inline=True,
-                    owner_user_id=(candidate_account or {}).get("id"),
+                    owner_user_id=owner_user_id,
                     owner_email=candidate_email.lower(),
                 )
                 if request.query_params.get("raw") == "1":

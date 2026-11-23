@@ -424,8 +424,8 @@ async def try_extended_routes(
             return json_fn(400, {"error": "scheduledStart is required."})
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
-        if not smtp_configured():
-            return json_fn(503, {"error": "SMTP not configured on server.", "smtpConfigured": False})
+        # The booking is saved even when email is not configured (or the provider is down): the slot, its reminders
+        # and the reschedule link must not depend on the mail provider. The response says whether an email went out.
         if not persistence_ready(config.database_url):
             return json_fn(503, {"error": "Database required."})
         try:
@@ -478,13 +478,16 @@ async def try_extended_routes(
         )
         email_sent = False
         email_error = None
-        try:
-            await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))
-            await asyncio.to_thread(_mark_invite_email_sent, pool, token)
-            email_sent = True
-        except Exception:
-            logger.warning("Booking confirmation email failed", exc_info=True)
-            email_error = MAIL_SEND_FAILED
+        if not smtp_configured():
+            email_error = "Email is not configured on the server. Keep this invite link to join."
+        else:
+            try:
+                await send_mail(to=email, subject=mail["subject"], html=mail["html"], text=mail.get("text"))
+                await asyncio.to_thread(_mark_invite_email_sent, pool, token)
+                email_sent = True
+            except Exception:
+                logger.warning("Booking confirmation email failed", exc_info=True)
+                email_error = MAIL_SEND_FAILED
         return json_fn(
             200,
             {
@@ -495,7 +498,7 @@ async def try_extended_routes(
                 "token": token,
                 "scheduledStart": start.isoformat().replace("+00:00", "Z"),
                 "scheduledEnd": end.isoformat().replace("+00:00", "Z"),
-                "smtpConfigured": True,
+                "smtpConfigured": smtp_configured(),
             },
         )
 
