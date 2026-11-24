@@ -45,7 +45,7 @@ so run as many workers and containers as needed behind a load balancer.
   startup 1.9 s (was 9.9 s); a profile save 28 ms (it never finished before); `/api/me` 400 req/s with 4 workers.
 
 ## Deploys
-`CI` runs on every push/PR (with a Postgres service). The live path is Vercel for the site and Render for the API, from `dev1`:
+`CI` runs on every push/PR (with a Postgres service). The live path is Vercel for the site and Render for the API.
 
-* Frontend: `vercel.json` at the repo root. `/api/*` is forwarded to `https://hirerighttt-api.onrender.com`. Build with `VITE_AUTH_PROVIDER=api` (see `.env.production`).
-* API: `render.yaml`. Set `DATABASE_URL`, `SESSION_SECRET`, `CORS_ORIGINS` (the Vercel origin), `PUBLIC_APP_URL`, `GEMINI_API_KEY`, and the S3/SMTP values in the Render dashboard. `ALLOW_DEMO_ACCOUNTS` stays false.
+* Frontend: Vercel project `hire-rightt`, branch `dev1`. `https://hire-rightt.vercel.app`. `/api/*` is forwarded to the Render API. `VITE_API_URL` is set on the Vercel project. Build with `VITE_AUTH_PROVIDER=api` (see `.env.production`).
+* API: Render service `https://hireright-backend-0pgv.onrender.com`, branch `main`. `render.yaml` records that service. Set `DATABASE_URL`, `SESSION_SECRET`, `CORS_ORIGINS` (the Vercel origin), `PUBLIC_APP_URL`, `GEMINI_API_KEY`, and the S3/SMTP values in the Render dashboard. `ALLOW_DEMO_ACCOUNTS` stays false.

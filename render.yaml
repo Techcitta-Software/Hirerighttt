@@ -1,13 +1,13 @@
-# Render blueprint for the API. The site itself is the Vercel project (vercel.json).
-# Create it once: Render dashboard → New → Blueprint → this repo, branch dev1.
+# Render blueprint for the API. The site is the Vercel project (vercel.json).
+# The live service is already https://hireright-backend-0pgv.onrender.com and deploys from main.
 # Fill the sync:false values in the dashboard. Do not put secrets in this file.
 services:
   - type: web
-    name: hirerighttt-api
+    name: hireright-backend
     runtime: python
     plan: free
     region: singapore
-    branch: dev1
+    branch: main
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips=*
