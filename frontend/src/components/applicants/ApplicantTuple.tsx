@@ -76,6 +76,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   const a = row.applicant
   const moreRef = useRef<HTMLDetailsElement>(null)
   const contactVisible = Boolean(a.candidateEmail) && !a.contactHidden
+  const canDownloadOriginal = directory && Boolean(a.hasResumeFile)
   const isApplication = a.recordSource === 'application' || (!a.recordSource && Boolean(a.jobId))
   const shortlisted = a.status === 'Shortlisted'
   const skillHit = (s: string) => {
@@ -118,9 +119,15 @@ export const ApplicantTuple = memo(function ApplicantTuple({
         type="button"
         className={styles.actBtn}
         onClick={() => act('download')}
-        disabled={!contactVisible || busy === 'download'}
+        disabled={(!contactVisible && !canDownloadOriginal) || busy === 'download'}
         aria-label={`Download ${name}'s resume`}
-        title={contactVisible ? 'Download resume' : 'Contact details are hidden'}
+        title={
+          canDownloadOriginal
+            ? 'Download the original resume'
+            : contactVisible
+              ? 'Download resume'
+              : 'Contact details are hidden'
+        }
       >
         <HrIcon name="download" size={14} /> <span className={styles.actLabel}>Download</span>
       </button>

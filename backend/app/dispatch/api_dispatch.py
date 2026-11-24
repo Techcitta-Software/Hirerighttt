@@ -765,10 +765,20 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         return _json(404, {"error": "No stored resume file for this account."})
                     if len(stored.content) > 10 * 1024 * 1024:
                         return _json(413, {"error": "This resume is too large to preview. Download it instead."})
+                    filename = str(signed.get("filename") or "resume")
+                    from urllib.parse import quote
+
+                    ascii_name = filename.encode("ascii", "ignore").decode().strip() or "resume"
                     return Response(
                         content=stored.content,
                         media_type=signed.get("contentType") or "application/octet-stream",
-                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+                        headers={
+                            "Cache-Control": "private, no-store",
+                            "X-Content-Type-Options": "nosniff",
+                            "Content-Disposition": (
+                                f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+                            ),
+                        },
                     )
                 return _json(
                     200,

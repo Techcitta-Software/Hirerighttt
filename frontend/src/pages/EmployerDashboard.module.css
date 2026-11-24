@@ -944,50 +944,6 @@
   gap: 0 var(--space-4, 16px);
 }
 
-.sourceSwitch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3, 12px);
-  margin-bottom: var(--space-5, 20px);
-}
-
-.sourceOption {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1, 4px);
-  min-height: 72px;
-  padding: var(--space-3, 12px) var(--space-4, 16px);
-  border: 1px solid var(--ds-border-strong, #d6d7e5);
-  border-radius: var(--radius-md, 10px);
-  background: var(--ds-surface, #ffffff);
-  color: var(--ds-text, #141638);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.sourceOption strong {
-  font-size: var(--fs-body, 0.9375rem);
-  font-weight: 700;
-}
-
-.sourceOption span {
-  font-size: var(--fs-xs, 0.8125rem);
-  line-height: 1.4;
-  color: var(--ds-text-muted, #5f6686);
-}
-
-.sourceOption:hover {
-  border-color: var(--ds-brand, #5046e5);
-}
-
-.sourceOptionActive {
-  border-color: var(--ds-brand, #5046e5);
-  box-shadow: inset 0 0 0 1px var(--ds-brand, #5046e5);
-  background: var(--ds-brand-soft, #f4f3ff);
-}
-
 .jdDrop {
   display: flex;
   flex-direction: column;
@@ -1478,7 +1434,6 @@
 
   .summaryGrid,
   .formGrid,
-  .sourceSwitch,
   .inviteRow {
     grid-template-columns: 1fr;
   }

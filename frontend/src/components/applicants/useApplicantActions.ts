@@ -4,8 +4,7 @@ import { mapWithConcurrency } from '../../lib/concurrency'
 import { downloadResumeFile, mapApplicantStatusToApi } from '../../lib/employerCandidateUtils'
 import type { EmployerApplicant } from '../../lib/store'
 import {
-  fetchVendorCandidateResumeDocument,
-  fetchVendorCandidateResumeFile,
+  fetchVendorCandidateResumeDownload,
   patchApplicantStatus,
   sendInterviewLinks,
 } from '../../lib/vendorApi'
@@ -26,6 +25,20 @@ function saveBlob(blob: Blob, filename: string) {
 }
 
 const hasContact = (r: IndexedApplicant) => Boolean(r.applicant.candidateEmail) && !r.applicant.contactHidden
+/** The original uploaded file, including when the Candidates page hides the e-mail. */
+const hasOriginalFile = (r: IndexedApplicant) =>
+  Boolean(r.applicant.hasResumeFile && (r.applicant.candidateUserId || r.applicant.candidateEmail))
+
+function resumeSaveName(person: string, filename: string, contentType: string): string {
+  if (filename && /\.(pdf|docx)$/i.test(filename)) return filename
+  const ext = contentType.toLowerCase().includes('pdf')
+    ? '.pdf'
+    : contentType.toLowerCase().includes('wordprocessingml')
+      ? '.docx'
+      : ''
+  const base = (filename || person || 'resume').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'resume'
+  return ext && !base.toLowerCase().endsWith(ext) ? `${base.replace(/\.(pdf|docx)$/i, '')}${ext}` : base
+}
 export const canShortlist = (r: IndexedApplicant) =>
   r.applicant.recordSource === 'application' || (!r.applicant.recordSource && Boolean(r.applicant.jobId))
 
@@ -50,11 +63,18 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
     const a = r.applicant
     mark([a.id], 'download')
     try {
-      const link = await fetchVendorCandidateResumeDocument(a.candidateEmail, { userId: a.candidateUserId })
-      window.open(link.downloadUrl || link.viewUrl, '_blank', 'noopener,noreferrer')
-    } catch {
+      if (hasOriginalFile(r)) {
+        const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
+        saveBlob(
+          new Blob([file.data], { type: file.contentType || 'application/octet-stream' }),
+          resumeSaveName(a.candidateName, file.filename || a.resumeName || '', file.contentType),
+        )
+        return
+      }
       if (a.resumeText?.trim()) downloadResumeFile(a)
       else setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s resume. Please try again.` })
+    } catch {
+      setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s original resume. Please try again.` })
     } finally {
       mark([a.id], null)
     }
@@ -167,7 +187,7 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
 
   async function downloadZip(rows: IndexedApplicant[], now: number) {
     if (bulkBusy) return
-    const targets = rows.filter(hasContact).slice(0, ZIP_LIMIT)
+    const targets = rows.filter((r) => hasOriginalFile(r) || hasContact(r)).slice(0, ZIP_LIMIT)
     if (!targets.length) {
       setNotice({ tone: 'info', text: 'No resumes available for the selected applicants.' })
       return
@@ -178,11 +198,15 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
       const a = r.applicant
       const base = a.candidateName.replace(/\s+/g, '_')
       try {
-        const data = new Uint8Array(await fetchVendorCandidateResumeFile(a.candidateEmail))
-        const ext = (a.resumeName || '').match(/\.[a-z0-9]{2,5}$/i)?.[0] || '.pdf'
-        files.push({ name: `${base}${ext}`, data })
+        const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
+        files.push({
+          name: resumeSaveName(base, file.filename || a.resumeName || '', file.contentType),
+          data: new Uint8Array(file.data),
+        })
       } catch {
-        if (a.resumeText?.trim()) files.push({ name: `${base}.txt`, data: new TextEncoder().encode(a.resumeText) })
+        if (!a.hasResumeFile && a.resumeText?.trim()) {
+          files.push({ name: `${base}.txt`, data: new TextEncoder().encode(a.resumeText) })
+        }
       }
     })
     setBulkBusy('')

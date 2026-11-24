@@ -250,6 +250,10 @@ describe('Applicant drawer', () => {
     expect(html).toMatch(/aria-pressed="false"[^>]*>Formatted</)
     expect(html).not.toContain('data-testid="profile-details"')
     expect(html).toContain('>Original resume<')
+    const downloads = (html.match(/<button\b[^>]*>/g) || []).filter((tag) => tag.includes('Download Hidden Person'))
+    expect(downloads.length).toBeGreaterThan(0)
+    expect(downloads.every((tag) => !tag.includes('disabled'))).toBe(true)
+    expect(downloads.some((tag) => tag.includes('Download the original resume'))).toBe(true)
 
     const fileOnly = render('/employer/candidates?applicant=hid', {
       mode: 'candidates',

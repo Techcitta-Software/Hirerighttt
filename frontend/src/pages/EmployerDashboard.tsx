@@ -159,7 +159,6 @@ export function EmployerDashboard() {
   const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
   const [newJobDescription, setNewJobDescription] = useState('')
   const [newJobSkills, setNewJobSkills] = useState('')
-  const [jobSource, setJobSource] = useState<'type' | 'upload'>('type')
   const [jobDocName, setJobDocName] = useState('')
   /** Presentation only: which create-job fields the last imported document filled (shown as tags). */
   const [jobDocFilled, setJobDocFilled] = useState<string[]>([])
@@ -381,7 +380,6 @@ export function EmployerDashboard() {
     setNewJobRoleTrack(DEFAULT_JOB_ROLE)
     setNewJobExp('3-5 years')
     setNewJobLocation('Hyderabad / Remote')
-    setJobSource('type')
     setJobDocName('')
     setJobDocError('')
   }
@@ -397,7 +395,6 @@ export function EmployerDashboard() {
     setNewJobLocation(job.location)
     setNewJobDescription(job.jobDescription)
     setNewJobSkills(job.requiredSkills.join(', '))
-    setJobSource('type')
     setJobDocName('')
     setJobDocError('')
     setCreateJobError('')
@@ -556,7 +553,6 @@ export function EmployerDashboard() {
       setNewJobRoleTrack(DEFAULT_JOB_ROLE)
       setNewJobExp('3-5 years')
       setNewJobLocation('Hyderabad / Remote')
-      setJobSource('type')
       setJobDocName('')
       setJobDocError('')
       setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)
@@ -1048,8 +1044,8 @@ export function EmployerDashboard() {
                     </p>
                   ) : (
                   <p className={styles.modalSub}>
-                    Type the opening, or upload a PDF or Word file. Applicants get an AI interview based on
-                    this description and their resume.
+                    Upload a PDF or Word file, or fill the fields below. Applicants get an AI interview based
+                    on this description and their resume.
                   </p>
                   )}
                 </div>
@@ -1064,29 +1060,7 @@ export function EmployerDashboard() {
               </div>
 
               <div className={styles.modalBody}>
-                <div className={styles.sourceSwitch} role="group" aria-label="How to add this job">
-                  <button
-                    type="button"
-                    className={`${styles.sourceOption} ${jobSource === 'type' ? styles.sourceOptionActive : ''}`}
-                    aria-pressed={jobSource === 'type'}
-                    onClick={() => setJobSource('type')}
-                  >
-                    <strong>Type the details</strong>
-                    <span>Fill the title, role, description and skills yourself.</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.sourceOption} ${jobSource === 'upload' ? styles.sourceOptionActive : ''}`}
-                    aria-pressed={jobSource === 'upload'}
-                    onClick={() => setJobSource('upload')}
-                  >
-                    <strong>Upload a document</strong>
-                    <span>PDF or Word. We fill the fields so you can edit them.</span>
-                  </button>
-                </div>
-
-                {jobSource === 'upload' ? (
-                  <div
+                <div
                     className={`${styles.jdDrop} ${jobDocDragging ? styles.jdDropDragging : ''} ${
                       jobDocReading ? styles.jdDropBusy : ''
                     } ${jobDocName && !jobDocError && !jobDocReading ? styles.jdDropDone : ''}`}
@@ -1144,13 +1118,12 @@ export function EmployerDashboard() {
                       </p>
                     ) : null}
                   </div>
-                ) : null}
 
                 <section className={styles.formSection} aria-labelledby="create-job-role">
                   <h3 id="create-job-role" className={styles.formSectionTitle}>Role</h3>
                 <div className={styles.formGroup}>
                   <label htmlFor="employer-job-title">
-                    Job title <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('title')} />
+                    Job title <FilledFromDocTag show={Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('title')} />
                   </label>
                   <input
                     id="employer-job-title"
@@ -1192,7 +1165,7 @@ export function EmployerDashboard() {
 
                   <div className={styles.formGroup}>
                     <label htmlFor="employer-job-experience">
-                      Years of experience <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('experience')} />
+                      Years of experience <FilledFromDocTag show={Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('experience')} />
                     </label>
                     <select
                       id="employer-job-experience"
@@ -1212,7 +1185,7 @@ export function EmployerDashboard() {
 
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-location">
-                    Location <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('location')} />
+                    Location <FilledFromDocTag show={Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('location')} />
                   </label>
                   <input
                     id="employer-job-location"
@@ -1229,7 +1202,7 @@ export function EmployerDashboard() {
                   <h3 id="create-job-description-heading" className={styles.formSectionTitle}>Description</h3>
                 <div className={`${styles.formGroup} ${styles.formGroupLast}`}>
                   <label htmlFor="employer-job-description">
-                    Job description <FilledFromDocTag show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('description')} />
+                    Job description <FilledFromDocTag show={Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('description')} />
                   </label>
                   <textarea
                     id="employer-job-description"
@@ -1257,7 +1230,7 @@ export function EmployerDashboard() {
                   <label htmlFor="employer-job-skills">
                     Required skills <span className={styles.optionalText}>(optional)</span>{' '}
                     <FilledFromDocTag
-                      show={jobSource === 'upload' && Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('skills')}
+                      show={Boolean(jobDocName) && !jobDocError && !jobDocReading && jobDocFilled.includes('skills')}
                     />
                   </label>
                   <input

@@ -181,7 +181,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "Content-Disposition"],
     )
     # Compress JSON responses (the vendor candidate list is ~600 KB of text) for deployments without a compressing
     # CDN in front (CloudFront already compresses /api/*; compressed origin responses pass through it unchanged).

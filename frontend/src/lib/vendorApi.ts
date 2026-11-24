@@ -314,15 +314,41 @@ export async function fetchVendorCandidateResumeDocument(candidateEmail: string,
   return parse<VendorCandidateDocumentLink>(res)
 }
 
-/** The stored resume file itself (via the API, so the browser needs no cross-origin S3 access). */
-export async function fetchVendorCandidateResumeFile(candidateEmail: string, opts?: { userId?: string | null }): Promise<ArrayBuffer> {
+function filenameFromContentDisposition(header: string | null): string {
+  if (!header) return ''
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim())
+    } catch {
+      /* use the plain filename */
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(header) || /filename=([^;]+)/i.exec(header)
+  return plain ? plain[1].trim() : ''
+}
+
+/** The stored resume file itself, with the name it was uploaded under. */
+export async function fetchVendorCandidateResumeDownload(
+  candidateEmail: string,
+  opts?: { userId?: string | null },
+): Promise<{ data: ArrayBuffer; filename: string; contentType: string }> {
   const qs = resumeDocumentQuery(candidateEmail, opts?.userId, true)
   const res = await apiFetch(`/api/vendor/candidate-documents/resume?${qs}`)
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string }
     throw new Error(data.error || `Could not load the resume (${res.status})`)
   }
-  return res.arrayBuffer()
+  return {
+    data: await res.arrayBuffer(),
+    filename: filenameFromContentDisposition(res.headers.get('Content-Disposition')),
+    contentType: res.headers.get('Content-Type') || '',
+  }
+}
+
+/** The stored resume file itself (via the API, so the browser needs no cross-origin S3 access). */
+export async function fetchVendorCandidateResumeFile(candidateEmail: string, opts?: { userId?: string | null }): Promise<ArrayBuffer> {
+  return (await fetchVendorCandidateResumeDownload(candidateEmail, opts)).data
 }
 
 export async function fetchVendorCandidateReportDocument(candidateEmail: string) {
