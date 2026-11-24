@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 class InterviewLlmQuestionError(Exception):
@@ -18,6 +21,10 @@ class InterviewLlmQuestionError(Exception):
 
 # The browser gives up after ~45s, so key/model failover plus retries must finish (or fail cleanly) inside this.
 REQUEST_DEADLINE_SECONDS = 36.0
+# Job-link interviews: Google often answers 503 "high demand" for ~10-30 s; give the failover chain room for a second
+# full attempt before falling back to the deterministic job-specific questions (the lobby prefetch hides the wait).
+# Worst case = deadline + one 30 s call budget ≈ 75 s, under the browser's 90 s interview-start timeout.
+JD_REQUEST_DEADLINE_SECONDS = 45.0
 PENDING_FALLBACK_FOCUS = "pending-fallback"
 PENDING_CLOSING_FOCUS = "pending-closing"
 MAX_ROLE_SKILLS = 3
@@ -483,7 +490,7 @@ async def _generate_jd_first_batch(
             if q and validate_slot_question(q, by_turn[turn], prior, jd):
                 ordered[turn - 1] = annotate_slot_question(q, by_turn[turn])
 
-    deadline = time.time() + REQUEST_DEADLINE_SECONDS
+    deadline = time.time() + JD_REQUEST_DEADLINE_SECONDS
     for temperature in (0.5, 0.4, 0.3):
         need = missing()
         if not need or time.time() > deadline:
@@ -494,11 +501,17 @@ async def _generate_jd_first_batch(
             payload["alreadyAsked"] = [q["text"] for q in ordered[:-1] if q and q.get("text")]
         raw = await _gemini_generate(system, json.dumps(payload), temperature=temperature, max_tokens=8192)
         apply(raw)
-    if len(missing()) == len(plan):
-        # The model produced nothing usable at all: same contract as the normal batch (the caller shows a retry).
-        raise InterviewLlmQuestionError(
-            "LLM_QUESTION_FAILED",
-            "Gemini could not produce a valid interview question batch. Please try again.",
+    if missing():
+        # Never block a candidate who came from a recruiter's job link: when Gemini is overloaded (503), rate-limited
+        # (429) or times out, the plan's deterministic job-specific questions fill the empty slots (all of them if
+        # needed), so the 6 JD / 2 alignment / 1 behavioural mix and the 20-minute interview still hold.
+        from app.services.gemini_client import status_snapshot
+
+        _log.warning(
+            "JD-first interview: %d of %d questions from the job-specific fallback (Gemini: %s)",
+            len(missing()),
+            len(plan),
+            (status_snapshot().get("lastError") or "no usable output")[:200],
         )
     for turn in missing():
         ordered[turn - 1] = fallback_question_for_slot(by_turn[turn], role)

@@ -744,7 +744,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 candidate_account = await asyncio.to_thread(find_user, db, email=candidate_email)
                 if owner_user_id is None:
                     owner_user_id = (candidate_account or {}).get("id")
-                pool = db_store.db_pool(config.database_url)
+                # Presign does not query Postgres. With no DATABASE_URL (in-memory tests) there is no pool to open.
+                pool = db_store.db_pool(config.database_url) if (config.database_url or "").strip() else None
                 signed = await resolve_resume_download_from_profile(
                     profile,
                     pool,

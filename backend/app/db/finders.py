@@ -54,7 +54,9 @@ def find_user(db: Any, *, email: Any = None, user_id: Any = None, active_only: b
             return False
         if uid is not None and str(u.get("id")) != uid:
             return False
-        if active_only and u.get("status") != "active":
+        # users.status is NOT NULL DEFAULT 'active'. A row that omits it (in-memory fixtures, a null
+        # read) is active; only an explicit other status, such as "disabled", is refused.
+        if active_only and (u.get("status") or "active") != "active":
             return False
         return True
 
