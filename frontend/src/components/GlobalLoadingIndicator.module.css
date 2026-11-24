@@ -39,28 +39,22 @@
 .veil {
   position: fixed;
   inset: 0;
-  z-index: 1500;
+  z-index: 99999;
   display: grid;
   place-items: center;
-  background: rgba(248, 250, 252, 0.82);
-  background: color-mix(in srgb, var(--bg-page, #f8fafc) 82%, transparent);
-  backdrop-filter: blur(6px) saturate(1.1);
-  -webkit-backdrop-filter: blur(6px) saturate(1.1);
-  cursor: progress;
-  pointer-events: none;
-  animation: hr-fade-in 0.22s var(--ds-ease-out, ease-out) both;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: wait;
+  pointer-events: auto; /* Blocks all clicks, taps, and background actions while loading */
+  user-select: none;
+  touch-action: none;
+  animation: hr-fade-in 0.15s var(--ds-ease-out, ease-out) both;
 }
 
-/* The mark sits on a soft white tile so it reads on any page behind the veil. */
+/* No white card, no box, no border, no shadow — spinner sits directly on the screen */
 .tile {
-  display: grid;
-  place-items: center;
-  padding: 28px 36px;
-  border-radius: var(--radius-xl, 20px);
-  background: var(--bg-surface, #ffffff);
-  border: 1px solid var(--border-subtle, var(--hr-border, #e2e8f0));
-  box-shadow: var(--shadow-xl, 0 24px 48px -12px rgba(15, 23, 42, 0.12));
-  animation: hr-tile-in 0.22s var(--ds-ease-out, ease-out) both;
+  display: contents;
 }
 
 @keyframes hr-fade-in {

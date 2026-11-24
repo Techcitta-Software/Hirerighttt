@@ -1,59 +1,69 @@
-import { useEffect, useId } from 'react'
+import { useEffect } from 'react'
 import { holdLoading } from '../lib/loadingTracker'
 import styles from './SignalLoader.module.css'
 
 type Props = {
-  /** Rendered height in px; width follows the drawing. */
+  /** Rendered size in px (width & height). Defaults to 56. */
   size?: number
+  /** Color of the spinner spokes. Defaults to brand electric blue (#015bf5). */
+  color?: string
   /** Read by screen readers only — the loader never shows text. */
   label?: string
+  /** Additional CSS class */
+  className?: string
 }
 
-/** Resting heights (0–1) of the seven bars: a speech envelope that peaks in the middle. */
-const BARS = [0.34, 0.58, 0.82, 1, 0.74, 0.5, 0.3] as const
-const BAR_W = 6
-const GAP = 5
-const H = 44
-const W = BARS.length * BAR_W + (BARS.length - 1) * GAP
+const COUNT_BARS = 16
+const SPOKES = Array.from({ length: COUNT_BARS }, (_, i) => i)
 
 /**
- * HireRighttt's loading mark: a voice waveform. The product is a spoken AI interview, so the wait is shown
- * as the sound of one — seven rounded bars in the brand gradient that swell and settle out of phase,
- * like a speaker finding their rhythm. Shown on a light frosted veil (see GlobalLoadingIndicator), never with
- * a text tag.
+ * Classic radial spinner: 16 rounded spokes radiating in a circle with a rotating fade,
+ * in vivid electric blue (#015bf5) exactly matching the reference design.
  */
-export function SignalLoader({ size = 56, label = 'Loading' }: Props) {
-  const gradientId = `hr-signal-${useId().replace(/:/g, '')}`
+export function ClassicSpinner({
+  size = 56,
+  color = 'var(--hr-brand-solid, #015bf5)',
+  label = 'Loading',
+  className = '',
+}: Props) {
   return (
-    <span className={styles.wrap} role="status" aria-live="polite">
+    <span
+      className={`${styles.wrap} ${className}`.trim()}
+      role="status"
+      aria-live="polite"
+      style={{ width: size, height: size }}
+    >
       <svg
         className={styles.svg}
+        width={size}
         height={size}
-        width={Math.round((size * W) / H)}
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox="0 0 100 100"
         fill="none"
         aria-hidden="true"
         focusable="false"
       >
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2={W} y2="0" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="var(--hr-brand-gradient-start, #5046e5)" />
-            <stop offset="1" stopColor="var(--hr-brand-gradient-end, #4f95ff)" />
-          </linearGradient>
-        </defs>
-        {BARS.map((level, i) => {
-          const h = H * level
+        {SPOKES.map((i) => {
+          const angle = (360 / COUNT_BARS) * i
+          // Negative delay so the wave starts immediately with spoke 0 at full opacity
+          const delay = (((i / COUNT_BARS) - 1) * 0.96).toFixed(4)
+          const baseOpacity = Math.max(0.08, 1 - (i / COUNT_BARS) * 0.92).toFixed(2)
           return (
-            <rect
+            <line
               key={i}
-              className={styles.bar}
-              style={{ ['--hr-bar-delay' as string]: `${i * 0.11}s`, ['--hr-bar-rest' as string]: level }}
-              x={i * (BAR_W + GAP)}
-              y={(H - h) / 2}
-              width={BAR_W}
-              height={h}
-              rx={BAR_W / 2}
-              fill={`url(#${gradientId})`}
+              className={styles.spoke}
+              x1="50"
+              y1="7"
+              x2="50"
+              y2="23"
+              stroke={color}
+              strokeWidth="6.5"
+              strokeLinecap="round"
+              transform={`rotate(${angle} 50 50)`}
+              style={{
+                ['--spoke-delay' as string]: `${delay}s`,
+                ['--spoke-base-opacity' as string]: baseOpacity,
+                opacity: baseOpacity,
+              }}
             />
           )
         })}
@@ -62,6 +72,11 @@ export function SignalLoader({ size = 56, label = 'Loading' }: Props) {
     </span>
   )
 }
+
+/**
+ * SignalLoader renders the Classic Spinner loading effect across the app.
+ */
+export const SignalLoader = ClassicSpinner
 
 /**
  * Placeholder for a page that is still fetching what it needs. It keeps the page's height and asks the one

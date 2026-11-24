@@ -8,11 +8,11 @@ import styles from './GlobalLoadingIndicator.module.css'
 const EXCLUDED = [/^\/login/, /^\/signup/, /^\/organizations\/signup/, /^\/forgot-password/, /^\/reset-password/, /^\/logout/, /^\/interview(\/now)?$/]
 
 /** Instant responses show nothing. */
-const BAR_AFTER_MS = 200
-/** A wait that is still going after this long gets the full mark on a veil. */
-const VEIL_AFTER_MS = 800
+const BAR_AFTER_MS = 100
+/** Veil appears almost immediately (80ms) so background clicks/actions are promptly blocked. */
+const VEIL_AFTER_MS = 80
 /** Once up, stay long enough to read as intentional rather than a flicker. */
-const MIN_VISIBLE_MS = 450
+const MIN_VISIBLE_MS = 250
 /**
  * Long jobs (resume parsing, report generation) show their own progress on the page; after this long the
  * veil steps aside so it never traps someone behind a request that is slow to settle.
@@ -76,10 +76,30 @@ export function GlobalLoadingIndicator() {
     <>
       {showBar ? <div className={styles.bar} data-testid="global-loading-bar" aria-hidden="true" /> : null}
       {showVeil ? (
-        <div className={styles.veil} data-testid="global-loading">
-          <div className={styles.tile}>
-            <SignalLoader label="Loading" />
-          </div>
+        <div
+          className={styles.veil}
+          data-testid="global-loading"
+          onClick={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation()
+            e.preventDefault()
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Loading"
+        >
+          <SignalLoader label="Loading" size={56} />
         </div>
       ) : null}
     </>

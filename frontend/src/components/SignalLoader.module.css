@@ -2,39 +2,35 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  flex-shrink: 0;
 }
 
 .svg {
   display: block;
   overflow: visible;
-  max-width: 40vw;
-  height: auto;
+  width: 100%;
+  height: 100%;
 }
 
 /*
- * Each bar swells from its resting height to full and back, 1.2s, offset per bar so the wave travels
- * left to right. Scaling around the bar's own centre keeps the shape symmetrical.
+ * 16 radial spokes with a progressive fade.
+ * Spoke 0 starts at full opacity (1.0) and fades to 0.08, with negative delays
+ * creating a smooth clockwise sweep across the spokes.
+ * Note: Only animate opacity so SVG rotate transforms remain 100% stable and centered.
  */
-.bar {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: hr-voice 1.2s cubic-bezier(0.45, 0, 0.3, 1) infinite;
-  animation-delay: var(--hr-bar-delay, 0s);
+.spoke {
+  animation: classic-spinner-fade 0.96s linear infinite;
+  animation-delay: var(--spoke-delay, 0s);
+  will-change: opacity;
 }
 
-@keyframes hr-voice {
-  0%,
-  100% {
-    transform: scaleY(0.42);
-    opacity: 0.55;
-  }
-  45% {
-    transform: scaleY(1.18);
+@keyframes classic-spinner-fade {
+  0% {
     opacity: 1;
   }
-  70% {
-    transform: scaleY(0.7);
-    opacity: 0.85;
+  100% {
+    opacity: 0.08;
   }
 }
 
@@ -45,11 +41,10 @@
   min-height: 100dvh;
 }
 
-/* Reduced motion: a still waveform, no movement. */
+/* Reduced motion: still spinner with progressive radial opacities */
 @media (prefers-reduced-motion: reduce) {
-  .bar {
+  .spoke {
     animation: none;
-    opacity: 1;
-    transform: none;
+    opacity: var(--spoke-base-opacity, 0.5);
   }
 }
