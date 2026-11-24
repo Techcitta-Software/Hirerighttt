@@ -75,10 +75,25 @@ Resources:
         RestrictPublicBuckets: true
       OwnershipControls:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      CorsConfiguration:
+        CorsRules:
+          # The Candidates page shows the original résumé from a presigned URL. The bucket stays private.
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET, HEAD]
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
       LifecycleConfiguration:
-        Rules: # the free tier has 5 GB of S3: test recordings are removed after 30 days
-          - { Id: expire-test-files, Status: Enabled, ExpirationInDays: 30 }
-          - { Id: abort-stalled-uploads, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }
+        Rules:
+          # Interview videos are tagged retention=days-30. Résumés are not tagged, so they stay.
+          - Id: expire-recordings
+            Status: Enabled
+            Filter:
+              Tag: { Key: retention, Value: days-30 }
+            ExpirationInDays: 30
+          - Id: abort-stalled-uploads
+            Status: Enabled
+            Filter: { Prefix: "" }
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 }
   ReleasesBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -135,7 +150,7 @@ Resources:
           PolicyDocument:
             Statement:
               - Effect: Allow
-                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload]
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload, s3:PutObjectTagging, s3:GetObjectTagging]
                 Resource: !Sub "${FilesBucket.Arn}/*"
               - Effect: Allow
                 Action: s3:ListBucket

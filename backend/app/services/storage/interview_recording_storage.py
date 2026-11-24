@@ -227,9 +227,13 @@ async def store_interview_recording_bytes(**opts: Any) -> dict[str, Any]:
     bucket = s3_env()["bucket"]
     if fileobj is not None:
         # Streamed from the spooled upload (multipart for big files): a 100 MB video is never held in memory.
-        await asyncio.to_thread(upload_fileobj, key=object_key, fileobj=fileobj, content_type=content_type)
+        await asyncio.to_thread(
+            upload_fileobj, key=object_key, fileobj=fileobj, content_type=content_type, tags={"retention": "days-30"}
+        )
     else:
-        await asyncio.to_thread(upload_object, key=object_key, body=bytes(data), content_type=content_type)
+        await asyncio.to_thread(
+            upload_object, key=object_key, body=bytes(data), content_type=content_type, tags={"retention": "days-30"}
+        )
     try:
         recording_id = await asyncio.to_thread(
             rec_repo.insert_interview_recording,

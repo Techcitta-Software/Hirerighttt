@@ -13,6 +13,20 @@ concurrency:
   cancel-in-progress: false # never interrupt a release half-way
 
 jobs:
+  # A push with the variables unset used to finish green and skipped. This job says why no release happened.
+  ready:
+    if: vars.AWS_DEPLOY_ROLE_ARN == '' || vars.AWS_TEST_DEPLOY != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy is not turned on
+        run: |
+          echo "This repository has not turned on the AWS test deploy."
+          echo "Settings -> Secrets and variables -> Actions -> Variables:"
+          echo "  AWS_DEPLOY_ROLE_ARN = the hireright-github-deploy role ARN"
+          echo "  AWS_TEST_DEPLOY = true"
+          echo "Settings -> Environments -> create an environment named test."
+          exit 1
+
   test:
     if: vars.AWS_DEPLOY_ROLE_ARN != '' && vars.AWS_TEST_DEPLOY == 'true'
     uses: ./.github/workflows/ci.yml

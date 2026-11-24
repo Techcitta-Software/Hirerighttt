@@ -142,7 +142,7 @@ def delete_object(key: str) -> None:
         _client().delete_object(Bucket=bucket, Key=key)
 
 
-def upload_fileobj(*, key: str, fileobj: Any, content_type: str) -> dict[str, str]:
+def upload_fileobj(*, key: str, fileobj: Any, content_type: str, tags: dict[str, str] | None = None) -> dict[str, str]:
     """Stream a (spooled) file to S3 without reading it into memory first (multipart for large files)."""
     from app.services.storage.s3_key_layout import assert_writable_user_object_key
 
@@ -151,13 +151,14 @@ def upload_fileobj(*, key: str, fileobj: Any, content_type: str) -> dict[str, st
     if expected and expected != bucket:
         raise RuntimeError(f'S3_BUCKET="{bucket}" does not match S3_EXPECTED_BUCKET="{expected}". Fix repo-root .env.')
     safe_key = assert_writable_user_object_key(key)
-    _client().upload_fileobj(
-        fileobj, bucket, safe_key, ExtraArgs={"ContentType": content_type, "ServerSideEncryption": "AES256"}
-    )
+    extra: dict[str, Any] = {"ContentType": content_type, "ServerSideEncryption": "AES256"}
+    if tags:
+        extra["Tagging"] = "&".join(f"{k}={v}" for k, v in tags.items())
+    _client().upload_fileobj(fileobj, bucket, safe_key, ExtraArgs=extra)
     return {"bucket": bucket, "key": safe_key}
 
 
-def upload_object(*, key: str, body: bytes, content_type: str) -> dict[str, str]:
+def upload_object(*, key: str, body: bytes, content_type: str, tags: dict[str, str] | None = None) -> dict[str, str]:
     from app.services.storage.s3_key_layout import assert_writable_user_object_key
 
     bucket = os.environ["S3_BUCKET"]
@@ -167,11 +168,14 @@ def upload_object(*, key: str, body: bytes, content_type: str) -> dict[str, str]
             f'S3_BUCKET="{bucket}" does not match S3_EXPECTED_BUCKET="{expected}". Fix repo-root .env.'
         )
     safe_key = assert_writable_user_object_key(key)
-    _client().put_object(
-        Bucket=bucket,
-        Key=safe_key,
-        Body=body,
-        ContentType=content_type,
-        ServerSideEncryption="AES256",
-    )
+    params: dict[str, Any] = {
+        "Bucket": bucket,
+        "Key": safe_key,
+        "Body": body,
+        "ContentType": content_type,
+        "ServerSideEncryption": "AES256",
+    }
+    if tags:
+        params["Tagging"] = "&".join(f"{k}={v}" for k, v in tags.items())
+    _client().put_object(**params)
     return {"bucket": bucket, "key": safe_key}
