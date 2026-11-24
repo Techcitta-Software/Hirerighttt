@@ -7,6 +7,7 @@ import { mapOrgCandidate } from '../../lib/employerCandidateUtils'
 import { ApplicantsSearch } from './ApplicantsSearch'
 import {
   appliedJobsLabel,
+  jobPageJobsLabel,
   patchApplicantRows,
   projectApplicantToJobs,
   rowHasApplicationId,
@@ -145,5 +146,22 @@ describe('two-job applicant', () => {
     expect(be).toContain('id="tuple-name-app-be"')
     expect(be).toContain('>Shortlisted<')
     expect(be).toContain('Frontend Engineer interview')
+  })
+})
+
+describe('Job page: the Applied to chip', () => {
+  it('names only the other jobs on the page of one job', () => {
+    const one = { jobId: 'j1', jobTitle: 'Backend', applications: [{ jobId: 'j1', jobTitle: 'Backend' }] } as never
+    const two = {
+      jobId: 'j1',
+      jobTitle: 'Backend',
+      applications: [
+        { jobId: 'j1', jobTitle: 'Backend' },
+        { jobId: 'j2', jobTitle: 'Frontend' },
+      ],
+    } as never
+    expect(jobPageJobsLabel(one, 'j1')).toBe('')
+    expect(jobPageJobsLabel(two, 'j1')).toBe('Also applied to: Frontend')
+    expect(jobPageJobsLabel(two, 'j2')).toBe('Also applied to: Backend')
   })
 })

@@ -9,7 +9,7 @@ import {
 } from '../../lib/applicantSearch'
 import { HrIcon } from '../HrIcon'
 import { Highlighted } from './Highlighted'
-import { appliedJobsLabel, scoreJobTitle } from './applicantJobs'
+import { appliedJobsLabel, jobPageJobsLabel, scoreJobTitle } from './applicantJobs'
 import styles from './Applicants.module.css'
 
 /** The current page's URL with this applicant's drawer open (filters, search and page kept). */
@@ -33,6 +33,10 @@ type Props = {
   now: number
   /** How many applicants of this row's job have a rank (rank is shown when 2 or more do). */
   rankTotal?: number
+  /** Candidates (the resume database): job-specific signals (rank, skills fit) show only when the person has them. */
+  directory?: boolean
+  /** Set on one job's own page: the "Applied to" chip then names only the person's other jobs. */
+  pageJobId?: string
   onToggleSelect: (id: string) => void
   onAction: (action: TupleAction, row: IndexedApplicant) => void
 }
@@ -64,6 +68,8 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   busy = '',
   now,
   rankTotal = 0,
+  directory = false,
+  pageJobId = '',
   onToggleSelect,
   onAction,
 }: Props) {
@@ -77,7 +83,9 @@ export const ApplicantTuple = memo(function ApplicantTuple({
     return terms.some((t) => k.includes(t) || t.includes(k))
   }
   const skills = [...row.skills].sort((x, y) => Number(skillHit(y)) - Number(skillHit(x))).slice(0, 8)
+  // A searched keyword in the resume shows where it appears; otherwise the resume's own summary (never its header).
   const snippet = keywordSnippet(a.resumeText, terms)
+  const summary = snippet ? '' : row.summary
   const exp = experienceLabel(row)
   const activeLabel = relativeActive(row.lastActive, now)
   const appliedLabel = a.appliedAt
@@ -85,7 +93,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
     : ''
   const showRank = typeof a.rank === 'number' && rankTotal >= 2
   // Several jobs: list them all, and say which job the interview score and the rank belong to.
-  const appliedToLabel = appliedJobsLabel(a)
+  const appliedToLabel = pageJobId ? jobPageJobsLabel(a, pageJobId) : appliedJobsLabel(a)
   const scoreFrom = scoreJobTitle(a)
   const multiJob = (a.applications?.length ?? 0) > 1
   const name = a.candidateName
@@ -204,12 +212,17 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             </span>
           ) : null}
           {appliedToLabel ? (
-            <span className={styles.jobChip} title={appliedToLabel.replace('Applied to:', 'Applied for')}>
+            <span className={styles.jobChip} title={appliedToLabel.replace(/^(Also applied|Applied) to:/, (m) => m.replace(' to:', ' for'))}>
               {appliedToLabel}
             </span>
-          ) : (
+          ) : pageJobId ? null : (
             <span>{sourceLabel(a.recordSource)}</span>
           )}
+          {a.contactHidden ? (
+            <span className={styles.lockText} title="Contact details are shared once this person applies to one of your jobs or opts in">
+              <HrIcon name="lock" size={11} /> Contact locked
+            </span>
+          ) : null}
           {shortlisted ? <span className={styles.statusText}>Shortlisted</span> : null}
           {saved ? <span className={styles.statusText}>Saved for later</span> : null}
           {row.education ? (
@@ -248,6 +261,10 @@ export const ApplicantTuple = memo(function ApplicantTuple({
           <p className={styles.snippet}>
             <Highlighted text={snippet} terms={terms} />
           </p>
+        ) : summary ? (
+          <p className={styles.summary} title={summary}>
+            <span className={styles.summaryLabel}>Summary</span> {summary}
+          </p>
         ) : null}
       </div>
 
@@ -272,6 +289,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             )}
           </dd>
         </div>
+        {directory && !showRank ? null : (
         <div>
           <dt>Rank</dt>
           <dd title={showRank ? `Rank among interviewed applicants for ${a.jobTitle}` : undefined}>
@@ -279,6 +297,8 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             {showRank && multiJob && a.jobTitle ? <span className={styles.sigNote}>{a.jobTitle}</span> : null}
           </dd>
         </div>
+        )}
+        {directory && row.fit === null ? null : (
         <div>
           <dt>Skills fit</dt>
           <dd title="How many of the role's required skills are on the resume and shown in the interview">
@@ -294,6 +314,8 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             )}
           </dd>
         </div>
+        )}
+        {directory && row.interview !== 'completed' ? null : (
         <div>
           <dt>Proctoring</dt>
           <dd>
@@ -310,6 +332,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             )}
           </dd>
         </div>
+        )}
       </dl>
 
       <div className={styles.tupleFoot}>

@@ -43,7 +43,7 @@ const STEP_TITLES: Record<WizardStep, { title: string; subtitle: string }> = {
   },
   3: {
     title: 'All set',
-    subtitle: 'Your profile and talent score are ready. Explore matched roles next.',
+    subtitle: 'Your profile is saved. Explore the roles that match it next.',
   },
 }
 
@@ -172,7 +172,7 @@ export function ProfileWizard() {
           showToast(
             emailRes.emailError
               ? `Slot saved, but email failed: ${emailRes.emailError}`
-              : 'Slot saved. Email could not be sent — use the invite link on step 4.',
+              : 'Slot saved. We couldn’t send the confirmation email right now; your slot is still booked.',
           )
         }
       } catch (err) {

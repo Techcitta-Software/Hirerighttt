@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import { HrIcon } from '../components/HrIcon'
 import { Score } from '../components/Score'
 import { ensureApiSession } from '../lib/apiSession'
-import { candidateScore, needsIntegrityReview } from '../lib/candidateSearch'
+import { candidateScore } from '../lib/candidateSearch'
 import { filterJobSeekerCandidates, isOwnOrgCandidate, mapOrgCandidate } from '../lib/employerCandidateUtils'
 import { getUser, type EmployerApplicant } from '../lib/store'
 import { fetchOrganizationCandidates, fetchVendorJobs, type VendorJob } from '../lib/vendorApi'
+import { vendorDashboardStats } from '../lib/vendorDashboardStats'
 import shell from './EmployerDashboard.module.css'
 import styles from './VendorDashboardPage.module.css'
+
 
 const PIPELINE: Array<{ status: EmployerApplicant['status']; label: string; tone: string }> = [
   { status: 'New', label: 'New', tone: styles.toneNew },
@@ -17,7 +19,6 @@ const PIPELINE: Array<{ status: EmployerApplicant['status']; label: string; tone
   { status: 'Rejected', label: 'Rejected', tone: styles.toneRejected },
 ]
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -73,34 +74,7 @@ export function VendorDashboardPage() {
     }
   }, [user?.email, user?.role])
 
-  const stats = useMemo(() => {
-    const jobIdsWithApplicants = new Set(candidates.map((c) => c.jobId).filter(Boolean))
-    const interviewed = candidates.filter((c) => Boolean(c.interviewResult))
-    const scores = interviewed.map((c) => candidateScore(c)).filter((s): s is number => s !== null)
-    const weekAgo = Date.now() - WEEK_MS
-    const byStatus: Record<string, number> = {}
-    for (const c of candidates) {
-      const key = c.status === 'Interviewing' ? 'In Review' : c.status
-      byStatus[key] = (byStatus[key] || 0) + 1
-    }
-    const perJob = jobs
-      .map((j) => ({ id: j.id, title: j.title, count: candidates.filter((c) => c.jobId === j.id).length }))
-      .sort((a, b) => b.count - a.count)
-    return {
-      allJobs: jobs.length,
-      activeJobs: jobs.filter((j) => jobIdsWithApplicants.has(j.id)).length,
-      totalCandidates: candidates.length,
-      interviewsCompleted: interviewed.length,
-      averageScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null,
-      strong: scores.filter((s) => s >= 70).length,
-      awaitingInterview: candidates.length - interviewed.length,
-      integrityReview: candidates.filter((c) => needsIntegrityReview(c)).length,
-      newThisWeek: candidates.filter((c) => new Date(c.appliedAt).getTime() >= weekAgo).length,
-      jobsWithoutApplicants: perJob.filter((j) => j.count === 0).length,
-      byStatus,
-      perJob,
-    }
-  }, [jobs, candidates])
+  const stats = useMemo(() => vendorDashboardStats(jobs, candidates, Date.now()), [jobs, candidates])
 
   const recent = useMemo(
     () => [...candidates].sort((a, b) => String(b.appliedAt).localeCompare(String(a.appliedAt))).slice(0, 6),
@@ -160,9 +134,9 @@ export function VendorDashboardPage() {
               <h1 className={shell.pageTitle}>Dashboard</h1>
               <p className={shell.pageSub}>{user?.companyName || 'Your organization'} · What needs you today and how hiring is going.</p>
             </div>
-            <div className={shell.pageActions}>
+            <div className={`${shell.pageActions} ${styles.headerActions}`}>
               <Link to="/employer/jobs" className={shell.btnSecondary}>
-                <HrIcon name="search" size={16} /> Open jobs
+                <HrIcon name="briefcase" size={16} /> Open jobs
               </Link>
               <Link to="/employer/jobs" state={{ createJob: true }} className={shell.btnPrimary}>
                 <HrIcon name="plus" size={16} /> Create job
@@ -426,7 +400,7 @@ export function VendorDashboardPage() {
               <Link to="/employer/jobs" className={styles.action}>
                 <HrIcon name="users" size={16} /> Review applicants and reports
               </Link>
-              <Link to="/resumes" className={styles.action}>
+              <Link to="/employer/candidates" className={styles.action}>
                 <HrIcon name="folder" size={16} /> Open candidates
               </Link>
             </div>

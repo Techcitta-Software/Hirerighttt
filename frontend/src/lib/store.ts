@@ -54,6 +54,10 @@ export type IntegrityLogEvent = {
   /** Server-computed offsets from the start of the recording (ms), for the review timeline. */
   startOffsetMs?: number
   endOffsetMs?: number
+  /** Share of analysed frames inside the interval that showed the deviation (0–1), from the face tracker. */
+  confidence?: number
+  /** Reviewer emphasis from the face tracker: multiple faces, or a deviation lasting 10 s or more, is `high`. */
+  level?: 'medium' | 'high'
   reviewOnly?: boolean
   candidateExplanation?: string
   timestamp: string

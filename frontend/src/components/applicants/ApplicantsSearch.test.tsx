@@ -143,7 +143,10 @@ describe('Candidates mode', () => {
     const html = render('/employer/applicants', { mode: 'candidates' })
     expect(html).toContain('Showing 1–3 of 3 candidates')
     expect(html).toContain('aria-label="Search candidates"')
-    expect(html).toContain('Show 3 candidates')
+    expect(html).toContain('Show candidates')
+    // Owner: the filters panel never shows numbers (no option counts, no count in the sheet button).
+    const panel = html.slice(html.indexOf('Clear all'), html.indexOf('Show candidates'))
+    expect(panel).not.toMatch(/checkCount|fChipCount/)
     const filters = rail(html)
     expect(filters).toContain('Current role')
     expect(filters).toContain('Frontend Developer')
@@ -161,18 +164,17 @@ describe('Candidates mode', () => {
     expect(filters).toContain('Score 80 and above')
     expect(filters).toContain('Score 60 and above')
     expect(filters).toContain('Not interviewed yet')
-    expect(filters).toContain('Has a resume')
-    expect(filters).toContain('No resume yet')
-    expect(filters).toContain('Any time')
-    expect(filters).toContain('Last 7 days')
-    expect(filters).toContain('Last 90 days')
+    // Owner removed the Resume and Last active filter groups.
+    expect(filters).not.toContain('Has a resume')
+    expect(filters).not.toContain('No resume yet')
+    expect(filters).not.toContain('Last 7 days')
+    expect(filters).not.toContain('id="fgroup-resume"')
+    expect(filters).not.toContain('id="fgroup-active"')
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Current role/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Key skills/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Experience/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Location \(mentioned in resume\)/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Interview/)
-    expect(html).toMatch(/aria-expanded="false"[^>]*>\s*Resume/)
-    expect(html).toMatch(/aria-expanded="false"[^>]*>\s*Last active/)
     expect(filters).not.toContain('id="fgroup-jobs"')
     expect(filters).not.toContain('id="fgroup-fit"')
     expect(filters).not.toContain('id="fgroup-source"')
@@ -225,7 +227,7 @@ describe('Candidates mode', () => {
 
 describe('Applicant drawer', () => {
   it('opens the original stored resume for a candidate, even when contact details are hidden', () => {
-    const html = render('/talent-vault?applicant=hid', {
+    const html = render('/employer/candidates?applicant=hid', {
       mode: 'candidates',
       applicants: [
         app({
@@ -243,9 +245,53 @@ describe('Applicant drawer', () => {
         }),
       ],
     })
-    expect(html).toContain('Original resume')
-    expect(html).toContain('Loading the resume')
-    expect(html).not.toContain('Highlighted text')
+    // Original file first (owner's choice); Formatted (Profile details) one click away.
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Original</)
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Formatted</)
+    expect(html).not.toContain('data-testid="profile-details"')
+    expect(html).toContain('>Original resume<')
+
+    const fileOnly = render('/employer/candidates?applicant=hid', {
+      mode: 'candidates',
+      applicants: [
+        app({
+          id: 'hid',
+          jobId: '',
+          jobTitle: '',
+          recordSource: 'platform',
+          candidateName: 'Hidden Person',
+          candidateEmail: '',
+          contactHidden: true,
+          candidateUserId: 'user-hid',
+          hasResumeFile: true,
+          resumeText: '',
+        }),
+      ],
+    })
+    expect(fileOnly).toContain('Original resume')
+    expect(fileOnly).toContain('Loading the resume')
+  })
+
+  it('locks the full interview report of a candidate with no link to this organisation', () => {
+    const html = render('/employer/candidates?applicant=hid&tab=report', {
+      mode: 'candidates',
+      applicants: [
+        app({
+          id: 'hid',
+          jobId: '',
+          jobTitle: '',
+          recordSource: 'platform',
+          candidateName: 'Hidden Person',
+          candidateEmail: '',
+          contactHidden: true,
+          resumeText: 'SKILLS\nGo',
+          interviewResult: { overall: 72, answers: [], strengths: [], improvements: [], reportRestricted: true } as never,
+        }),
+      ],
+    })
+    expect(html).toContain('data-testid="report-locked"')
+    expect(html).toContain('72/100')
+    expect(html).not.toContain('Open the full report and recording')
   })
 
   it('is closed without ?applicant and opens as a dialog for the applicant in the URL', () => {
@@ -255,7 +301,8 @@ describe('Applicant drawer', () => {
     expect(html).toMatch(/role="dialog" aria-modal="true" aria-labelledby="applicant-panel-name"/)
     expect(html).toContain('>Ananya Rao</h2>')
     expect(html).toContain('1 of 3')
-    expect(html).toContain('data-testid="resume-text"')
+    // Opens on the original file when one can be shown, otherwise the formatted text.
+    expect(html).toMatch(/data-testid="resume-text"|>Original resume</)
   })
 
   it('opens the tab named in the URL and keeps contact details behind the existing rule', () => {
@@ -265,7 +312,7 @@ describe('Applicant drawer', () => {
 
     const hidden = render('/employer/applicants?applicant=hid&tab=contact')
     expect(hidden).toContain('data-testid="contact-locked"')
-    expect(hidden).toContain('Invite to apply')
+    expect(hidden).toContain('Share a job&#x27;s apply link')
     expect(hidden).not.toContain('mailto:')
   })
 })
@@ -276,7 +323,7 @@ describe('Rename: Candidates → Applicants (vendor side)', () => {
     localStorage.setItem('hireright.session', 'r@acme.test')
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AppFooter)))
     expect(html).toContain('href="/employer/jobs"')
-    expect(html).toContain('href="/talent-vault"')
+    expect(html).toContain('href="/employer/candidates"')
     expect(html).toContain('>Candidates<')
     expect(html).not.toContain('href="/employer/applicants"')
   })

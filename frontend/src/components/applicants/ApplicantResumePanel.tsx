@@ -7,6 +7,7 @@ import { HrIcon } from '../HrIcon'
 import { handleDialogKeyDown } from '../useDialog'
 import { VideoProctorTimeline } from '../VideoProctorTimeline'
 import { Highlighted } from './Highlighted'
+import { ProfileDetails } from './ProfileDetails'
 import { ResumeFilePreview } from './ResumeFilePreview'
 import styles from './Applicants.module.css'
 import { appliedJobsLabel } from './applicantJobs'
@@ -46,6 +47,14 @@ type Props = {
  * with the proctoring recording, and contact details. Contact details are only what the API returned: it already
  * removes them for candidates with no link to this organisation who did not opt in, and this keeps that rule.
  */
+function ContactRemovedNote() {
+  return (
+    <span className={styles.resumeToolbarNote}>
+      <HrIcon name="lock" size={12} /> Email, phone and links are hidden until they apply or share them
+    </span>
+  )
+}
+
 export function ApplicantResumePanel({
   row,
   terms,
@@ -68,15 +77,25 @@ export function ApplicantResumePanel({
   const a = row.applicant
   const hasText = Boolean(a.resumeText?.trim())
   const contactVisible = Boolean(a.candidateEmail) && !a.contactHidden
-  const [resumeView, setResumeView] = useState<'text' | 'file'>(hasText ? 'text' : 'file')
+  // Applications: the original file follows the contact rule. Candidates: the stored file opens for anyone listed
+  // (the API decides; it serves the file only for people on this employer's Candidates list).
+  const canOriginal = originalResume
+    ? Boolean(a.hasResumeFile && (a.candidateUserId || a.candidateEmail))
+    : contactVisible
+  const person = originalResume ? 'candidate' : 'applicant'
+  const reportLocked = Boolean((a.interviewResult as { reportRestricted?: boolean } | undefined)?.reportRestricted || a.contactHidden)
+  // The original file opens first; "Formatted" switches to the extracted text with Profile details.
+  const defaultView: 'text' | 'file' = canOriginal || !hasText ? 'file' : 'text'
+  const [resumeView, setResumeView] = useState<'text' | 'file'>(defaultView)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
   // A different applicant: focus its name, start the resume at the top.
   useEffect(() => {
-    setResumeView(a.resumeText?.trim() ? 'text' : 'file')
+    setResumeView(defaultView)
     headingRef.current?.focus()
     if (bodyRef.current) bodyRef.current.scrollTop = 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when a different applicant opens
   }, [a.id, a.resumeText])
 
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
@@ -109,7 +128,7 @@ export function ApplicantResumePanel({
     >
       <header className={styles.panelHeader}>
         <div className={styles.panelNav}>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="Close applicant">
+          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label={`Close ${person}`}>
             <HrIcon name="close" size={16} />
           </button>
           <span className={styles.panelKeys} aria-hidden="true">
@@ -118,10 +137,10 @@ export function ApplicantResumePanel({
           <span className={styles.panelPos} aria-live="polite">
             {position.index + 1} of {position.total}
           </span>
-          <button type="button" className={styles.iconBtn} onClick={onPrev} disabled={!onPrev} aria-label="Previous applicant">
+          <button type="button" className={styles.iconBtn} onClick={onPrev} disabled={!onPrev} aria-label={`Previous ${person}`}>
             <span aria-hidden="true">‹</span>
           </button>
-          <button type="button" className={styles.iconBtn} onClick={onNext} disabled={!onNext} aria-label="Next applicant">
+          <button type="button" className={styles.iconBtn} onClick={onNext} disabled={!onNext} aria-label={`Next ${person}`}>
             <span aria-hidden="true">›</span>
           </button>
         </div>
@@ -212,70 +231,49 @@ export function ApplicantResumePanel({
       <div className={styles.panelBody} ref={bodyRef}>
         {tab === 'resume' ? (
           <section id="applicant-tabpanel-resume" role="tabpanel" aria-labelledby="applicant-tab-resume" tabIndex={0}>
-            {originalResume ? (
-              <div className={styles.resumeCanvas}>
-                <p className={styles.resumeCanvasLabel}>Original resume</p>
-                {a.hasResumeFile && (a.candidateUserId || a.candidateEmail) ? (
+            <div className={styles.resumeStack}>
+              {hasText && canOriginal ? (
+                <div className={styles.resumeToolbar}>
+                  <div className={styles.segmented} role="group" aria-label="Resume view">
+                    <button type="button" aria-pressed={resumeView === 'text'} onClick={() => setResumeView('text')}>
+                      Formatted
+                    </button>
+                    <button type="button" aria-pressed={resumeView === 'file'} onClick={() => setResumeView('file')}>
+                      Original
+                    </button>
+                  </div>
+                  {a.contactHidden && resumeView === 'text' ? <ContactRemovedNote /> : null}
+                </div>
+              ) : a.contactHidden && hasText ? (
+                <div className={styles.resumeToolbar}>
+                  <ContactRemovedNote />
+                </div>
+              ) : null}
+              {resumeView === 'text' && hasText ? (
+                <>
+                  <ProfileDetails row={row} terms={terms} />
+                  <h3 className={styles.resumeTextTitle}>Full resume text</h3>
+                  <div className={styles.resumeText} data-testid="resume-text">
+                    <Highlighted text={a.resumeText || ''} terms={terms} />
+                  </div>
+                </>
+              ) : canOriginal ? (
+                <div className={styles.resumeCanvasInline}>
+                  <p className={styles.resumeCanvasLabel}>Original resume</p>
                   <div className={styles.resumeSheet}>
                     <ResumeFilePreview
                       candidateEmail={a.candidateEmail}
-                      candidateUserId={a.candidateUserId}
+                      candidateUserId={originalResume ? a.candidateUserId : undefined}
                       candidateName={a.candidateName}
                       fallbackText={a.resumeText}
                       onDownload={onDownload}
                     />
                   </div>
-                ) : hasText ? (
-                  <article className={`${styles.resumeSheet} ${styles.resumeSheetText}`}>
-                    <h3 className={styles.resumeSheetName}>{a.candidateName}</h3>
-                    {a.role ? <p className={styles.resumeSheetRole}>{a.role}</p> : null}
-                    <div className={styles.resumeText} data-testid="resume-text">
-                      <Highlighted text={a.resumeText || ''} terms={terms} />
-                    </div>
-                  </article>
-                ) : (
-                  <p className={styles.panelNote}>No resume is stored for this candidate.</p>
-                )}
-              </div>
-            ) : (
-              <>
-                {hasText && contactVisible ? (
-                  <div className={styles.segmented} role="group" aria-label="Resume view">
-                    <button type="button" aria-pressed={resumeView === 'text'} onClick={() => setResumeView('text')}>
-                      Highlighted text
-                    </button>
-                    <button type="button" aria-pressed={resumeView === 'file'} onClick={() => setResumeView('file')}>
-                      Original file
-                    </button>
-                  </div>
-                ) : null}
-                {resumeView === 'text' && hasText ? (
-                  <>
-                    {row.skills.length ? (
-                      <ul className={styles.panelSkills} aria-label="Key skills">
-                        {row.skills.slice(0, 16).map((s) => (
-                          <li key={s} className={styles.skillChip}>
-                            <Highlighted text={s} terms={terms} />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <div className={styles.resumeText} data-testid="resume-text">
-                      <Highlighted text={a.resumeText || ''} terms={terms} />
-                    </div>
-                  </>
-                ) : contactVisible ? (
-                  <ResumeFilePreview
-                    candidateEmail={a.candidateEmail}
-                    candidateName={a.candidateName}
-                    fallbackText={a.resumeText}
-                    onDownload={onDownload}
-                  />
-                ) : (
-                  <p className={styles.panelNote}>No resume is available for this applicant.</p>
-                )}
-              </>
-            )}
+                </div>
+              ) : (
+                <p className={styles.panelNote}>No resume is stored for this {person}.</p>
+              )}
+            </div>
           </section>
         ) : tab === 'report' ? (
           <section id="applicant-tabpanel-report" role="tabpanel" aria-labelledby="applicant-tab-report" tabIndex={0}>
@@ -286,14 +284,18 @@ export function ApplicantResumePanel({
                     <dt>Interview score</dt>
                     <dd>{row.score !== null ? `${Math.round(row.score)}/100` : '—'}</dd>
                   </div>
-                  <div>
-                    <dt>Rank</dt>
-                    <dd>{showRank ? `#${a.rank} of ${rankTotal}` : '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Skills fit</dt>
-                    <dd>{row.fit !== null ? `${Math.round(row.fit)}%` : '—'}</dd>
-                  </div>
+                  {originalResume && !showRank ? null : (
+                    <div>
+                      <dt>Rank</dt>
+                      <dd>{showRank ? `#${a.rank} of ${rankTotal}` : '—'}</dd>
+                    </div>
+                  )}
+                  {originalResume && row.fit === null ? null : (
+                    <div>
+                      <dt>Skills fit</dt>
+                      <dd>{row.fit !== null ? `${Math.round(row.fit)}%` : '—'}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Proctoring</dt>
                     <dd className={row.flags > 0 ? styles.flagText : undefined}>
@@ -301,6 +303,15 @@ export function ApplicantResumePanel({
                     </dd>
                   </div>
                 </dl>
+                {reportLocked ? (
+                  <div className={styles.panelNote} data-testid="report-locked">
+                    <p>
+                      <HrIcon name="lock" size={14} /> <strong>The full report is locked.</strong> You can see the
+                      score. The answers, feedback and recording are shared once this person applies to one of your jobs.
+                    </p>
+                  </div>
+                ) : (
+                <>
                 <button type="button" className={styles.linkBtn} onClick={onOpenFullReport}>
                   Open the full report and recording <HrIcon name="arrow-up-right" size={12} />
                 </button>
@@ -324,11 +335,16 @@ export function ApplicantResumePanel({
                     />
                   </div>
                 ) : null}
+                </>
+                )}
               </>
             ) : (
               <div className={styles.panelNote}>
                 <p>
-                  <strong>No interview yet.</strong> Send an interview link and the report appears here once they finish.
+                  <strong>No interview yet.</strong>{' '}
+                  {contactVisible
+                    ? 'Send an interview link and the report appears here once they finish.'
+                    : 'Once they apply to one of your jobs, you can invite them and the report appears here.'}
                 </p>
                 {contactVisible ? (
                   <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={onInvite}>
@@ -366,7 +382,7 @@ export function ApplicantResumePanel({
                   person applies to one of your jobs or chooses to share them with recruiters.
                 </p>
                 <Link to="/employer/jobs" className={`${styles.actBtn} ${styles.actPrimary}`}>
-                  Invite to apply
+                  Share a job&apos;s apply link
                 </Link>
               </div>
             )}

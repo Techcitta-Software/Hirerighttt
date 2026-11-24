@@ -28,7 +28,7 @@ const OFFERINGS = [
   },
   {
     title: 'Shortlist and invite',
-    desc: 'Rank applicants, search the talent pool, and send interview invites by email.',
+    desc: 'Rank applicants, search candidates, and send interview invites by email.',
   },
 ]
 
@@ -133,19 +133,6 @@ function OrganizationSignupForm() {
           <p className={styles.lead}>
             For hiring teams: post a role, share a link, and review scored interviews instead of sorting resumes.
           </p>
-          <ol className={styles.steps}>
-            {OFFERINGS.map((o, i) => (
-              <li key={o.title}>
-                <span className={styles.num} aria-hidden="true">
-                  {i + 1}
-                </span>
-                <div>
-                  <h2 className={styles.stepTitle}>{o.title}</h2>
-                  <p className={styles.stepText}>{o.desc}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
         </section>
 
         <section className={styles.card} aria-labelledby="org-signup-title">
@@ -222,6 +209,21 @@ function OrganizationSignupForm() {
             </Link>
           </p>
         </section>
+
+        {/* After the form in the page order, so on a phone the form comes first; beside the intro on wide screens. */}
+          <ol className={styles.steps} aria-label="How it works">
+            {OFFERINGS.map((o, i) => (
+              <li key={o.title}>
+                <span className={styles.num} aria-hidden="true">
+                  {i + 1}
+                </span>
+                <div>
+                  <h2 className={styles.stepTitle}>{o.title}</h2>
+                  <p className={styles.stepText}>{o.desc}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
       </main>
     </div>
   )

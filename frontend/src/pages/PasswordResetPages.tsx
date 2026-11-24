@@ -4,6 +4,8 @@ import { MarketingNavBar } from '../components/MarketingNavBar'
 import { MarketingFooter } from '../components/MarketingFooter'
 import { apiRequestPasswordReset, apiResetPassword } from '../lib/api'
 import { MIN_PASSWORD_LENGTH } from '../lib/passwordRules'
+import { PasswordInput } from '../components/PasswordInput'
+import { emailFieldError } from '../lib/authFormValidation'
 import styles from './AuthPages.module.css'
 
 
@@ -29,6 +31,11 @@ export function ForgotPasswordPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     if (sending) return
+    const invalid = emailFieldError(email)
+    if (invalid) {
+      setError(invalid)
+      return
+    }
     setSending(true)
     setError('')
     try {
@@ -68,7 +75,7 @@ export function ForgotPasswordPage() {
       ) : (
         <>
           <p>Enter the email you use for HireRighttt and we’ll send you a link to choose a new password.</p>
-          <form className={styles.form} onSubmit={handleSubmit}>
+          <form className={styles.form} onSubmit={handleSubmit} noValidate>
             {error ? (
               <div className={styles.errorBanner} role="alert">
                 {error}
@@ -83,9 +90,13 @@ export function ForgotPasswordPage() {
                 spellCheck={false}
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  if (error) setError('')
+                }}
                 required
                 autoFocus
+                aria-invalid={error ? true : undefined}
               />
             </label>
             <button type="submit" className={styles.submit} disabled={sending} aria-busy={sending || undefined}>
@@ -180,7 +191,7 @@ export function ResetPasswordPage() {
       ) : (
         <>
           <p>Use at least {MIN_PASSWORD_LENGTH} characters. You’ll be signed out on all devices afterwards.</p>
-          <form className={styles.form} onSubmit={handleSubmit}>
+          <form className={styles.form} onSubmit={handleSubmit} noValidate>
             {error ? (
               <div className={styles.errorBanner} role="alert">
                 {error}
@@ -194,10 +205,12 @@ export function ResetPasswordPage() {
                 ) : null}
               </div>
             ) : null}
-            <label>
-              New password
-              <input
-                type="password"
+            <div className={styles.formGroup}>
+              <label htmlFor="reset-new-password" className={styles.formLabel}>
+                New password
+              </label>
+              <PasswordInput
+                id="reset-new-password"
                 name="new-password"
                 autoComplete="new-password"
                 placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
@@ -206,12 +219,16 @@ export function ResetPasswordPage() {
                 minLength={MIN_PASSWORD_LENGTH}
                 required
                 autoFocus
+                aria-invalid={/characters/.test(error) ? true : undefined}
+                inputClassName={styles.formInput}
               />
-            </label>
-            <label>
-              Confirm new password
-              <input
-                type="password"
+            </div>
+            <div className={styles.formGroup}>
+              <label htmlFor="reset-confirm-password" className={styles.formLabel}>
+                Confirm new password
+              </label>
+              <PasswordInput
+                id="reset-confirm-password"
                 name="confirm-password"
                 autoComplete="new-password"
                 placeholder="Type it again"
@@ -219,8 +236,10 @@ export function ResetPasswordPage() {
                 onChange={(e) => setConfirm(e.target.value)}
                 minLength={MIN_PASSWORD_LENGTH}
                 required
+                aria-invalid={/match/.test(error) ? true : undefined}
+                inputClassName={styles.formInput}
               />
-            </label>
+            </div>
             <button type="submit" className={styles.submit} disabled={saving} aria-busy={saving || undefined}>
               {saving ? (
                 <>

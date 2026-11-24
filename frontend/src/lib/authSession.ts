@@ -4,6 +4,7 @@
 import type { NavigateFunction } from 'react-router-dom'
 import { consumeInviteReturn, peekInviteReturn, rememberInviteReturn } from './inviteReturn'
 import { apiMe, getApiToken, setApiToken } from './api'
+import { isNetworkFailure } from './networkFailure'
 import { initialFormData, type ProfileFormData } from '../data/wizard'
 import { isOnboardingComplete, onboardingResumeStep, ONBOARDING_STEP_COUNT } from './onboardingProgress'
 import { getProfile, getUser, logout, saveProfile, type User } from './store'
@@ -55,9 +56,17 @@ export function hasLocalSession(): boolean {
 
 /** True when Bearer token is valid and matches the locally stored user email. */
 export async function isApiSessionValid(): Promise<boolean> {
+  return (await apiSessionStatus()) === 'valid'
+}
+
+/**
+ * 'valid' / 'invalid' as the API answered, or 'offline' when no answer came (network down, timeout, or the request
+ * was aborted because the page is navigating away). Only 'invalid' may sign the person out.
+ */
+export async function apiSessionStatus(): Promise<'valid' | 'invalid' | 'offline'> {
   const user = getUser()
-  if (!user?.email?.trim()) return false
-  if (!getApiToken()) return false
+  if (!user?.email?.trim()) return 'invalid'
+  if (!getApiToken()) return 'invalid'
   const expected = user.email.trim().toLowerCase()
   const now = Date.now()
   if (
@@ -66,7 +75,7 @@ export async function isApiSessionValid(): Promise<boolean> {
     sessionValidCache.ok &&
     now - sessionValidCache.at < SESSION_VALID_CACHE_MS
   ) {
-    return true
+    return 'valid'
   }
   try {
     const me = (await apiMe()) as { user?: { email?: string } }
@@ -78,19 +87,21 @@ export async function isApiSessionValid(): Promise<boolean> {
         const aligned = synced?.email?.trim().toLowerCase()
         if (aligned && aligned === tokenEmail) {
           sessionValidCache = { email: tokenEmail, ok: true, at: now }
-          return true
+          return 'valid'
         }
       }
       setApiToken(null)
       sessionValidCache = { email: expected, ok: false, at: now }
-      return false
+      return 'invalid'
     }
     sessionValidCache = { email: expected, ok: true, at: now }
-    return true
-  } catch {
+    return 'valid'
+  } catch (err) {
+    // No answer (offline, timeout, or aborted by a page navigation) is not a rejected token: keep the session.
+    if (isNetworkFailure(err)) return 'offline'
     setApiToken(null)
     sessionValidCache = { email: expected, ok: false, at: now }
-    return false
+    return 'invalid'
   }
 }
 

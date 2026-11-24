@@ -1,11 +1,8 @@
 name: Deploy to AWS test (free tier)
 
-# Every push to dev1 -> the free-tier test environment (infra/aws-free). Tests must pass first.
-# Off unless the repository variables AWS_DEPLOY_ROLE_ARN and AWS_TEST_DEPLOY=true are set
-# (infra/aws-free/bootstrap.sh prints them).
+# AWS is not the current release path. Vercel (vercel.json) and Render (render.yaml) are.
+# This workflow stays available as a manual run only.
 on:
-  push:
-    branches: [dev1]
   workflow_dispatch:
 
 concurrency:

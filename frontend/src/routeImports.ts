@@ -89,15 +89,14 @@ export function routeChunkForPath(pathname: string): RouteChunk | null {
   if (path.startsWith('/interview/invite/')) return 'interviewInvite'
   if (
     path === '/employer/jobs' ||
-    path === '/employer/applicants' ||
-    path === '/employer/candidates' ||
-    path === '/candidates'
+    path === '/employer/applicants'
   )
     return 'employer'
   if (path === '/employer/dashboard' || path === '/employer') return 'vendorDashboard'
   if (path.startsWith('/apply/')) return 'apply'
   if (path.startsWith('/jobs/')) return 'jobInvite'
-  if (path === '/resumes' || path === '/talent-vault') return 'resumes'
+  if (path === '/employer/candidates' || path === '/candidates' || path === '/resumes' || path === '/talent-vault')
+    return 'resumes'
   if (path === '/onboarding') return 'onboarding'
   if (path === '/contact') return 'contact'
   if (path === '/forgot-password' || path === '/reset-password') return 'passwordReset'

@@ -61,11 +61,11 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
     // The calendar event opens the candidate's own invite link (their slot, their job), not a generic interview.
     const inviteLink = localStorage.getItem('hireright.lastInviteUrl') || `${window.location.origin}/interview`
     const stamp = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
-    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRight//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + minutes * 60000))}`, `SUMMARY:HireRight ${minutes}-Minute AI Interview`, `URL:${inviteLink}`, `DESCRIPTION:Join your AI interview: ${inviteLink} — prepare your camera and microphone.`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
+    const content = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//HireRighttt//AI Interview//EN', 'BEGIN:VEVENT', `UID:${scheduled.getTime()}-interview@hireright.local`, `DTSTAMP:${stamp(new Date())}`, `DTSTART:${stamp(scheduled)}`, `DTEND:${stamp(new Date(scheduled.getTime() + minutes * 60000))}`, `SUMMARY:HireRighttt ${minutes}-Minute AI Interview`, `URL:${inviteLink}`, `DESCRIPTION:Join your AI interview: ${inviteLink} — prepare your camera and microphone.`, 'BEGIN:VALARM', 'TRIGGER:-PT15M', 'ACTION:DISPLAY', 'DESCRIPTION:Your AI interview starts in 15 minutes.', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
     const url = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
-    link.download = 'hireright-interview.ics'
+    link.download = 'hirerighttt-interview.ics'
     link.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
@@ -85,7 +85,7 @@ export function CompleteStep({ data, onEditStep }: CompleteStepProps) {
           </svg>
         </div>
         <div className={styles.bannerText}>
-          <h2 id="complete-title">All set, {name}</h2>
+          <h2 id="complete-title">Nice work, {name}</h2>
           <p className={styles.bannerLead}>
             {scheduled ? `Your ${minutes}-minute AI interview is confirmed.` : 'You’re ready for your AI interview.'}
           </p>

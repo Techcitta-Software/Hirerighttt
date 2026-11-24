@@ -170,6 +170,63 @@ export function resumeEducation(resumeText: string | undefined): string {
   return line.replace(/^[-*•\s]+/, '').slice(0, 140)
 }
 
+const SUMMARY_HEADING = /^(?:professional\s+|profile\s+|career\s+)?(?:summary|profile|objective|about(?:\s+me)?)\s*:?(?:\s|$)/i
+const EXPERIENCE_HEADING = /^(?:work\s+|professional\s+|employment\s+)?(?:experience|history|employment)\s*:?(?:\s|$)/i
+const BULLET = /^[-*•▪●]\s*/
+
+/** The resume's own summary paragraph (Summary / Profile / Objective section), one line, at most `max` characters. */
+export function resumeSummary(resumeText: string | undefined, max = 240): string {
+  const text = resumeSection(resumeText, SUMMARY_HEADING, 3)
+    .map((l) => l.replace(BULLET, '').trim())
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max - 20)).replace(/[,;:\s]+$/, '')}…`
+}
+
+export type ResumeRole = { title: string; company: string; location: string; period: string; points: string[] }
+
+/**
+ * Roles in the resume's Experience section: "Title, Company, City (Jun 2022 - Present)" or "Title at Company | 2021 -
+ * Present", each with its bullet points. Only lines that look like a role start one; never a guess beyond the text.
+ */
+export function resumeExperienceEntries(resumeText: string | undefined, maxRoles = 6): ResumeRole[] {
+  const lines = resumeSection(resumeText, EXPERIENCE_HEADING, 60)
+  const roles: ResumeRole[] = []
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (BULLET.test(line)) {
+      const last = roles.at(-1)
+      if (last && last.points.length < 4) last.points.push(line.replace(BULLET, '').trim())
+      continue
+    }
+    if (roles.length >= maxRoles) break
+    const periodMatch = line.match(/\(([^)]*\d{4}[^)]*)\)\s*$/) || line.match(/[|,–-]\s*((?:[A-Za-z]{3,9}\s+)?\d{4}\s*[-–—to]+\s*(?:present|current|now|(?:[A-Za-z]{3,9}\s+)?\d{4}))\s*$/i)
+    const period = periodMatch ? periodMatch[1].replace(/\s*[-–—]\s*/, ' – ').trim() : ''
+    const head = periodMatch ? line.slice(0, periodMatch.index).replace(/[\s|,–-]+$/, '') : line
+    const at = head.match(/^(.{2,80}?)\s+(?:at|@)\s+(.{2,80})$/i)
+    const parts = at ? [at[1], ...at[2].split(/\s*[,|]\s*/)] : head.split(/\s*[,|]\s*/)
+    const [title = '', company = '', location = ''] = parts.map((p) => p.trim())
+    if (!title || title.length > 80 || (!company && !period)) {
+      // A plain sentence under Experience: add it to the previous role's points.
+      const last = roles.at(-1)
+      if (last && last.points.length < 4 && line.length > 3) last.points.push(line)
+      continue
+    }
+    roles.push({ title, company, location, period, points: [] })
+  }
+  return roles
+}
+
+/** Every line of the Education section ("B.Tech IT, Anna University, 2020"). */
+export function resumeEducationEntries(resumeText: string | undefined): string[] {
+  return resumeSection(resumeText, EDUCATION_HEADING, 4)
+    .map((l) => l.replace(BULLET, '').trim())
+    .filter(Boolean)
+}
+
 /** Sources where the application's `primarySkills` are the JOB's skills, not the candidate's. */
 const JOB_SKILL_SOURCES = new Set(['application', 'interview_report'])
 
@@ -458,6 +515,8 @@ export type IndexedApplicant = {
   lastActive: string
   interview: InterviewStatus
   education: string
+  /** The resume's summary paragraph (empty when it has none). */
+  summary: string
   /** Title / company / location from the resume headline line (empty when the resume has none). */
   headline: ResumeHeadline
   /** Trimmed lower-case role (applicant.role, else the headline title). Empty when neither exists. */
@@ -475,7 +534,15 @@ const lc = (v: unknown) => String(v ?? '').toLowerCase()
 
 export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
   const skills = applicantSkills(a)
-  const headline = resumeHeadline(a.resumeText)
+  const parsedHeadline = resumeHeadline(a.resumeText)
+  // No company on the headline line: the current (first) role in the Experience section, when its title matches.
+  let headline = parsedHeadline
+  if (parsedHeadline.title && !parsedHeadline.company) {
+    const current = resumeExperienceEntries(a.resumeText, 1)[0]
+    if (current?.company && current.title.toLowerCase() === parsedHeadline.title.toLowerCase()) {
+      headline = { ...parsedHeadline, company: current.company }
+    }
+  }
   const roleLabel = (a.role ?? '').trim() || headline.title.trim()
   return {
     applicant: a,
@@ -489,6 +556,7 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
     lastActive: lastActiveAt(a),
     interview: interviewStatusOf(a),
     education: resumeEducation(a.resumeText),
+    summary: resumeSummary(a.resumeText),
     headline,
     roleKey: roleLabel.toLowerCase(),
     roleLabel,
@@ -882,19 +950,24 @@ export function keywordSnippet(text: string | undefined, terms: string[], radius
     if (i !== -1 && (at === -1 || i < at)) at = i
   }
   if (at === -1) return ''
-  let start = Math.max(0, at - radius)
-  let end = Math.min(text.length, at + radius)
+  // Stay on the line that has the keyword: a window across lines glued headings ("EXPERIENCE Data Engineer…") to text.
+  const lineStart = text.lastIndexOf('\n', at - 1) + 1
+  const nl = text.indexOf('\n', at)
+  const lineEnd = nl === -1 ? text.length : nl
+  let start = Math.max(lineStart, at - radius)
+  let end = Math.min(lineEnd, at + radius)
   // Whole words only: move the cut points to the nearest spaces.
-  if (start > 0) {
+  if (start > lineStart) {
     const space = text.slice(start, at).search(/\s/)
     if (space !== -1) start += space + 1
   }
-  if (end < text.length) {
+  if (end < lineEnd) {
     const tail = text.slice(at, end)
     const space = Math.max(tail.lastIndexOf(' '), tail.lastIndexOf('\n'))
     if (space > 0) end = at + space
   }
-  return `${start > 0 ? '…' : ''}${text.slice(start, end).replace(/\s+/g, ' ').trim()}${end < text.length ? '…' : ''}`
+  const body = text.slice(start, end).replace(BULLET, '').replace(/\s+/g, ' ').trim()
+  return `${start > lineStart ? '…' : ''}${body}${end < lineEnd ? '…' : ''}`
 }
 
 /** "6 yrs", "1 yr", "<1 yr"; the raw text when it has no number; "" when unknown. */

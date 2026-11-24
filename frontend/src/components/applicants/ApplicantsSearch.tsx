@@ -12,8 +12,6 @@ import {
   interviewRadioOf,
   resultRangeLabel,
   searchApplicants,
-  type ActiveWithin,
-  type ApplicantFilters,
   type ApplicantSort,
   type FacetCount,
   type IndexedApplicant,
@@ -135,7 +133,6 @@ function CheckList({
             <label className={`${styles.checkRow} ${dead ? styles.checkRowMuted : ''}`}>
               <input type="checkbox" name={name} checked={checked} disabled={dead} onChange={() => onToggle(o.value)} />
               <span className={styles.checkLabel}>{o.label}</span>
-              <span className={styles.checkCount}>{o.count}</span>
             </label>
           </li>
         )
@@ -166,7 +163,6 @@ function RadioList({
           <label className={styles.checkRow}>
             <input type="radio" name={name} value={o.value} checked={value === o.value} onChange={() => onChange(o.value)} />
             <span className={styles.checkLabel}>{o.label}</span>
-            {typeof o.count === 'number' ? <span className={styles.checkCount}>{o.count}</span> : null}
           </label>
         </li>
       ))}
@@ -570,7 +566,7 @@ export function ApplicantsSearch({
 
       {notice ? (
         <div
-          className={`ds-alert ${notice.tone === 'error' ? 'ds-alert--error' : notice.tone === 'success' ? 'ds-alert--success' : ''} ${styles.notice}`}
+          className={`ds-alert ${notice.tone === 'error' ? 'ds-alert--error' : notice.tone === 'success' ? 'ds-alert--success' : 'ds-alert--info'} ${styles.notice}`}
           role={notice.tone === 'error' ? 'alert' : 'status'}
         >
           <span>{notice.text}</span>
@@ -684,7 +680,6 @@ export function ApplicantsSearch({
                         }
                       >
                         {s.label}
-                        <span className={styles.fChipCount}>{s.count}</span>
                       </button>
                     )
                   })}
@@ -743,38 +738,6 @@ export function ApplicantsSearch({
               />
             </FilterGroup>
 
-            <FilterGroup id="resume" title="Resume" open={openGroups.has('resume')} onToggle={toggleGroup}>
-              <RadioList
-                name="resume-choice"
-                value={effectiveFilters.resume || 'any'}
-                onChange={(v) => patchFilters({ resume: v === 'any' ? '' : (v as ApplicantFilters['resume']) })}
-                options={[
-                  { value: 'any', label: 'Any' },
-                  {
-                    value: 'yes',
-                    label: 'Has a resume',
-                    count: result.facets.resume.find((r) => r.value === 'yes')?.count ?? 0,
-                  },
-                  {
-                    value: 'no',
-                    label: 'No resume yet',
-                    count: result.facets.resume.find((r) => r.value === 'no')?.count ?? 0,
-                  },
-                ]}
-              />
-            </FilterGroup>
-
-            <FilterGroup id="active" title="Last active" open={openGroups.has('active')} onToggle={toggleGroup}>
-              <RadioList
-                name="active-within"
-                value={String(effectiveFilters.activeWithin)}
-                onChange={(v) => patchFilters({ activeWithin: Number(v) as ActiveWithin })}
-                options={[
-                  { value: '0', label: 'Any time' },
-                  ...result.facets.active.map((o) => ({ value: o.value, label: o.label, count: o.count })),
-                ]}
-              />
-            </FilterGroup>
               </>
             )}
           </div>
@@ -784,7 +747,7 @@ export function ApplicantsSearch({
               Clear all
             </button>
             <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={() => setFiltersOpen(false)}>
-              Show {result.rows.length} {result.rows.length === 1 ? person : people}
+              Show {people}
             </button>
           </div>
         </aside>
@@ -1005,6 +968,8 @@ export function ApplicantsSearch({
                     busy={busy[row.applicant.id]}
                     now={now}
                     rankTotal={row.applicant.jobId ? rankTotals[row.applicant.jobId] : 0}
+                    directory={mode === 'candidates'}
+                    pageJobId={mode === 'applications' && filters.jobs.length === 1 ? filters.jobs[0] : undefined}
                     onToggleSelect={toggleSelect}
                     onAction={onAction}
                   />

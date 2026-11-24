@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { requireApiForAuth } from '../lib/authConfig'
 import {
   clearStoredAuth,
-  isApiSessionValid,
+  apiSessionStatus,
   sessionRecentlyValidated,
   setAuthInvalidMessage,
 } from '../lib/authSession'
@@ -65,8 +65,10 @@ export function RequireAuth({ children, role }: Props) {
       }
 
       if (requireApiForAuth()) {
-        const valid = await isApiSessionValid()
-        if (!valid) {
+        // 'offline' (no answer, e.g. the request was cut off by a quick navigation) must not sign the person out;
+        // the page then shows its own "could not reach the server" state.
+        const status = await apiSessionStatus()
+        if (status === 'invalid') {
           verifiedEmail = null
           clearStoredAuth()
           setAuthInvalidMessage(INVALID_MSG)

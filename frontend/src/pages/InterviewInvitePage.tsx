@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { brandedInviteTitle } from '../lib/brandText'
 import { moonshineStt } from '../lib/moonshineStt'
 import { PageLoader } from '../components/SignalLoader'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -270,7 +271,7 @@ export function InterviewInvitePage() {
       <MarketingNavBar />
       <main className={styles.main}>
         <header className={styles.hero}>
-          <h1>{invite?.jobTitle || (error && !loading ? 'Invitation not available' : 'Your scheduled interview')}</h1>
+          <h1>{brandedInviteTitle(invite?.jobTitle) || (error && !loading ? 'Invitation not available' : 'Your scheduled interview')}</h1>
           <p className={styles.sub}>AI interview invitation{invite?.company ? ` from ${invite.company}` : ''}</p>
         </header>
 

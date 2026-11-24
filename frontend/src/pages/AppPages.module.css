@@ -291,6 +291,11 @@
 
 .select:disabled {
   cursor: default;
+  /* Read-only look, same as the read-only inputs beside it: browsers fade disabled select text further and a
+     chevron promises a menu that will not open. */
+  opacity: 1;
+  -webkit-text-fill-color: var(--ds-text-muted, #5f6686);
+  background-image: none;
 }
 
 .input[readonly]:focus {
@@ -636,6 +641,8 @@
 }
 
 .jobsInlineCta {
+  display: inline-block;
+  padding-block: 3px;
   font-weight: 600;
   color: var(--ds-brand, #5046e5);
   text-decoration: underline;

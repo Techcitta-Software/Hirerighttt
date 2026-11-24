@@ -77,6 +77,7 @@ def merge_server_integrity(session: dict, client: dict | None) -> dict:
     server saw cannot be cleared, and camera flags the server persisted (/api/interview/review-events) are always
     included. A client that sends an empty report no longer strips the flags."""
     from app.services.proctoring.persist_flags import review_logs_to_flag_sections
+    from app.services.proctoring.review_events import combine_review_logs
 
     client = dict(client or {})
     server = session.get("integrity") if isinstance(session.get("integrity"), dict) else {}
@@ -99,10 +100,8 @@ def merge_server_integrity(session: dict, client: dict | None) -> dict:
     server_logs = [e for e in (server_events if isinstance(server_events, list) else []) if isinstance(e, dict)]
     raw_logs = client.get("logs")
     client_logs = [e for e in (raw_logs if isinstance(raw_logs, list) else []) if isinstance(e, dict)][:1000]
-    by_id: dict = {}
-    for e in client_logs + server_logs:  # server copy wins for the same event id
-        by_id[e.get("id") or id(e)] = e
-    merged["logs"] = list(by_id.values())
+    # Server copy wins for the same event id, but keeps the longer duration (see combine_review_logs).
+    merged["logs"] = combine_review_logs(server_logs, client_logs) + [e for e in client_logs if not e.get("id")]
 
     raw_sections = client.get("flaggedSections")
     client_sections = [f for f in (raw_sections if isinstance(raw_sections, list) else []) if isinstance(f, dict)][:1000]

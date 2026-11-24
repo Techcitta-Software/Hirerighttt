@@ -1335,6 +1335,12 @@
     display: none;
   }
 
+  /* Equal, full-width device buttons on a phone (they were two ragged widths). */
+  .lobbyActions > button {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
   .lobby {
     padding-top: var(--space-4);
     padding-bottom: var(--space-12);

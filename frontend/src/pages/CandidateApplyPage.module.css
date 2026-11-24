@@ -636,8 +636,14 @@
 }
 
 @media (max-width: 420px) {
+  /* Two short facts side by side; the longer track spans the row (stacking all three wasted a full screen). */
   .facts {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .fact:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 

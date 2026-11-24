@@ -394,11 +394,12 @@
   cursor: not-allowed;
 }
 
+/* Solid fill, like the selected date: the chosen slot must read as chosen at a glance. */
 .slotActive,
 .slotActive:hover:not(:disabled) {
   border-color: var(--ds-brand, #5046e5);
-  background: var(--ds-brand-soft, #eef2ff);
-  color: var(--ds-brand-hover, #4338ca);
+  background: var(--ds-brand, #5046e5);
+  color: #ffffff;
   font-weight: 700;
 }
 

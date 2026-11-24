@@ -183,6 +183,11 @@ export function profileFieldChecks(
   ]
 }
 
+/** Missing items the candidate fixes on the profile page (the AI interview is its own next step). */
+export function profileGapsExcludingInterview(checks: ProfileFieldCheck[]): ProfileFieldCheck[] {
+  return checks.filter((c) => c.section !== 'interview')
+}
+
 export function profileCheckHref(check: ProfileFieldCheck): string {
   return check.href ?? `/profile#${check.section}`
 }

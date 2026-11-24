@@ -1,0 +1,56 @@
+# Render blueprint for the API. The site itself is the Vercel project (vercel.json).
+# Create it once: Render dashboard → New → Blueprint → this repo, branch dev1.
+# Fill the sync:false values in the dashboard. Do not put secrets in this file.
+services:
+  - type: web
+    name: hirerighttt-api
+    runtime: python
+    plan: free
+    region: singapore
+    branch: dev1
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips=*
+    healthCheckPath: /api/health/live
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.1"
+      - key: ENVIRONMENT
+        value: production
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: DB_POOL_MIN
+        value: "1"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: SIGNUP_ENABLED
+        value: "true"
+      - key: ALLOW_DEMO_ACCOUNTS
+        value: "false"
+      - key: AWS_REGION
+        value: ap-south-1
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: SMTP_EMAIL
+        sync: false
+      - key: SMTP_APP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

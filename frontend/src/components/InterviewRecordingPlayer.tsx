@@ -52,7 +52,6 @@ function InterviewRecordingPlayerInner({
   const landmarkerRef = useRef<FaceLandmarker | null>(null)
   const landmarkerTsRef = useRef(-1)
   const [duration, setDuration] = useState(durationHint && durationHint > 0 ? durationHint : 0)
-  const [currentTime, setCurrentTime] = useState(0)
   const [activeFlag, setActiveFlag] = useState<InterviewFlagSection | null>(null)
 
   const flaggedSections = useMemo(() => {
@@ -83,13 +82,10 @@ function InterviewRecordingPlayerInner({
       if (!video) return
       const t = Math.min(Math.max(0, sec), effectiveDuration)
       video.currentTime = t
-      setCurrentTime(t)
       void video.play().catch(() => {})
     },
     [effectiveDuration],
   )
-
-  const progressPct = effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0
 
   useEffect(() => {
     if (!employerReview) return
@@ -99,7 +95,8 @@ function InterviewRecordingPlayerInner({
     })
     return () => {
       cancelled = true
-      landmarkerRef.current?.close()
+      // The landmarker is a shared, cached instance (getPlaybackFaceLandmarker): closing it here broke the overlay
+      // the next time a recording was opened.
       landmarkerRef.current = null
     }
   }, [employerReview])
@@ -192,32 +189,11 @@ function InterviewRecordingPlayerInner({
             const d = videoRef.current?.duration
             if (d && Number.isFinite(d)) setDuration(d)
           }}
-          onTimeUpdate={() => {
-            const t = videoRef.current?.currentTime
-            if (t != null && Number.isFinite(t)) setCurrentTime(t)
-          }}
         >
           Your browser does not support video playback.
         </video>
         {employerReview ? (
           <canvas ref={canvasRef} className={styles.overlayCanvas} aria-hidden="true" />
-        ) : null}
-        {employerReview && flagCount > 0 ? (
-          <div className={styles.inVideoTimeline} aria-hidden="true">
-            <div className={styles.inVideoProgress} style={{ width: `${progressPct}%` }} />
-            {flaggedSections.map((flag, flagIndex) => {
-              const left = (flag.startSec / effectiveDuration) * 100
-              const width = Math.max(1.2, ((flag.endSec - flag.startSec) / effectiveDuration) * 100)
-              const isHigh = flag.severity === 'high' || flag.type === 'MULTI_FACE'
-              return (
-                <span
-                  key={flag.id ?? `flag-${flagIndex}`}
-                  className={isHigh ? styles.inVideoFlagHigh : styles.inVideoFlagMedium}
-                  style={{ left: `${left}%`, width: `${width}%` }}
-                />
-              )
-            })}
-          </div>
         ) : null}
         {activeFlag ? (
           <div className={styles.liveFlagBadge} role="status">
@@ -226,7 +202,7 @@ function InterviewRecordingPlayerInner({
         ) : null}
       </div>
 
-      {/* Red marks under the video wherever proctoring recorded a deviation; click one to jump there. */}
+      {/* The one proctoring bar: red marks under the video wherever a deviation was recorded; click one to jump there. */}
       <ProctorTimelineBar
         videoRef={videoRef}
         events={events}

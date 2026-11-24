@@ -59,6 +59,17 @@ def _with_ms_offsets(event: dict) -> dict:
     return event
 
 
+def _detector_fields(event: dict) -> dict:
+    """Optional face-tracker metadata: how consistent the signal was (0-1) and the reviewer emphasis."""
+    out: dict = {}
+    confidence = _finite_number(event.get("confidence"))
+    if confidence is not None:
+        out["confidence"] = round(min(1.0, max(0.0, confidence)), 3)
+    if event.get("level") in ("medium", "high"):
+        out["level"] = event["level"]
+    return out
+
+
 def merge_review_events(existing: list | None, incoming: list) -> list:
     if not isinstance(incoming, list) or len(incoming) > MAX_EVENTS_PER_BATCH:
         raise ValueError("Invalid review event batch.")
@@ -99,6 +110,7 @@ def merge_review_events(existing: list | None, incoming: list) -> list:
                 "severity": e.get("severity") if e["eventType"] in LOCKDOWN_TYPES and e.get("severity") in SEVERITIES else "warn",
                 "reviewOnly": False if e["eventType"] in LOCKDOWN_TYPES and e.get("reviewOnly") is False else True,
                 "candidateExplanation": (prev or {}).get("candidateExplanation") or "",
+                **_detector_fields(e),
                 **({"explainedAt": prev["explainedAt"]} if prev and prev.get("explainedAt") else {}),
             }
         )
@@ -118,5 +130,50 @@ def timeline_events(events: list | None) -> list:
         if start is None or start < 0:
             continue
         duration = _finite_number(e.get("durationSec"))
-        out.append(_with_ms_offsets({**e, "startOffsetSec": start, "durationSec": max(0.0, duration or 0.0)}))
+        if not e.get("id") or not isinstance(e.get("id"), str):
+            continue
+        out.append(
+            _with_ms_offsets(
+                {
+                    # Whitelisted: some entries come from the browser's copy inside the scored result.
+                    "id": e["id"][:100],
+                    "eventType": e["eventType"],
+                    "startOffsetSec": min(start, MAX_OFFSET_SEC),
+                    "durationSec": min(max(0.0, duration or 0.0), MAX_OFFSET_SEC),
+                    "message": str(e.get("message") or "")[:500],
+                    "severity": e.get("severity") if e.get("severity") in SEVERITIES else "warn",
+                    "timestamp": str(e.get("timestamp") or "")[:40],
+                    "formattedTime": str(e.get("formattedTime") or "")[:30],
+                    "reviewOnly": e.get("reviewOnly") is not False,
+                    "candidateExplanation": str(e.get("candidateExplanation") or "")[:2000],
+                    **_detector_fields(e),
+                }
+            )
+        )
     return sorted(out, key=lambda x: x["startOffsetSec"])[:MAX_EVENTS_PER_SESSION]
+
+
+def combine_review_logs(server_events: list | None, client_logs: list | None) -> list:
+    """Server-synced events plus the copy the browser sent with the scored result, one entry per id.
+
+    The final sync and the scoring request leave the browser at the same time, so either copy can be the newer one.
+    The server copy wins (it was validated on the way in) except that the longer duration is kept: an interval that
+    was still open at the last periodic sync must not be cut short. Events only the client copy has are kept too,
+    so a failed final sync does not drop them from the reviewer's timeline.
+    """
+    by_id: dict = {}
+    for e in client_logs or []:
+        if isinstance(e, dict) and e.get("id"):
+            by_id[e["id"]] = e
+    for e in server_events or []:
+        if not isinstance(e, dict) or not e.get("id"):
+            continue
+        prev = by_id.get(e["id"])
+        merged = dict(e)
+        if prev is not None:
+            prev_d = _finite_number(prev.get("durationSec"))
+            cur_d = _finite_number(e.get("durationSec"))
+            if prev_d is not None and (cur_d is None or prev_d > cur_d):
+                merged["durationSec"] = prev_d
+        by_id[e["id"]] = merged
+    return list(by_id.values())

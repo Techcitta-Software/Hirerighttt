@@ -18,9 +18,9 @@ describe('ReviewEventTracker', () => {
     expect(t.events[0]).toMatchObject({ eventType: 'SIDE_GAZE_LOOKING_AWAY', startOffsetSec: 10, durationSec: 7 })
   })
 
-  it('ignores brief glances below the threshold', () => {
+  it('ignores brief glances below the 1.5 s threshold', () => {
     const t = new ReviewEventTracker()
-    for (let s = 0; s <= 10; s += 0.5) t.sample(s >= 4 && s < 6 ? away : ok, s)
+    for (let s = 0; s <= 10; s += 0.5) t.sample(s >= 4 && s < 5 ? away : ok, s)
     expect(t.events).toEqual([])
   })
 
@@ -62,5 +62,48 @@ describe('ReviewEventTracker', () => {
       for (let k = 0; k < 6; k++, s += 1) t.sample(k < 5 ? away : ok, s)
     }
     expect(t.events.length).toBe(MAX_REVIEW_EVENTS)
+  })
+
+  it('records face-tracker observations (eye gaze) with ms offsets, confidence and a reason', () => {
+    const t = new ReviewEventTracker()
+    // ~6 fps: gaze off to the side from 12.0 s to 18.0 s (eyes only, head straight).
+    for (let i = 0; i <= 150; i++) {
+      const s = i / 6
+      t.sample(ok, s, Date.now(), obs({ eyeX: s >= 12 && s < 18 ? 0.7 : 0.02, irisX: 0 }))
+    }
+    t.finish(25)
+    expect(t.events).toHaveLength(1)
+    const e = t.events[0]
+    expect(e).toMatchObject({ eventType: 'SIDE_GAZE_LOOKING_AWAY', message: 'Eyes looking to the side', startOffsetMs: 12000 })
+    expect(e.endOffsetMs).toBe(18000)
+    expect(e.durationSec).toBeCloseTo(6, 3)
+    expect(e.confidence).toBe(1)
+    expect(e.level).toBe('medium')
+  })
+
+  it('records "camera unavailable" when frames cannot be analysed, without crashing', () => {
+    const t = new ReviewEventTracker()
+    const unavailable = { ...buildStatus(0), issue: 'unable_to_assess' as const, label: 'Camera unavailable — check that it is connected and allowed' }
+    for (let i = 0; i <= 60; i++) {
+      const s = i / 6
+      if (s < 4) t.sample(ok, s, Date.now(), obs())
+      else t.sample(unavailable, s, Date.now(), null)
+    }
+    t.finish(10)
+    expect(t.events).toHaveLength(1)
+    expect(t.events[0]).toMatchObject({ eventType: 'UNABLE_TO_ASSESS', startOffsetSec: 4, endOffsetMs: 10000 })
+    expect(t.events[0].message).toMatch(/Camera unavailable/)
+  })
+
+  it('keeps the same event (id and start) while it grows, so periodic syncs update it in place', () => {
+    const t = new ReviewEventTracker()
+    for (let i = 0; i <= 60; i++) t.sample(ok, i / 6, Date.now(), obs())
+    const ids: string[] = []
+    for (let i = 61; i <= 120; i++) {
+      t.sample(ok, i / 6, Date.now(), obs({ faceCount: 0 }))
+      if (t.events[0]) ids.push(`${t.events[0].id}@${t.events[0].startOffsetSec}`)
+    }
+    expect(new Set(ids).size).toBe(1)
+    expect(t.events[0].durationSec).toBeGreaterThan(8)
   })
 })

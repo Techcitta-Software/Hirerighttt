@@ -201,13 +201,25 @@ export function EmployerNotificationBell() {
                         )}
                       </span>
                       <span className={styles.itemBody}>
-                        <span className={styles.itemMeta}>
-                          <span className={styles.itemKind}>{kindLabel(n.kind)}</span>
-                          <span className={styles.itemTime} title={absoluteDate(n.createdAt)}>
-                            {timeAgo(n.createdAt)}
+                        {/* "New application" already names the kind: the title then takes the kind's place, beside the time. */}
+                        {n.title.toLowerCase().includes(kindLabel(n.kind).toLowerCase()) ? (
+                          <span className={styles.itemMeta}>
+                            <span className={styles.itemTitle}>{n.title}</span>
+                            <span className={styles.itemTime} title={absoluteDate(n.createdAt)}>
+                              {timeAgo(n.createdAt)}
+                            </span>
                           </span>
-                        </span>
-                        <span className={styles.itemTitle}>{n.title}</span>
+                        ) : (
+                          <>
+                            <span className={styles.itemMeta}>
+                              <span className={styles.itemKind}>{kindLabel(n.kind)}</span>
+                              <span className={styles.itemTime} title={absoluteDate(n.createdAt)}>
+                                {timeAgo(n.createdAt)}
+                              </span>
+                            </span>
+                            <span className={styles.itemTitle}>{n.title}</span>
+                          </>
+                        )}
                         <span className={styles.itemText}>{n.body}</span>
                       </span>
                       {!n.read && <span className={styles.unreadDot} aria-hidden="true" />}

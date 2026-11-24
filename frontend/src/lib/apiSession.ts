@@ -12,6 +12,7 @@ import {
   getApiToken,
   setApiToken,
 } from './api'
+import { isNetworkFailure } from './networkFailure'
 import { isSupabaseEnabled } from './supabaseClient'
 import { refreshSupabaseApiToken } from './supabaseAuth'
 import { syncProfileToSupabase } from './supabaseSync'
@@ -43,7 +44,10 @@ async function validateToken(expectedEmail?: string): Promise<boolean> {
     }
     tokenValidCache = { email: key, ok: true, at: now }
     return true
-  } catch {
+  } catch (err) {
+    // No answer at all (offline, timeout, or the request aborted because the page is navigating away) says nothing
+    // about the token: keep it. Clearing it here signed people out when they clicked through pages quickly.
+    if (isNetworkFailure(err)) return false
     setApiToken(null)
     tokenValidCache = { email: key, ok: false, at: now }
     return false

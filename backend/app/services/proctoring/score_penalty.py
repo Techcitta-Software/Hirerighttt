@@ -8,17 +8,47 @@ _DEVIATION_LOG_TYPES = frozenset(
     {"SIDE_GAZE_LOOKING_AWAY", "NO_FACE_SEEN", "MULTIPLE_FACES_DETECTED"},
 )
 _DEVIATION_FLAG_TYPES = frozenset({"LOOKING_SIDE", "NO_FACE", "MULTI_FACE"})
+# The face tracker marks a deviation on the review timeline once it lasts 1.5 s. Only sustained ones cost points:
+# looking away or leaving the frame must last at least this long (more than one face always counts).
+PENALTY_MIN_DURATION_SEC = 3.0
+
+
+def _duration_sec(item: dict) -> float | None:
+    value = item.get("durationSec")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        start, end = item.get("startSec"), item.get("endSec")
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)) and not isinstance(start, bool):
+            return float(end) - float(start)
+        return None
+    return float(value)
+
+
+def _sustained(item: dict, multi_face: bool) -> bool:
+    if multi_face:
+        return True
+    duration = _duration_sec(item)
+    return duration is None or duration >= PENALTY_MIN_DURATION_SEC
 
 
 def count_face_proctor_deviations(integrity: dict | None, proctoring: dict | None = None) -> int:
     integrity = integrity or {}
     sections = integrity.get("flaggedSections") if isinstance(integrity.get("flaggedSections"), list) else []
-    from_flags = sum(1 for f in sections if isinstance(f, dict) and str(f.get("type") or "") in _DEVIATION_FLAG_TYPES)
+    from_flags = sum(
+        1
+        for f in sections
+        if isinstance(f, dict)
+        and str(f.get("type") or "") in _DEVIATION_FLAG_TYPES
+        and _sustained(f, str(f.get("type")) == "MULTI_FACE")
+    )
     if from_flags:
         return from_flags
     logs = integrity.get("logs") if isinstance(integrity.get("logs"), list) else []
     from_logs = sum(
-        1 for e in logs if isinstance(e, dict) and str(e.get("eventType") or "") in _DEVIATION_LOG_TYPES
+        1
+        for e in logs
+        if isinstance(e, dict)
+        and str(e.get("eventType") or "") in _DEVIATION_LOG_TYPES
+        and _sustained(e, str(e.get("eventType")) == "MULTIPLE_FACES_DETECTED")
     )
     if from_logs:
         return from_logs

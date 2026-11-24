@@ -1,8 +1,19 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../components/BrandLogo'
 import { HrIcon } from '../components/HrIcon'
 import { PageLoader } from '../components/SignalLoader'
+import { PasswordInput } from '../components/PasswordInput'
+import {
+  emailFieldError,
+  firstInvalidField,
+  validateLoginFields,
+  validateSignupFields,
+  type FieldErrors,
+  type LoginField,
+  type SignupField,
+} from '../lib/authFormValidation'
+import { getPendingJob } from '../lib/pendingJobApply'
 import { MIN_PASSWORD_LENGTH, PASSWORD_RULE_TEXT, passwordRuleError } from '../lib/passwordRules'
 import {
   accountDisplayName,
@@ -29,9 +40,9 @@ import {
 } from '../lib/api'
 import { pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
 import { ensureNewJobseekerProfileOnServer } from '../lib/initCandidateProfile'
-import { isValidPhone, normalizePhone } from '../lib/phone'
+import { normalizePhone } from '../lib/phone'
 import { isAdminUser } from '../lib/adminAccess'
-import { readInviteEmail } from '../lib/inviteReturn'
+import { peekInviteReturn, readInviteEmail } from '../lib/inviteReturn'
 import { getDemoAccount, isDemoEmail } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
@@ -70,6 +81,9 @@ async function authenticateWithEmailPassword(
 
   let authenticatedUser: StoredUser | null = null
   let supabaseRejected = false
+  // The server's own rejection message ("Email or password is incorrect."), shown instead of a guess from the
+  // browser's local account list, which wrongly said "No account found" for real accounts with a wrong password.
+  let serverRejection = ''
 
   if (isSupabaseEnabled()) {
     const { error: sbErr } = await supabaseSignIn(targetEmail, password)
@@ -154,6 +168,7 @@ async function authenticateWithEmailPassword(
         if (message.toLowerCase().includes('role')) {
           return { user: null, error: message }
         }
+        serverRejection = message
       }
     }
   } catch {
@@ -190,9 +205,7 @@ async function authenticateWithEmailPassword(
     }
     return {
       user: null,
-      error: findUserByEmail(targetEmail)
-        ? 'Email or password is incorrect.'
-        : 'No account found for that email. Create one first.',
+      error: serverRejection || loginFailureMessage(targetEmail),
     }
   }
 
@@ -208,7 +221,38 @@ async function authenticateWithEmailPassword(
   return { user: authenticatedUser }
 }
 
+/** Fallback message when no server answered (offline / local accounts only). */
+function loginFailureMessage(targetEmail: string) {
+  return findUserByEmail(targetEmail)
+    ? 'Email or password is incorrect.'
+    : 'No account found for that email. Create one first.'
+}
+
 type AuthMode = 'login' | 'signup'
+
+const SIGNUP_FIELD_ORDER = ['name', 'company', 'email', 'phone', 'password', 'terms'] as const
+const SIGNUP_FIELD_IDS: Record<SignupField, string> = {
+  name: 'signup-name',
+  company: 'signup-company',
+  email: 'signup-email',
+  phone: 'signup-phone',
+  password: 'signup-pwd',
+  terms: 'signup-terms',
+}
+
+/** Inline message under a field; the id is wired to the field's aria-describedby. */
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null
+  return (
+    <p id={id} className={styles.fieldError}>
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 4.75v3.75M8 10.9v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+      {message}
+    </p>
+  )
+}
 
 /** Candidate / job seeker sign-up. Organization sign-up lives at /organizations/signup. */
 /** Checklist tick for the dark auth panel (drawn icon instead of a text glyph). */
@@ -265,6 +309,19 @@ export function LoginPage({
     () => new URLSearchParams(window.location.search).get('email') || readInviteEmail(),
   )
   const [loginPassword, setLoginPassword] = useState('')
+  const [loginErrors, setLoginErrors] = useState<FieldErrors<LoginField>>({})
+  const [signupErrors, setSignupErrors] = useState<FieldErrors<SignupField>>({})
+  const formRef = useRef<HTMLFormElement | null>(null)
+  // Synchronous guard: `loading` state is not updated yet when Enter is pressed twice in the same tick.
+  const submittingRef = useRef(false)
+  // Where the visitor came from (a recruiter's job link or an emailed interview invite): shown above the form so
+  // signing in clearly continues that journey. Read once; the stores themselves are untouched here.
+  const [arrivalContext] = useState(() => {
+    const job = getPendingJob()
+    if (job && fixedRole !== 'employer') return { kind: 'job' as const, title: job.title, company: job.company }
+    if (peekInviteReturn()) return { kind: 'invite' as const }
+    return null
+  })
 
   const explicitLogin = Boolean(
     (location.state as { explicitLogin?: boolean } | null)?.explicitLogin,
@@ -343,6 +400,8 @@ export function LoginPage({
   function switchMode(newMode: AuthMode) {
     setAuthMode(newMode)
     setError('')
+    setLoginErrors({})
+    setSignupErrors({})
     if (newMode === 'signup') {
       setSuccessMessage('')
     }
@@ -398,11 +457,18 @@ export function LoginPage({
 
   async function handleLoginSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!loginEmail.trim() || !loginPassword.trim()) {
-      setError('Enter your email and password to continue.')
+    if (loading || submittingRef.current) return
+    const fieldErrors = validateLoginFields(loginEmail, loginPassword)
+    const firstInvalid = firstInvalidField(fieldErrors, ['email', 'password'] as const)
+    if (firstInvalid) {
+      setLoginErrors(fieldErrors)
+      setError('')
+      focusField(firstInvalid === 'email' ? 'login-email' : 'login-password')
       return
     }
+    setLoginErrors({})
     setError('')
+    submittingRef.current = true
     setLoading(true)
     const targetEmail = loginEmail.trim().toLowerCase()
 
@@ -429,38 +495,33 @@ export function LoginPage({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed. Check your details and try again.')
     } finally {
+      submittingRef.current = false
       setLoading(false)
     }
   }
 
   async function handleSignupSubmit(event: FormEvent) {
     event.preventDefault()
-    if (!signupName.trim() || !signupEmail.trim() || !signupPassword.trim()) {
-      setError('Fill in all required fields to create your account.')
+    if (loading || submittingRef.current) return
+    const fieldErrors = validateSignupFields({
+      name: signupName,
+      email: signupEmail,
+      phone: signupPhone,
+      password: signupPassword,
+      companyName: signupCompanyName,
+      needsCompany: signupRole === 'employer',
+      termsAgreed,
+    })
+    const firstInvalid = firstInvalidField(fieldErrors, SIGNUP_FIELD_ORDER)
+    if (firstInvalid) {
+      setSignupErrors(fieldErrors)
+      setError('')
+      focusField(SIGNUP_FIELD_IDS[firstInvalid])
       return
     }
-    if (signupRole === 'employer' && !signupCompanyName.trim()) {
-      setError('Enter your vendor or company name.')
-      return
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signupEmail.trim())) {
-      setError('Enter a valid email address.')
-      return
-    }
-    const passwordError = passwordRuleError(signupPassword)
-    if (passwordError) {
-      setError(passwordError)
-      return
-    }
-    if (!isValidPhone(signupPhone)) {
-      setError('Enter a valid mobile number (10–15 digits, with country code if needed).')
-      return
-    }
-    if (!termsAgreed) {
-      setError('Please agree to the Terms of Use and Privacy Policy.')
-      return
-    }
+    setSignupErrors({})
     setError('')
+    submittingRef.current = true
     setLoading(true)
 
     try {
@@ -566,8 +627,30 @@ export function LoginPage({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account.')
     } finally {
+      submittingRef.current = false
       setLoading(false)
     }
+  }
+
+  function clearSignupError(field: SignupField) {
+    if (signupErrors[field]) setSignupErrors((prev) => ({ ...prev, [field]: undefined }))
+  }
+
+  /** aria + class wiring for a plain signup <input> (password uses PasswordInput's own props). */
+  function invalidProps(field: SignupField, hintId?: string) {
+    const message = signupErrors[field]
+    return {
+      'aria-invalid': message ? true : undefined,
+      'aria-describedby': message ? `${SIGNUP_FIELD_IDS[field]}-error` : hintId,
+      className: `${styles.formInput} ${message ? styles.formInputInvalid : ''}`,
+    }
+  }
+
+  function focusField(id: string) {
+    window.requestAnimationFrame(() => {
+      const el = formRef.current?.querySelector<HTMLElement>(`#${id}`) ?? document.getElementById(id)
+      el?.focus()
+    })
   }
 
   if (resumingSession) {
@@ -659,11 +742,38 @@ export function LoginPage({
             /* LOGIN VIEW */
             <div className={styles.authContainer}>
               <header className={styles.formHeader}>
-                <h1 className={styles.welcomeTitle}>Welcome</h1>
-                <p className={styles.welcomeSub}>Candidates and hiring teams sign in here.</p>
+                <h1 className={styles.welcomeTitle}>Sign in to HireRighttt</h1>
+                <p className={styles.welcomeSub}>One sign-in for candidates and hiring teams.</p>
               </header>
 
-              <form className={styles.loginForm} onSubmit={handleLoginSubmit}>
+              {arrivalContext ? (
+                <div className={styles.contextBanner} role="note">
+                  <HrIcon name={arrivalContext.kind === 'job' ? 'briefcase' : 'calendar'} size={18} />
+                  <p>
+                    {arrivalContext.kind === 'job' ? (
+                      <>
+                        You’re applying for <strong>{arrivalContext.title}</strong>
+                        {arrivalContext.company ? (
+                          <>
+                            {' '}at <strong>{arrivalContext.company}</strong>
+                          </>
+                        ) : null}
+                        . Sign in to continue your application.
+                      </>
+                    ) : (
+                      <>Sign in to open your interview invitation. You’ll go straight back to it.</>
+                    )}
+                  </p>
+                </div>
+              ) : null}
+
+              <form
+                ref={formRef}
+                className={styles.loginForm}
+                onSubmit={handleLoginSubmit}
+                noValidate
+                aria-busy={loading || undefined}
+              >
                 {successMessage ? (
                   <div className={styles.successBanner} role="status">
                     <HrIcon name="check" size={16} />
@@ -677,8 +787,9 @@ export function LoginPage({
                 ) : null}
 
                 {error && (
-                  <div className={styles.errorBanner} role="alert">
-                    {error}
+                  <div className={styles.errorBanner} role="alert" id="login-error">
+                    <HrIcon name="alert" size={16} />
+                    <span>{error}</span>
                   </div>
                 )}
 
@@ -688,15 +799,30 @@ export function LoginPage({
                   </label>
                   <input
                     id="login-email"
+                    name="email"
                     type="email"
+                    inputMode="email"
+                    autoCapitalize="none"
                     spellCheck={false}
                     value={loginEmail}
                     placeholder="you@example.com"
-                    onChange={(event) => setLoginEmail(event.target.value)}
+                    onChange={(event) => {
+                      setLoginEmail(event.target.value)
+                      if (loginErrors.email) setLoginErrors((prev) => ({ ...prev, email: undefined }))
+                    }}
+                    onBlur={() => {
+                      // Only flag a malformed address once something was typed; empty is checked on submit.
+                      if (loginEmail.trim()) {
+                        setLoginErrors((prev) => ({ ...prev, email: emailFieldError(loginEmail) }))
+                      }
+                    }}
                     autoComplete="email"
                     required
-                    className={styles.formInput}
+                    aria-invalid={loginErrors.email ? true : undefined}
+                    aria-describedby={loginErrors.email ? 'login-email-error' : undefined}
+                    className={`${styles.formInput} ${loginErrors.email ? styles.formInputInvalid : ''}`}
                   />
+                  <FieldError id="login-email-error" message={loginErrors.email} />
                 </div>
 
                 <div className={styles.formGroup}>
@@ -708,24 +834,27 @@ export function LoginPage({
                       Forgot password?
                     </Link>
                   </div>
-                  <input
+                  <PasswordInput
                     id="login-password"
-                    type="password"
+                    name="password"
                     value={loginPassword}
                     placeholder="Enter your password"
-                    onChange={(event) => setLoginPassword(event.target.value)}
+                    onChange={(event) => {
+                      setLoginPassword(event.target.value)
+                      if (loginErrors.password) setLoginErrors((prev) => ({ ...prev, password: undefined }))
+                    }}
                     autoComplete="current-password"
                     required
-                    className={styles.formInput}
+                    aria-invalid={loginErrors.password || error ? true : undefined}
+                    aria-describedby={
+                      loginErrors.password ? 'login-password-error' : error ? 'login-error' : undefined
+                    }
+                    inputClassName={`${styles.formInput} ${loginErrors.password ? styles.formInputInvalid : ''}`}
                   />
+                  <FieldError id="login-password-error" message={loginErrors.password} />
                 </div>
 
-                <button
-                  type="submit"
-                  className={styles.loginPillBtn}
-                  disabled={loading}
-                  aria-busy={loading || undefined}
-                >
+                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
                   {loading ? (
                     <>
                       <span className="ds-spinner" aria-hidden="true" /> Signing in…
@@ -734,33 +863,39 @@ export function LoginPage({
                     'Sign in'
                   )}
                 </button>
-
-                <div className={styles.authLinksBelow}>
-                  <p className={styles.subLinkLine}>
-                    New to HireRighttt?{' '}
-                    <button
-                      type="button"
-                      className={styles.switchModeLink}
-                      onClick={() => switchMode('signup')}
-                    >
-                      Create an account
-                    </button>
-                  </p>
-                  <p className={styles.subLinkLine}>
-                    Hiring?{' '}
-                    <Link to="/organizations/signup" className={styles.switchModeLink}>
-                      Create an organization account
-                    </Link>
-                  </p>
-                  <p className={styles.subLinkLine}>
-                    Just exploring?{' '}
-                    <Link to="/career-view" className={styles.discoveryLink}>
-                      Start my career discovery
-                    </Link>{' '}
-                    <span className={styles.noResumeText}>— no resume required.</span>
-                  </p>
-                </div>
+                <span className="ds-sr-only" role="status" aria-live="polite">
+                  {loading ? 'Signing you in' : ''}
+                </span>
               </form>
+
+              <div className={styles.authLinksBelow}>
+                <p className={styles.subLinkLine}>
+                  New to HireRighttt?{' '}
+                  <button
+                    type="button"
+                    className={styles.switchModeLink}
+                    onClick={() => switchMode('signup')}
+                  >
+                    Create a free account
+                  </button>
+                </p>
+                <p className={styles.subLinkLine}>
+                  Just exploring?{' '}
+                  <Link to="/career-view" className={styles.discoveryLink}>
+                    See the 360° Career View
+                  </Link>
+                </p>
+              </div>
+
+              <div className={styles.orgCallout}>
+                <p className={styles.orgCalloutText}>
+                  <strong>Hiring?</strong> Set up a workspace for your team.
+                </p>
+                <Link to="/organizations/signup" className={styles.orgCalloutLink}>
+                  Create an organization account
+                  <HrIcon name="arrow-right" size={16} />
+                </Link>
+              </div>
             </div>
           ) : (
             /* SIGNUP VIEW */
@@ -776,7 +911,34 @@ export function LoginPage({
                 </p>
               </header>
 
-              <form className={styles.loginForm} onSubmit={handleSignupSubmit}>
+              {arrivalContext && signupRole !== 'employer' ? (
+                <div className={styles.contextBanner} role="note">
+                  <HrIcon name={arrivalContext.kind === 'job' ? 'briefcase' : 'calendar'} size={18} />
+                  <p>
+                    {arrivalContext.kind === 'job' ? (
+                      <>
+                        You’re applying for <strong>{arrivalContext.title}</strong>
+                        {arrivalContext.company ? (
+                          <>
+                            {' '}at <strong>{arrivalContext.company}</strong>
+                          </>
+                        ) : null}
+                        . Create your account to continue your application.
+                      </>
+                    ) : (
+                      <>Create your account to open your interview invitation.</>
+                    )}
+                  </p>
+                </div>
+              ) : null}
+
+              <form
+                ref={formRef}
+                className={styles.loginForm}
+                onSubmit={handleSignupSubmit}
+                noValidate
+                aria-busy={loading || undefined}
+              >
                 {sessionStorage.getItem('hireright.intent') === 'upload_resume' && (
                   <div className={styles.successBanner} role="status">
                     <HrIcon name="document" size={16} />
@@ -786,7 +948,8 @@ export function LoginPage({
 
                 {error && (
                   <div className={styles.errorBanner} role="alert">
-                    {error}
+                    <HrIcon name="alert" size={16} />
+                    <span>{error}</span>
                   </div>
                 )}
 
@@ -796,14 +959,19 @@ export function LoginPage({
                   </label>
                   <input
                     id="signup-name"
+                    name="name"
                     type="text"
                     value={signupName}
                     placeholder="Your name"
-                    onChange={(event) => setSignupName(event.target.value)}
+                    onChange={(event) => {
+                      setSignupName(event.target.value)
+                      clearSignupError('name')
+                    }}
                     autoComplete="name"
                     required
-                    className={styles.formInput}
+                    {...invalidProps('name')}
                   />
+                  <FieldError id="signup-name-error" message={signupErrors.name} />
                 </div>
 
                 {signupRole === 'employer' && (
@@ -813,13 +981,19 @@ export function LoginPage({
                     </label>
                     <input
                       id="signup-company"
+                      name="organization"
                       type="text"
                       value={signupCompanyName}
                       placeholder={orgTypeCopy.placeholder}
-                      onChange={(event) => setSignupCompanyName(event.target.value)}
+                      onChange={(event) => {
+                        setSignupCompanyName(event.target.value)
+                        clearSignupError('company')
+                      }}
+                      autoComplete="organization"
                       required
-                      className={styles.formInput}
+                      {...invalidProps('company')}
                     />
+                    <FieldError id="signup-company-error" message={signupErrors.company} />
                   </div>
                 )}
 
@@ -829,15 +1003,27 @@ export function LoginPage({
                   </label>
                   <input
                     id="signup-email"
+                    name="email"
                     type="email"
+                    inputMode="email"
+                    autoCapitalize="none"
                     spellCheck={false}
                     value={signupEmail}
                     placeholder="you@example.com"
-                    onChange={(event) => setSignupEmail(event.target.value)}
+                    onChange={(event) => {
+                      setSignupEmail(event.target.value)
+                      clearSignupError('email')
+                    }}
+                    onBlur={() => {
+                      if (signupEmail.trim()) {
+                        setSignupErrors((prev) => ({ ...prev, email: emailFieldError(signupEmail) }))
+                      }
+                    }}
                     autoComplete="email"
                     required
-                    className={styles.formInput}
+                    {...invalidProps('email')}
                   />
+                  <FieldError id="signup-email-error" message={signupErrors.email} />
                 </div>
 
                 <div className={styles.formGroup}>
@@ -846,64 +1032,89 @@ export function LoginPage({
                   </label>
                   <input
                     id="signup-phone"
+                    name="tel"
                     type="tel"
+                    inputMode="tel"
                     value={signupPhone}
                     placeholder="+91 98765 43210"
-                    onChange={(event) => setSignupPhone(event.target.value)}
+                    onChange={(event) => {
+                      setSignupPhone(event.target.value)
+                      clearSignupError('phone')
+                    }}
                     autoComplete="tel"
                     required
-                    className={styles.formInput}
+                    {...invalidProps('phone', 'signup-phone-hint')}
                   />
-                  <p className={styles.fieldHint}>
-                    {signupRole === 'employer'
-                      ? 'Used for account security and hiring notifications.'
-                      : 'Used for interview reminders and job applications.'}
-                  </p>
+                  {signupErrors.phone ? (
+                    <FieldError id="signup-phone-error" message={signupErrors.phone} />
+                  ) : (
+                    <p className={styles.fieldHint} id="signup-phone-hint">
+                      {signupRole === 'employer'
+                        ? 'Used for account security and hiring notifications.'
+                        : 'Used for interview reminders and job applications.'}
+                    </p>
+                  )}
                 </div>
 
                 <div className={styles.formGroup}>
                   <label htmlFor="signup-pwd" className={styles.formLabel}>
                     Password
                   </label>
-                  <input
+                  <PasswordInput
                     id="signup-pwd"
-                    type="password"
+                    name="new-password"
                     value={signupPassword}
-                    placeholder={PASSWORD_RULE_TEXT}
-                    onChange={(event) => setSignupPassword(event.target.value)}
+                    placeholder="Create a password"
+                    onChange={(event) => {
+                      setSignupPassword(event.target.value)
+                      clearSignupError('password')
+                    }}
                     autoComplete="new-password"
                     minLength={MIN_PASSWORD_LENGTH}
                     required
-                    className={styles.formInput}
+                    aria-invalid={signupErrors.password ? true : undefined}
+                    aria-describedby={signupErrors.password ? 'signup-pwd-error' : 'signup-pwd-hint'}
+                    inputClassName={`${styles.formInput} ${signupErrors.password ? styles.formInputInvalid : ''}`}
                   />
+                  {signupErrors.password ? (
+                    <FieldError id="signup-pwd-error" message={signupErrors.password} />
+                  ) : (
+                    <p className={styles.fieldHint} id="signup-pwd-hint">
+                      {PASSWORD_RULE_TEXT}.
+                    </p>
+                  )}
                 </div>
 
-                <label className={styles.termsRow}>
-                  <input
-                    type="checkbox"
-                    checked={termsAgreed}
-                    onChange={(e) => setTermsAgreed(e.target.checked)}
-                    required
-                  />
-                  <span>
-                    I agree to the{' '}
-                    <Link to="/terms" className={styles.termsLink}>
-                      Terms &amp; Conditions
-                    </Link>{' '}
-                    and have read the{' '}
-                    <Link to="/privacy" className={styles.termsLink}>
-                      Privacy Policy
-                    </Link>
-                    .
-                  </span>
-                </label>
+                <div className={styles.formGroup}>
+                  <label className={styles.termsRow} htmlFor="signup-terms">
+                    <input
+                      id="signup-terms"
+                      type="checkbox"
+                      checked={termsAgreed}
+                      onChange={(e) => {
+                        setTermsAgreed(e.target.checked)
+                        clearSignupError('terms')
+                      }}
+                      required
+                      aria-invalid={signupErrors.terms ? true : undefined}
+                      aria-describedby={signupErrors.terms ? 'signup-terms-error' : undefined}
+                    />
+                    <span>
+                      I agree to the{' '}
+                      <Link to="/terms" className={styles.termsLink}>
+                        Terms &amp; Conditions
+                      </Link>{' '}
+                      and have read the{' '}
+                      <Link to="/privacy" className={styles.termsLink}>
+                        Privacy Policy
+                      </Link>
+                      .
+                    </span>
+                  </label>
+                  <FieldError id="signup-terms-error" message={signupErrors.terms} />
+                </div>
 
-                <button
-                  type="submit"
-                  className={styles.loginPillBtn}
-                  disabled={loading}
-                  aria-busy={loading || undefined}
-                >
+                <button type="submit" className={styles.loginPillBtn} disabled={loading}>
                   {loading ? (
                     <>
                       <span className="ds-spinner" aria-hidden="true" /> Creating account…
@@ -912,37 +1123,47 @@ export function LoginPage({
                     'Create account'
                   )}
                 </button>
-
-                <div className={styles.authLinksBelow}>
-                  <p className={styles.subLinkLine}>
-                    Already have an account?{' '}
-                    <button
-                      type="button"
-                      className={styles.switchModeLink}
-                      onClick={() => switchMode('login')}
-                    >
-                      Sign in
-                    </button>
-                  </p>
-                  <p className={styles.subLinkLine}>
-                    {signupRole === 'employer' ? (
-                      <>
-                        Looking for a job?{' '}
-                        <Link to="/signup" className={styles.switchModeLink}>
-                          Candidate sign up
-                        </Link>
-                      </>
-                    ) : (
-                      <>
-                        Hiring?{' '}
-                        <Link to="/organizations/signup" className={styles.switchModeLink}>
-                          Organization sign up
-                        </Link>
-                      </>
-                    )}
-                  </p>
-                </div>
+                <span className="ds-sr-only" role="status" aria-live="polite">
+                  {loading ? 'Creating your account' : ''}
+                </span>
               </form>
+
+              <div className={styles.authLinksBelow}>
+                <p className={styles.subLinkLine}>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    className={styles.switchModeLink}
+                    onClick={() => switchMode('login')}
+                  >
+                    Sign in
+                  </button>
+                </p>
+              </div>
+
+              <div className={styles.orgCallout}>
+                {signupRole === 'employer' ? (
+                  <>
+                    <p className={styles.orgCalloutText}>
+                      <strong>Looking for a job?</strong> Candidates sign up here.
+                    </p>
+                    <Link to="/signup" className={styles.orgCalloutLink}>
+                      Candidate sign up
+                      <HrIcon name="arrow-right" size={16} />
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <p className={styles.orgCalloutText}>
+                      <strong>Hiring?</strong> Set up a workspace for your team.
+                    </p>
+                    <Link to="/organizations/signup" className={styles.orgCalloutLink}>
+                      Create an organization account
+                      <HrIcon name="arrow-right" size={16} />
+                    </Link>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>

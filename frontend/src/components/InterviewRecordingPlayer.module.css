@@ -37,45 +37,6 @@
   z-index: 2;
 }
 
-.inVideoTimeline {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 44px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.55);
-  z-index: 3;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.inVideoProgress {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 999px 0 0 999px;
-}
-
-.inVideoFlagHigh,
-.inVideoFlagMedium {
-  position: absolute;
-  top: 1px;
-  bottom: 1px;
-  border-radius: 2px;
-  min-width: 3px;
-}
-
-.inVideoFlagHigh {
-  background: #ef4444;
-}
-
-.inVideoFlagMedium {
-  background: #f97316;
-}
-
 .liveFlagBadge {
   position: absolute;
   top: 10px;

@@ -70,6 +70,12 @@
   border-top: 1px solid var(--ds-border, #e5e5ef);
 }
 
+/* Inside a dialog: the dialog header already draws the divider and the padding. */
+.body.bodyEmbedded {
+  padding: 0;
+  border-top: 0;
+}
+
 .label {
   font-size: 0.8125rem;
   font-weight: 700;

@@ -47,6 +47,15 @@ export function appliedJobsLabel(a: Pick<EmployerApplicant, 'jobTitle' | 'applic
   return a.jobTitle ? `Applied to: ${a.jobTitle}` : ''
 }
 
+/**
+ * On one job's own page every row applied to that job, so "Applied to: <this job>" says nothing. This is the label
+ * for that page: '' when the person applied only here, else "Also applied to: <their other jobs>".
+ */
+export function jobPageJobsLabel(a: Pick<EmployerApplicant, 'jobId' | 'jobTitle' | 'applications'>, jobId: string): string {
+  const others = uniqueTitles((a.applications || []).filter((x) => x.jobId && x.jobId !== jobId))
+  return others.length ? `Also applied to: ${others.join(', ')}` : ''
+}
+
 /** Which job the shown interview score belongs to, when the person applied to more than one job. */
 export function scoreJobTitle(
   a: Pick<EmployerApplicant, 'applications' | 'interviewJobId' | 'jobId' | 'jobTitle' | 'interviewResult'>,

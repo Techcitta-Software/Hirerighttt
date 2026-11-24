@@ -45,6 +45,7 @@ import { ensureApiSession } from '../lib/apiSession'
 import { applyToPublicJob, fetchOpenJobs } from '../lib/vendorApi'
 import { pruneStaleForYouNotifications, syncJobMatchNotifications } from '../lib/jobMatchNotifications'
 import { slugifyCompany } from '../lib/jobLink'
+import { jobDescriptionBullets } from '../lib/jobText'
 import {
   ANY,
   filterJobBoard,
@@ -416,11 +417,8 @@ export function JobsPage() {
           const reqSkills = cleaned.length ? cleaned : ['Skills in job description']
           const logoStyle = companyLogoStyle(j.company)
           const jd = raw?.jobDescription || j.jobDescription || ''
-          const jdBullets = jd
-            .split(/\n/)
-            .map((line) => line.replace(/^[\s•\-*]+/, '').trim())
-            .filter((line) => line.length > 20)
-            .slice(0, 3)
+          const aboutText = jd.slice(0, 600)
+          const jdBullets = jobDescriptionBullets(jd, aboutText)
           return {
             id: j.id || `emp-${idx}`,
             logo: j.company.slice(0, 2).toUpperCase(),
@@ -451,9 +449,9 @@ export function JobsPage() {
             },
             youHave: reqSkills.slice(0, 3),
             closeGap: reqSkills.slice(3, 5),
-            about: jd.slice(0, 600) || 'Role posted by an employer on HireRight.',
+            about: aboutText || 'Role posted by an employer on HireRighttt.',
             bullets:
-              jdBullets.length > 0
+              jdBullets.length > 0 || aboutText
                 ? jdBullets
                 : ['Review the full description on the apply form.', 'Submit your resume to check how well it matches.'],
             shareableCode: j.shareableCode || raw?.shareableCode,
@@ -741,12 +739,13 @@ export function JobsPage() {
               <span className={styles.jobsResultCount} aria-live="polite">
                 {jobsHeadline}
               </span>
-              <span aria-hidden="true">·</span>
-              <span>
-                {!unlocked
-                  ? 'Complete interview to apply with your report'
-                  : `Interview score ${candidateScoreLabel}/100`}
-              </span>
+              {/* Before the interview the banner below already says this; repeating it here was noise. */}
+              {unlocked ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{`Interview score ${candidateScoreLabel}/100`}</span>
+                </>
+              ) : null}
             </p>
           </motion.div>
 
@@ -909,6 +908,7 @@ export function JobsPage() {
                           e.stopPropagation()
                           setSelectedJobId(job.id)
                         }}
+                        aria-expanded={isOpen}
                       >
                         View role
                       </button>

@@ -80,6 +80,20 @@ function RedirectToJobApplications() {
   return <Navigate to={`/employer/jobs${search}${hash}`} replace />
 }
 
+/** /employer/candidates?jobId=… is an old applicants link: open that job's applications; otherwise the page. */
+function JobLinkOr({ children }: { children: ReactNode }) {
+  const { search } = useLocation()
+  return new URLSearchParams(search).has('jobId') ? <RedirectToJobApplications /> : <>{children}</>
+}
+
+/** The Candidates page lives at /employer/candidates. Older addresses (/resumes, /talent-vault, /candidates) open it,
+ *  except an old applicants link with ?jobId=, which still opens that job's applications. */
+function RedirectToCandidates() {
+  const { search, hash } = useLocation()
+  if (new URLSearchParams(search).has('jobId')) return <Navigate to={`/employer/jobs${search}${hash}`} replace />
+  return <Navigate to={`/employer/candidates${search}${hash}`} replace />
+}
+
 const ROUTE_TITLES: Record<string, string> = {
   '/': 'HireRighttt — AI interviews that prove skills',
   '/why': 'Why HireRighttt?',
@@ -96,8 +110,8 @@ const ROUTE_TITLES: Record<string, string> = {
   '/employer': 'Dashboard',
   '/employer/jobs': 'Jobs',
   '/employer/applicants': 'Jobs',
-  '/employer/candidates': 'Jobs',
-  '/candidates': 'Jobs',
+  '/employer/candidates': 'Candidates',
+  '/candidates': 'Candidates',
   '/resumes': 'Candidates',
   '/talent-vault': 'Candidates',
   '/dashboard': 'Dashboard',
@@ -323,8 +337,19 @@ function AnimatedRoutes() {
               }
             />
             <Route path="/employer/applicants" element={<RedirectToJobApplications />} />
-            <Route path="/employer/candidates" element={<RedirectToJobApplications />} />
-            <Route path="/candidates" element={<RedirectToJobApplications />} />
+            <Route
+              path="/employer/candidates"
+              element={
+                <JobLinkOr>
+                  <Page>
+                    <RequireAuth role="employer">
+                      <ResumeDatabasePage />
+                    </RequireAuth>
+                  </Page>
+                </JobLinkOr>
+              }
+            />
+            <Route path="/candidates" element={<RedirectToCandidates />} />
             <Route
               path="/employer"
               element={
@@ -335,26 +360,8 @@ function AnimatedRoutes() {
                 </Page>
               }
             />
-            <Route
-              path="/resumes"
-              element={
-                <Page>
-                  <RequireAuth role="employer">
-                    <ResumeDatabasePage />
-                  </RequireAuth>
-                </Page>
-              }
-            />
-            <Route
-              path="/talent-vault"
-              element={
-                <Page>
-                  <RequireAuth role="employer">
-                    <ResumeDatabasePage />
-                  </RequireAuth>
-                </Page>
-              }
-            />
+            <Route path="/resumes" element={<RedirectToCandidates />} />
+            <Route path="/talent-vault" element={<RedirectToCandidates />} />
             <Route
               path="/jobs"
               element={

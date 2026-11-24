@@ -1017,7 +1017,7 @@ export function EmployerDashboard() {
                 </button>
               </div>
               <div className={styles.modalBody}>
-                <InviteCandidatesPanel jobs={inviteJobs} embedded />
+                <InviteCandidatesPanel jobs={inviteJobs} embedded defaultJobId={selectedJobId || undefined} />
               </div>
             </div>
           </div>

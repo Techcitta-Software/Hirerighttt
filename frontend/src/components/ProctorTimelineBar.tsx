@@ -12,7 +12,6 @@ import {
 import type { IntegrityLogEvent, InterviewFlagSection } from '../lib/store'
 import {
   buildTimelineMarkers,
-  countByCategory,
   formatTimelineClock,
   markerIndexAtTime,
   markerTooltip,
@@ -20,7 +19,9 @@ import {
   resolveTimelineDuration,
   seekTargetForMarker,
   seekTargetForRatio,
+  seekVideo,
   stepMarkerIndex,
+  timelineSummary,
 } from '../lib/proctorTimeline'
 import styles from './ProctorTimelineBar.module.css'
 
@@ -31,6 +32,8 @@ type Props = {
   flaggedSections?: readonly InterviewFlagSection[] | null
   /** Duration stored with the recording (seconds); used while the browser cannot tell (MediaRecorder WebM). */
   durationHint?: number | null
+  /** Colour set for the panel the bar sits on. */
+  tone?: 'light' | 'dark'
   className?: string
 }
 
@@ -38,10 +41,11 @@ const KEY_STEP_SEC = 5
 const PAGE_STEP_SEC = 30
 
 /**
- * Timeline under the interview recording: a red mark wherever proctoring saw a deviation (looking away, no face,
- * multiple faces, head movement, phone, leaving the tab, …). Click or press Enter on a mark to jump there.
+ * One thin line under the interview recording with a solid red mark wherever proctoring saw a deviation (looking
+ * away, no face, multiple faces, head movement, phone, leaving the tab, …). Hover or focus a mark for
+ * "Looked away · 03:42 (6s)"; click it or press Enter to jump there. A single summary line sits underneath.
  */
-export function ProctorTimelineBar({ videoRef, events, flaggedSections, durationHint, className }: Props) {
+export function ProctorTimelineBar({ videoRef, events, flaggedSections, durationHint, tone = 'light', className }: Props) {
   const tipId = useId()
   const [currentTime, setCurrentTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState<number | null>(null)
@@ -52,7 +56,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   const markers = useMemo(() => buildTimelineMarkers(events, flaggedSections), [events, flaggedSections])
   const { durationSec, known } = resolveTimelineDuration(videoDuration, durationHint, markers)
   const placed = useMemo(() => placeMarkers(markers, durationSec), [markers, durationSec])
-  const counts = useMemo(() => countByCategory(markers), [markers])
+  const summary = useMemo(() => timelineSummary(markers), [markers])
 
   useEffect(() => {
     const video = videoRef.current
@@ -101,17 +105,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   }, [videoRef])
 
   const seekTo = useCallback(
-    (sec: number) => {
-      const t = Math.min(Math.max(0, sec), durationSec)
-      setCurrentTime(t)
-      const video = videoRef.current
-      if (!video) return
-      try {
-        video.currentTime = t
-      } catch {
-        /* not seekable yet */
-      }
-    },
+    (sec: number) => setCurrentTime(seekVideo(videoRef.current, sec, durationSec)),
     [videoRef, durationSec],
   )
 
@@ -153,17 +147,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   const total = markers.length
 
   return (
-    <div className={`${styles.root} ${className ?? ''}`}>
-      <div className={styles.header}>
-        <span className={styles.title}>Proctoring timeline</span>
-        <span className={total ? styles.countFlagged : styles.countClear} role="status">
-          {total ? `${total} deviation${total === 1 ? '' : 's'}` : 'No deviations recorded'}
-        </span>
-        <span className={styles.clock} aria-hidden="true">
-          {formatTimelineClock(currentTime)} / {known ? formatTimelineClock(durationSec) : '--:--'}
-        </span>
-      </div>
-
+    <div className={`${styles.root} ${tone === 'dark' ? styles.dark : ''} ${className ?? ''}`} data-tone={tone} data-testid="proctor-timeline">
       <div className={styles.trackWrap}>
         <div
           className={styles.track}
@@ -177,7 +161,8 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
           onPointerDown={onTrackPointerDown}
           onKeyDown={onTrackKeyDown}
         >
-          <div className={styles.played} style={{ width: `${playPct}%` }} />
+          <span className={styles.rail} aria-hidden="true" />
+          <span className={styles.played} style={{ width: `${playPct}%` }} aria-hidden="true" />
         </div>
 
         {placed.length ? (
@@ -192,12 +177,14 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
                   }}
                   type="button"
                   data-testid="proctor-marker"
-                  className={`${m.instant ? styles.tick : styles.segment} ${m.severity === 'high' ? styles.high : ''}`}
-                  style={
-                    m.instant
-                      ? { left: `${m.leftPct}%` }
-                      : { left: `${m.leftPct}%`, width: `${m.widthPct}%` }
-                  }
+                  data-category={m.category}
+                  className={[
+                    styles.mark,
+                    m.instant ? styles.tick : '',
+                    m.severity === 'high' ? styles.high : '',
+                    m.overlap ? styles.overlap : '',
+                  ].join(' ')}
+                  style={m.instant ? { left: `${m.leftPct}%` } : { left: `${m.leftPct}%`, width: `${m.widthPct}%` }}
                   tabIndex={i === tabStop ? 0 : -1}
                   aria-label={text}
                   aria-describedby={tipIndex === i ? tipId : undefined}
@@ -225,9 +212,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
           <div
             id={tipId}
             role="tooltip"
-            className={`${styles.tooltip} ${
-              tip.leftPct < 15 ? styles.tooltipStart : tip.leftPct > 85 ? styles.tooltipEnd : ''
-            }`}
+            className={`${styles.tooltip} ${tip.leftPct < 15 ? styles.tooltipStart : tip.leftPct > 85 ? styles.tooltipEnd : ''}`}
             style={{ left: `${tip.instant ? tip.leftPct : tip.leftPct + tip.widthPct / 2}%` }}
           >
             {markerTooltip(tip)}
@@ -236,21 +221,13 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
         ) : null}
       </div>
 
-      {counts.length ? (
-        <ul className={styles.legend} aria-label="Deviations by type">
-          {counts.map((c) => (
-            <li key={c.category} className={styles.legendItem}>
-              <span className={styles.swatch} aria-hidden="true" />
-              {c.label}
-              <span className={styles.legendCount}>{c.count}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <p className={styles.hint}>
-        {total
-          ? 'Red marks show where proctoring saw a deviation. Select a mark to jump to that moment.'
-          : 'Proctoring did not record any deviations for this interview.'}
+      <p className={styles.summary}>
+        <span className={total ? styles.countFlagged : styles.countClear} role="status" title={summary}>
+          {summary}
+        </span>
+        <span className={styles.clock} aria-hidden="true">
+          {formatTimelineClock(currentTime)} / {known ? formatTimelineClock(durationSec) : '--:--'}
+        </span>
       </p>
     </div>
   )

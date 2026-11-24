@@ -84,7 +84,7 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
     <div className={styles.panelNote}>
       <p role={failed ? 'alert' : undefined}>
         <strong>{failed ? 'Couldn’t load resume.' : 'This file type can’t be previewed in the browser.'}</strong>
-        {fallbackText?.trim() ? ' The highlighted text view still shows its contents.' : ''}
+        {fallbackText?.trim() ? ' The Formatted view still shows its contents.' : ''}
       </p>
       <div className={styles.noteActions}>
         {failed ? (

@@ -171,6 +171,13 @@ describe('placeMarkers', () => {
     }
   })
 
+  it('does not call an event that ends a fraction of a second after a rounded video length "after the end"', () => {
+    // Live run: recording 75.116 s, Chrome reported 75 s; the last look-away ran to the very end.
+    const [m] = placeMarkers(buildTimelineMarkers([ev({ id: 'end', startOffsetSec: 70.3, durationSec: 4.8 })]), 75)
+    expect(m.clamped).toBe(false)
+    expect(m.leftPct + m.widthPct).toBeLessThanOrEqual(100)
+  })
+
   it('survives a zero or invalid duration', () => {
     const placed = placeMarkers(buildTimelineMarkers([ev({ startOffsetSec: 5 })]), 0)
     expect(Number.isFinite(placed[0].leftPct)).toBe(true)

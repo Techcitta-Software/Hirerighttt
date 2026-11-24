@@ -1,17 +1,15 @@
 /**
  * Single-person face tracking for the AI interview (lobby + room).
  *
- * One MediaPipe FaceLandmarker, shared by the live status chip and the proctoring engine, so the room never runs
- * two models. It runs on the CPU delegate (the GPU delegate stalls the main thread on a synchronous readPixels
- * every frame) against a small downscaled frame, and the page samples it at ~3 Hz.
+ * One MediaPipe FaceLandmarker (with face blendshapes + facial transformation matrixes), shared by the live status
+ * chip, the review-event log and the proctoring engine, so the room never runs two models. It runs in VIDEO mode on the
+ * CPU delegate (the GPU delegate stalls the main thread on a synchronous readPixels every frame) against a small
+ * downscaled frame; the page samples it at ~6 fps. The runtime and model come from the pinned CDN with a self-hosted
+ * fallback (see mediapipeAssets.ts).
  */
 
-import {
-  FaceLandmarker,
-  FilesetResolver,
-  ObjectDetector,
-  type FaceLandmarkerResult,
-} from '@mediapipe/tasks-vision'
+import { ObjectDetector, type FaceLandmarker, type FaceLandmarkerResult } from '@mediapipe/tasks-vision'
+import { createFaceLandmarker, type MediapipeLoadState, type WasmFileset } from './mediapipeAssets'
 
 export type FaceIssue =
   | 'ok'
@@ -35,24 +33,27 @@ export type FaceTrackStatus = {
   lookingForward: boolean
 }
 
-/** Raw per-frame measurements, consumed by the proctoring engine (same model, same frame). */
+/** Raw per-frame measurements, consumed by the proctoring engine and the review-event log (same model, same frame). */
 export type FaceObservation = {
   faceCount: number
   yawDeg: number
   pitchDeg: number
   gazeScore: number
   gazeDirection: 'left' | 'right' | 'center'
+  /** Signed horizontal eye gaze from blendshapes, -1 (candidate's left) .. 1 (candidate's right). */
+  eyeX?: number
+  /** Signed vertical eye gaze from blendshapes, -1 (up) .. 1 (down). */
+  eyeY?: number
+  /** Iris offset from the centre of the eye opening (iris landmarks), -0.5 .. 0.5, averaged over both eyes. */
+  irisX?: number
+  /** Eyes-closed score 0..1. */
+  blink?: number
   /** A phone was in the last object-detection pass (best effort; undefined when the detector is unavailable). */
   phoneDetected?: boolean
 }
 
-/** Match installed @mediapipe/tasks-vision version (see package.json). */
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'
-
-/** How often callers should sample (≈3 Hz). */
-export const FACE_SAMPLE_INTERVAL_MS = 330
+/** How often callers should sample (≈6 fps once inference time is added). */
+export const FACE_SAMPLE_INTERVAL_MS = 150
 
 /** Frames are downscaled to this width before inference (keeps upload/readback tiny). */
 const FRAME_WIDTH = 320
@@ -67,26 +68,33 @@ const YAW_FULL_SCALE_DEG = 60
 const SECONDARY_FACE_MIN_RATIO = 0.15
 
 let landmarkerPromise: Promise<FaceLandmarker | null> | null = null
+let visionFileset: WasmFileset | null = null
+let loadState: MediapipeLoadState = { status: 'idle' }
+
+/** How the face model loaded (or why it did not). */
+export function faceTrackerLoadState(): MediapipeLoadState {
+  return loadState
+}
 
 /** COCO object detector, used only to notice a phone in view (proctoring review timeline). */
 const PHONE_MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite'
-/** Run phone detection on every Nth face sample (≈1 Hz at the 3 Hz face rate). */
-const PHONE_EVERY_N_FRAMES = 3
+/** Run phone detection on every Nth face sample (≈1 Hz at the ~6 fps face rate). */
+const PHONE_EVERY_N_FRAMES = 6
 let phoneDetectorPromise: Promise<ObjectDetector | null> | null = null
 let phoneDetector: ObjectDetector | null = null
 
-/** Loads in the background; face tracking never waits for it, and a failed load just means no phone signal. */
+/** Loads in the background once the face model is up; a failed load just means no phone signal. */
 function ensurePhoneDetector(): void {
-  if (phoneDetectorPromise) return
+  if (phoneDetectorPromise || !visionFileset) return
+  const fileset = visionFileset
   phoneDetectorPromise = (async () => {
     try {
-      const vision = await FilesetResolver.forVisionTasks(WASM_URL)
-      phoneDetector = await ObjectDetector.createFromOptions(vision, {
+      phoneDetector = await ObjectDetector.createFromOptions(fileset, {
         baseOptions: { modelAssetPath: PHONE_MODEL_URL, delegate: 'CPU' },
         runningMode: 'VIDEO',
         categoryAllowlist: ['cell phone'],
-        scoreThreshold: 0.45,
+        scoreThreshold: 0.5,
         maxResults: 1,
       })
       return phoneDetector
@@ -100,29 +108,23 @@ function ensurePhoneDetector(): void {
 async function getLandmarker(): Promise<FaceLandmarker | null> {
   if (!landmarkerPromise) {
     landmarkerPromise = (async () => {
-      try {
-        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
-        // CPU first: at 3 Hz on a 320px frame it is as accurate and never blocks on GPU readback.
-        for (const delegate of ['CPU', 'GPU'] as const) {
-          try {
-            return await FaceLandmarker.createFromOptions(vision, {
-              baseOptions: { modelAssetPath: MODEL_URL, delegate },
-              runningMode: 'VIDEO',
-              numFaces: 3,
-              minFaceDetectionConfidence: 0.5,
-              minFacePresenceConfidence: 0.5,
-              minTrackingConfidence: 0.5,
-              outputFaceBlendshapes: true,
-              outputFacialTransformationMatrixes: true,
-            })
-          } catch (err) {
-            console.warn(`[face-tracker] init failed (${delegate})`, err)
-          }
-        }
-      } catch (err) {
-        console.warn('[face-tracker] runtime failed to load', err)
-      }
-      return null
+      const created = await createFaceLandmarker(
+        {
+          runningMode: 'VIDEO',
+          numFaces: 3,
+          minFaceDetectionConfidence: 0.5,
+          minFacePresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+          outputFaceBlendshapes: true,
+          outputFacialTransformationMatrixes: true,
+        },
+        (state) => {
+          loadState = state
+        },
+      )
+      if (!created) return null
+      visionFileset = created.fileset
+      return created.landmarker
     })()
   }
   return landmarkerPromise
@@ -147,26 +149,98 @@ function boxArea(landmarks: Array<{ x: number; y: number }>): number {
   return Math.max(0, maxX - minX) * Math.max(0, maxY - minY)
 }
 
+/**
+ * Head yaw/pitch (degrees) from MediaPipe's 4x4 facial transformation matrix (column-major). The rotation columns are
+ * normalised first: the matrix can carry scale, which would otherwise skew asin/atan2.
+ */
 export function headAnglesFromMatrix(matrixData?: ArrayLike<number>): { yawDeg: number; pitchDeg: number } {
   if (!matrixData || matrixData.length < 16) return { yawDeg: 0, pitchDeg: 0 }
-  const m02 = matrixData[8]
-  const m12 = matrixData[9]
-  const m22 = matrixData[10]
-  const yawDeg = Math.atan2(m02, m22) * (180 / Math.PI)
-  const pitchDeg = Math.asin(-Math.max(-1, Math.min(1, m12))) * (180 / Math.PI)
+  // Third column of the rotation = (r02, r12, r22).
+  const r02 = matrixData[8]
+  const r12 = matrixData[9]
+  const r22 = matrixData[10]
+  const scale = Math.hypot(r02, r12, r22)
+  if (!Number.isFinite(scale) || scale < 1e-6) return { yawDeg: 0, pitchDeg: 0 }
+  const yawDeg = Math.atan2(r02 / scale, r22 / scale) * (180 / Math.PI)
+  const pitchDeg = Math.asin(-Math.max(-1, Math.min(1, r12 / scale))) * (180 / Math.PI)
   return { yawDeg, pitchDeg }
 }
 
-export function eyeGazeFromBlendshapes(
-  categories?: Array<{ categoryName: string; score: number }>,
-): { gazeScore: number; gazeDirection: 'left' | 'right' | 'center' } {
-  if (!categories) return { gazeScore: 0, gazeDirection: 'center' }
+type Blendshape = { categoryName: string; score: number }
+
+/**
+ * Eye gaze from the eyeLook* blendshapes. eyeLookOutLeft / eyeLookInRight both mean "looking to the candidate's left",
+ * eyeLookOutRight / eyeLookInLeft "to their right"; eyeLookDown and eyeLookUp are vertical.
+ */
+export function eyeGazeFromBlendshapes(categories?: Blendshape[]): {
+  gazeScore: number
+  gazeDirection: 'left' | 'right' | 'center'
+  eyeX: number
+  eyeY: number
+  blink: number
+} {
+  if (!categories?.length) return { gazeScore: 0, gazeDirection: 'center', eyeX: 0, eyeY: 0, blink: 0 }
   const get = (name: string) => categories.find((c) => c.categoryName === name)?.score || 0
   const lookLeft = (get('eyeLookOutLeft') + get('eyeLookInRight')) / 2
   const lookRight = (get('eyeLookOutRight') + get('eyeLookInLeft')) / 2
-  return lookLeft > lookRight
-    ? { gazeScore: lookLeft, gazeDirection: 'left' }
-    : { gazeScore: lookRight, gazeDirection: 'right' }
+  const down = (get('eyeLookDownLeft') + get('eyeLookDownRight')) / 2
+  const up = (get('eyeLookUpLeft') + get('eyeLookUpRight')) / 2
+  const eyeX = lookRight - lookLeft
+  const gazeScore = Math.abs(eyeX)
+  return {
+    gazeScore,
+    gazeDirection: gazeScore < 0.15 ? 'center' : eyeX < 0 ? 'left' : 'right',
+    eyeX,
+    eyeY: down - up,
+    blink: (get('eyeBlinkLeft') + get('eyeBlinkRight')) / 2,
+  }
+}
+
+/** Landmarks (478-point model with irises): eye corners and iris centres. */
+const EYES = [
+  { cornerA: 33, cornerB: 133, iris: 468 },
+  { cornerA: 362, cornerB: 263, iris: 473 },
+] as const
+
+/**
+ * Iris offset from the centre of the eye opening, -0.5..0.5 (0 = centred), averaged over both eyes; undefined when the
+ * model returned no iris landmarks.
+ */
+export function irisOffsetFromLandmarks(landmarks?: ReadonlyArray<{ x: number; y: number }>): number | undefined {
+  if (!landmarks || landmarks.length < 478) return undefined
+  const offsets: number[] = []
+  for (const eye of EYES) {
+    const a = landmarks[eye.cornerA]
+    const b = landmarks[eye.cornerB]
+    const iris = landmarks[eye.iris]
+    const left = Math.min(a.x, b.x)
+    const width = Math.abs(a.x - b.x)
+    if (!(width > 1e-4)) continue
+    offsets.push((iris.x - left) / width - 0.5)
+  }
+  if (!offsets.length) return undefined
+  return offsets.reduce((s, v) => s + v, 0) / offsets.length
+}
+
+/** Pure: turn one FaceLandmarker result into the per-frame observation (exposed for fixture tests). */
+export function observationFromResult(result: Pick<FaceLandmarkerResult, 'faceLandmarks' | 'faceBlendshapes' | 'facialTransformationMatrixes'>): {
+  observation: FaceObservation
+  areas: number[]
+} {
+  const faces = result.faceLandmarks ?? []
+  const areas = faces.map((lm) => boxArea(lm))
+  const count = countRealFaces(areas)
+  // Measure the main (largest) face, not whichever face the model listed first.
+  const main = areas.length ? areas.indexOf(Math.max(...areas)) : -1
+  if (main < 0) {
+    return { observation: { faceCount: 0, yawDeg: 0, pitchDeg: 0, gazeScore: 0, gazeDirection: 'center' }, areas }
+  }
+  const { yawDeg, pitchDeg } = headAnglesFromMatrix(result.facialTransformationMatrixes?.[main]?.data)
+  const gaze = eyeGazeFromBlendshapes(result.faceBlendshapes?.[main]?.categories)
+  return {
+    observation: { faceCount: count, yawDeg, pitchDeg, ...gaze, irisX: irisOffsetFromLandmarks(faces[main]) },
+    areas,
+  }
 }
 
 /** Faces that count: the largest, plus any other face at least 15% of its size. */
@@ -329,6 +403,17 @@ export function frameLighting(data: Uint8ClampedArray, step = 4): { mean: number
   return { mean, variance: squares / n - mean * mean }
 }
 
+/** Status label (and review-event message) when there is no working camera at all. */
+export const CAMERA_UNAVAILABLE = 'Camera unavailable — check that it is connected and allowed'
+
+/** False when the element has no camera stream or its video track has ended (unplugged, permission revoked). */
+function cameraLive(video: HTMLVideoElement): boolean {
+  const src = video.srcObject as MediaStream | null
+  if (!src) return Boolean(video.src)
+  const tracks = typeof src.getVideoTracks === 'function' ? src.getVideoTracks() : []
+  return tracks.some((t) => t.readyState === 'live')
+}
+
 export class FaceTracker {
   private lastTs = -1
   private canvas: HTMLCanvasElement | null = null
@@ -365,9 +450,9 @@ export class FaceTracker {
 
   async detect(video: HTMLVideoElement | null): Promise<FaceTrackStatus> {
     this.lastObservation = null
-    if (this.disposed || !video || video.readyState < 2 || !video.videoWidth) {
-      return unable('Waiting for your camera…')
-    }
+    if (this.disposed) return SCANNING
+    if (!video || !cameraLive(video)) return unable(CAMERA_UNAVAILABLE)
+    if (video.readyState < 2 || !video.videoWidth) return unable('Waiting for your camera…')
     if (video.currentTime !== this.videoTime) {
       this.videoTime = video.currentTime
       this.frameAt = performance.now()
@@ -411,12 +496,9 @@ export class FaceTracker {
       return unable('Camera check interrupted — hold on a moment')
     }
 
-    const faces = result.faceLandmarks ?? []
-    const areas = faces.map((lm) => boxArea(lm))
-    const count = countRealFaces(areas)
-    const { yawDeg, pitchDeg } = headAnglesFromMatrix(result.facialTransformationMatrixes?.[0]?.data)
-    const gaze = eyeGazeFromBlendshapes(result.faceBlendshapes?.[0]?.categories)
-    this.lastObservation = { faceCount: count, yawDeg, pitchDeg, ...gaze, phoneDetected: this.detectPhone(canvas) }
+    const { observation, areas } = observationFromResult(result)
+    const count = observation.faceCount
+    this.lastObservation = { ...observation, phoneDetected: this.detectPhone(canvas) }
 
     if (count > 1) {
       this.multiPersonStreak += 1
@@ -434,7 +516,7 @@ export class FaceTracker {
     if (count === 1 && bestArea < TOO_FAR_RATIO) {
       return unable('Move closer and center your face')
     }
-    const yaw = Math.max(-1, Math.min(1, yawDeg / YAW_FULL_SCALE_DEG))
+    const yaw = Math.max(-1, Math.min(1, observation.yawDeg / YAW_FULL_SCALE_DEG))
     return buildStatus(count, { yaw, area: bestArea, lookingForward: Math.abs(yaw) < YAW_WARN })
   }
 

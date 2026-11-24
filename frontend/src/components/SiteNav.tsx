@@ -33,7 +33,7 @@ const JOBSEEKER_NAV = [
 const EMPLOYER_NAV = [
   { to: '/employer/dashboard', label: 'Dashboard' },
   { to: '/employer/jobs', label: 'Jobs' },
-  { to: '/talent-vault', label: 'Candidates' },
+  { to: '/employer/candidates', label: 'Candidates' },
 ]
 
 type SiteNavProps = {
@@ -195,7 +195,7 @@ export function SiteNav({ variant = 'default', suppressSignOut = false }: SiteNa
                   const isCurrent =
                     isActive ||
                     (item.to === '/employer/dashboard' && location.pathname === '/employer') ||
-                    (item.to === '/talent-vault' &&
+                    (item.to === '/employer/candidates' &&
                       (location.pathname === '/resumes' || location.pathname === '/talent-vault'))
                   return isLanding
                     ? isCurrent

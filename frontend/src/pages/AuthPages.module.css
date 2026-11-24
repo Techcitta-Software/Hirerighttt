@@ -141,7 +141,7 @@
 .form input::placeholder,
 .form textarea::placeholder,
 .settingsFields input::placeholder {
-  color: #94a3b8;
+  color: #6b7089;
 }
 
 .formInput:focus,
@@ -548,8 +548,8 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-2, 8px);
-  margin-top: var(--space-2, 8px);
-  padding-top: var(--space-6, 24px);
+  margin-top: var(--space-6, 24px);
+  padding-top: var(--space-5, 20px);
   border-top: 1px solid var(--ds-border, #e5e5ef);
   text-align: center;
 }
@@ -563,6 +563,139 @@
 
 .noResumeText {
   color: var(--ds-text-muted, #5f6686);
+}
+
+/* Inline field validation. */
+.formInput.formInputInvalid,
+.formInput.formInputInvalid:focus {
+  border-color: var(--ds-danger, #be123c);
+}
+
+.formInput.formInputInvalid:focus {
+  box-shadow: 0 0 0 1px var(--ds-danger, #be123c), 0 0 0 4px rgba(190, 18, 60, 0.12);
+}
+
+.fieldError {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--ds-danger, #be123c);
+}
+
+.fieldError svg,
+.errorBanner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.errorBanner:has(> svg) {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+}
+
+/* "You're applying for X at Y" — keeps a job/invite link's context through sign-in. */
+.contextBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3, 12px);
+  margin: 0 0 var(--space-5, 20px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid var(--ds-brand-border, #c7d2fe);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-brand-soft, #eef2ff);
+  color: var(--ds-text, #141638);
+}
+
+.contextBanner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--ds-brand, #5046e5);
+}
+
+.contextBanner p {
+  margin: 0;
+  font-size: var(--fs-sm, 0.875rem);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.contextBanner strong {
+  font-weight: 700;
+}
+
+/* Organisation path: visibly separate from the candidate links. */
+.orgCallout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1, 4px);
+  margin-top: var(--space-5, 20px);
+  padding: var(--space-3, 12px) var(--space-4, 16px);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.orgCalloutText {
+  margin: 0;
+  font-size: var(--fs-sm, 0.875rem);
+  line-height: 1.5;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.orgCalloutText strong {
+  font-weight: 700;
+  color: var(--ds-text, #141638);
+}
+
+.orgCalloutLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: var(--fs-sm, 0.875rem);
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--ds-brand, #5046e5);
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.orgCalloutLink:hover {
+  color: var(--ds-brand-hover, #4338ca);
+  text-decoration: underline;
+}
+
+.orgCalloutLink svg {
+  transition: transform 160ms ease;
+}
+
+.orgCalloutLink:hover svg {
+  transform: translateX(2px);
+}
+
+.orgCalloutLink:focus-visible,
+.switchModeLink:focus-visible,
+.discoveryLink:focus-visible,
+.forgotLink:focus-visible,
+.termsLink:focus-visible {
+  outline: 2px solid var(--ds-brand, #5046e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Text links get a 24px+ hit area without changing the line box. */
+.switchModeLink,
+.discoveryLink,
+.forgotLink {
+  display: inline-block;
+  padding-block: 3px;
+  margin-block: -3px;
 }
 
 /* ── Account settings ── */
@@ -780,6 +913,15 @@
 
   .splitRight {
     padding: var(--space-6, 24px) var(--space-4, 16px) var(--space-12, 48px);
+  }
+
+  /* On a phone the page is the card: no nested frame, full width for the fields. */
+  .splitFormWrap {
+    max-width: none;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .formInput,

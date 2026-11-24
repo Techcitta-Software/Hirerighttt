@@ -61,12 +61,18 @@ export type PlacedMarker = TimelineMarker & {
   widthPct: number
   /** The event lies (partly) past the end of the video and was pulled back onto the track. */
   clamped: boolean
+  /** Drawn over (part of) an earlier mark: rendered in a distinct shade with an outline so both stay visible. */
+  overlap: boolean
 }
 
 /** Shorter than this, a deviation is drawn as a tick. */
 const INSTANT_SEC = 0.5
 /** Segments never shrink below this share of the track, so a 1 s glance is still visible on an hour-long video. */
 export const MIN_SEGMENT_PCT = 0.6
+/** How far past the reported video length an event may run before it is labelled "after the end of the video". */
+const CLAMP_SLACK_SEC = 1
+/** Camera deviations at least this long are emphasised. */
+const HIGH_SEVERITY_SEC = 10
 /** Same cap the server applies per session. */
 export const MAX_TIMELINE_MARKERS = 1000
 
@@ -149,7 +155,15 @@ export function buildTimelineMarkers(
       startSec: start,
       endSec: end,
       instant: end - start < INSTANT_SEC,
-      severity: e.severity === 'block' || e.severity === 'ban' || category === 'multi_face' || category === 'phone' ? 'high' : 'medium',
+      severity:
+        e.level === 'high' ||
+        e.severity === 'block' ||
+        e.severity === 'ban' ||
+        category === 'multi_face' ||
+        category === 'phone' ||
+        end - start >= HIGH_SEVERITY_SEC
+          ? 'high'
+          : 'medium',
       message: String(e.message || '').slice(0, 300),
     })
   }
@@ -193,22 +207,50 @@ export function resolveTimelineDuration(
   return { durationSec: Math.max(1, last), known: false }
 }
 
-/** Percent positions on a track of `durationSec`; anything past the end of the video is clamped onto it. */
+/**
+ * Percent positions on a track of `durationSec`; anything past the end of the video is clamped onto it. A mark that
+ * starts inside an earlier mark's drawn extent (including its minimum width) is flagged `overlap`.
+ */
 export function placeMarkers(markers: readonly TimelineMarker[], durationSec: number): PlacedMarker[] {
   const total = durationSec > 0 && Number.isFinite(durationSec) ? durationSec : 1
+  let reach = -Infinity
   return markers.map((m) => {
     const start = Math.min(Math.max(0, m.startSec), total)
     const end = Math.min(Math.max(start, m.endSec), total)
-    const clamped = m.endSec > total || m.startSec > total
-    const leftPct = (start / total) * 100
+    // Browsers round the WebM duration, so an event ending a moment after the reported end is not "after the end".
+    const clamped = m.startSec > total + CLAMP_SLACK_SEC || m.endSec > total + CLAMP_SLACK_SEC
+    let leftPct = (start / total) * 100
     let widthPct = m.instant ? 0 : ((end - start) / total) * 100
     if (!m.instant) {
       widthPct = Math.max(MIN_SEGMENT_PCT, widthPct)
       // Keep a minimum-width segment that starts near the end inside the track.
-      if (leftPct + widthPct > 100) return { ...m, leftPct: 100 - widthPct, widthPct, clamped }
+      if (leftPct + widthPct > 100) leftPct = 100 - widthPct
     }
-    return { ...m, leftPct, widthPct, clamped }
+    const overlap = leftPct < reach
+    reach = Math.max(reach, leftPct + Math.max(widthPct, MIN_SEGMENT_PCT))
+    return { ...m, leftPct, widthPct, clamped, overlap }
   })
+}
+
+/** Move the video to `sec` (clamped to the recording). Returns the time actually requested. */
+export function seekVideo(video: { currentTime: number } | null | undefined, sec: number, durationSec: number): number {
+  const total = finite(durationSec) ?? 0
+  const t = Math.max(0, total > 0 ? Math.min(finite(sec) ?? 0, total) : finite(sec) ?? 0)
+  if (video) {
+    try {
+      video.currentTime = t
+    } catch {
+      /* not seekable yet */
+    }
+  }
+  return t
+}
+
+/** One compact summary line: "3 deviations · Looked away 2 · Left tab / window 1". */
+export function timelineSummary(markers: readonly TimelineMarker[]): string {
+  if (!markers.length) return 'No deviations recorded'
+  const parts = countByCategory(markers).map((c) => `${c.label} ${c.count}`)
+  return [`${markers.length} deviation${markers.length === 1 ? '' : 's'}`, ...parts].join(' · ')
 }
 
 /** Where a click on a marker should take the video. */

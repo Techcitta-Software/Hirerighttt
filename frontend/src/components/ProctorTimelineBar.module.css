@@ -1,68 +1,57 @@
+/*
+ * Proctoring timeline: ONE thin line under the recording with solid red marks.
+ * Colours are local tokens so contrast can be checked per panel (ProctorTimelineBar.test.tsx):
+ * every mark colour is >= 3:1 against the rail, the played part and the panel, in light and dark.
+ */
 .root {
+  --pt-panel: var(--ds-surface);
+  --pt-rail: var(--ds-border-strong);
+  --pt-played: var(--ds-brand-border);
+  --pt-mark: var(--ds-danger-solid);
+  --pt-mark-overlap: var(--ds-danger);
+  --pt-playhead: var(--ds-text);
+  --pt-text: var(--ds-text-muted);
+  --pt-count: var(--ds-danger);
+  --pt-tip-bg: var(--ds-text);
+  --pt-tip-text: var(--ds-surface);
+
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--ds-border);
-  border-radius: 12px;
-  background: var(--ds-surface);
-  color: var(--ds-text);
+  margin-top: 8px;
 }
 
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 12px;
+/* On the dark review panel (#0f172a). */
+.dark {
+  --pt-panel: #0f172a;
+  --pt-rail: #1e293b;
+  --pt-played: #172554;
+  --pt-mark: var(--ds-danger-solid);
+  --pt-mark-overlap: #fb7185;
+  --pt-playhead: #ffffff;
+  --pt-text: #cbd5e1;
+  --pt-count: #fda4af;
+  --pt-tip-bg: #ffffff;
+  --pt-tip-text: #0f172a;
 }
 
-.title {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.countFlagged,
-.countClear {
-  font-size: 0.8125rem;
-  font-weight: 600;
-}
-
-.countFlagged {
-  color: var(--ds-danger);
-}
-
-.countClear {
-  color: var(--ds-text-muted);
-}
-
-.clock {
-  margin-left: auto;
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ds-text-muted);
-}
-
-/* ── Track ── */
+/* ── The line ── */
 
 .trackWrap {
   position: relative;
-  height: 32px;
-  /* Room for the tooltip above the track. */
-  margin-top: 28px;
+  height: 20px;
 }
 
+/* Full-height hit area; the visible rail is a 4px line through its middle. */
 .track {
   position: absolute;
-  inset: 6px 0;
-  border-radius: 6px;
-  background: var(--ds-neutral-soft);
-  border: 1px solid var(--ds-border-strong);
-  overflow: hidden;
+  inset: 0;
   cursor: pointer;
   touch-action: none;
+  border-radius: 4px;
 }
 
 .track:focus-visible {
@@ -70,12 +59,24 @@
   outline-offset: 2px;
 }
 
+.rail,
 .played {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--ds-brand-soft);
-  border-right: 1px solid var(--ds-brand-border);
+  left: 0;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  border-radius: 2px;
   pointer-events: none;
+}
+
+.rail {
+  right: 0;
+  background: var(--pt-rail);
+}
+
+.played {
+  background: var(--pt-played);
 }
 
 .markers {
@@ -84,113 +85,87 @@
   pointer-events: none;
 }
 
-.segment,
-.tick {
+/* Solid red, taller than the rail, never thinner than 4px (a 1 s event on an hour-long video is still visible). */
+.mark {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  padding: 0;
+  top: 50%;
+  height: 12px;
+  min-width: 4px;
   margin: 0;
+  padding: 0;
   border: 0;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  background: var(--pt-mark);
   pointer-events: auto;
   cursor: pointer;
+  z-index: 1;
 }
 
-/* Continuous deviations (looked away for 6 s): a red span. */
-.segment {
-  min-width: 4px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--ds-danger-solid) 78%, transparent);
-  box-shadow: inset 0 0 0 1px var(--ds-danger);
-}
-
-/* Instant deviations (tab switch, copy attempt): a red tick with a wider invisible hit area. */
+/* Instant events (tab switch, copy attempt): a 4px tick, centred on its moment, with a wider invisible hit area. */
 .tick {
-  width: 16px;
-  transform: translateX(-50%);
-  background: transparent;
+  width: 4px;
+  transform: translate(-50%, -50%);
 }
 
-.tick::after {
+.tick::before {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 3px;
-  transform: translateX(-50%);
-  border-radius: 2px;
-  background: var(--ds-danger-solid);
+  inset: -4px -6px;
 }
 
-.high.segment {
-  background: var(--ds-danger-solid);
+.high {
+  height: 14px;
 }
 
-.high.tick::after {
-  width: 4px;
-  background: var(--ds-danger);
-}
-
-.segment:hover,
-.segment:focus-visible {
-  background: var(--ds-danger);
-}
-
-.tick:hover::after,
-.tick:focus-visible::after {
-  background: var(--ds-danger);
-  width: 5px;
-}
-
-.segment:focus-visible,
-.tick:focus-visible {
-  outline: var(--ds-focus-outline);
-  outline-offset: 2px;
+/* A mark drawn over an earlier one: distinct shade plus a panel-coloured outline so both edges stay visible. */
+.overlap {
+  background: var(--pt-mark-overlap);
+  box-shadow: 0 0 0 1.5px var(--pt-panel);
   z-index: 2;
+}
+
+.mark:hover,
+.mark:focus-visible {
+  height: 16px;
+  box-shadow: 0 0 0 1.5px var(--pt-panel), 0 0 0 3px var(--pt-mark);
+  z-index: 3;
+}
+
+.mark:focus-visible {
+  outline: none;
 }
 
 .playhead {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 1px;
+  bottom: 1px;
   width: 2px;
   transform: translateX(-50%);
-  background: var(--ds-text);
+  background: var(--pt-playhead);
   border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--pt-panel);
   pointer-events: none;
-  z-index: 1;
-}
-
-.playhead::before {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: var(--ds-text);
-  box-shadow: 0 0 0 2px var(--ds-surface);
+  z-index: 4;
 }
 
 .tooltip {
   position: absolute;
   bottom: calc(100% + 4px);
   transform: translateX(-50%);
-  padding: 5px 9px;
+  padding: 4px 8px;
   border-radius: 6px;
-  background: var(--ds-text);
-  color: var(--ds-surface);
+  background: var(--pt-tip-bg);
+  color: var(--pt-tip-text);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.35;
-  /* Size to the text, not to the space left before the track's edge. */
-  width: max-content;
+  white-space: nowrap;
   max-width: min(280px, calc(100vw - 48px));
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
-  z-index: 3;
+  z-index: 5;
 }
 
 .tooltipStart {
@@ -201,54 +176,34 @@
   transform: translateX(calc(-100% + 8px));
 }
 
-/* ── Legend ── */
+/* ── One compact summary line ── */
 
-.legend {
+.summary {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: baseline;
+  gap: 12px;
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--ds-danger-border);
-  border-radius: 999px;
-  background: var(--ds-danger-soft);
-  color: var(--ds-text-secondary);
+  min-width: 0;
   font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--pt-text);
 }
 
-.swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: var(--ds-danger-solid);
+.countFlagged,
+.countClear {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
 }
 
-.legendCount {
-  font-weight: 700;
-  color: var(--ds-danger);
+.countFlagged {
+  color: var(--pt-count);
+}
+
+.clock {
+  margin-left: auto;
+  flex: none;
   font-variant-numeric: tabular-nums;
-}
-
-.hint {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--ds-text-muted);
-}
-
-@media (max-width: 480px) {
-  .root {
-    padding: 10px;
-  }
-
-  .trackWrap {
-    height: 40px;
-  }
 }

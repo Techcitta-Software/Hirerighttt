@@ -7,15 +7,17 @@ type Props = {
   jobs: { id: string; title: string }[]
   /** Inside a dialog that has its own title: no collapse toggle, the form is always open. */
   embedded?: boolean
+  /** Opened from one job's page: that job is chosen in "Role" (the recruiter can still change it). */
+  defaultJobId?: string
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** Recruiter tool: paste emails -> each person gets an interview link that opens a resume-based AI interview. */
-export function InviteCandidatesPanel({ jobs, embedded = false }: Props) {
+export function InviteCandidatesPanel({ jobs, embedded = false, defaultJobId = '' }: Props) {
   const [open, setOpen] = useState(embedded)
   const [raw, setRaw] = useState('')
-  const [jobId, setJobId] = useState('')
+  const [jobId, setJobId] = useState(() => (jobs.some((j) => j.id === defaultJobId) ? defaultJobId : ''))
   const [days, setDays] = useState(7)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -81,7 +83,7 @@ export function InviteCandidatesPanel({ jobs, embedded = false }: Props) {
       )}
 
       {open ? (
-        <form className={styles.body} onSubmit={onSubmit}>
+        <form className={`${styles.body} ${embedded ? styles.bodyEmbedded : ''}`} onSubmit={onSubmit}>
           <label className={styles.label} htmlFor="invite-emails">
             Email addresses
           </label>

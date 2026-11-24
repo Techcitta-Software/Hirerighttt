@@ -1,12 +1,9 @@
 /**
  * MediaPipe Face Landmarker for employer playback — red mesh when reviewing flagged intervals.
  */
-import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@mediapipe/tasks-vision'
+import type { FaceLandmarker, NormalizedLandmark } from '@mediapipe/tasks-vision'
+import { createFaceLandmarker } from './mediapipeAssets'
 import type { InterviewFlagSection } from './store'
-
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm'
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'
 
 /** Face oval + eye connectors (subset of tessellation — readable at review size). */
 const RED_MESH_EDGES: Array<[number, number]> = [
@@ -70,27 +67,13 @@ let landmarkerPromise: Promise<FaceLandmarker | null> | null = null
 
 export function getPlaybackFaceLandmarker(): Promise<FaceLandmarker | null> {
   if (!landmarkerPromise) {
-    landmarkerPromise = (async () => {
-      try {
-        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
-        for (const delegate of ['GPU', 'CPU'] as const) {
-          try {
-            return await FaceLandmarker.createFromOptions(vision, {
-              baseOptions: { modelAssetPath: MODEL_URL, delegate },
-              runningMode: 'VIDEO',
-              numFaces: 3,
-              outputFaceBlendshapes: false,
-              outputFacialTransformationMatrixes: false,
-            })
-          } catch {
-            /* try CPU */
-          }
-        }
-      } catch (err) {
-        console.warn('[proctor-playback] FaceLandmarker unavailable', err)
-      }
-      return null
-    })()
+    // Same pinned CDN + self-hosted fallback as the interview room; CPU first so playback never janks.
+    landmarkerPromise = createFaceLandmarker({
+      runningMode: 'VIDEO',
+      numFaces: 3,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: false,
+    }).then((created) => created?.landmarker ?? null)
   }
   return landmarkerPromise
 }

@@ -23,9 +23,11 @@ import { pruneStaleForYouNotifications, syncJobMatchNotifications } from '../lib
 import {
   missingRequiredProfileFields,
   profileCheckHref,
+  profileGapsExcludingInterview,
   profileCompletionPercent,
   profileFieldChecks,
 } from '../lib/profileCompletion'
+import { formatPhoneForDisplay } from '../lib/phone'
 import { buildInterviewInsights } from '../lib/interviewInsightsPresentation'
 import styles from './CandidateDashboard.module.css'
 
@@ -193,7 +195,7 @@ export function DashboardPage() {
   if (profile?.currentLocation?.trim()) chips.push({ icon: 'map-pin', text: profile.currentLocation })
   if (profile?.totalExperience?.trim()) chips.push({ icon: 'briefcase', text: profile.totalExperience })
   if (email) chips.push({ icon: 'message', text: email })
-  if (user?.phone?.trim()) chips.push({ icon: 'user', text: user.phone })
+  if (user?.phone?.trim()) chips.push({ icon: 'user', text: formatPhoneForDisplay(user.phone) })
   if (profile?.noticePeriod?.trim()) chips.push({ icon: 'calendar', text: `Available ${profile.noticePeriod}` })
   if (profile?.skills?.filter(Boolean).length) {
     const skillText = profile.skills.filter(Boolean).slice(0, 3).join(' · ')
@@ -208,12 +210,14 @@ export function DashboardPage() {
   const requiredDone = profileChecks.filter((c) => c.required && c.done).length
   const hasProfileGaps = missingRequired.length > 0 || missingOptional.length > 0
 
-  /* One prominent "next step": the most useful thing to do right now. */
-  const nextStep = missingRequired.length
+  /* One prominent "next step": the most useful thing to do right now. The AI interview is itself a required
+     profile item, so when it is the only gap the step is "Take your AI interview", not "Finish your profile". */
+  const profileOnlyGaps = profileGapsExcludingInterview(missingRequired)
+  const nextStep = profileOnlyGaps.length
     ? {
         title: 'Finish your profile',
         body: `${requiredDone} of ${requiredTotal} required details added. Employers see your profile when you apply.`,
-        to: profileCheckHref(missingRequired[0]),
+        to: profileCheckHref(profileOnlyGaps[0]),
         cta: 'Continue profile',
         icon: 'user' as const,
       }
@@ -257,14 +261,14 @@ export function DashboardPage() {
             </>
           ) : (
             <>
-              <Link to="/interview" className="ds-btn ds-btn--secondary">
-                <HrIcon name="sparkle" size={16} />
-                Start AI interview
-              </Link>
-              <Link to="/pricing/retake" className="ds-btn ds-btn--ghost">
-                <HrIcon name="trending" size={16} />
-                Improve your score
-              </Link>
+              {/* No score yet: "Improve your score" (retake pricing) has nothing to improve. When the next step is
+                  already the interview, this header button would repeat it, so it only shows for profile gaps. */}
+              {profileOnlyGaps.length > 0 ? (
+                <Link to="/interview" className="ds-btn ds-btn--secondary">
+                  <HrIcon name="sparkle" size={16} />
+                  Start AI interview
+                </Link>
+              ) : null}
             </>
           )}
         </div>
@@ -286,7 +290,7 @@ export function DashboardPage() {
             <p className={styles.eyebrow}>Next step</p>
             <h2 id="next-step-heading" className={styles.nextStepTitle}>{nextStep.title}</h2>
             <p className={styles.nextStepBody}>{nextStep.body}</p>
-            {missingRequired.length > 0 && (
+            {profileOnlyGaps.length > 0 && (
               <div className={styles.nextStepProgress}>
                 <progress value={completion} max={100} aria-label="Profile completion" />
                 <span>{completion}% complete</span>

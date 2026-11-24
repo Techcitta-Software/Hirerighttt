@@ -560,3 +560,11 @@
     width: 100%;
   }
 }
+
+/* Phones: "Open jobs" and "Create job" side by side (one row instead of two full-width bars). */
+@media (max-width: 900px) {
+  .headerActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

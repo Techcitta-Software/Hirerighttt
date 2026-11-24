@@ -33,7 +33,7 @@ from app.services.interview_invites import (
 from app.services import audit
 from app.services.candidate_name import candidate_display_name
 from app.services.interview_review import vendor_may_view_interview_session
-from app.services.proctoring.review_events import timeline_events
+from app.services.proctoring.review_events import combine_review_logs, timeline_events
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.storage import interview_artifact_storage as art_store
 from app.services.storage import interview_recording_storage as rec_store
@@ -632,12 +632,15 @@ async def try_extended_routes(
             except Exception:
                 pass
         stored = (db.get("interviews") or {}).get(candidate_email)
-        proctoring = ((session.get("result") or {}).get("integrity") or {}).get("proctoring") or (stored or {}).get("integrity", {}).get("proctoring")
+        result_integrity = (session.get("result") or {}).get("integrity") or {}
+        proctoring = result_integrity.get("proctoring") or (stored or {}).get("integrity", {}).get("proctoring")
+        # Events the browser only delivered inside the scored result (final sync lost) still belong on the timeline.
+        result_logs = result_integrity.get("logs") if isinstance(result_integrity.get("logs"), list) else []
         return json_fn(
             200,
             {
                 # Each event carries startOffsetMs/endOffsetMs from the recording start for the video timeline.
-                "events": timeline_events(session.get("reviewEvents")),
+                "events": timeline_events(combine_review_logs(session.get("reviewEvents"), result_logs)),
                 "recordingDurationSec": recording_duration_sec,
                 "proctoring": proctoring,
                 "videoUrl": video_url,

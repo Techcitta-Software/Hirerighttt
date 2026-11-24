@@ -164,6 +164,7 @@ function VideoProctorTimelineInner({
           events={events}
           flaggedSections={flaggedSections}
           durationHint={recordingDuration ?? (durationSec || null)}
+          tone="dark"
         />
       ) : null}
       {source ? <p role="status">{message}</p> : null}

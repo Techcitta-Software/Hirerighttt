@@ -59,7 +59,7 @@ export async function sendOnboardingConfirmationEmail(
   const payload = {
     scheduledStart: scheduledIso,
     durationMinutes: 60,
-    jobTitle: pending?.title || 'HireRight AI Interview',
+    jobTitle: pending?.title || 'HireRighttt AI Interview',
     jobDescription: pending?.jd || '',
     roleTrack: pending?.role || data.currentRole || '',
     experienceLevel: data.totalExperience || pending?.level || '',
