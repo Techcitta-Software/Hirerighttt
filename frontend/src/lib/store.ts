@@ -326,7 +326,7 @@ export type EmployerApplicant = {
   applications?: EmployerApplicantApplication[]
   /** The job the attached interview was taken for (null: a general / shared interview). */
   interviewJobId?: string | null
-  /** The API removed contact details (candidate has no link to this organisation and did not opt in). */
+  /** Legacy API flag (contact details were removed). The API now always sends false; the UI ignores it. */
   contactHidden?: boolean
   /** Account id, used to open the original resume in S3 when the e-mail is not on the row. */
   candidateUserId?: string | null

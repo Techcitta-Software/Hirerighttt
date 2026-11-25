@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  HireRighttt on the AWS free tier. One small EC2 instance runs the API in Docker; the website is static files in
+  S3; one CloudFront distribution serves both over HTTPS (site at /, API at /api/*). No load balancer, no NAT
+  gateway, no Secrets Manager, no SES. Optional: a free-tier RDS PostgreSQL (db.t4g.micro) instead of Neon.
+
+Parameters:
+  Env:
+    Type: String
+    Default: prod
+    AllowedPattern: "[a-z0-9-]+"
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t2.micro]
+    Description: Free-tier eligible x86 instance (1 GB RAM).
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  CloudFrontPrefixListId:
+    Type: String
+    Description: Managed prefix list com.amazonaws.global.cloudfront.origin-facing (deploy.sh looks it up).
+  ResumeBucketName:
+    Type: String
+    Default: hirerighttt-tests
+    Description: Existing S3 bucket with resumes, videos and reports (the API reads/writes it with the instance role).
+  CreateDatabase:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: true = create a free-tier RDS PostgreSQL. false = keep using DATABASE_URL (e.g. Neon).
+  BudgetEmail:
+    Type: String
+    Description: Email that receives the $1 budget alerts.
+
+Conditions:
+  WithDatabase: !Equals [!Ref CreateDatabase, "true"]
+  IsUsEast1: !Equals [!Ref "AWS::Region", us-east-1]
+
+Resources:
+  # ---------- Static website (private bucket, read only by CloudFront) ----------
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hirerighttt-${Env}-site-${AWS::AccountId}"
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+  # ---------- Release artifacts (backend code bundles the instance pulls on deploy) ----------
+  ReleaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "hirerighttt-${Env}-releases-${AWS::AccountId}"
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldReleases
+            Status: Enabled
+            ExpirationInDays: 14
+
+  # ---------- API server ----------
+  ApiSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HireRighttt API - HTTP only from CloudFront (no SSH; use SSM Session Manager)
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: CloudFront origin-facing
+      Tags: [{Key: Name, Value: !Sub "hirerighttt-${Env}-api"}]
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "hirerighttt-${Env}-ec2"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: app
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadAppSettings
+                Effect: Allow
+                Action: [ssm:GetParametersByPath, ssm:GetParameters, ssm:GetParameter]
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/hirerighttt/${Env}/*"
+              - Sid: ReadAppSettingsPath
+                Effect: Allow
+                Action: ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/hirerighttt/${Env}"
+              - Sid: DecryptSecureStrings
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+              - Sid: PullReleases
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ReleaseBucket.Arn}/*"
+              - Sid: ResumeFiles
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                Resource: !Sub "arn:aws:s3:::${ResumeBucketName}/*"
+              - Sid: ResumeBucket
+                Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !Sub "arn:aws:s3:::${ResumeBucketName}"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "hirerighttt-${Env}-ec2"
+      Roles: [!Ref InstanceRole]
+
+  ApiInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!GetAtt ApiSecurityGroup.GroupId]
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20 # free tier covers 30 GB of EBS
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags: [{Key: Name, Value: !Sub "hirerighttt-${Env}-api"}]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker cronie
+          systemctl enable --now docker crond
+          # 1 GB RAM: add 2 GB swap so image builds and spikes don't run out of memory
+          if [ ! -f /swapfile ]; then
+            dd if=/dev/zero of=/swapfile bs=1M count=2048
+            chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+          mkdir -p /opt/hirerighttt
+          # Scheduled jobs (replaces an external scheduler): reminders every 15 min, maintenance daily 03:00 UTC.
+          cat > /opt/hirerighttt/cron.sh <<'CRON'
+          #!/bin/bash
+          SECRET=$(grep '^CRON_SECRET=' /opt/hirerighttt/app.env | cut -d= -f2-)
+          [ -n "$SECRET" ] || exit 0
+          curl -fsS -m 120 -X POST -H "X-Cron-Secret: $SECRET" "http://127.0.0.1/api/internal/$1" >/dev/null
+          CRON
+          chmod +x /opt/hirerighttt/cron.sh
+          cat > /etc/cron.d/hirerighttt <<'TAB'
+          */15 * * * * root /opt/hirerighttt/cron.sh interview-reminders
+          0 3 * * * root /opt/hirerighttt/cron.sh maintenance
+          TAB
+          echo "region=${AWS::Region} env=${Env}" > /opt/hirerighttt/stack.txt
+
+  ApiEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref ApiInstance
+      Tags: [{Key: Name, Value: !Sub "hirerighttt-${Env}-api"}]
+
+  # ---------- Optional free-tier database ----------
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: WithDatabase
+    Properties:
+      GroupDescription: HireRighttt RDS - PostgreSQL only from the API instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !GetAtt ApiSecurityGroup.GroupId
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    Condition: WithDatabase
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "hirerighttt-${Env}"
+      Engine: postgres
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: "20"
+      StorageType: gp2
+      StorageEncrypted: true
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 1
+      EnablePerformanceInsights: false
+      DBName: hireright
+      MasterUsername: hireright
+      MasterUserPassword: !Sub "{{resolve:ssm-secure:/hirerighttt/${Env}/DB_PASSWORD}}"
+      VPCSecurityGroups: [!GetAtt DbSecurityGroup.GroupId]
+
+  # ---------- CDN: HTTPS for site + API on one domain ----------
+  SiteOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "hirerighttt-${Env}-site"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SpaRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "hirerighttt-${Env}-spa"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Serve index.html for app routes (paths without a file extension)
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "HireRighttt ${Env}"
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200 # includes India
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SiteOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: api
+            DomainName: !If
+              - IsUsEast1
+              - !Sub
+                - "ec2-${Dashed}.compute-1.amazonaws.com"
+                - Dashed: !Join ["-", !Split [".", !Ref ApiEip]]
+              - !Sub
+                - "ec2-${Dashed}.${AWS::Region}.compute.amazonaws.com"
+                - Dashed: !Join ["-", !Split [".", !Ref ApiEip]]
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaRewriteFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            Compress: true
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: 33f36d7e-f396-46d9-90e0-52428a34d9dc # Managed-AllViewerAndCloudFrontHeaders-2022-06
+
+  # ---------- Cost guard ----------
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "hirerighttt-${Env}-1usd"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: {Amount: 1, Unit: USD}
+      NotificationsWithSubscribers:
+        - Notification: {NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 50}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref BudgetEmail}]
+        - Notification: {NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100}
+          Subscribers: [{SubscriptionType: EMAIL, Address: !Ref BudgetEmail}]
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "https://${Distribution.DomainName}"
+  DistributionId:
+    Value: !Ref Distribution
+  SiteBucket:
+    Value: !Ref SiteBucket
+  ReleaseBucket:
+    Value: !Ref ReleaseBucket
+  InstanceId:
+    Value: !Ref ApiInstance
+  ApiPublicIp:
+    Value: !Ref ApiEip
+  DbHost:
+    Condition: WithDatabase
+    Value: !GetAtt Database.Endpoint.Address

@@ -23,6 +23,15 @@ def _is_recruiter_account(db: dict, user: dict | None) -> bool:
     )
 
 
+HIDDEN_VISIBILITY = ("private", "organization_only")
+
+
+def candidate_visible_to_employers(profile: dict | None) -> bool:
+    """A job seeker's profile is visible to every employer unless they hid it ("private" / "organization_only")."""
+    visibility = str((profile or {}).get("profileVisibility") or "marketplace") if isinstance(profile, dict) else "marketplace"
+    return visibility not in HIDDEN_VISIBILITY
+
+
 def assert_vendor_may_view_candidate_documents(
     db: dict,
     organization_id: str,
@@ -32,13 +41,17 @@ def assert_vendor_may_view_candidate_documents(
     require_link: bool = False,
     contact: bool = False,
 ) -> None:
-    """Interview reports follow the talent-search model (any job seeker is visible to recruiters).
+    """One rule for everything an employer opens about a candidate: e-mail, phone, the original resume file, the full
+    interview report, the recording and the proctoring review.
 
-    `require_link=True` is the strict rule used for interview VIDEO: the candidate must have applied to, been invited
-    by, or interviewed for this organization. Being a registered job seeker is not enough.
-    `contact=True` is the rule for CONTACT data (resume file, e-mail, phone; V-05): a link to this organization as
-    above, or the candidate opted in (profile.shareContactWithRecruiters).
+    OWNER DECISION (reverses the earlier V-05 contact / report restriction): every employer-visible candidate is fully
+    open to any employer - applicants of this organization's jobs AND job seekers on the Candidates list.
+    Denied: hiring-team accounts, unknown e-mails, and job seekers who hid their profile (private / organization only)
+    unless they applied to, were invited or interviewed by THIS organization.
+
+    `require_link` / `contact` are accepted for older call sites; they no longer narrow the rule.
     """
+    del require_link, contact
     email = str(candidate_email or "").strip().lower()
     if not email:
         err = ValueError("Candidate email is required.")
@@ -58,18 +71,20 @@ def assert_vendor_may_view_candidate_documents(
         and (not recruiter_job_ids or a.get("jobId") in recruiter_job_ids)
         for a in employer_apps_for_candidate(db, email)
     )
+    if linked_app:
+        return
     linked_session = any(
         str(s.get("organizationId") or "") == str(organization_id or "")
         and str(s.get("email") or "").lower() == email
         and (not recruiter_job_ids or s.get("jobId") in recruiter_job_ids)
         for s in sessions_for_email(db, email)
     )
-    job_seeker = bool(user and user.get("role") != "employer") and not require_link
-    if contact:
-        job_seeker = bool(user and user.get("role") != "employer") and candidate_shares_contact(
-            (db.get("profiles") or {}).get(email)
-        )
-    if not linked_app and not linked_session and not job_seeker:
+    if linked_session:
+        return
+    visible_job_seeker = bool(user and user.get("role") != "employer") and candidate_visible_to_employers(
+        (db.get("profiles") or {}).get(email)
+    )
+    if not visible_job_seeker:
         err = ValueError("Candidate not found.")
         err.status = 404  # type: ignore[attr-defined]
         raise err
@@ -86,12 +101,9 @@ def assert_vendor_may_open_stored_resume(
     user_id: str,
     recruiter_scope: dict | None = None,
 ) -> dict:
-    """The original resume file for someone already on the Candidates list.
-
-    Marketplace-visible job seekers can be opened by any employer (that page is the resume database). A private or
-    organisation-only profile can be opened only when this organisation already has a link to them. Returns the user.
-    The caller's email and phone stay off this response; only the stored file is served.
-    """
+    """The original resume file for someone on the Candidates list (by user id). Same rule as every other candidate
+    document: any employer, unless the candidate hid their profile and has no link to this organization.
+    Returns the user."""
     uid = str(user_id or "").strip()
     if not uid:
         err = ValueError("Candidate is required.")
@@ -103,101 +115,42 @@ def assert_vendor_may_open_stored_resume(
         err.status = 404  # type: ignore[attr-defined]
         raise err
     email = str(user.get("email") or "").strip().lower()
-    profile = (db.get("profiles") or {}).get(email) or {}
-    visibility = str(profile.get("profileVisibility") or "marketplace")
-    if visibility in ("private", "organization_only") and not candidate_shares_contact(profile):
-        assert_vendor_may_view_candidate_documents(
-            db, organization_id, email, recruiter_scope, require_link=True
-        )
+    assert_vendor_may_view_candidate_documents(db, organization_id, email, recruiter_scope)
     return user
 
 
 # --------------------------------------------------------------------------------------------------------------
-# V-05: contact data (e-mail, phone, resume) of candidates who have no link to the employer.
-#
-# Any self-registered employer can browse the platform roster and the talent search. Discovery stays (name, role,
-# skills, experience, interview score), but contact details and the resume are only shown when the candidate applied
-# to / was invited or interviewed by THIS organization, or opted in with profile.shareContactWithRecruiters = true.
-# (Product decision for the owner: there is no opt-in toggle in the UI yet, so today unlinked candidates are hidden.)
+# Roster / talent-search rows. OWNER DECISION: e-mail, phone, resume and the full interview report are shown for
+# every employer-visible candidate. What stays out: candidates who hid their profile and have no link to this
+# organization (they are dropped from the rows, not redacted).
 
 LINKED_ROSTER_SOURCES = frozenset({"application", "vault", "interview", "interview_report"})
 
 
 def candidate_shares_contact(profile: dict | None) -> bool:
+    """Kept for older callers: an explicit opt-in flag on the profile. No longer needed to see contact details."""
     return bool(isinstance(profile, dict) and profile.get("shareContactWithRecruiters") is True)
 
 
-# Interview fields an unlinked organization may see (discovery: the score and the score by area). The answers,
-# per-question feedback, proctoring logs, session id (recording) and strengths/improvements are the candidate's
-# report and stay with organizations the candidate applied to / was invited or interviewed by.
-DISCOVERY_INTERVIEW_KEYS = ("overall", "role", "level", "date", "categories", "scoring")
-
-
-def discovery_interview_summary(interview: dict | None) -> dict | None:
-    if not isinstance(interview, dict):
-        return interview
-    out = {k: interview[k] for k in DISCOVERY_INTERVIEW_KEYS if k in interview}
-    # Shape the report UI expects (lists), with nothing of the report itself in them.
-    out.update({"answers": [], "strengths": [], "improvements": [], "reportRestricted": True})
-    return out
-
-
-def hide_roster_contact(row: dict) -> dict:
-    out = {**row, "candidateEmail": "", "candidatePhone": "", "resumeText": "", "resumeName": None, "contactHidden": True}
-    if "interviewResult" in out:
-        out["interviewResult"] = discovery_interview_summary(out.get("interviewResult"))
-    out.pop("resumeTextTruncated", None)
-    out.pop("resumeTextLength", None)
-    return out
-
-
 def redact_roster_rows(db: dict, rows: list[dict]) -> list[dict]:
-    """Blocking (profile lookups). Rows from the platform roster / talent search lose their contact fields unless the
-    candidate opted in. Rows linked to the organization are returned unchanged."""
+    """Blocking (profile lookups). Rows linked to the organization are returned unchanged. Platform / talent rows
+    of candidates who hid their profile are dropped; every other row is returned in full (contactHidden False)."""
     unlinked = [r for r in rows if str(r.get("source") or "") not in LINKED_ROSTER_SOURCES]
     profiles = profiles_for_emails(db, [r.get("candidateEmail") for r in unlinked]) if unlinked else {}
     out = []
     for r in rows:
         if str(r.get("source") or "") in LINKED_ROSTER_SOURCES:
-            out.append(r)
+            out.append({**r, "contactHidden": False})
             continue
         email = str(r.get("candidateEmail") or "").lower()
-        out.append(r if candidate_shares_contact(profiles.get(email)) else hide_roster_contact(r))
+        if not candidate_visible_to_employers(profiles.get(email)):
+            continue
+        out.append({**r, "contactHidden": False})
     return out
-
-
-def _org_access_user_ids(db: dict, organization_id: str, user_ids: list) -> set[str]:
-    from app.db.uow import UnitOfWork
-
-    ids = sorted({str(u) for u in user_ids if u})
-    if not ids or not isinstance(db, UnitOfWork):
-        return set()
-    try:
-        rows = db.query(
-            "SELECT user_id FROM organization_talent_access WHERE organization_id = %s AND user_id = ANY(%s)",
-            (organization_id, ids),
-        )
-        return {str(r["user_id"]) for r in rows}
-    except Exception:
-        return set()
 
 
 def redact_talent_hits(db: dict, organization_id: str, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Blocking. Talent-search results: e-mail and resume text only for candidates with access granted to this
-    organization (application / interview) or who opted in."""
-    if not hits:
-        return hits
-    granted = _org_access_user_ids(db, organization_id, [h.get("userId") for h in hits])
-    profiles = profiles_for_emails(db, [h.get("email") for h in hits if str(h.get("userId")) not in granted])
-    out = []
-    for h in hits:
-        email = str(h.get("email") or "").lower()
-        if str(h.get("userId")) in granted or candidate_shares_contact(profiles.get(email)):
-            out.append(h)
-            continue
-        hidden = {**h, "email": "", "contactHidden": True}
-        for key in ("resumePreview", "resumeSnippet"):
-            if key in hidden:
-                hidden[key] = ""
-        out.append(hidden)
-    return out
+    """Talent-search results. The talent index already leaves out hidden profiles (see talent_index.py); every hit
+    keeps its e-mail and resume preview."""
+    del db, organization_id
+    return [{**h, "contactHidden": False} for h in hits or []]

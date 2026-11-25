@@ -1,23 +1,22 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { canViewInterviewVideo } from '../../lib/adminAccess'
-import { SAVE_HINT, experienceLabel, sourceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
+import { formatPhoneForDisplay, phoneTelHref } from '../../lib/phone'
+import { SAVE_HINT, experienceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
 import { CareerIntelligenceDashboard } from '../CareerIntelligenceDashboard'
 import { HrIcon } from '../HrIcon'
 import { handleDialogKeyDown } from '../useDialog'
 import { VideoProctorTimeline } from '../VideoProctorTimeline'
-import { Highlighted } from './Highlighted'
 import { ProfileDetails } from './ProfileDetails'
 import { ResumeFilePreview } from './ResumeFilePreview'
 import styles from './Applicants.module.css'
-import { appliedJobsLabel } from './applicantJobs'
 
 export type PanelTab = PanelTabKey
 
+/** Profile is the landing tab; the original resume file and the interview report follow. */
 const TABS: { key: PanelTab; label: string }[] = [
+  { key: 'profile', label: 'Profile' },
   { key: 'resume', label: 'Resume' },
   { key: 'report', label: 'Interview report' },
-  { key: 'contact', label: 'Contact' },
 ]
 
 type Props = {
@@ -38,23 +37,17 @@ type Props = {
   onInvite: () => void
   onDownload: () => void
   onOpenFullReport: () => void
-  /** Candidates: open the original S3 file, laid out as a document, instead of the extracted text. */
+  /** Candidates: the original S3 file opens for anyone listed (by user id), not only by the contact rule. */
   originalResume?: boolean
+  /** "Now" for "Active 3 days ago" (fixed in tests). */
+  now?: number
 }
 
 /**
- * The applicant drawer: resume (text with the searched keywords highlighted, or the original file), interview report
- * with the proctoring recording, and contact details. Contact details are only what the API returned: it already
- * removes them for candidates with no link to this organisation who did not opt in, and this keeps that rule.
+ * The applicant drawer: Profile (the landing tab: interview signal, contact, and the resume read as a profile), the
+ * original resume file, and the interview report with the proctoring recording. Owner decision: e-mail, phone, the
+ * original file and the full report are shown for every candidate the API returns (it leaves out hidden profiles).
  */
-function ContactRemovedNote() {
-  return (
-    <span className={styles.resumeToolbarNote}>
-      <HrIcon name="lock" size={12} /> Email, phone and links are hidden until they apply or share them
-    </span>
-  )
-}
-
 export function ApplicantResumePanel({
   row,
   terms,
@@ -73,30 +66,32 @@ export function ApplicantResumePanel({
   onDownload,
   onOpenFullReport,
   originalResume = false,
+  now: nowProp,
 }: Props) {
   const a = row.applicant
-  const hasText = Boolean(a.resumeText?.trim())
-  const contactVisible = Boolean(a.candidateEmail) && !a.contactHidden
-  // Applications: the original file follows the contact rule. Candidates: the stored file opens for anyone listed
-  // (the API decides; it serves the file only for people on this employer's Candidates list).
+  const [now] = useState(() => nowProp ?? Date.now())
+  const contactVisible = Boolean(a.candidateEmail)
+  // Applications: by e-mail. Candidates: the stored file by user id (the API decides who may open it).
   const canOriginal = originalResume
     ? Boolean(a.hasResumeFile && (a.candidateUserId || a.candidateEmail))
     : contactVisible
   const person = originalResume ? 'candidate' : 'applicant'
-  const reportLocked = Boolean((a.interviewResult as { reportRestricted?: boolean } | undefined)?.reportRestricted || a.contactHidden)
-  // The original file opens first; "Formatted" switches to the extracted text with Profile details.
-  const defaultView: 'text' | 'file' = canOriginal || !hasText ? 'file' : 'text'
-  const [resumeView, setResumeView] = useState<'text' | 'file'>(defaultView)
+  // The API said this person has no stored file (application rows do not say so up front).
+  const [missingFileFor, setMissingFileFor] = useState<string | null>(null)
+  const fileMissing = missingFileFor === a.id
   const headingRef = useRef<HTMLHeadingElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  // A different applicant: focus its name, start the resume at the top.
+  // A different applicant: focus its name, start at the top.
   useEffect(() => {
-    setResumeView(defaultView)
     headingRef.current?.focus()
     if (bodyRef.current) bodyRef.current.scrollTop = 0
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset only when a different applicant opens
-  }, [a.id, a.resumeText])
+  }, [a.id])
+
+  // Another tab starts at the top too (the header stays put, so nothing moves under the pointer).
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [tab])
 
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
     const i = TABS.findIndex((t) => t.key === tab)
@@ -115,6 +110,20 @@ export function ApplicantResumePanel({
   const shortlisted = a.status === 'Shortlisted'
   const exp = experienceLabel(row)
   const showRank = typeof a.rank === 'number' && rankTotal >= 2
+  // "Frontend Developer at CartWave · 4 yrs · Chennai": the resume headline, else the application's role.
+  const title = row.headline.title || a.role || ''
+  const roleLine = title && row.headline.company ? `${title} at ${row.headline.company}` : title
+  const hasText = Boolean(a.resumeText?.trim())
+  // Nothing to download: no file stored (the API said so, or the directory row says so) and no resume text either.
+  const nothingToDownload = (fileMissing || (originalResume && !a.hasResumeFile)) && !hasText
+  const downloadDisabled =
+    (originalResume ? !a.hasResumeFile && !contactVisible : !contactVisible) || nothingToDownload || busy === 'download'
+  const fileName = /\.(pdf|docx?)$/i.test(a.resumeName || '') ? (a.resumeName as string) : 'Original resume'
+
+  function goTab(next: PanelTab) {
+    onTab(next)
+    window.setTimeout(() => document.getElementById(`applicant-tab-${next}`)?.focus(), 0)
+  }
 
   return (
     <div
@@ -162,8 +171,18 @@ export function ApplicantResumePanel({
             </span>
           </div>
           <p className={styles.panelSub}>
-            {[a.role, exp, appliedJobsLabel(a) || sourceLabel(a.recordSource)].filter(Boolean).join(' · ')}
+            {[roleLine, exp, row.headline.location].filter(Boolean).join(' · ')}
           </p>
+          {contactVisible || a.candidatePhone ? (
+            <p className={styles.panelContact} aria-label="Contact" data-testid="panel-contact">
+              {contactVisible ? (
+                <a href={`mailto:${a.candidateEmail}`}>{a.candidateEmail}</a>
+              ) : null}
+              {a.candidatePhone ? (
+                <a href={phoneTelHref(a.candidatePhone)}>{formatPhoneForDisplay(a.candidatePhone)}</a>
+              ) : null}
+            </p>
+          ) : null}
         </div>
 
         <div className={styles.panelActions}>
@@ -182,14 +201,18 @@ export function ApplicantResumePanel({
             type="button"
             className={styles.actBtn}
             onClick={onDownload}
-            disabled={(originalResume ? !a.hasResumeFile && !contactVisible : !contactVisible) || busy === 'download'}
+            disabled={downloadDisabled}
             aria-label={`Download ${a.candidateName}'s resume`}
             title={
               originalResume && a.hasResumeFile
                 ? 'Download the original resume'
-                : contactVisible
-                  ? 'Download the resume'
-                  : 'Contact details are hidden'
+                : !contactVisible
+                  ? 'No resume on file'
+                  : nothingToDownload
+                    ? 'No resume uploaded'
+                    : fileMissing
+                      ? 'No file uploaded: downloads the resume text'
+                      : 'Download the resume'
             }
           >
             <HrIcon name="download" size={14} /> Download
@@ -199,7 +222,7 @@ export function ApplicantResumePanel({
             className={`${styles.actBtn} ${styles.actPrimary}`}
             onClick={onInvite}
             disabled={!contactVisible || busy === 'invite'}
-            title={contactVisible ? 'Email an interview link' : 'Contact details are hidden'}
+            title={contactVisible ? 'Email an interview link' : 'No e-mail address on file'}
           >
             <HrIcon name="calendar" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
           </button>
@@ -208,7 +231,7 @@ export function ApplicantResumePanel({
           </button>
         </div>
 
-        <div className={styles.tabs} role="tablist" aria-label="Applicant details">
+        <div className={styles.tabs} role="tablist" aria-label={originalResume ? 'Candidate details' : 'Applicant details'}>
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -229,92 +252,114 @@ export function ApplicantResumePanel({
       </header>
 
       <div className={styles.panelBody} ref={bodyRef}>
-        {tab === 'resume' ? (
+        {tab === 'profile' ? (
+          <section id="applicant-tabpanel-profile" role="tabpanel" aria-labelledby="applicant-tab-profile" tabIndex={0}>
+            <ProfileDetails
+              row={row}
+              terms={terms}
+              contactVisible={contactVisible}
+              rank={showRank ? { rank: a.rank as number, total: rankTotal } : null}
+              directory={originalResume}
+              now={now}
+              onOpenReport={() => goTab('report')}
+            />
+          </section>
+        ) : tab === 'resume' ? (
           <section id="applicant-tabpanel-resume" role="tabpanel" aria-labelledby="applicant-tab-resume" tabIndex={0}>
-            <div className={styles.resumeStack}>
-              {hasText && canOriginal ? (
-                <div className={styles.resumeToolbar}>
-                  <div className={styles.segmented} role="group" aria-label="Resume view">
-                    <button type="button" aria-pressed={resumeView === 'text'} onClick={() => setResumeView('text')}>
-                      Formatted
-                    </button>
-                    <button type="button" aria-pressed={resumeView === 'file'} onClick={() => setResumeView('file')}>
-                      Original
-                    </button>
-                  </div>
-                  {a.contactHidden && resumeView === 'text' ? <ContactRemovedNote /> : null}
+            {canOriginal && !fileMissing ? (
+              <div className={styles.resumeCanvasInline}>
+                <div className={styles.resumeBar}>
+                  <span className={styles.resumeFileName} title={fileName}>
+                    <HrIcon name="document" size={14} />
+                    <span>{fileName}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.actBtn}
+                    onClick={onDownload}
+                    disabled={downloadDisabled}
+                    aria-label={`Download ${a.candidateName}'s original resume`}
+                  >
+                    <HrIcon name="download" size={14} /> {busy === 'download' ? 'Downloading…' : 'Download'}
+                  </button>
                 </div>
-              ) : a.contactHidden && hasText ? (
-                <div className={styles.resumeToolbar}>
-                  <ContactRemovedNote />
+                <div className={styles.resumeSheet}>
+                  <ResumeFilePreview
+                    candidateEmail={a.candidateEmail}
+                    candidateUserId={originalResume ? a.candidateUserId : undefined}
+                    candidateName={a.candidateName}
+                    fallbackText={a.resumeText}
+                    onDownload={onDownload}
+                    onMissing={() => setMissingFileFor(a.id)}
+                  />
                 </div>
-              ) : null}
-              {resumeView === 'text' && hasText ? (
-                <>
-                  <ProfileDetails row={row} terms={terms} />
-                  <h3 className={styles.resumeTextTitle}>Full resume text</h3>
-                  <div className={styles.resumeText} data-testid="resume-text">
-                    <Highlighted text={a.resumeText || ''} terms={terms} />
-                  </div>
-                </>
-              ) : canOriginal ? (
-                <div className={styles.resumeCanvasInline}>
-                  <p className={styles.resumeCanvasLabel}>Original resume</p>
-                  <div className={styles.resumeSheet}>
-                    <ResumeFilePreview
-                      candidateEmail={a.candidateEmail}
-                      candidateUserId={originalResume ? a.candidateUserId : undefined}
-                      candidateName={a.candidateName}
-                      fallbackText={a.resumeText}
-                      onDownload={onDownload}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <p className={styles.panelNote}>No resume is stored for this {person}.</p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className={styles.resumeEmpty} data-testid="resume-empty">
+                <span className={styles.resumeEmptyIcon} aria-hidden="true">
+                  <HrIcon name="document" size={22} />
+                </span>
+                <h3 className={styles.resumeEmptyTitle}>No resume file uploaded</h3>
+                <p>
+                  {a.resumeText?.trim()
+                    ? 'Their skills, experience and education are in the Profile tab.'
+                    : 'Profile details appear in the Profile tab once they add a resume.'}
+                </p>
+                <button type="button" className={styles.actBtn} onClick={() => goTab('profile')}>
+                  Go to Profile
+                </button>
+              </div>
+            )}
           </section>
         ) : tab === 'report' ? (
           <section id="applicant-tabpanel-report" role="tabpanel" aria-labelledby="applicant-tab-report" tabIndex={0}>
             {a.interviewResult ? (
               <>
-                <dl className={styles.reportSummary}>
-                  <div>
-                    <dt>Interview score</dt>
-                    <dd>{row.score !== null ? `${Math.round(row.score)}/100` : '—'}</dd>
-                  </div>
-                  {originalResume && !showRank ? null : (
+                <div className={styles.snap}>
+                  <dl className={styles.snapStats} aria-label="Interview summary">
                     <div>
-                      <dt>Rank</dt>
-                      <dd>{showRank ? `#${a.rank} of ${rankTotal}` : '—'}</dd>
+                      <dt>Interview score</dt>
+                      <dd>
+                        {row.score !== null ? (
+                          <>
+                            <strong>{Math.round(row.score)}</strong>
+                            <span className={styles.snapMax}>/100</span>
+                          </>
+                        ) : (
+                          '—'
+                        )}
+                      </dd>
                     </div>
-                  )}
-                  {originalResume && row.fit === null ? null : (
+                    {originalResume && !showRank ? null : (
+                      <div>
+                        <dt>Rank</dt>
+                        <dd>{showRank ? `#${a.rank} of ${rankTotal}` : '—'}</dd>
+                      </div>
+                    )}
+                    {originalResume && row.fit === null ? null : (
+                      <div>
+                        <dt>Skills fit</dt>
+                        <dd>{row.fit !== null ? `${Math.round(row.fit)}%` : '—'}</dd>
+                      </div>
+                    )}
                     <div>
-                      <dt>Skills fit</dt>
-                      <dd>{row.fit !== null ? `${Math.round(row.fit)}%` : '—'}</dd>
+                      <dt>Proctoring</dt>
+                      <dd>
+                        {row.flags > 0 ? (
+                          <span className={styles.flagText}>
+                            <HrIcon name="warning" size={13} /> {row.flags} flag{row.flags === 1 ? '' : 's'}
+                          </span>
+                        ) : (
+                          <span className={styles.cleanText}>No flags</span>
+                        )}
+                      </dd>
                     </div>
-                  )}
-                  <div>
-                    <dt>Proctoring</dt>
-                    <dd className={row.flags > 0 ? styles.flagText : undefined}>
-                      {row.flags > 0 ? `${row.flags} flag${row.flags === 1 ? '' : 's'}` : 'No flags'}
-                    </dd>
-                  </div>
-                </dl>
-                {reportLocked ? (
-                  <div className={styles.panelNote} data-testid="report-locked">
-                    <p>
-                      <HrIcon name="lock" size={14} /> <strong>The full report is locked.</strong> You can see the
-                      score. The answers, feedback and recording are shared once this person applies to one of your jobs.
-                    </p>
-                  </div>
-                ) : (
+                  </dl>
+                  <button type="button" className={styles.snapLink} onClick={onOpenFullReport}>
+                    Open the full report and recording <HrIcon name="arrow-up-right" size={13} />
+                  </button>
+                </div>
                 <>
-                <button type="button" className={styles.linkBtn} onClick={onOpenFullReport}>
-                  Open the full report and recording <HrIcon name="arrow-up-right" size={12} />
-                </button>
                 <CareerIntelligenceDashboard
                   embedded
                   result={a.interviewResult}
@@ -336,58 +381,32 @@ export function ApplicantResumePanel({
                   </div>
                 ) : null}
                 </>
-                )}
               </>
             ) : (
-              <div className={styles.panelNote}>
+              <div className={styles.resumeEmpty} data-testid="report-empty">
+                <span className={styles.resumeEmptyIcon} aria-hidden="true">
+                  <HrIcon name="mic" size={22} />
+                </span>
+                <h3 className={styles.resumeEmptyTitle}>No interview yet</h3>
                 <p>
-                  <strong>No interview yet.</strong>{' '}
                   {contactVisible
                     ? 'Send an interview link and the report appears here once they finish.'
-                    : 'Once they apply to one of your jobs, you can invite them and the report appears here.'}
+                    : 'The report appears here once they finish an AI interview.'}
                 </p>
                 {contactVisible ? (
-                  <button type="button" className={`${styles.actBtn} ${styles.actPrimary}`} onClick={onInvite}>
-                    <HrIcon name="calendar" size={14} /> Invite to interview
+                  <button
+                    type="button"
+                    className={`${styles.actBtn} ${styles.actPrimary}`}
+                    onClick={onInvite}
+                    disabled={busy === 'invite'}
+                  >
+                    <HrIcon name="calendar" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
                   </button>
                 ) : null}
               </div>
             )}
           </section>
-        ) : (
-          <section id="applicant-tabpanel-contact" role="tabpanel" aria-labelledby="applicant-tab-contact" tabIndex={0}>
-            {contactVisible ? (
-              <dl className={styles.contactList}>
-                <div>
-                  <dt>Email</dt>
-                  <dd>
-                    <a href={`mailto:${a.candidateEmail}`}>{a.candidateEmail}</a>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Phone</dt>
-                  <dd>
-                    {a.candidatePhone ? <a href={`tel:${a.candidatePhone.replace(/\s+/g, '')}`}>{a.candidatePhone}</a> : '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt>How they reached you</dt>
-                  <dd>{sourceLabel(a.recordSource)}</dd>
-                </div>
-              </dl>
-            ) : (
-              <div className={styles.panelNote} data-testid="contact-locked">
-                <p>
-                  <HrIcon name="lock" size={14} /> <strong>Contact details are locked.</strong> They are shared once this
-                  person applies to one of your jobs or chooses to share them with recruiters.
-                </p>
-                <Link to="/employer/jobs" className={`${styles.actBtn} ${styles.actPrimary}`}>
-                  Share a job&apos;s apply link
-                </Link>
-              </div>
-            )}
-          </section>
-        )}
+        ) : null}
       </div>
     </div>
   )

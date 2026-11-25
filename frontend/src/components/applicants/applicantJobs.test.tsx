@@ -139,13 +139,16 @@ describe('two-job applicant', () => {
   it('renders all jobs unfiltered and the Backend application under the Backend filter', () => {
     const all = render('/employer/applicants')
     expect(all).toContain('Applied to: Frontend Engineer, Backend Engineer')
-    expect(all).toContain('Frontend Engineer interview')
+    // The score names its job (icon + job title, "Interview for" for screen readers) on a several-jobs row.
+    expect(all).toContain('Interview taken for Frontend Engineer')
+    expect(all).toMatch(/Interview for <\/span>Frontend Engineer/)
     expect(all).toContain('id="tuple-name-app-fe"')
 
     const be = render('/employer/applicants?jobId=job-be')
     expect(be).toContain('id="tuple-name-app-be"')
     expect(be).toContain('>Shortlisted<')
-    expect(be).toContain('Frontend Engineer interview')
+    // Under the Backend filter the Frontend interview is not this page's job, so its job is still named.
+    expect(be).toContain('Interview taken for Frontend Engineer')
   })
 })
 

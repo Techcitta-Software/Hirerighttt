@@ -245,52 +245,60 @@ def test_server_scored_result_is_saved_and_body_fields_are_ignored(env):
     assert db["interviews"]["cand@example.com"]["overall"] == 61
 
 
-# --------------------------------------------------------------------------------------------- V-05
+# --------------------------------------------------------------------------------------------- V-05 (reversed)
+# OWNER DECISION: contact details, resume and report are shown for every employer-visible candidate. Hidden
+# (private / organization_only) profiles with no link to the organization stay out.
 def _roster_db():
     return {
-        "users": [{"id": "u1", "email": "seek@x.com", "role": "jobseeker"}, {"id": "u2", "email": "opt@x.com", "role": "jobseeker"}],
-        "profiles": {"opt@x.com": {"shareContactWithRecruiters": True}},
+        "users": [
+            {"id": "u1", "email": "seek@x.com", "role": "jobseeker"},
+            {"id": "u2", "email": "opt@x.com", "role": "jobseeker"},
+            {"id": "u3", "email": "priv@x.com", "role": "jobseeker"},
+            {"id": "u4", "email": "boss@x.com", "role": "employer"},
+        ],
+        "profiles": {"opt@x.com": {"shareContactWithRecruiters": True}, "priv@x.com": {"profileVisibility": "private"}},
         "employerApplications": [],
         "interviewSessions": {},
         "organizationMembers": [],
     }
 
 
-def test_unlinked_candidates_have_contact_details_hidden():
+def test_visible_candidates_keep_contact_details_hidden_profiles_are_dropped():
     from app.services.vendor.candidate_documents import redact_roster_rows
 
     rows = [
         {"source": "platform", "candidateEmail": "seek@x.com", "candidatePhone": "999", "resumeText": "call me",
          "resumeName": "r.pdf", "candidateName": "Seeker", "primarySkills": ["Python"]},
-        {"source": "platform", "candidateEmail": "opt@x.com", "candidatePhone": "888", "resumeText": "ok"},
+        {"source": "platform", "candidateEmail": "priv@x.com", "candidatePhone": "888", "resumeText": "secret"},
         {"source": "application", "candidateEmail": "app@x.com", "candidatePhone": "777", "resumeText": "applied"},
     ]
     out = redact_roster_rows(_roster_db(), rows)
-    assert out[0]["candidateEmail"] == "" and out[0]["candidatePhone"] == "" and out[0]["resumeText"] == ""
-    assert out[0]["contactHidden"] is True and out[0]["candidateName"] == "Seeker" and out[0]["primarySkills"] == ["Python"]
-    assert out[1]["candidateEmail"] == "opt@x.com"  # opted in
-    assert out[2]["candidatePhone"] == "777"  # applied to this employer
+    assert [r["candidateEmail"] for r in out] == ["seek@x.com", "app@x.com"]
+    assert out[0]["candidatePhone"] == "999" and out[0]["resumeText"] == "call me" and out[0]["contactHidden"] is False
+    assert out[1]["candidatePhone"] == "777"
 
 
-def test_resume_file_needs_a_link_or_opt_in():
+def test_resume_file_rule_any_employer_but_not_private_roles_or_unknown():
     from app.services.vendor.candidate_documents import assert_vendor_may_view_candidate_documents
 
     db = _roster_db()
-    with pytest.raises(ValueError):
-        assert_vendor_may_view_candidate_documents(db, "org1", "seek@x.com", contact=True)
-    assert_vendor_may_view_candidate_documents(db, "org1", "opt@x.com", contact=True)
-    db["employerApplications"].append({"organizationId": "org1", "candidateEmail": "seek@x.com", "jobId": "j"})
     assert_vendor_may_view_candidate_documents(db, "org1", "seek@x.com", contact=True)
+    assert_vendor_may_view_candidate_documents(db, "org1", "opt@x.com", contact=True)
+    for denied in ("priv@x.com", "boss@x.com", "nobody@x.com"):
+        with pytest.raises(ValueError):
+            assert_vendor_may_view_candidate_documents(db, "org1", denied, contact=True)
+    db["employerApplications"].append({"organizationId": "org1", "candidateEmail": "priv@x.com", "jobId": "j"})
+    assert_vendor_may_view_candidate_documents(db, "org1", "priv@x.com", contact=True)  # applied here
+    with pytest.raises(ValueError):
+        assert_vendor_may_view_candidate_documents(db, "org2", "priv@x.com", contact=True)
 
 
-def test_talent_hits_hide_email_without_access():
+def test_talent_hits_keep_email():
     from app.services.vendor.candidate_documents import redact_talent_hits
 
-    hits = [{"userId": "u1", "email": "seek@x.com", "resumePreview": "phone 999", "fullName": "S"},
-            {"userId": "u2", "email": "opt@x.com", "resumePreview": "ok"}]
+    hits = [{"userId": "u1", "email": "seek@x.com", "resumePreview": "phone 999", "fullName": "S"}]
     out = redact_talent_hits(_roster_db(), "org1", hits)
-    assert out[0]["email"] == "" and out[0]["resumePreview"] == "" and out[0]["fullName"] == "S"
-    assert out[1]["email"] == "opt@x.com"
+    assert out[0]["email"] == "seek@x.com" and out[0]["resumePreview"] == "phone 999" and out[0]["contactHidden"] is False
 
 
 # --------------------------------------------------------------------------------------------- V-06

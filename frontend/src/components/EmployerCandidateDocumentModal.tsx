@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { EmployerApplicant } from '../lib/store'
 import {
-  fetchVendorCandidateRecordingDocument,
   fetchVendorCandidateReportDocument,
   fetchVendorCandidateResumeDocument,
   fetchVendorCandidateResumeFile,
-  fetchVendorInterviewReview,
   type VendorCandidateDocumentLink,
   type VendorCandidateRecordingLink,
 } from '../lib/vendorApi'
+import { loadRecordingAndReview } from '../lib/interviewReviewLoad'
+import { experienceText } from '../lib/employerCandidateUtils'
 import { InterviewRecordingPlayer } from './InterviewRecordingPlayer'
 import { canViewInterviewVideo } from '../lib/adminAccess'
 import { HrIcon } from './HrIcon'
@@ -40,6 +40,7 @@ function pdfViewUrl(viewUrl: string): string {
 export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const [documentLink, setDocumentLink] = useState<VendorCandidateDocumentLink | null>(null)
   const [recordingLink, setRecordingLink] = useState<VendorCandidateRecordingLink | null>(null)
   const [recordingLoading, setRecordingLoading] = useState(false)
@@ -95,38 +96,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
 
         setRecordingLoading(true)
         try {
-          const recordingPromise = fetchVendorCandidateRecordingDocument(
-            applicant.candidateEmail,
-            sessionHint,
-          )
-          const reviewPromise = sessionHint
-            ? fetchVendorInterviewReview(sessionHint, applicant.candidateEmail)
-            : null
-
-          let rec: VendorCandidateRecordingLink | null = null
-          try {
-            rec = await recordingPromise
-          } catch {
-            rec = null
-          }
-
-          let review: Awaited<ReturnType<typeof fetchVendorInterviewReview>> | null = null
-          if (reviewPromise) {
-            try {
-              review = await reviewPromise
-            } catch {
-              review = null
-            }
-          } else if (rec?.sessionId) {
-            try {
-              review = await fetchVendorInterviewReview(
-                rec.sessionId,
-                applicant.candidateEmail,
-              )
-            } catch {
-              review = null
-            }
-          }
+          const { rec, review } = await loadRecordingAndReview(applicant.candidateEmail, sessionHint)
 
           if (cancelled) return
 
@@ -151,7 +121,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
             })
           } else if (!isResume) {
             setRecordingError(
-              'No interview video found for this session yet. If they just finished, wait a minute and reopen the report.',
+              'No recording is available for this interview. If they finished in the last few minutes, reopen the report shortly.',
             )
           }
         } catch (recErr) {
@@ -165,7 +135,16 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
         }
       } catch (err) {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : 'Could not load document.')
+          // Never a raw storage error: the API logs the cause; the recruiter gets a clear message and Retry.
+          setLoadError(
+            isResume
+              ? err instanceof Error && /no stored resume file/i.test(err.message)
+                ? 'No resume file uploaded for this person.'
+                : 'Resume file could not be loaded. Try again, or contact support if it keeps happening.'
+              : err instanceof Error
+                ? err.message
+                : 'Could not load the report. Try again.',
+          )
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -181,6 +160,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
     applicant.candidateEmail,
     applicant.candidateName,
     applicant.interviewResult?.sessionId,
+    attempt,
   ])
 
   // Word resumes: browsers cannot show .docx in an iframe, so convert it to HTML for an in-app preview.
@@ -269,9 +249,12 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
               Loading document from secure storage…
             </p>
           ) : loadError && !documentLink ? (
-            <p className="ds-alert ds-alert--error" role="alert">
-              {loadError}
-            </p>
+            <div className="ds-alert ds-alert--error" role="alert" data-testid="document-load-failed">
+              <p>{loadError}</p>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setAttempt((n) => n + 1)}>
+                Retry
+              </button>
+            </div>
           ) : (
             <div className={styles.scrollStack}>
               {inlineReport ? (
@@ -281,7 +264,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                     result={applicant.interviewResult!}
                     candidateName={applicant.candidateName}
                     candidateRole={applicant.role || applicant.jobTitle}
-                    candidateExperience={applicant.experienceYears}
+                    candidateExperience={experienceText(applicant.experienceYears)}
                     skills={applicant.primarySkills ?? []}
                   />
                 </section>

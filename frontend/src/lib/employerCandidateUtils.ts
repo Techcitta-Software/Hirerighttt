@@ -143,7 +143,6 @@ export function mapOrgCandidate(c: OrgCandidateRecord): EmployerApplicant {
     status: (c.status as EmployerApplicant['status']) || 'New',
     interviewRecordingAvailable: Boolean(c.interviewRecordingAvailable),
     ...(c.source ? { recordSource: c.source } : {}),
-    ...(c.contactHidden ? { contactHidden: true } : {}),
     ...(c.appliedJobIds?.length ? { appliedJobIds: c.appliedJobIds } : {}),
     // Statuses arrive as labels ("New", "In Review", "Shortlisted"), like the row's own status.
     ...(c.applications?.length ? { applications: c.applications } : {}),
@@ -175,15 +174,20 @@ export function hasInterviewRecording(app: EmployerApplicant): boolean {
   return Boolean(app.interviewRecordingAvailable)
 }
 
+/** The resume text is plain text: "Kavya_Iyer_Resume.pdf" becomes "Kavya_Iyer_Resume.txt", never a .pdf that won't open. */
+export function resumeTextFileName(app: Pick<EmployerApplicant, 'resumeName' | 'candidateName'>): string {
+  const base = (app.resumeName || '').trim().replace(/\.[a-z0-9]{1,5}$/i, '') || `${app.candidateName.trim().replace(/\s+/g, '_')}_resume`
+  return `${base}.txt`
+}
+
 export function downloadResumeFile(app: EmployerApplicant) {
   const text = app.resumeText?.trim()
   if (!text) return
-  const name = app.resumeName || `${app.candidateName.replace(/\s+/g, '_')}_resume.txt`
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = name.endsWith('.txt') || name.includes('.') ? name : `${name}.txt`
+  a.download = resumeTextFileName(app)
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -191,4 +195,11 @@ export function downloadResumeFile(app: EmployerApplicant) {
 export function hireRightReportPdfName(candidateName: string): string {
   const base = candidateName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return `${base || 'candidate'}-hireright-report.pdf`
+}
+
+/** "6" → "6 yrs" for the report header; anything already worded ("4 years", "Fresher") is kept. */
+export function experienceText(value: string | undefined): string {
+  const v = String(value ?? '').trim()
+  if (!/^\d+(\.\d+)?$/.test(v)) return v
+  return `${v} ${Number(v) === 1 ? 'yr' : 'yrs'}`
 }

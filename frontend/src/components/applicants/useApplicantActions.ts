@@ -24,7 +24,7 @@ function saveBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(href), 1000)
 }
 
-const hasContact = (r: IndexedApplicant) => Boolean(r.applicant.candidateEmail) && !r.applicant.contactHidden
+const hasContact = (r: IndexedApplicant) => Boolean(r.applicant.candidateEmail)
 /** The original uploaded file, including when the Candidates page hides the e-mail. */
 const hasOriginalFile = (r: IndexedApplicant) =>
   Boolean(r.applicant.hasResumeFile && (r.applicant.candidateUserId || r.applicant.candidateEmail))
@@ -63,13 +63,19 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
     const a = r.applicant
     mark([a.id], 'download')
     try {
-      if (hasOriginalFile(r)) {
-        const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
-        saveBlob(
-          new Blob([file.data], { type: file.contentType || 'application/octet-stream' }),
-          resumeSaveName(a.candidateName, file.filename || a.resumeName || '', file.contentType),
-        )
-        return
+      // Applications do not say up front whether a file is stored: with contact access, ask for the original first.
+      if (hasOriginalFile(r) || (a.hasResumeFile === undefined && hasContact(r))) {
+        try {
+          const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
+          saveBlob(
+            new Blob([file.data], { type: file.contentType || 'application/octet-stream' }),
+            resumeSaveName(a.candidateName, file.filename || a.resumeName || '', file.contentType),
+          )
+          return
+        } catch (err) {
+          // No file was ever uploaded: the resume text below is all there is. Anything else is a real failure.
+          if (!(err instanceof Error && /no stored resume file/i.test(err.message)) || !a.resumeText?.trim()) throw err
+        }
       }
       if (a.resumeText?.trim()) downloadResumeFile(a)
       else setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s resume. Please try again.` })

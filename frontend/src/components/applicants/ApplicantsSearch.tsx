@@ -289,7 +289,7 @@ export function ApplicantsSearch({
   // A link to an applicant who is not in this list (removed, another organisation's, a typo): drop it and say so.
   useEffect(() => {
     if (!activeId || activeRow || loading || !applicants.length) return
-    commit({ applicant: null, tab: 'resume' }, { replace: true })
+    commit({ applicant: null, tab: 'profile' }, { replace: true })
     setNotice({ tone: 'info', text: 'That applicant isn’t in this list any more.' })
   }, [activeId, activeRow, loading, applicants.length, commit, setNotice])
 
@@ -330,14 +330,14 @@ export function ApplicantsSearch({
     (id: string) => {
       const el = document.activeElement
       if (el instanceof HTMLElement && !el.closest('[role="dialog"]')) panelTriggerRef.current = el
-      commit({ applicant: id, tab: 'resume' })
+      commit({ applicant: id, tab: 'profile' })
     },
     [commit],
   )
 
   const closePanel = useCallback(() => {
     const id = activeId
-    commit({ applicant: null, tab: 'resume' })
+    commit({ applicant: null, tab: 'profile' })
     const trigger = panelTriggerRef.current
     window.setTimeout(() => {
       if (trigger?.isConnected) trigger.focus()
@@ -1042,6 +1042,7 @@ export function ApplicantsSearch({
             onDownload={() => void actions.download(activeRow)}
             onOpenFullReport={() => setReportFor(activeRow.applicant)}
             originalResume={mode === 'candidates'}
+            now={now}
           />
         </>
       ) : null}

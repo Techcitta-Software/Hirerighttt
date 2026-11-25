@@ -46,6 +46,7 @@ import { JobLifecycleActions, JobStatusBadge } from '../components/jobs/JobLifec
 import { jobEditPatch, validateJobEdit } from '../components/jobs/jobStatusRules'
 import type { VendorJob } from '../lib/vendorApi'
 import { StatTiles } from '../components/StatTiles'
+import { formatPhoneForDisplay } from '../lib/phone'
 import { jobApplicantStats } from '../lib/jobApplicantStats'
 import styles from './EmployerDashboard.module.css'
 
@@ -1465,7 +1466,7 @@ export function EmployerDashboard() {
                       </div>
                       <div>
                         <dt>Phone</dt>
-                        <dd>{selectedApplicant.candidatePhone || '—'}</dd>
+                        <dd>{formatPhoneForDisplay(selectedApplicant.candidatePhone || '') || '—'}</dd>
                       </div>
                       <div>
                         <dt>Experience</dt>

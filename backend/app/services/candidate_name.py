@@ -25,9 +25,21 @@ _NOT_NAME_WORDS = re.compile(
     r"specialists?|administrators?|executives?|programmers?|testers?|recruiters?|associates?|senior|junior|lead|"
     r"principal|software|frontend|backend|full|stack|fullstack|devops|cloud|web|mobile|data|python|java|javascript|"
     r"typescript|react|node|aws|sql|ai|ml|llms?|rag|resume|curriculum|vitae|profile|summary|objective|skills|"
-    r"education|experience)$",
+    r"education|experience|"
+    # Products, APIs and tools: a two-column resume read out of order can put "Google Gemini API" where the name is.
+    r"apis?|sdks?|gemini|google|bedrock|amazon|openai|gpt|chatgpt|claude|anthropic|nlp|crewai|langchain|fastapi|"
+    r"django|flask|spring|postgres(?:ql)?|mysql|mongodb|redis|docker|kubernetes|azure|gcp|linux|git|github|gitlab|"
+    r"html|css|streamlit|opencv|tensorflow|pytorch|keras|pandas|numpy|microsoft|excel|tableau|powerbi|generative|"
+    r"agentic|machine|learning|vision|computer|lambda|serverless|kafka|graphql|rest|json|jwt|oauth|figma|jira|"
+    r"salesforce|oracle|"
+    # Degrees, institutions, places and other headings.
+    r"bachelor|master|technology|university|institute|college|school|india|hyderabad|bengaluru|bangalore|chennai|"
+    r"mumbai|pune|delhi|kolkata|noida|gurgaon|gurugram|certifications?|projects?|languages?|strengths?|core|"
+    r"contact|location|present|looking)$",
     re.I,
 )
+_EMAIL = re.compile(r"([A-Za-z0-9._%+-]+)@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_CAP_WORD = re.compile(r"\b([A-Z][a-z]{2,}|[A-Z]{3,})\b")
 _SECTION_WORDS = re.compile(
     r"summary|objective|profile|experience|education|skills|projects|contact|declaration|email|phone", re.I
 )
@@ -92,8 +104,88 @@ def looks_like_person_name(value: Any) -> bool:
     return any(len(re.sub(r"[^A-Za-z]", "", w)) >= 2 for w in words)
 
 
+def _email_name_words(text: str, scope: str | None = None) -> list[str]:
+    """Capitalised words of the resume that are also part of an email address's local part, in text order.
+
+    People's email addresses almost always contain their name ("pachimatlabharath28@..."), so these words confirm a
+    surname that sits on its own line, or locate the name when a two-column PDF is read out of order."""
+    locals_ = [re.sub(r"[^a-z]", "", m.lower()) for m in _EMAIL.findall(text)]
+    locals_ = [loc for loc in locals_ if loc]
+    if not locals_:
+        return []
+    found: list[str] = []
+    for m in _CAP_WORD.finditer((text if scope is None else scope)[:6000]):
+        word = m.group(1)
+        low = word.lower()
+        if _NOT_NAME_WORDS.match(low) or any(low == f.lower() for f in found):
+            continue
+        if any(low in loc for loc in locals_):
+            found.append(word)
+    return found
+
+
+def _already_in_name(words: list[str], extra: str) -> bool:
+    """'Souza' is already part of "D'Souza": a word inside an existing name word is not a new name part."""
+    e = extra.lower()
+    return any(e in re.sub(r"[^a-z]", "", w.lower()) for w in words)
+
+
+def _name_from_email_hint(text: str) -> str:
+    """Resume text in reading-order chaos: the capitalised run around the first email-name word, plus the others."""
+    hints = _email_name_words(text)
+    if not hints:
+        return ""
+    tokens = re.findall(r"[A-Za-z][A-Za-z.'-]*|\S", text[:6000])
+    for i, tok in enumerate(tokens):
+        if tok.lower() != hints[0].lower():
+            continue
+        run = [tok]
+        j = i + 1
+        while j < len(tokens) and len(run) < 4:
+            nxt = tokens[j]
+            follower = tokens[j + 1] if j + 1 < len(tokens) else ""
+            if not re.fullmatch(r"[A-Z][a-z]{1,}|[A-Z]{2,}", nxt) or _NOT_NAME_WORDS.match(nxt):
+                break
+            if re.fullmatch(r"[a-z]+", follower):  # "Looking to build": a sentence starts here, not a name
+                break
+            run.append(nxt)
+            j += 1
+        for extra in hints[1:]:
+            if len(run) >= 4:
+                break
+            if not _already_in_name(run, extra):
+                run.append(extra)
+        candidate = " ".join(run)
+        if len(run) >= 2 and looks_like_person_name(candidate):
+            return normalize_person_name(candidate)
+        return ""
+    return ""
+
+
+def _extend_with_email_hint(name: str, text: str) -> str:
+    """'Bharath Krishna' + a surname line 'Pachimatla' that the email also contains -> 'Bharath Krishna Pachimatla'."""
+    words = name.split()
+    head = "\n".join(text.splitlines()[:15])
+    for extra in _email_name_words(text, head):
+        if len(words) >= 4:
+            break
+        if not _already_in_name(words, extra):
+            words.append(extra)
+    return normalize_person_name(" ".join(words))
+
+
 def name_from_resume_text(text: Any) -> str:
-    """The name at the top of a resume, or "" when none can be read (job titles / tech lists are rejected)."""
+    """The name at the top of a resume, or "" when none can be read (job titles / tech lists are rejected).
+
+    A surname on its own line, or a two-column resume read out of order, is recovered with the email address."""
+    raw = str(text or "")
+    name = _name_from_top_lines(raw)
+    if name:
+        return _extend_with_email_hint(name, raw)
+    return _name_from_email_hint(raw)
+
+
+def _name_from_top_lines(text: str) -> str:
     lines = [ln.strip() for ln in str(text or "").replace("\r", "\n").split("\n") if ln.strip()]
     for i, raw in enumerate(lines[:10]):
         prefixed = _NAME_PREFIX.search(raw)

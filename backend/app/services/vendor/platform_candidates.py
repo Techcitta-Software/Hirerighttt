@@ -2,14 +2,12 @@
 
 GET /api/vendor/candidates?scope=platform  (search, filters and pagination run on the server).
 
-Privacy (V-05 / cross-org isolation, kept):
+Privacy:
 - Only job seekers whose profile is visible to employers (profileVisibility "marketplace", the default) are listed.
   A candidate who hid their profile ("private" / "organization_only") is still listed for an organisation they are
   linked to (applied to its job, interviewed with it, or granted it access), because they shared their profile there.
-- Rows of candidates with no link to this organisation who did not opt in to sharing contact details go through
-  `redact_roster_rows`: no e-mail, phone, resume file or full interview report (score summary only). They keep a
-  copy of the resume text with contact details removed (`resumePublicText`), the way resume databases show a resume
-  before the contact details are unlocked.
+- OWNER DECISION (reverses the earlier V-05 restriction): every listed row carries the candidate's e-mail, phone,
+  resume and full interview report, for any employer.
 - Hiring-team accounts (employers, org owners / admins / recruiters) are never listed.
 """
 
@@ -216,18 +214,8 @@ def _last_active(user: dict, profile: dict, row: dict) -> str:
 
 
 def _finish_rows(db: dict, rows: list[dict]) -> list[dict]:
-    """V-05 redaction, then the contact-free resume for rows whose contact details were removed."""
-    texts = [str(r.get("resumeText") or "") for r in rows]
-    out = redact_roster_rows(db, rows)
-    finished = []
-    for r, text in zip(out, texts):
-        if r.get("contactHidden"):
-            # Email and phone stay off the row. The original file can still be opened from S3.
-            r = {**r, "resumePublicText": scrub_contact_details(text)}
-        else:
-            r = {**r, "contactHidden": False}
-        finished.append(r)
-    return finished
+    """Drops rows of hidden profiles (defence in depth: the queries already leave them out) and marks the rest open."""
+    return redact_roster_rows(db, rows)
 
 
 # ----------------------------------------------------------------------------------------------- in-memory path

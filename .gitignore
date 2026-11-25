@@ -66,3 +66,6 @@ resume_test/
 
 # browser-test artifacts
 .playwright-mcp/
+
+# AWS deploy build output
+infra/aws/.build/

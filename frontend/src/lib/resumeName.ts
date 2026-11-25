@@ -29,10 +29,79 @@ export function pickRole(text: string): string {
 }
 
 const NOT_NAME_WORDS =
-  /^(?:engineers?|developers?|managers?|analysts?|designers?|architects?|consultants?|scientists?|interns?|specialists?|administrators?|executives?|programmers?|testers?|recruiters?|associates?|senior|junior|lead|principal|software|frontend|backend|full|stack|fullstack|devops|cloud|web|mobile|data|python|java|javascript|typescript|react|node|aws|sql|ai|ml|llms?|rag|resume|curriculum|vitae|profile|summary|objective|skills|education|experience)$/i
+  /^(?:engineers?|developers?|managers?|analysts?|designers?|architects?|consultants?|scientists?|interns?|specialists?|administrators?|executives?|programmers?|testers?|recruiters?|associates?|senior|junior|lead|principal|software|frontend|backend|full|stack|fullstack|devops|cloud|web|mobile|data|python|java|javascript|typescript|react|node|aws|sql|ai|ml|llms?|rag|resume|curriculum|vitae|profile|summary|objective|skills|education|experience|apis?|sdks?|gemini|google|bedrock|amazon|openai|gpt|chatgpt|claude|anthropic|nlp|crewai|langchain|fastapi|django|flask|spring|postgres(?:ql)?|mysql|mongodb|redis|docker|kubernetes|azure|gcp|linux|git|github|gitlab|html|css|streamlit|opencv|tensorflow|pytorch|keras|pandas|numpy|microsoft|excel|tableau|powerbi|generative|agentic|machine|learning|vision|computer|lambda|serverless|kafka|graphql|rest|json|jwt|oauth|figma|jira|salesforce|oracle|bachelor|master|technology|university|institute|college|school|india|hyderabad|bengaluru|bangalore|chennai|mumbai|pune|delhi|kolkata|noida|gurgaon|gurugram|certifications?|projects?|languages?|strengths?|core|contact|location|present|looking)$/i
 
+const EMAIL = /([A-Za-z0-9._%+-]+)@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+const CAP_WORD = /\b([A-Z][a-z]{2,}|[A-Z]{3,})\b/g
+
+/**
+ * Capitalised words of the resume that are also part of an email address's local part, in text order. Email
+ * addresses almost always contain the person's name ("pachimatlabharath28@..."), so these words confirm a surname on
+ * its own line, or locate the name when a two-column PDF is read out of order. Mirrors backend candidate_name.py.
+ */
+function emailNameWords(text: string, scope: string = text): string[] {
+  const locals = [...text.matchAll(EMAIL)].map((m) => m[1].toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean)
+  if (!locals.length) return []
+  const found: string[] = []
+  for (const m of scope.slice(0, 6000).matchAll(CAP_WORD)) {
+    const word = m[1]
+    const low = word.toLowerCase()
+    if (NOT_NAME_WORDS.test(low) || found.some((f) => f.toLowerCase() === low)) continue
+    if (locals.some((loc) => loc.includes(low))) found.push(word)
+  }
+  return found
+}
+
+/** "Souza" is already part of "D'Souza": a word inside an existing name word is not a new name part. */
+function alreadyInName(words: string[], extra: string): boolean {
+  const e = extra.toLowerCase()
+  return words.some((w) => w.toLowerCase().replace(/[^a-z]/g, '').includes(e))
+}
+
+function nameFromEmailHint(text: string): string | null {
+  const hints = emailNameWords(text)
+  if (!hints.length) return null
+  const tokens = text.slice(0, 6000).match(/[A-Za-z][A-Za-z.'-]*|\S/g) ?? []
+  const start = tokens.findIndex((t) => t.toLowerCase() === hints[0].toLowerCase())
+  if (start < 0) return null
+  const run = [tokens[start]]
+  for (let j = start + 1; j < tokens.length && run.length < 4; j += 1) {
+    const next = tokens[j]
+    const follower = tokens[j + 1] ?? ''
+    if (!/^(?:[A-Z][a-z]+|[A-Z]{2,})$/.test(next) || NOT_NAME_WORDS.test(next)) break
+    if (/^[a-z]+$/.test(follower)) break // "Looking to build": a sentence starts here, not a name
+    run.push(next)
+  }
+  for (const extra of hints.slice(1)) {
+    if (run.length >= 4) break
+    if (!alreadyInName(run, extra)) run.push(extra)
+  }
+  const candidate = run.join(' ')
+  return run.length >= 2 && looksLikePersonName(candidate) ? normalizePersonName(candidate) : null
+}
+
+function extendWithEmailHint(name: string, text: string): string {
+  const words = name.split(/\s+/).filter(Boolean)
+  const head = text.replace(/\r/g, '\n').split('\n').slice(0, 15).join('\n')
+  for (const extra of emailNameWords(text, head)) {
+    if (words.length >= 4) break
+    if (!alreadyInName(words, extra)) words.push(extra)
+  }
+  return normalizePersonName(words.join(' '))
+}
+
+/**
+ * The name at the top of a resume, or null. A surname on its own line, or a two-column resume read out of order
+ * ("Google Gemini API" before the name), is recovered with the email address.
+ */
 export function extractNameFromText(text: string): string | null {
   if (!text || typeof text !== 'string') return null
+  const top = nameFromTopLines(text)
+  if (top) return extendWithEmailHint(top, text)
+  return nameFromEmailHint(text)
+}
+
+function nameFromTopLines(text: string): string | null {
   const lines = text
     .replace(/\r/g, '\n')
     .split('\n')

@@ -328,7 +328,10 @@ RESUME_PARSE_SYSTEM = """You are a precise resume parser. Extract structured dat
 
 RULES
 - Only extract what the resume explicitly states. Never invent companies, titles, dates, skills or numbers.
-- fullName is the candidate's name from the top of the resume, never a job title or a technology.
+- fullName is the candidate's PERSON name (e.g. "Priya Sharma"), never a job title, a technology, a product or an API
+  (never "Gemini API", "Google", "Amazon Bedrock"). Two-column resumes can be read out of order and a surname can sit
+  on its own line: use the email address to confirm the full name ("Bharath Krishna" + "Pachimatla" ->
+  "Bharath Krishna Pachimatla").
 - currentRole is the title of the most recent job (without the city or country); if there is no job, the target role in the headline.
 - Dates: keep what the resume says ("May 2026", "2022", "Present"). Never guess a date.
 - workExperiences: employment only. Academic/personal projects, coursework and "Project:" lines are NOT jobs.

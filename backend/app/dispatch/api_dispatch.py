@@ -102,7 +102,6 @@ from app.services.vendor.candidate_documents import (
     assert_vendor_may_open_stored_resume,
     assert_vendor_may_view_candidate_documents,
     candidate_profile_for_documents,
-    discovery_interview_summary,
     redact_talent_hits,
 )
 from app.services.vendor.job_role_match import apply_candidate_job_scope
@@ -177,6 +176,12 @@ def _int_param(raw: Any, default: int, *, lo: int, hi: int) -> int:
 def _org_id(tenant: dict | None) -> str | None:
     org = (tenant or {}).get("organization") or {}
     return str(org.get("id")) if org.get("id") else None
+
+
+def _resume_key_prefix(key) -> str:
+    """The first two segments of a storage key (e.g. "users/<id>/"), safe to log: no file name."""
+    parts = [p for p in str(key or "").split("/") if p]
+    return "/".join(parts[:2]) + "/" if parts else ""
 
 
 def _vendor_recruiter_scope(access: dict) -> dict:
@@ -730,7 +735,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     candidate_email = str(owner.get("email") or "").strip().lower()
                     owner_user_id = owner.get("id")
                 else:
-                    # V-05: by e-mail, the file is contact data: only a link to this organization or an opt-in.
+                    # Same rule as every candidate document: employer-visible candidates, or a link to this org.
                     await asyncio.to_thread(
                         assert_vendor_may_view_candidate_documents,
                         db,
@@ -757,13 +762,19 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     # The file itself, for the in-app DOCX viewer: the browser cannot read S3 cross-origin.
                     import httpx
 
+                    key_prefix = _resume_key_prefix(profile.get("resumeStoragePath"))
                     try:
                         async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0), follow_redirects=False) as http:
                             stored = await http.get(signed["url"])
-                    except httpx.HTTPError:
-                        return _json(502, {"error": "Could not load the resume from storage. Please try again."})
+                    except httpx.HTTPError as err:
+                        logger.warning("Resume fetch from storage failed (%s) key_prefix=%s", type(err).__name__, key_prefix)
+                        return _json(502, {"error": "Resume file could not be loaded. Please try again."})
                     if stored.status_code != 200:
-                        return _json(404, {"error": "No stored resume file for this account."})
+                        # Never pass the raw S3 status / body to the browser; log it with the key prefix only.
+                        logger.warning(
+                            "Resume fetch from storage failed status=%s key_prefix=%s", stored.status_code, key_prefix
+                        )
+                        return _json(502, {"error": "Resume file could not be loaded. Please try again."})
                     if len(stored.content) > 10 * 1024 * 1024:
                         return _json(413, {"error": "This resume is too large to preview. Download it instead."})
                     filename = str(signed.get("filename") or "resume")
@@ -793,6 +804,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 )
             except ValueError as err:
                 return _json(getattr(err, "status", 500), {"error": str(err)})
+            except HTTPException:
+                raise
+            except Exception as err:  # storage / presign failure: logged, never shown raw
+                logger.warning("Resume presign failed (%s) for an employer request", type(err).__name__)
+                return _json(502, {"error": "Resume file could not be loaded. Please try again."})
 
         if method == "GET" and re.match(r"^/api/vendor/jobs/[^/]+/candidates$", path):
             db = ctx.load_db()
@@ -2034,11 +2050,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             if not candidate:
                 return _json(404, {"error": "Candidate not found or not visible."})
             interview = await asyncio.to_thread(lambda: (db.get("interviews") or {}).get(candidate["email"]))
+            # Owner decision: the full report (answers, feedback, proctoring) for any employer-visible candidate.
             redacted = await asyncio.to_thread(redact_talent_hits, db, org_id, [candidate])
-            if redacted[0].get("contactHidden"):
-                # No link to this organization: the score is discoverable, the report (answers, feedback,
-                # proctoring, recording session) is not.
-                interview = discovery_interview_summary(interview)
             return _json(200, {"candidate": redacted[0], "interview": interview})
 
     except HTTPException as exc:

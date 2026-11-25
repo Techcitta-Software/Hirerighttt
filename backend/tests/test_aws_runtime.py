@@ -143,13 +143,14 @@ def test_infrastructure_templates_parse():
 
     Loader.add_multi_constructor("!", any_tag)
     root = Path(__file__).resolve().parents[2] / "infra"
-    if not (root / "aws-free").exists():
-        pytest.skip("infra/aws-free templates not present")
-    for rel in ("aws-free/base.yaml", "aws-free/cdn.yaml", "aws/github-oidc.yaml"):
+    if not (root / "aws" / "template.yaml").exists():
+        pytest.skip("infra/aws/template.yaml not present")
+    for rel in ("aws/template.yaml",):
         doc = yaml.load((root / rel).read_text(encoding="utf-8"), Loader=Loader)
         assert doc["Resources"], rel
         text = (root / rel).read_text(encoding="utf-8")
         for paid in ("AWS::SES::", "AWS::EC2::NatGateway", "AWS::ElasticLoadBalancingV2::", "AWS::RDS::DBCluster",
-                     "AWS::ElastiCache::", "AWS::SecretsManager::", "PowerUserAccess"):
+                     "AWS::ElastiCache::", "AWS::SecretsManager::", "PowerUserAccess", "ManageMasterUserPassword",
+                     "MultiAZ: true", "AWS::ECS::", "AWS::EKS::"):
             assert paid not in text, (rel, paid)
     importlib.import_module("app.main")

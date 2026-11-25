@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { docxToSafeHtml, isDocxDocument } from '../../lib/docxPreview'
 import {
   fetchVendorCandidateResumeDocument,
@@ -13,56 +13,80 @@ function isPdf(link: VendorCandidateDocumentLink): boolean {
 
 type Props = {
   candidateEmail: string
-  /** Opens the stored file when the row has no e-mail (Candidates, contact hidden). */
+  /** Candidates page: opens the stored file by user id. */
   candidateUserId?: string | null
   candidateName: string
   /** Extracted resume text, offered when the file itself cannot be shown. */
   fallbackText?: string
   onDownload?: () => void
+  /** Called (instead of showing an error) when the API says no file is stored for this person. */
+  onMissing?: () => void
+}
+
+/** The API's answer when the person never uploaded a file (their resume exists only as text, or not at all). */
+function isMissingResumeFile(err: unknown): boolean {
+  return err instanceof Error && /no stored resume file/i.test(err.message)
 }
 
 /**
  * The stored resume file, as the recruiter document viewer shows it: PDF in the browser's viewer, Word converted to
- * sanitised HTML, anything else as an "Open file" link. Same endpoints and access checks as
- * EmployerCandidateDocumentModal (the API decides who may see the file).
+ * sanitised HTML, anything else with a Download button. The bytes always come through the API (never an S3 link in the
+ * frame), so a storage failure shows "Resume file could not be loaded" with Retry and Download instead of a raw S3 error
+ * page or a blank frame. The API decides who may see the file.
  */
-export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateName, fallbackText, onDownload }: Props) {
+export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateName, fallbackText, onDownload, onMissing }: Props) {
+  const onMissingRef = useRef(onMissing)
+  useEffect(() => {
+    onMissingRef.current = onMissing
+  })
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState<{
     loading: boolean
     failed: boolean
     link: VendorCandidateDocumentLink | null
     docxHtml: string
-  }>({ loading: true, failed: false, link: null, docxHtml: '' })
+    pdfUrl: string
+    noFile?: boolean
+  }>({ loading: true, failed: false, link: null, docxHtml: '', pdfUrl: '' })
 
   useEffect(() => {
     let cancelled = false
-    setState({ loading: true, failed: false, link: null, docxHtml: '' })
+    let objectUrl = ''
+    setState({ loading: true, failed: false, link: null, docxHtml: '', pdfUrl: '' })
     void (async () => {
+      let link: VendorCandidateDocumentLink | null = null
       try {
         const who = { userId: candidateUserId }
-        const link = await fetchVendorCandidateResumeDocument(candidateEmail, who)
+        link = await fetchVendorCandidateResumeDocument(candidateEmail, who)
         if (cancelled) return
-        if (isDocxDocument(link.contentType, link.filename)) {
-          try {
-            const html = await docxToSafeHtml(await fetchVendorCandidateResumeFile(candidateEmail, who))
-            if (!cancelled) setState({ loading: false, failed: false, link, docxHtml: html })
-          } catch {
-            if (!cancelled) setState({ loading: false, failed: true, link, docxHtml: '' })
-          }
+        const docx = isDocxDocument(link.contentType, link.filename)
+        if (!docx && !isPdf(link)) {
+          setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: '' })
           return
         }
-        setState({ loading: false, failed: false, link, docxHtml: '' })
-      } catch {
-        if (!cancelled) setState({ loading: false, failed: true, link: null, docxHtml: '' })
+        const bytes = await fetchVendorCandidateResumeFile(candidateEmail, who)
+        if (cancelled) return
+        if (docx) {
+          const html = await docxToSafeHtml(bytes)
+          if (!cancelled) setState({ loading: false, failed: false, link, docxHtml: html, pdfUrl: '' })
+          return
+        }
+        objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+        setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: objectUrl })
+      } catch (err) {
+        if (cancelled) return
+        const noFile = isMissingResumeFile(err)
+        setState({ loading: false, failed: true, link, docxHtml: '', pdfUrl: '', noFile })
+        if (noFile) onMissingRef.current?.()
       }
     })()
     return () => {
       cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [candidateEmail, candidateUserId, attempt])
 
-  const { loading, failed, link, docxHtml } = state
+  const { loading, failed, link, docxHtml, pdfUrl, noFile } = state
   if (loading) {
     return (
       <div className={styles.pageSkeleton} role="status" aria-label="Loading the resume">
@@ -72,19 +96,27 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
       </div>
     )
   }
-  if (link && isPdf(link) && !failed) {
-    const src = link.viewUrl.includes('#') ? link.viewUrl : `${link.viewUrl}#toolbar=1&navpanes=0&view=FitH`
-    return <iframe className={styles.pdfFrame} title={`Resume of ${candidateName}`} src={src} />
+  if (noFile && onMissing) return null
+  if (pdfUrl && !failed) {
+    return (
+      <iframe
+        className={styles.pdfFrame}
+        title={`Resume of ${candidateName}`}
+        src={`${pdfUrl}#toolbar=1&navpanes=0&view=FitH`}
+        data-testid="resume-pdf-frame"
+      />
+    )
   }
   if (docxHtml) {
     // docxToSafeHtml keeps document markup only: no scripts, handlers, styles or unsafe URLs.
     return <article className={styles.docxPage} dangerouslySetInnerHTML={{ __html: docxHtml }} />
   }
   return (
-    <div className={styles.panelNote}>
+    <div className={styles.panelNote} data-testid={failed ? 'resume-load-failed' : 'resume-no-preview'}>
       <p role={failed ? 'alert' : undefined}>
-        <strong>{failed ? 'Couldn’t load resume.' : 'This file type can’t be previewed in the browser.'}</strong>
-        {fallbackText?.trim() ? ' The Formatted view still shows its contents.' : ''}
+        <strong>{failed ? 'Resume file could not be loaded.' : 'This file type can’t be previewed in the browser.'}</strong>
+        {failed ? ' Try again or use Download. If it keeps happening, contact support.' : ' Download it to read it.'}
+        {fallbackText?.trim() ? ' The Profile tab still shows what it says.' : ''}
       </p>
       <div className={styles.noteActions}>
         {failed ? (
@@ -92,14 +124,14 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
             Retry
           </button>
         ) : null}
-        {link?.downloadUrl ? (
-          <a className={styles.actBtn} href={link.downloadUrl} target="_blank" rel="noopener noreferrer">
-            Open {link.filename || 'file'}
-          </a>
-        ) : onDownload ? (
+        {onDownload ? (
           <button type="button" className={styles.actBtn} onClick={onDownload}>
             Download
           </button>
+        ) : link?.downloadUrl ? (
+          <a className={styles.actBtn} href={link.downloadUrl} target="_blank" rel="noopener noreferrer">
+            Download {link.filename || 'file'}
+          </a>
         ) : null}
       </div>
     </div>

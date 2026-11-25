@@ -75,7 +75,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
 }: Props) {
   const a = row.applicant
   const moreRef = useRef<HTMLDetailsElement>(null)
-  const contactVisible = Boolean(a.candidateEmail) && !a.contactHidden
+  const contactVisible = Boolean(a.candidateEmail)
   const canDownloadOriginal = directory && Boolean(a.hasResumeFile)
   const isApplication = a.recordSource === 'application' || (!a.recordSource && Boolean(a.jobId))
   const shortlisted = a.status === 'Shortlisted'
@@ -95,14 +95,15 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   const showRank = typeof a.rank === 'number' && rankTotal >= 2
   // Several jobs: list them all, and say which job the interview score and the rank belong to.
   const appliedToLabel = pageJobId ? jobPageJobsLabel(a, pageJobId) : appliedJobsLabel(a)
-  const scoreFrom = scoreJobTitle(a)
-  const multiJob = (a.applications?.length ?? 0) > 1
+  // On one job's page that job is implied: name the job only when the score or rank belongs to another one.
+  const scoreFrom = pageJobId && (a.interviewJobId ?? a.jobId) === pageJobId ? '' : scoreJobTitle(a)
+  const multiJob = !pageJobId && (a.applications?.length ?? 0) > 1
   const name = a.candidateName
   // "Senior Engineer at Flipside" from the resume headline; the application's role when the resume has no title.
   const title = row.headline.title || a.role || ''
   const roleLine = title && row.headline.company ? `${title} at ${row.headline.company}` : title
 
-  // The whole row opens the resume, except clicks on its own controls.
+  // The whole row opens the profile, except clicks on its own controls.
   function onCardClick(e: MouseEvent<HTMLElement>) {
     if ((e.target as HTMLElement).closest('button, a, input, label, summary, details')) return
     onAction('view', row)
@@ -126,7 +127,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             ? 'Download the original resume'
             : contactVisible
               ? 'Download resume'
-              : 'Contact details are hidden'
+              : 'No resume on file'
         }
       >
         <HrIcon name="download" size={14} /> <span className={styles.actLabel}>Download</span>
@@ -160,7 +161,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
         onClick={() => act('invite')}
         disabled={!contactVisible || busy === 'invite'}
         aria-label={`Invite ${name} to interview`}
-        title={contactVisible ? 'Email an interview link' : 'Contact details are hidden'}
+        title={contactVisible ? 'Email an interview link' : 'No e-mail address on file'}
       >
         <HrIcon name="calendar" size={14} />{' '}
         <span className={styles.actLabel}>{busy === 'invite' ? 'Sending…' : 'Invite'}</span>
@@ -225,11 +226,6 @@ export const ApplicantTuple = memo(function ApplicantTuple({
           ) : pageJobId ? null : (
             <span>{sourceLabel(a.recordSource)}</span>
           )}
-          {a.contactHidden ? (
-            <span className={styles.lockText} title="Contact details are shared once this person applies to one of your jobs or opts in">
-              <HrIcon name="lock" size={11} /> Contact locked
-            </span>
-          ) : null}
           {shortlisted ? <span className={styles.statusText}>Shortlisted</span> : null}
           {saved ? <span className={styles.statusText}>Saved for later</span> : null}
           {row.education ? (
@@ -287,7 +283,11 @@ export const ApplicantTuple = memo(function ApplicantTuple({
                 </span>
                 {scoreFrom ? (
                   <span className={styles.sigNote} title={`Interview taken for ${scoreFrom}`}>
-                    {scoreFrom} interview
+                    <HrIcon name="mic" size={11} />
+                    <span className={styles.sigNoteText}>
+                      <span className="ds-sr-only">Interview for </span>
+                      {scoreFrom}
+                    </span>
                   </span>
                 ) : null}
               </>
@@ -301,7 +301,11 @@ export const ApplicantTuple = memo(function ApplicantTuple({
           <dt>Rank</dt>
           <dd title={showRank ? `Rank among interviewed applicants for ${a.jobTitle}` : undefined}>
             {showRank ? `#${a.rank} of ${rankTotal}` : '—'}
-            {showRank && multiJob && a.jobTitle ? <span className={styles.sigNote}>{a.jobTitle}</span> : null}
+            {showRank && multiJob && a.jobTitle ? (
+              <span className={styles.sigNote} title={`Rank for ${a.jobTitle}`}>
+                <span className={styles.sigNoteText}>{a.jobTitle}</span>
+              </span>
+            ) : null}
           </dd>
         </div>
         )}
@@ -349,7 +353,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
         </span>
         <div className={styles.footActions}>
           <button type="button" className={styles.actBtn} onClick={() => onAction('view', row)}>
-            <HrIcon name="eye" size={14} /> View resume
+            <HrIcon name="eye" size={14} /> View profile
           </button>
           <span className={styles.wideActions}>{actionButtons}</span>
           <details ref={moreRef} className={styles.moreMenu}>

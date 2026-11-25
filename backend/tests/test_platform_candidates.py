@@ -1,7 +1,8 @@
 """The employer Candidates page (GET /api/vendor/candidates?scope=platform): every visible job seeker, one row each.
 
-Privacy rules kept: hidden profiles are not listed (unless linked to this organisation), contact details and the full
-interview report only for linked / opted-in candidates, recruiters never listed, other organisations isolated.
+Privacy rules kept: hidden profiles are not listed (unless linked to this organisation), recruiters never listed, other
+organisations' applications isolated. OWNER DECISION (reverses V-05): every listed candidate shows e-mail, phone,
+resume and the full interview report to any employer.
 """
 
 from __future__ import annotations
@@ -102,19 +103,21 @@ def test_one_row_per_person_with_their_applications():
     assert row["interviewResult"]["answers"][0]["answer"] == "private answer"  # applied here: full report
 
 
-def test_unrelated_org_sees_resume_and_score_but_no_contact_or_report():
+def test_unrelated_org_sees_contact_resume_and_full_report():
     page = _list(_db(), "org-b")
     row = _by_email(page)["Ganesh Paidi"]
-    assert row["contactHidden"] is True
-    assert row["candidateEmail"] == "" and row["candidatePhone"] == "" and row["resumeText"] == ""
-    assert row["hasResumeFile"] is False and row["resumeName"] is None
-    assert row["interviewResult"]["overall"] == 72 and row["interviewResult"]["answers"] == []
-    assert "sess-g" not in repr(row) and "private answer" not in repr(row) and "NO_FACE_SEEN" not in repr(row)
-    public = row["resumePublicText"]
-    assert "FastAPI services" in public and "Senior Engineer, Acme Pay (2021 - Present)" in public
-    for leaked in ("ganesh.p@example.com", "98765", "linkedin.com"):
-        assert leaked not in public and leaked not in repr(row)
-    assert row["applications"] == [] if "applications" in row else True
+    assert row["contactHidden"] is False
+    assert row["candidateEmail"] == "ganesh.p@example.com" and row["candidatePhone"] == "+919876543210"
+    assert "FastAPI services" in row["resumeText"] and row["resumeName"] == "g.pdf"
+    assert row["interviewResult"]["overall"] == 72
+    assert row["interviewResult"]["answers"][0]["answer"] == "private answer"
+    assert row["interviewResult"]["sessionId"] == "sess-g" and "integrity" in row["interviewResult"]
+    assert not row.get("applications")  # org A's application is still not shown to org B
+
+
+def test_candidate_without_opt_in_also_shows_contact_to_any_org():
+    row = _by_email(_list(_db(), "org-b"))["Anita Rao"]
+    assert row["contactHidden"] is False and row["candidateEmail"] == "anita@example.com"
 
 
 def test_opted_in_candidate_shows_contact_to_any_org():
@@ -175,9 +178,8 @@ def test_stored_resume_opens_for_a_visible_candidate_and_not_a_private_one():
     db["profiles"]["anita@example.com"]["resumeStoragePath"] = "users/u-a/resume/resume.pdf"
     page = _list(db, "org-b")
     anita = _by_email(page)["Anita Rao"]
-    assert anita["contactHidden"] is True and anita["candidateEmail"] == ""
+    assert anita["contactHidden"] is False and anita["candidateEmail"] == "anita@example.com"
     assert anita["hasResumeFile"] is True and anita["candidateUserId"] == "u-a"
-    assert "anita@example.com" not in repr(anita)
     opened = assert_vendor_may_open_stored_resume(db, "org-b", "u-a")
     assert opened["id"] == "u-a"
     with pytest.raises(ValueError):
@@ -234,13 +236,12 @@ def test_platform_route_on_postgres(client):
     assert hidden["email"] not in emails and all(c["candidateName"] != "Hidden Person" for c in mine["candidates"])
     assert a["email"] not in emails and b["email"] not in emails  # recruiters never listed
     other_row = next(c for c in mine["candidates"] if c["candidateName"] == "Other Person")
-    assert other_row["contactHidden"] is True and other_row["candidateEmail"] == ""
-    assert "SQL" in other_row["resumePublicText"] and "other@x.test" not in other_row["resumePublicText"]
+    assert other_row["contactHidden"] is False and other_row["candidateEmail"] == other["email"]  # owner decision
+    assert "SQL" in other_row["resumeText"]
 
     theirs = page(b["h"])
     applied_row = next(c for c in theirs["candidates"] if c["candidateName"] == "Priya Natarajan")
-    assert applied_row["contactHidden"] is True and applied_row["candidateEmail"] == ""
-    assert "priya.n@example.com" not in repr(applied_row) and "98765" not in repr(applied_row)
+    assert applied_row["contactHidden"] is False and applied_row["candidateEmail"] == applied["email"]
     assert not applied_row.get("applications")  # org A's application is not shown to org B
 
     assert page(a["h"], q="kafka")["total"] >= 1

@@ -16,6 +16,7 @@
 import { candidateScore, needsIntegrityReview } from './candidateSearch'
 import { hasResumeContent } from './employerCandidateUtils'
 import { compareTopCandidature, roleSkillsFitOf } from './jobApplicantFilters'
+import { formatPhoneForDisplay } from './phone'
 import type { EmployerApplicant } from './store'
 
 /* ─────────────────────────── Query parsing ─────────────────────────── */
@@ -225,6 +226,43 @@ export function resumeEducationEntries(resumeText: string | undefined): string[]
   return resumeSection(resumeText, EDUCATION_HEADING, 4)
     .map((l) => l.replace(BULLET, '').trim())
     .filter(Boolean)
+}
+
+const CERTIFICATIONS_HEADING = /^(?:certifications?|certificates?|licen[cs]es?(?:\s*(?:&|and)\s*certifications?)?)\s*:?(?:\s|$)/i
+const LANGUAGES_HEADING = /^(?:languages?(?:\s+known)?|spoken\s+languages?)\s*:?(?:\s|$)/i
+const PROJECTS_HEADING = /^(?:key\s+|personal\s+|academic\s+|side\s+)?projects?\s*:?(?:\s|$)/i
+
+/** Lines of a list-like section (one item per line or bullet), as written. */
+function resumeListSection(resumeText: string | undefined, heading: RegExp, max: number): string[] {
+  return resumeSection(resumeText, heading, max)
+    .map((l) => l.replace(BULLET, '').trim())
+    .filter((l) => l.length > 1)
+}
+
+/** Certifications / licences listed on the resume, one per line. Empty when the resume has no such section. */
+export function resumeCertifications(resumeText: string | undefined): string[] {
+  return resumeListSection(resumeText, CERTIFICATIONS_HEADING, 6)
+}
+
+/** Projects listed on the resume ("Expense tracker PWA: Next.js, IndexedDB…"), one per line. */
+export function resumeProjects(resumeText: string | undefined): string[] {
+  return resumeListSection(resumeText, PROJECTS_HEADING, 5)
+}
+
+/** Languages the resume lists ("English, Hindi, Tamil"), split on commas / bullets. */
+export function resumeLanguages(resumeText: string | undefined): string[] {
+  const seen = new Set<string>()
+  return resumeSection(resumeText, LANGUAGES_HEADING, 3)
+    .join(',')
+    .split(/[,|•·;]/)
+    .map((s) => s.replace(/^[-*\s]+/, '').trim())
+    .filter((s) => {
+      const key = s.toLowerCase()
+      if (s.length < 2 || s.length > 40 || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 8)
 }
 
 /** Sources where the application's `primarySkills` are the JOB's skills, not the candidate's. */
@@ -988,7 +1026,13 @@ export function experienceLabel(row: Pick<IndexedApplicant, 'applicant' | 'exper
 
 /* ─────────────────────────── URL state ─────────────────────────── */
 
-export type PanelTabKey = 'resume' | 'report' | 'contact'
+/** Drawer tabs, in order: the profile is the landing tab. */
+export type PanelTabKey = 'profile' | 'resume' | 'report'
+
+/** A `tab=` value from the address bar. Old links: `contact` (now a section of Profile) opens Profile. */
+export function panelTabFromParam(value: string | null): PanelTabKey {
+  return value === 'resume' || value === 'report' ? value : 'profile'
+}
 
 /** Everything that defines the view, as kept in the address bar (reload / share / back-forward reproduce it). */
 export type ApplicantsUrlState = {
@@ -1014,7 +1058,6 @@ export function readApplicantsUrl(params: URLSearchParams): ApplicantsUrlState {
   const jobs = Array.from(new Set([...all('job'), ...all('jobId')]))
   const sort = params.get('sort') as ApplicantSort
   const active = Number(params.get('active') || 0) as ActiveWithin
-  const tab = params.get('tab') as PanelTabKey
   const page = Math.max(1, Math.floor(Number(params.get('page') || 1)) || 1)
   return {
     filters: {
@@ -1039,7 +1082,7 @@ export function readApplicantsUrl(params: URLSearchParams): ApplicantsUrlState {
     sort: SORTS.includes(sort) ? sort : 'relevance',
     page,
     applicant: params.get('applicant') || null,
-    tab: tab === 'report' || tab === 'contact' ? tab : 'resume',
+    tab: panelTabFromParam(params.get('tab')),
   }
 }
 
@@ -1068,7 +1111,7 @@ export function writeApplicantsUrl(state: ApplicantsUrlState): URLSearchParams {
   if (state.page > 1) p.set('page', String(state.page))
   if (state.applicant) {
     p.set('applicant', state.applicant)
-    if (state.tab !== 'resume') p.set('tab', state.tab)
+    if (state.tab !== 'profile') p.set('tab', state.tab)
   }
   return p
 }
@@ -1082,7 +1125,7 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
-/** The rows as CSV. Contact columns carry only what the API returned (hidden contacts stay empty). */
+/** The rows as CSV. Contact columns carry what the API returned. */
 export function applicantsToCsv(rows: IndexedApplicant[]): string {
   const header = [
     'Name',
@@ -1102,7 +1145,7 @@ export function applicantsToCsv(rows: IndexedApplicant[]): string {
   ]
   const lines = rows.map((r) => {
     const a = r.applicant
-    const visible = Boolean(a.candidateEmail) && !a.contactHidden
+    const visible = Boolean(a.candidateEmail)
     return [
       a.candidateName,
       a.role || '',
@@ -1116,7 +1159,7 @@ export function applicantsToCsv(rows: IndexedApplicant[]): string {
       a.status,
       r.skills.join('; '),
       visible ? a.candidateEmail : '',
-      visible ? a.candidatePhone : '',
+      visible ? formatPhoneForDisplay(a.candidatePhone) : '',
       r.lastActive ? r.lastActive.slice(0, 10) : '',
     ]
       .map(csvCell)

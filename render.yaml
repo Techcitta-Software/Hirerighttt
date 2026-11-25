@@ -1,9 +1,10 @@
-# Render blueprint for the API. The site is the Vercel project (vercel.json).
-# The live service is already https://hireright-backend-0pgv.onrender.com and deploys from main.
-# Fill the sync:false values in the dashboard. Do not put secrets in this file.
+# Render Blueprint for the API (Python / FastAPI). The website is the Vercel project (vercel.json).
+# New -> Blueprint -> pick this repo: Render creates the service below from this file.
+# Render asks for every `sync: false` value when the Blueprint is created. Never put secrets in this file.
+# After the first deploy, point the /api rewrite in vercel.json at this service's onrender.com URL.
 services:
   - type: web
-    name: hireright-backend
+    name: hirerighttt-api
     runtime: python
     plan: free
     region: singapore
@@ -28,20 +29,30 @@ services:
         value: "true"
       - key: ALLOW_DEMO_ACCOUNTS
         value: "false"
+      # Must be the S3 bucket's own region (hirerighttt-tests is in us-east-1), or presigned resume links fail.
       - key: AWS_REGION
-        value: ap-south-1
+        value: us-east-1
       - key: DATABASE_URL
         sync: false
       - key: SESSION_SECRET
-        sync: false
+        generateValue: true
+      - key: TRUST_PROXY
+        value: "true"
       - key: CORS_ORIGINS
         sync: false
       - key: PUBLIC_APP_URL
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: CRON_SECRET
+      # Extra Gemini keys (ideally from different Google Cloud projects) so a 503 "high demand" or 429 on one key
+      # does not stop interviews. Leave blank if you have only one.
+      - key: GEMINI_API_KEY_2
         sync: false
+      - key: GEMINI_API_KEY_3
+        sync: false
+      # Guards /api/internal/* (reminders, maintenance) and unlocks the detailed /api/health report.
+      - key: CRON_SECRET
+        generateValue: true
       - key: S3_BUCKET
         sync: false
       - key: AWS_ACCESS_KEY_ID
@@ -53,4 +64,7 @@ services:
       - key: SMTP_APP_PASSWORD
         sync: false
       - key: EMAIL_FROM
+        sync: false
+      # Email will move to Resend later (no SES). Leave blank to keep SMTP.
+      - key: RESEND_API_KEY
         sync: false

@@ -311,10 +311,10 @@ def test_org_scope_lists_only_the_organisations_own_candidates():
 
     full = asyncio.run(list_organization_candidates(_org_db(), "org-a", "", {}))
     org = asyncio.run(list_organization_candidates(_org_db(), "org-a", "", {"scope": "org"}))
-    # default list: platform roster still included (discovery), but with no contact data (V-05: no link, no opt-in)
+    # default list: platform roster included with contact details (owner decision, reverses V-05)
     plat = next(r for r in full["candidates"] if r["source"] == "platform")
-    assert plat["candidateName"] == "Platform Person" and plat["contactHidden"] is True
-    assert plat["candidateEmail"] == "" and plat["candidatePhone"] == "" and plat["resumeText"] == ""
+    assert plat["candidateName"] == "Platform Person" and plat["contactHidden"] is False
+    assert plat["candidateEmail"]
     own_full = sorted(r["candidateEmail"] for r in full["candidates"] if r["source"] not in ("platform", "talent"))
     assert sorted(r["candidateEmail"] for r in org["candidates"]) == own_full == ["app@x.com", "vault@x.com"]
     assert org["total"] == 2

@@ -265,7 +265,7 @@ export type OrgCandidateRecord = {
   status?: string
   /** Set by GET /api/vendor/candidates — no video URL until recording endpoint is called. */
   interviewRecordingAvailable?: boolean
-  /** Set by the API when contact fields were removed (no link to this organisation and no opt-in). */
+  /** Legacy flag: the API now returns contact details for every listed candidate (always false). */
   contactHidden?: boolean
   /** Every job of the organisation this person applied to (one row per person). */
   appliedJobIds?: string[]

@@ -25,19 +25,30 @@ DB = {
 ROW = {"status": "uploaded", "tenant_id": "platform", "s3_object_key": "k", "bucket": "b"}
 
 
-def test_video_needs_a_real_link_to_the_organization():
-    assert_view(DB, ORG_A, EMAIL, None, require_link=True)  # applied to org A: allowed
+def test_video_is_open_to_any_employer_for_a_visible_candidate():
+    # OWNER DECISION (reverses the earlier strict rule): recording / report for every employer-visible candidate.
+    assert_view(DB, ORG_A, EMAIL, None, require_link=True)
+    assert_view(DB, ORG_B, EMAIL, None, require_link=True)
+
+
+def test_video_of_a_private_profile_needs_a_link():
+    db = {**DB, "profiles": {EMAIL: {"profileVisibility": "private"}}}
+    assert_view(db, ORG_A, EMAIL, None, require_link=True)  # applied to org A
     with pytest.raises(ValueError):
-        assert_view(DB, ORG_B, EMAIL, None, require_link=True)  # org B has no relationship: refused
+        assert_view(db, ORG_B, EMAIL, None, require_link=True)
+    with pytest.raises(ValueError):
+        assert_view(db, ORG_B, "rec-a@acme.test", None)  # hiring-team accounts are never candidates
 
 
 def test_resume_and_report_keep_the_talent_search_model():
     assert_view(DB, ORG_B, EMAIL, None)  # any recruiter can still find a job seeker's profile documents
 
 
-def test_recording_review_follows_the_strict_rule():
+def test_platform_recording_review_follows_the_visibility_rule():
     assert employer_can_review_recording(DB, ORG_A, EMAIL, ROW) is True
-    assert employer_can_review_recording(DB, ORG_B, EMAIL, ROW) is False
+    assert employer_can_review_recording(DB, ORG_B, EMAIL, ROW) is True
+    private = {**DB, "profiles": {EMAIL: {"profileVisibility": "private"}}}
+    assert employer_can_review_recording(private, ORG_B, EMAIL, ROW) is False
 
 
 def test_recording_owned_by_the_organization_is_viewable_by_it():

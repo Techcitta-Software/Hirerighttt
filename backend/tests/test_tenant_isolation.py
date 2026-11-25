@@ -64,8 +64,11 @@ def test_recruiter_scope_hides_a_teammates_job():
     assert list_org_jobs(db, "org-a", theirs) == []
 
 
-def test_candidate_video_requires_a_link_to_that_organisation():
+def test_candidate_video_of_a_hidden_profile_requires_a_link_to_that_organisation():
+    # Owner decision: a visible job seeker is open to every employer; a hidden profile still needs a link.
     db = _db()
+    assert_vendor_may_view_candidate_documents(db, "org-b", CAND, None, require_link=True)
+    db["profiles"] = {CAND: {"profileVisibility": "organization_only"}}
     assert_vendor_may_view_candidate_documents(db, "org-a", CAND, None, require_link=True)  # applied to org-a
     with pytest.raises(ValueError):
         assert_vendor_may_view_candidate_documents(db, "org-b", CAND, None, require_link=True)  # never linked
@@ -86,11 +89,13 @@ def test_recording_rows_are_tenant_bound():
     assert not employer_can_review_recording(db, "org-a", CAND, {**row, "status": "pending"})
 
 
-def test_platform_recordings_still_need_a_link_to_the_viewing_org():
+def test_platform_recordings_of_hidden_profiles_still_need_a_link_to_the_viewing_org():
     db = _db()
     row = {"status": "uploaded", "tenant_id": "platform"}
+    assert employer_can_review_recording(db, "org-b", CAND, row)  # visible job seeker: any employer
+    db["profiles"] = {CAND: {"profileVisibility": "private"}}
     assert employer_can_review_recording(db, "org-a", CAND, row)  # linked via application
-    assert not employer_can_review_recording(db, "org-b", CAND, row)  # not linked to org-b
+    assert not employer_can_review_recording(db, "org-b", CAND, row)  # hidden and not linked to org-b
 
 
 def test_interview_sessions_are_tenant_bound():

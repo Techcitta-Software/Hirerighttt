@@ -10,6 +10,7 @@ import {
   highlightParts,
   indexApplicant,
   keywordSnippet,
+  panelTabFromParam,
   parseKeywordQuery,
   readApplicantsUrl,
   resultRangeLabel,
@@ -297,7 +298,7 @@ describe('URL state', () => {
       sort: 'relevance' as const,
       page: 1,
       applicant: null,
-      tab: 'resume' as const,
+      tab: 'profile' as const,
     }
     const extraParams = writeApplicantsUrl(extra)
     expect(extraParams.getAll('role')).toEqual(['frontend developer'])
@@ -311,22 +312,36 @@ describe('URL state', () => {
     expect(s.filters.jobs).toEqual(['j1'])
     expect(s.sort).toBe('relevance')
     expect(s.page).toBe(1)
-    expect(s.tab).toBe('resume')
+    expect(s.tab).toBe('profile')
     expect(s.filters.score).toEqual([])
     expect(s.filters.activeWithin).toBe(0)
   })
 })
 
+describe('drawer tab in the URL', () => {
+  it('opens Profile by default and maps old tab=contact links to Profile', () => {
+    expect(readApplicantsUrl(new URLSearchParams('applicant=a')).tab).toBe('profile')
+    expect(readApplicantsUrl(new URLSearchParams('applicant=a&tab=contact')).tab).toBe('profile')
+    expect(readApplicantsUrl(new URLSearchParams('applicant=a&tab=resume')).tab).toBe('resume')
+    expect(readApplicantsUrl(new URLSearchParams('applicant=a&tab=report')).tab).toBe('report')
+    expect(panelTabFromParam('profile')).toBe('profile')
+    const base = { filters: EMPTY_APPLICANT_FILTERS, sort: 'relevance' as const, page: 1, applicant: 'a' }
+    expect(writeApplicantsUrl({ ...base, tab: 'profile' }).has('tab')).toBe(false)
+    expect(writeApplicantsUrl({ ...base, tab: 'resume' }).get('tab')).toBe('resume')
+  })
+})
+
 describe('exports', () => {
-  it('writes CSV with escaping, no formula injection and no hidden contact details', () => {
+  it('writes CSV with escaping, no formula injection and the contact details the API returned', () => {
     const rows = [
       indexApplicant(app({ candidateName: '=HYPERLINK("x")', role: 'Dev, "Senior"' })),
-      indexApplicant(app({ id: 'h', candidateName: 'Hidden', candidateEmail: 'h@example.com', contactHidden: true })),
+      // Owner decision: contact details are shown for every candidate; an old contactHidden flag no longer hides them.
+      indexApplicant(app({ id: 'h', candidateName: 'Platform', candidateEmail: 'h@example.com', contactHidden: true })),
     ]
     const csv = applicantsToCsv(rows)
     expect(csv).toContain(`"'=HYPERLINK(""x"")"`)
     expect(csv).toContain('"Dev, ""Senior"""')
-    expect(csv).not.toContain('h@example.com')
+    expect(csv).toContain('h@example.com')
   })
 
   it('builds a valid stored zip with unique names', () => {

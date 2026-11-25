@@ -216,3 +216,39 @@ def test_recruiter_profile_row_shows_the_resume_name():
 def test_display_name_without_resume_uses_the_given_name_then_the_email():
     assert candidate_display_name({"profiles": {}}, "x@example.com", given="Given Name") == "Given Name"
     assert candidate_display_name({"profiles": {}}, "x@example.com") == "x@example.com"
+
+
+# --- Two-column resumes and split surnames (a product name must never become the candidate's name) ---------------
+from app.services.candidate_name import looks_like_person_name as _looks, name_from_resume_text as _from_text  # noqa: E402
+
+_SPLIT = "RS\nRavi Shankar\nNallamothu\nAI Engineer · Generative AI\nCONTACT\nE-MAIL\nnallamothuravi9@gmail.com\nSKILLS\nGoogle Gemini API"
+_JUMBLED = (
+    "PROFILE RS AI Engineer who ships Generative AI in Python. Hands-on with the Google Gemini API, Amazon Bedrock and "
+    "AWS. Ravi Shankar Looking to build reliable AI products. Nallamothu CORE STRENGTHS RAG Engineering CONTACT "
+    "E-MAIL nallamothuravi9@gmail.com LOCATION Hyderabad, India"
+)
+
+
+def test_product_names_are_not_person_names():
+    for value in ("Gemini API", "Google Gemini API", "Amazon Bedrock", "FastAPI", "Hyderabad"):
+        assert not _looks(value), value
+
+
+def test_surname_on_its_own_line_is_joined_using_the_email():
+    assert _from_text(_SPLIT) == "Ravi Shankar Nallamothu"
+
+
+def test_two_column_resume_read_out_of_order_still_finds_the_name():
+    assert _from_text(_JUMBLED) == "Ravi Shankar Nallamothu"
+
+
+def test_ai_returning_a_product_name_is_ignored():
+    assert resume_name({"resumeText": _JUMBLED, "resumeFullName": "Gemini API"}) == "Ravi Shankar Nallamothu"
+
+
+def test_city_in_email_is_not_added_to_the_name():
+    assert _from_text("Rahul Verma\nrahul.hyderabad@gmail.com\nHyderabad, India") == "Rahul Verma"
+
+
+def test_email_does_not_duplicate_part_of_an_apostrophe_name():
+    assert _from_text("PRIYA D'SOUZA\nStaff Nurse\npriya.dsouza@gmail.com") == "Priya D'Souza"

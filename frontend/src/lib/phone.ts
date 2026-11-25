@@ -22,3 +22,12 @@ export function formatPhoneForDisplay(raw: string): string {
   if (digits.length === 10) return `${digits.slice(0, 5)} ${digits.slice(5)}`
   return value
 }
+
+/** A `tel:` link for a phone as stored: "919845012345" / "+91 98450 12345" → "tel:+919845012345". */
+export function phoneTelHref(raw: string): string {
+  const value = String(raw || '').trim()
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return ''
+  if (digits.length === 12 && digits.startsWith('91')) return `tel:+${digits}`
+  return `tel:${value.startsWith('+') ? '+' : ''}${digits}`
+}

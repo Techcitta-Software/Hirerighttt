@@ -1,11 +1,11 @@
 """End-to-end cases for the production Candidates page and original-resume download.
 
 These run over HTTP against the in-memory database (no Neon, no S3). They cover the flow that is live on
-Vercel + Render: an employer searches visible candidates, contact details stay hidden, and Download saves the
-uploaded file rather than the extracted text.
+Vercel + Render: an employer searches visible candidates, sees their contact details (OWNER DECISION, reverses the
+earlier V-05 restriction), and Download saves the uploaded file rather than the extracted text.
 
 Cases
-1. A marketplace candidate with a stored file appears on the Candidates list without an e-mail.
+1. A marketplace candidate with a stored file appears on the Candidates list with e-mail and phone.
 2. Download by user id returns the original bytes and an attachment filename.
 3. A private profile is not listed and its file cannot be downloaded.
 4. A signed-out caller and a job seeker cannot download a resume.
@@ -111,20 +111,45 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_candidates_list_hides_contact_but_marks_the_original_file(employer_client):
+def test_candidates_list_shows_contact_and_marks_the_original_file(employer_client):
     client, _db = employer_client
     res = client.get("/api/vendor/candidates?scope=platform", headers=_auth("tok-emp"))
     assert res.status_code == 200, res.text
     rows = {row["candidateName"]: row for row in res.json()["candidates"]}
     assert "Priv Person" not in rows
     anita = rows["Anita Rao"]
-    assert anita["contactHidden"] is True
-    assert anita["candidateEmail"] == ""
+    assert anita["contactHidden"] is False
+    assert anita["candidateEmail"] == "anita@example.com"
     assert anita["candidateUserId"] == "u-anita"
     assert anita["hasResumeFile"] is True
-    assert anita["resumeName"] is None
-    assert "anita@example.com" not in repr(anita)
-    assert "90000" not in repr(anita)
+    assert anita["resumeName"] == "Anita_Rao_Resume.pdf"
+
+
+def test_unlinked_employer_downloads_by_email_too(employer_client):
+    client, _db = employer_client
+    res = client.get("/api/vendor/candidate-documents/resume?email=anita@example.com&raw=1", headers=_auth("tok-emp"))
+    assert res.status_code == 200, res.text
+    assert res.content == PDF
+    private = client.get("/api/vendor/candidate-documents/resume?email=private@example.com&raw=1", headers=_auth("tok-emp"))
+    assert private.status_code == 404
+
+
+def test_storage_failure_is_a_friendly_502_logged_with_the_key_prefix_only(employer_client, monkeypatch, caplog):
+    client, _db = employer_client
+
+    class _Denied(_Http):
+        async def get(self, url: str):
+            return _Stored(b"<Error><Code>AccessDenied</Code></Error>", status_code=403)
+
+    monkeypatch.setattr("httpx.AsyncClient", _Denied)
+    with caplog.at_level("WARNING"):
+        res = client.get("/api/vendor/candidate-documents/resume?userId=u-anita&raw=1", headers=_auth("tok-emp"))
+    assert res.status_code == 502
+    assert res.json()["error"] == "Resume file could not be loaded. Please try again."
+    assert "AccessDenied" not in res.text and "403" not in res.text
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "status=403" in logged and "key_prefix=users/u-anita/" in logged
+    assert "Anita_Rao_Resume.pdf" not in logged
 
 
 def test_download_returns_the_original_file_for_a_hidden_candidate(employer_client):

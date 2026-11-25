@@ -4,7 +4,14 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EmployerApplicant } from '../../lib/store'
 import { AppFooter } from '../AppFooter'
+import { CareerIntelligenceDashboard } from '../CareerIntelligenceDashboard'
 import { ApplicantsSearch, type ApplicantsSearchProps } from './ApplicantsSearch'
+
+// The real report component, wrapped so a test can see it rendered with the drawer's props.
+vi.mock('../CareerIntelligenceDashboard', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../CareerIntelligenceDashboard')>()
+  return { ...mod, CareerIntelligenceDashboard: vi.fn(mod.CareerIntelligenceDashboard) }
+})
 
 const NOW = Date.parse('2026-11-20T12:00:00Z')
 
@@ -225,9 +232,110 @@ describe('Candidates mode', () => {
   })
 })
 
+const tabOrder = (html: string) => Array.from(html.matchAll(/role="tab"[^>]*>([^<]+)</g), (m) => m[1])
+const drawer = (html: string) => html.slice(html.indexOf('data-testid="applicant-panel"'))
+const selectedTab = (html: string) => html.match(/role="tab" aria-selected="true"[^>]*>([^<]+)</)?.[1]
+
+const KAVYA_RESUME = [
+  'Kavya Iyer',
+  'Frontend Developer | Chennai, India | kavya@example.com',
+  'SUMMARY',
+  'Frontend developer with 4 years building fast, accessible React apps.',
+  'EXPERIENCE',
+  'Frontend Developer, CartWave Technologies, Chennai (Jun 2022 - Present)',
+  '- Rebuilt checkout in React 18 and TypeScript.',
+  'SKILLS',
+  'React, TypeScript, Storybook',
+  'EDUCATION',
+  'B.Tech Information Technology, Anna University, 2020',
+  'CERTIFICATIONS',
+  '- AWS Certified Cloud Practitioner',
+  'LANGUAGES',
+  'English, Tamil, Hindi',
+].join('\n')
+
 describe('Applicant drawer', () => {
-  it('opens the original stored resume for a candidate, even when contact details are hidden', () => {
-    const html = render('/employer/candidates?applicant=hid', {
+  it('lands on Profile, with the tabs in the order Profile, Resume, Interview report', () => {
+    const html = render('/employer/applicants?applicant=ana')
+    expect(tabOrder(html)).toEqual(['Profile', 'Resume', 'Interview report'])
+    expect(selectedTab(html)).toBe('Profile')
+    expect(html).toContain('id="applicant-tabpanel-profile"')
+    expect(html).toContain('data-testid="profile-details"')
+    // Roving tabindex: only the selected tab is in the tab order.
+    expect(html).toMatch(/id="applicant-tab-profile"[^>]*aria-selected="true"[^>]*tabindex="0"/)
+    expect(html).toMatch(/id="applicant-tab-resume"[^>]*aria-selected="false"[^>]*tabindex="-1"/)
+    // The Contact tab is gone; contact is a section of Profile.
+    expect(html).not.toContain('id="applicant-tab-contact"')
+    expect(html).toContain('data-testid="profile-contact"')
+  })
+
+  it('maps old tab=contact links to Profile and keeps tab=resume / tab=report', () => {
+    expect(selectedTab(render('/employer/applicants?applicant=ana&tab=contact'))).toBe('Profile')
+    expect(selectedTab(render('/employer/applicants?applicant=ana&tab=resume'))).toBe('Resume')
+    expect(selectedTab(render('/employer/applicants?applicant=ana&tab=report'))).toBe('Interview report')
+  })
+
+  it('reads the resume as a profile: about, skills with search hits, experience, education, certifications, languages', () => {
+    const rows = [app({ id: 'kav', candidateName: 'Kavya Iyer', resumeText: KAVYA_RESUME, aiScore: 71 })]
+    const html = render('/employer/applicants?applicant=kav&q=storybook', { applicants: rows })
+    expect(html).toContain('data-testid="profile-about"')
+    expect(html).toContain('Frontend developer with 4 years building fast')
+    expect(html).toContain('data-testid="profile-skills"')
+    expect(html).toContain('1 matches your search')
+    expect(html).toMatch(/skillChipHit[^"]*"><svg[\s\S]*?<mark[^>]*>Storybook<\/mark>/)
+    expect(html).toContain('data-testid="profile-experience"')
+    expect(html).toContain('CartWave Technologies')
+    expect(html).toContain('Jun 2022 – Present')
+    expect(html).toContain('data-testid="profile-education"')
+    expect(html).toContain('AWS Certified Cloud Practitioner')
+    expect(html).toContain('data-testid="profile-languages"')
+    expect(html).toContain('>Tamil<')
+    // Interview summary card and the header line from the resume headline.
+    expect(html).toContain('aria-label="Interview summary"')
+    expect(html).toContain('View interview report')
+    expect(html).toContain('Frontend Developer at CartWave Technologies')
+    // Sections with nothing to show are left out (no projects on this resume).
+    expect(html).not.toContain('data-testid="profile-projects"')
+  })
+
+  it('always shows the Contact section: e-mail and phone with copy buttons, never a locked state', () => {
+    const open = render('/employer/candidates?applicant=plat', {
+      mode: 'candidates',
+      applicants: [
+        app({
+          id: 'plat',
+          jobId: '',
+          jobTitle: '',
+          recordSource: 'platform',
+          candidateName: 'Platform Person',
+          candidateEmail: 'platform.person@example.com',
+          candidatePhone: '919876543210',
+          // A stale flag from an older API must not hide anything (owner decision).
+          contactHidden: true,
+          resumeText: 'SKILLS\nGo',
+        }),
+      ],
+    })
+    expect(open).toContain('data-testid="profile-contact"')
+    expect(open).toContain('mailto:platform.person@example.com')
+    expect(open).toContain('tel:+919876543210')
+    expect(open).toContain('Copy email')
+    expect(open).toContain('Copy phone number')
+    expect(open).toContain('data-testid="panel-contact"')
+    expect(open).not.toContain('contact-locked')
+    expect(open).not.toContain('Contact locked')
+    expect(open).not.toContain('until they apply')
+
+    // No e-mail on the row at all: the section still shows, with "Not provided".
+    const empty = render('/employer/applicants?applicant=hid')
+    expect(empty).toContain('data-testid="profile-contact"')
+    expect(empty).toContain('Not provided')
+    expect(empty).not.toContain('contact-locked')
+    expect(empty).toContain('Not interviewed yet.')
+  })
+
+  it('Resume shows only the original file with Download: no Formatted toggle and no extracted text', () => {
+    const html = render('/employer/candidates?applicant=hid&tab=resume', {
       mode: 'candidates',
       applicants: [
         app({
@@ -241,61 +349,91 @@ describe('Applicant drawer', () => {
           contactHidden: true,
           candidateUserId: 'user-hid',
           hasResumeFile: true,
+          resumeName: 'Hidden_Person.pdf',
           resumeText: 'SKILLS\nGo',
         }),
       ],
     })
-    // Original file first (owner's choice); Formatted (Profile details) one click away.
-    expect(html).toMatch(/aria-pressed="true"[^>]*>Original</)
-    expect(html).toMatch(/aria-pressed="false"[^>]*>Formatted</)
+    expect(html).not.toContain('Formatted')
+    expect(html).not.toContain('>Original<')
+    expect(html).not.toContain('Full resume text')
+    expect(html).not.toContain('data-testid="resume-text"')
     expect(html).not.toContain('data-testid="profile-details"')
-    expect(html).toContain('>Original resume<')
+    expect(html).toContain('Hidden_Person.pdf')
+    expect(html).toContain('Loading the resume')
     const downloads = (html.match(/<button\b[^>]*>/g) || []).filter((tag) => tag.includes('Download Hidden Person'))
-    expect(downloads.length).toBeGreaterThan(0)
+    // The Resume tab's own Download, beside the file name (the header keeps its Download too).
+    expect(downloads.filter((tag) => tag.includes('original resume&quot;') || tag.includes('s original resume"')).length).toBe(1)
     expect(downloads.every((tag) => !tag.includes('disabled'))).toBe(true)
-    expect(downloads.some((tag) => tag.includes('Download the original resume'))).toBe(true)
-
-    const fileOnly = render('/employer/candidates?applicant=hid', {
-      mode: 'candidates',
-      applicants: [
-        app({
-          id: 'hid',
-          jobId: '',
-          jobTitle: '',
-          recordSource: 'platform',
-          candidateName: 'Hidden Person',
-          candidateEmail: '',
-          contactHidden: true,
-          candidateUserId: 'user-hid',
-          hasResumeFile: true,
-          resumeText: '',
-        }),
-      ],
-    })
-    expect(fileOnly).toContain('Original resume')
-    expect(fileOnly).toContain('Loading the resume')
   })
 
-  it('locks the full interview report of a candidate with no link to this organisation', () => {
-    const html = render('/employer/candidates?applicant=hid&tab=report', {
+  it('Resume without a stored file: a clean empty state pointing to Profile, never the extracted text', () => {
+    const html = render('/employer/candidates?applicant=vik&tab=resume', { mode: 'candidates' })
+    expect(html).toContain('data-testid="resume-empty"')
+    expect(html).toContain('No resume file uploaded')
+    expect(html).toContain('Profile tab')
+    expect(html).toContain('Go to Profile')
+    expect(drawer(html)).not.toContain('FastAPI')
+    expect(html).not.toContain('Loading the resume')
+
+    // An application: the original file loads (no locked state any more).
+    const applied = render('/employer/applicants?applicant=ana&tab=resume')
+    expect(applied).not.toContain('resume-locked')
+    expect(applied).toContain('Loading the resume')
+  })
+
+  it('shows the full interview report of a platform candidate (no locked state)', () => {
+    const html = render('/employer/candidates?applicant=plat&tab=report', {
       mode: 'candidates',
       applicants: [
         app({
-          id: 'hid',
+          id: 'plat',
           jobId: '',
           jobTitle: '',
           recordSource: 'platform',
-          candidateName: 'Hidden Person',
-          candidateEmail: '',
-          contactHidden: true,
+          candidateName: 'Platform Person',
+          candidateEmail: 'platform.person@example.com',
           resumeText: 'SKILLS\nGo',
-          interviewResult: { overall: 72, answers: [], strengths: [], improvements: [], reportRestricted: true } as never,
+          interviewResult: {
+            overall: 72,
+            role: 'Backend Engineer',
+            level: 'mid',
+            date: new Date(NOW - 86_400_000).toISOString(),
+            categories: [],
+            answers: [{ question: 'Q?', answer: 'An answer' }],
+            strengths: [],
+            improvements: [],
+          } as never,
         }),
       ],
     })
-    expect(html).toContain('data-testid="report-locked"')
-    expect(html).toContain('72/100')
-    expect(html).not.toContain('Open the full report and recording')
+    expect(html).not.toContain('report-locked')
+    expect(html).toMatch(/<strong>72<\/strong><span[^>]*>\/100</)
+    expect(html).toContain('Open the full report and recording')
+  })
+
+  it('the Interview report tab still renders the report (CareerIntelligenceDashboard) as before', () => {
+    const result = {
+      overall: 81,
+      role: 'Frontend Developer',
+      level: 'mid',
+      date: new Date(NOW - 86_400_000).toISOString(),
+      categories: [],
+      answers: [],
+      strengths: ['Clear explanations'],
+      improvements: [],
+    }
+    const rows = [app({ id: 'ana', candidateName: 'Ananya Rao', aiScore: 81, interviewResult: result as never })]
+    vi.mocked(CareerIntelligenceDashboard).mockClear()
+    const html = render('/employer/applicants?applicant=ana&tab=report', { applicants: rows })
+    expect(html).toContain('id="applicant-tabpanel-report"')
+    expect(html).toContain('Open the full report and recording')
+    expect(html).toContain('81/100')
+    // The report component itself, with the same props as before (its UI is not touched by the drawer).
+    const calls = vi.mocked(CareerIntelligenceDashboard).mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.at(-1)?.[0]).toMatchObject({ embedded: true, result, candidateName: 'Ananya Rao' })
+    expect(selectedTab(html)).toBe('Interview report')
   })
 
   it('is closed without ?applicant and opens as a dialog for the applicant in the URL', () => {
@@ -305,19 +443,6 @@ describe('Applicant drawer', () => {
     expect(html).toMatch(/role="dialog" aria-modal="true" aria-labelledby="applicant-panel-name"/)
     expect(html).toContain('>Ananya Rao</h2>')
     expect(html).toContain('1 of 3')
-    // Opens on the original file when one can be shown, otherwise the formatted text.
-    expect(html).toMatch(/data-testid="resume-text"|>Original resume</)
-  })
-
-  it('opens the tab named in the URL and keeps contact details behind the existing rule', () => {
-    const contact = render('/employer/applicants?applicant=ana&tab=contact')
-    expect(contact).toMatch(/aria-selected="true"[^>]*>Contact</)
-    expect(contact).toContain('mailto:ananya@example.com')
-
-    const hidden = render('/employer/applicants?applicant=hid&tab=contact')
-    expect(hidden).toContain('data-testid="contact-locked"')
-    expect(hidden).toContain('Share a job&#x27;s apply link')
-    expect(hidden).not.toContain('mailto:')
   })
 })
 
