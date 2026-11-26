@@ -35,8 +35,12 @@ jobs:
       - name: Secret scan (tracked files)
         run: node scripts/secret-scan.mjs
 
-      - run: pip install -r requirements-dev.txt
+      - name: Install Python dependencies
         working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -c "import pytest; print('pytest', pytest.__version__)"
 
       # Real Postgres so migrations, audit and retention tests run instead of being skipped.
       - run: python -m pytest -q

@@ -739,6 +739,9 @@ def test_retake_payment_flow(client, fake_llm, fake_razorpay):
     assert st["retakeCredits"] == 1 and st["canStartCareerInterview"] is True
     second = _career_start(client, cand)
     assert second.status_code == 200, second.text
+    # Start only prepares the session. The paid credit is taken when the interview is scored.
+    assert client.get("/api/payments/retake/status", headers=cand["h"]).json()["retakeCredits"] == 1
+    assert _finish(client, cand, second.json()).status_code == 200
     assert client.get("/api/payments/retake/status", headers=cand["h"]).json()["retakeCredits"] == 0
     assert _career_start(client, cand).status_code == 402
     # Replaying the same Razorpay payment id on a NEW order (valid signature for that pair) is refused, not a 500.
