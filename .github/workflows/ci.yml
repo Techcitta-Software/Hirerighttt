@@ -35,7 +35,7 @@ jobs:
       - name: Secret scan (tracked files)
         run: node scripts/secret-scan.mjs
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
         working-directory: backend
 
       # Real Postgres so migrations, audit and retention tests run instead of being skipped.
