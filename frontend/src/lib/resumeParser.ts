@@ -51,6 +51,10 @@ export type ResumeExtract = Partial<
   fullName?: string
   /** Full extracted text used by Ava for resume-accurate questions. */
   resumeText?: string
+  /** Degree or school line kept from the resume parse. Not a profile field. */
+  education?: string
+  /** Months of work computed from the chosen job history. */
+  experienceMonths?: number
 }
 
 /** Maps parsed resume fields into onboarding profile shape (shared by upload + wizard). */
