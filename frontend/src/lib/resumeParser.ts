@@ -11,7 +11,7 @@ import { apiFetch } from './api'
 import { ensureApiSession } from './apiSession'
 import { clientLlmAllowed } from './clientLlm'
 import { computeExperience, latestJob, monthsToLabel } from './resumeExperience'
-import { extractNameFromText, normalizePersonName, pickRole } from './resumeName'
+import { extractNameFromText, looksLikePersonName, normalizePersonName, pickRole } from './resumeName'
 import { resumeNameOf } from './candidateName'
 
 export { extractNameFromText }
@@ -1803,34 +1803,48 @@ ${text.slice(0, 12000)}`
 
 const RESUME_AI_PARSE_MS = 12_000
 
+/** Every word of the name is written somewhere on the resume (a two-column PDF can put it far down the text). */
+function nameWrittenOnResume(name: string, text: string): boolean {
+  const words = name.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z']/g, '')).filter((w) => w.length >= 2)
+  if (!words.length) return false
+  const onPage = new Set(text.toLowerCase().split(/[^a-z']+/).filter(Boolean))
+  return words.every((w) => onPage.has(w) || onPage.has(w.replace(/'/g, '')))
+}
+
 /**
  * Combine the deterministic parse with the AI parse.
  *
- * The deterministic parse is the base: it only reports what is literally on the page, so it is never overwritten
- * by an AI value (or an AI default). The AI fills fields the deterministic parse could not find, adds skills the
- * candidate listed, and supplies the polished narrative text.
+ * - Name: the AI's name when it looks like a person and is written on the resume; otherwise the regex name. (The
+ *   regex reads the first lines, which on a two-column resume can be a tools list: "Adobe XD".)
+ * - Role, location, work history, education: the AI's values when it returned them (formatAiExtract already drops
+ *   anything that is not on the page); the regex fills the gaps.
+ * - Experience is always recomputed from the chosen work history; never a model's guess.
  */
 export function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFallback: ResumeExtract): ResumeExtract {
   const has = (v: unknown) => (typeof v === 'string' ? v.trim().length > 0 : Array.isArray(v) ? v.length > 0 : Boolean(v))
-  const firstJobOk = (regexFallback.workExperiences || []).some((w) => w.jobTitle && w.company)
 
-  const merged: ResumeExtract = { ...aiExtract, ...regexFallback }
-  for (const key of ['fullName', 'currentRole', 'totalExperience', 'currentLocation'] as const) {
-    const value = has(regexFallback[key]) ? regexFallback[key] : aiExtract[key]
+  const merged: ResumeExtract = { ...regexFallback, ...aiExtract }
+  const aiName = String(aiExtract.fullName || '').trim()
+  const fullName =
+    aiName && looksLikePersonName(aiName) && nameWrittenOnResume(aiName, text)
+      ? normalizePersonName(aiName)
+      : regexFallback.fullName || ''
+  if (fullName) merged.fullName = fullName
+  else delete merged.fullName
+
+  for (const key of ['currentRole', 'currentLocation'] as const) {
+    const value = has(aiExtract[key]) ? aiExtract[key] : regexFallback[key]
     if (has(value)) merged[key] = value
     else delete merged[key]
   }
   merged.skills = mergeSkills(regexFallback.skills || [], aiExtract.skills || [])
-  merged.workExperiences = firstJobOk
-    ? regexFallback.workExperiences
-    : has(aiExtract.workExperiences)
-      ? aiExtract.workExperiences
-      : regexFallback.workExperiences
-  merged.totalExperience = computeExperience(
-    merged.workExperiences || [],
-    text,
-    pickExperienceSectionBody(text),
-  ).label
+  merged.workExperiences = has(aiExtract.workExperiences) ? aiExtract.workExperiences : regexFallback.workExperiences
+  merged.education = has(aiExtract.education) ? aiExtract.education : regexFallback.education
+  if (!has(merged.education)) delete merged.education
+  const experience = computeExperience(merged.workExperiences || [], text, pickExperienceSectionBody(text))
+  merged.totalExperience = experience.label
+  if (experience.months > 0) merged.experienceMonths = experience.months
+  else delete merged.experienceMonths
   merged.certifications = has(regexFallback.certifications) ? regexFallback.certifications : aiExtract.certifications
   merged.achievements = has(regexFallback.achievements) ? regexFallback.achievements : aiExtract.achievements
   merged.metrics = has(regexFallback.metrics) ? regexFallback.metrics : aiExtract.metrics

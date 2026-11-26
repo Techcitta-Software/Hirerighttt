@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 FACE_DEVIATION_SCORE_PENALTY = 5
+# A noisy camera (bad light, a webcam that drops frames) must not wipe out a real interview: the camera deduction
+# is capped. 18 deviations used to cost 90 points and turned a 53 into 0.
+MAX_PROCTOR_SCORE_PENALTY = 20
 
 _DEVIATION_LOG_TYPES = frozenset(
     {"SIDE_GAZE_LOOKING_AWAY", "NO_FACE_SEEN", "MULTIPLE_FACES_DETECTED"},
@@ -30,14 +33,22 @@ def _sustained(item: dict, multi_face: bool) -> bool:
     return duration is None or duration >= PENALTY_MIN_DURATION_SEC
 
 
+def camera_off_by_choice(integrity: dict | None) -> bool:
+    """The candidate chose "Continue without camera" in the lobby: an empty frame is expected, not a deviation."""
+    return bool((integrity or {}).get("cameraOffByChoice"))
+
+
 def count_face_proctor_deviations(integrity: dict | None, proctoring: dict | None = None) -> int:
     integrity = integrity or {}
+    camera_off = camera_off_by_choice(integrity)
+    flag_types = _DEVIATION_FLAG_TYPES - {"NO_FACE"} if camera_off else _DEVIATION_FLAG_TYPES
+    log_types = _DEVIATION_LOG_TYPES - {"NO_FACE_SEEN"} if camera_off else _DEVIATION_LOG_TYPES
     sections = integrity.get("flaggedSections") if isinstance(integrity.get("flaggedSections"), list) else []
     from_flags = sum(
         1
         for f in sections
         if isinstance(f, dict)
-        and str(f.get("type") or "") in _DEVIATION_FLAG_TYPES
+        and str(f.get("type") or "") in flag_types
         and _sustained(f, str(f.get("type")) == "MULTI_FACE")
     )
     if from_flags:
@@ -47,11 +58,14 @@ def count_face_proctor_deviations(integrity: dict | None, proctoring: dict | Non
         1
         for e in logs
         if isinstance(e, dict)
-        and str(e.get("eventType") or "") in _DEVIATION_LOG_TYPES
+        and str(e.get("eventType") or "") in log_types
         and _sustained(e, str(e.get("eventType")) == "MULTIPLE_FACES_DETECTED")
     )
     if from_logs:
         return from_logs
+    if camera_off:
+        # The summary totals cannot tell "no face" apart from the other flags.
+        return 0
     if proctoring and isinstance(proctoring.get("counts"), dict):
         total = int(proctoring["counts"].get("total") or 0)
         if total > 0:
@@ -83,7 +97,7 @@ def _restate_score_in_scorecard(scorecard: dict[str, Any], before: int, after: i
 def apply_face_deviation_penalty_to_result(result: dict[str, Any], deviations: int) -> dict[str, Any]:
     if not deviations or not isinstance(result, dict):
         return result
-    penalty = deviations * FACE_DEVIATION_SCORE_PENALTY
+    penalty = min(deviations * FACE_DEVIATION_SCORE_PENALTY, MAX_PROCTOR_SCORE_PENALTY)
     before = result.get("overall")
     for key in ("overall", "interviewScore", "compositeScore"):
         if isinstance(result.get(key), (int, float)):

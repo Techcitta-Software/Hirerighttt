@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { canViewInterviewVideo } from '../../lib/adminAccess'
 import { formatPhoneForDisplay, phoneTelHref } from '../../lib/phone'
-import { SAVE_HINT, experienceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
+import { experienceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
 import { CareerIntelligenceDashboard } from '../CareerIntelligenceDashboard'
 import { HrIcon } from '../HrIcon'
 import { handleDialogKeyDown } from '../useDialog'
-import { VideoProctorTimeline } from '../VideoProctorTimeline'
+import { InterviewVideoSection } from './InterviewVideoSection'
 import { ProfileDetails } from './ProfileDetails'
 import { ResumeFilePreview } from './ResumeFilePreview'
 import styles from './Applicants.module.css'
+import sections from './ReportSections.module.css'
 
 export type PanelTab = PanelTabKey
 
@@ -19,6 +19,27 @@ const TABS: { key: PanelTab; label: string }[] = [
   { key: 'report', label: 'Interview report' },
 ]
 
+const VIDEO_ID = 'applicant-report-video'
+
+/** Date on the interview result, when the API sent one. */
+function interviewRecordDate(result: { date?: string; completedAt?: string; createdAt?: string }): string {
+  const iso = result.completedAt || result.createdAt || result.date
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/** In-tab link: scroll the drawer to a report section and move focus to its heading. */
+function jumpTo(id: string) {
+  const el = document.getElementById(id)
+  if (!el) return
+  const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  const target = el.closest('section') ?? el
+  target.scrollIntoView({ block: 'start', behavior: calm ? 'auto' : 'smooth' })
+  el.focus({ preventScroll: true })
+}
+
 type Props = {
   row: IndexedApplicant
   terms: string[]
@@ -26,14 +47,12 @@ type Props = {
   position: { index: number; total: number }
   tab: PanelTab
   onTab: (tab: PanelTab) => void
-  saved: boolean
   busy?: string
   rankTotal?: number
   onClose: () => void
   onPrev?: () => void
   onNext?: () => void
   onShortlist: () => void
-  onToggleSave: () => void
   onInvite: () => void
   onDownload: () => void
   onOpenFullReport: () => void
@@ -54,14 +73,12 @@ export function ApplicantResumePanel({
   position,
   tab,
   onTab,
-  saved,
   busy = '',
   rankTotal = 0,
   onClose,
   onPrev,
   onNext,
   onShortlist,
-  onToggleSave,
   onInvite,
   onDownload,
   onOpenFullReport,
@@ -119,6 +136,10 @@ export function ApplicantResumePanel({
   const downloadDisabled =
     (originalResume ? !a.hasResumeFile && !contactVisible : !contactVisible) || nothingToDownload || busy === 'download'
   const fileName = /\.(pdf|docx?)$/i.test(a.resumeName || '') ? (a.resumeName as string) : 'Original resume'
+  const interviewedOn = a.interviewResult ? interviewRecordDate(a.interviewResult) : ''
+  const interviewScore = a.interviewResult
+    ? Math.round(typeof a.interviewResult.overall === 'number' ? a.interviewResult.overall : (row.score ?? 0))
+    : null
 
   function goTab(next: PanelTab) {
     onTab(next)
@@ -210,9 +231,9 @@ export function ApplicantResumePanel({
                   ? 'No resume on file'
                   : nothingToDownload
                     ? 'No resume uploaded'
-                    : fileMissing
-                      ? 'No file uploaded: downloads the resume text'
-                      : 'Download the resume'
+                : fileMissing
+                  ? 'No original resume file is stored'
+                  : 'Download the original resume'
             }
           >
             <HrIcon name="download" size={14} /> Download
@@ -224,10 +245,7 @@ export function ApplicantResumePanel({
             disabled={!contactVisible || busy === 'invite'}
             title={contactVisible ? 'Email an interview link' : 'No e-mail address on file'}
           >
-            <HrIcon name="calendar" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
-          </button>
-          <button type="button" className={styles.actBtn} onClick={onToggleSave} aria-pressed={saved} title={SAVE_HINT}>
-            <HrIcon name="star" size={14} /> {saved ? 'Saved for later' : 'Save for later'}
+            <HrIcon name="message" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
           </button>
         </div>
 
@@ -254,6 +272,24 @@ export function ApplicantResumePanel({
       <div className={styles.panelBody} ref={bodyRef}>
         {tab === 'profile' ? (
           <section id="applicant-tabpanel-profile" role="tabpanel" aria-labelledby="applicant-tab-profile" tabIndex={0}>
+            <div className={styles.snap} data-testid="profile-interview">
+              {a.interviewResult ? (
+                <>
+                  <p className={styles.snapEmpty}>
+                    <span>
+                      <strong>{interviewScore}</strong>
+                      <span className={styles.snapMax}>/100</span>
+                      {interviewedOn ? ` · ${interviewedOn}` : ''}
+                    </span>
+                  </p>
+                  <button type="button" className={styles.snapLink} onClick={() => goTab('report')}>
+                    Open report
+                  </button>
+                </>
+              ) : (
+                <p className={styles.snapEmpty}>No interview yet</p>
+              )}
+            </div>
             <ProfileDetails
               row={row}
               terms={terms}
@@ -359,7 +395,12 @@ export function ApplicantResumePanel({
                     Open the full report and recording <HrIcon name="arrow-up-right" size={13} />
                   </button>
                 </div>
-                <>
+                <nav className={sections.jump} aria-label="On this tab">
+                  <span className={sections.jumpLabel}>Jump to</span>
+                  <button type="button" className={sections.jumpLink} onClick={() => jumpTo(VIDEO_ID)}>
+                    Interview video
+                  </button>
+                </nav>
                 <CareerIntelligenceDashboard
                   embedded
                   result={a.interviewResult}
@@ -368,19 +409,14 @@ export function ApplicantResumePanel({
                   candidateExperience={exp || a.experienceYears}
                   skills={row.skills}
                 />
-                {canViewInterviewVideo() && a.interviewResult.sessionId && contactVisible ? (
-                  <div className={styles.timelineBox}>
-                    <h3 className={styles.panelH3}>Interview recording and proctoring timeline</h3>
-                    <VideoProctorTimeline
-                      sessionId={a.interviewResult.sessionId}
-                      candidateEmail={a.candidateEmail}
-                      logs={a.interviewResult.integrity?.logs}
-                      proctoring={a.interviewResult.integrity?.proctoring}
-                      hideTitle
-                    />
-                  </div>
-                ) : null}
-                </>
+                <InterviewVideoSection
+                  sessionId={a.interviewResult.sessionId}
+                  candidateEmail={contactVisible ? a.candidateEmail : null}
+                  candidateName={a.candidateName}
+                  logs={a.interviewResult.integrity?.logs}
+                  proctoring={a.interviewResult.integrity?.proctoring}
+                  headingId={VIDEO_ID}
+                />
               </>
             ) : (
               <div className={styles.resumeEmpty} data-testid="report-empty">
@@ -400,7 +436,7 @@ export function ApplicantResumePanel({
                     onClick={onInvite}
                     disabled={busy === 'invite'}
                   >
-                    <HrIcon name="calendar" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
+                    <HrIcon name="message" size={14} /> {busy === 'invite' ? 'Sending…' : 'Invite to interview'}
                   </button>
                 ) : null}
               </div>

@@ -9,6 +9,7 @@ from app.db.finders import (
     find_job,
     find_user,
     remove_job,
+    session_items_for_email,
     vault_for_org,
 )
 import asyncio
@@ -68,6 +69,7 @@ from app.services.interview_integrity import (
     session_is_stale,
 )
 from app.services.interview_review import vendor_may_view_interview_session
+from app.services import interview_session_lifecycle as ivlife
 from app.services.interview_jd_plan import JD_INTERVIEW_DURATION_MINUTES, JD_INTERVIEW_TURN_COUNT, is_jd_first_interview
 from app.services.mail_service import send_mail, smtp_configured
 from app.services.proctoring.persist_flags import persist_proctoring_flags, review_logs_to_flag_sections
@@ -219,6 +221,222 @@ async def _resolve_vendor_job_for_interview(db: dict, body: dict, email: str) ->
     return {"job": None, "application": None}
 
 
+async def _link_invite_application(db: dict, invite: dict, email: str) -> dict | None:
+    """T3 #1: an open invite for a job (\"Invite by email\" / row \"Invite\") carries job_id + organization_id but no
+    application. Find or create the candidate's application for that job so the interview is saved against it and the
+    recruiter sees the applicant, tiles, ranking and report."""
+    job_id = str(invite.get("job_id") or "")
+    org_id = str(invite.get("organization_id") or "")
+    if not job_id or not org_id:
+        return None
+    job = get_org_job(db, org_id, job_id)
+    if not job and persistence_ready(config.database_url):
+        await asyncio.to_thread(db_store.sync_open_jobs_from_database, config.database_url, db)
+        job = get_org_job(db, org_id, job_id)
+    if not job:
+        return None
+    existing = await asyncio.to_thread(find_employer_app_for, db, job_id, email)
+    if existing:
+        return existing if str(existing.get("organizationId") or "") == org_id else None
+    account = await asyncio.to_thread(find_user, db, email=email)
+    profile = (db.get("profiles") or {}).get(email) or {}
+    try:
+        pack = create_job_application(
+            db,
+            job,
+            {
+                "candidateName": candidate_display_name(
+                    db,
+                    email,
+                    resume_text=profile.get("resumeText"),
+                    given=profile.get("fullName") or invite.get("candidate_name"),
+                    account_name=(account or {}).get("name"),
+                ),
+                "candidatePhone": profile.get("contactPhone") or (account or {}).get("phone"),
+                "candidateRole": profile.get("currentRole") or "",
+                "experienceYears": profile.get("totalExperience") or "",
+                "resumeName": profile.get("resumeName") or "HireRighttt profile",
+                "resumeText": str(profile.get("resumeText") or ""),
+                "candidateEmail": email,
+                "candidateUserId": (account or {}).get("id"),
+                "source": "invite",
+            },
+        )
+    except ValueError:
+        return None
+    application = pack["application"]
+    attach_candidate_report_to_application(db, application, email, {"attachInterviewReport": False})
+    if pack.get("created"):
+        queue_employer_application_alert(db, job, application, True)
+    candidate_application = record_candidate_job_application(db, email, job, application, {})
+    if persistence_ready(config.database_url):
+        import psycopg
+
+        try:
+            await asyncio.to_thread(db_store.upsert_employer_application_record, config.database_url, application)
+            await asyncio.to_thread(db_store.upsert_job_application_record, config.database_url, email, candidate_application)
+        except psycopg.errors.UniqueViolation:
+            # A parallel start created it first: forget this in-memory copy and use the stored row.
+            if isinstance(db, UnitOfWork):
+                db.list("employerApplications").remove_obj(application)
+            else:
+                db["employerApplications"] = [a for a in db.get("employerApplications") or [] if a is not application]
+            return await asyncio.to_thread(find_employer_app_for, db, job_id, email)
+        if (account or {}).get("id"):
+            background.spawn(
+                grant_organization_talent_access(config.database_url, org_id, account["id"], "invite"),
+                "grant-talent-access",
+            )
+    return application
+
+
+def _retake_required_response() -> Response:
+    return _json(
+        402,
+        {
+            "error": f"You have used your free interview. A retake costs ₹{retake_payments.retake_price_inr()}.",
+            "code": "RETAKE_PAYMENT_REQUIRED",
+            "priceInr": retake_payments.retake_price_inr(),
+            "paymentsConfigured": retake_payments.payments_configured(),
+        },
+    )
+
+
+_ENDED_STATUSES = (ivlife.STATUS_EXPIRED, ivlife.STATUS_ABANDONED)
+
+
+def _session_ended_response(session: dict) -> Response:
+    if session.get("status") == ivlife.STATUS_ABANDONED:
+        return _json(
+            410,
+            {
+                "error": "This interview was left unfinished for too long and has ended. Please start a new interview.",
+                "code": "SESSION_ABANDONED",
+            },
+        )
+    return _json(410, {"error": "This interview session has expired. Please start a new interview.", "code": "SESSION_EXPIRED"})
+
+
+async def _activate_interview_session(session: dict, session_id: str, email: str) -> Response | None:
+    """pending -> active when the candidate enters the room (or gives the first answer). Only now is the free career
+    interview (or a paid credit) claimed (T5 B11). Idempotent for an active session."""
+    status = session.get("status")
+    if status in (ivlife.STATUS_ACTIVE, "completed"):
+        return None
+    if status in _ENDED_STATUSES:
+        return _session_ended_response(session)
+    if status != ivlife.STATUS_PENDING:
+        return None
+    if ivlife.pending_expired(session):
+        session["status"] = ivlife.STATUS_EXPIRED
+        return _session_ended_response(session)
+    if session.get("careerInterview") and persistence_ready(config.database_url):
+        from psycopg.rows import dict_row
+
+        def _take_slot() -> str | None:
+            # Atomic: the free slot is a unique row (migration 0005) and a credit is taken FOR UPDATE SKIP LOCKED, so
+            # N parallel entries get at most one free interview plus one per paid credit.
+            with db_store.db_pool(config.database_url).connection() as conn:
+                conn.row_factory = dict_row
+                state = retake_payments.retake_status(conn, email)
+                if state.get("freeInterviewAvailable") and retake_payments.claim_free_interview(conn, email, session_id):
+                    conn.commit()
+                    return "free"
+                if retake_payments.consume_credit_for_start(conn, email, session_id):
+                    conn.commit()
+                    return "credit"
+                conn.commit()
+                return None
+
+        taken = await asyncio.to_thread(_take_slot)
+        if not taken:
+            return _retake_required_response()
+        session["billing"] = taken
+    ivlife.mark_entered(session)
+    return None
+
+
+def _session_start_payload(session_id: str, session: dict, *, resumed: bool = False, previous: dict | None = None) -> dict:
+    questions = session.get("questions") or []
+    state = ivlife.resume_state(session) if resumed else None
+    index = state["questionIndex"] if state else 0
+    sa = session.get("skillAnalysis")
+    payload: dict = {
+        "sessionId": session_id,
+        "agent": session.get("agent"),
+        "adaptive": True,
+        "llm": ia.llm_configured(),
+        "total": session.get("totalTurns"),
+        "questionIndex": index,
+        "question": questions[index] if questions else None,
+        "questions": questions,
+        "varietySeed": session.get("varietySeed"),
+        "jdFirst": bool(session.get("jdFirst")),
+        "durationMinutes": session.get("durationMinutes"),
+        "profileDigest": session.get("context"),
+        "questionMode": session.get("questionMode"),
+        "skillAnalysis": (
+            {k: sa.get(k) for k in ("jdSkills", "matchedSkills", "missingSkills", "atsScore", "jdMatchScore")}
+            if isinstance(sa, dict)
+            else None
+        ),
+        "job": session.get("jobSummary"),
+        "applicationId": session.get("applicationId"),
+        "status": session.get("status"),
+        "resumed": bool(resumed),
+    }
+    if state:
+        payload.update(state)
+    if previous:
+        payload["previousAttempt"] = previous
+    return payload
+
+
+async def _candidate_booking(db: dict, email: str, user: dict | None) -> dict | None:
+    """The candidate's next self-booked interview slot that has not finished (T1: the lock must not live only in
+    sessionStorage). Recruiter-sent links are not slot bookings and never lock anything."""
+    if not persistence_ready(config.database_url) or not (user or {}).get("id"):
+        return None
+    pool = db_store.db_pool(config.database_url)
+
+    def _load() -> list[dict]:
+        from psycopg.rows import dict_row
+
+        with pool.connection() as conn:
+            conn.row_factory = dict_row
+            return conn.execute(
+                """SELECT token, job_id, application_id, job_title, scheduled_start, scheduled_end
+                     FROM interview_invites
+                    WHERE lower(candidate_email) = lower(%s) AND created_by_user_id = %s AND scheduled_end > NOW()
+                    ORDER BY scheduled_start ASC LIMIT 5""",
+                (email, user["id"]),
+            ).fetchall()
+
+    try:
+        rows = await asyncio.to_thread(_load)
+    except Exception:
+        logger.warning("Could not load interview bookings", exc_info=True)
+        return None
+    for row in rows:
+        token = str(row.get("token") or "")
+        if not token or invite_attempt_used(db, token):
+            continue
+        state = invite_access_state(row)
+        if state.get("status") not in ("too_early", "open"):
+            continue
+        return {
+            "token": token,
+            "jobId": row.get("job_id"),
+            "applicationId": row.get("application_id"),
+            "jobTitle": row.get("job_title") or "AI Interview",
+            "scheduledStart": state["scheduledStart"].isoformat().replace("+00:00", "Z"),
+            "scheduledEnd": state["scheduledEnd"].isoformat().replace("+00:00", "Z"),
+            "status": state["status"],
+            "inviteUrl": invite_public_url(token, None),
+        }
+    return None
+
+
 @functools.lru_cache(maxsize=1)
 def paddle_ocr_available() -> bool:
     """Checked once per process: the OCR subprocess needs the script and the `paddleocr` package.
@@ -266,6 +484,15 @@ async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
 
 
 logger = logging.getLogger("hireright.api")
+
+
+def _invite_reminder_info(row: dict) -> dict | None:
+    from app.services.vendor.invite_status import reminder_info
+
+    try:
+        return reminder_info(row)
+    except Exception:
+        return None
 
 
 async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Response | None:
@@ -758,6 +985,25 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     owner_user_id=owner_user_id,
                     owner_email=candidate_email.lower(),
                 )
+                from urllib.parse import quote
+
+                from app.services.storage.resume_storage import infer_resume_content_type
+
+                filename = str(signed.get("filename") or "resume")
+                content_type = infer_resume_content_type(filename, str(signed.get("contentType") or "") or None)
+                lower_name = filename.lower()
+                if content_type == "application/pdf" and not lower_name.endswith(".pdf"):
+                    stem = re.sub(r"\.(docx?|txt)$", "", filename, flags=re.I).strip() or "resume"
+                    filename = stem + ".pdf"
+                elif (
+                    content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    and not lower_name.endswith(".docx")
+                ):
+                    stem = re.sub(r"\.(pdf|doc|txt)$", "", filename, flags=re.I).strip() or "resume"
+                    filename = stem + ".docx"
+                elif content_type == "application/msword" and not lower_name.endswith(".doc"):
+                    stem = re.sub(r"\.(pdf|docx|txt)$", "", filename, flags=re.I).strip() or "resume"
+                    filename = stem + ".doc"
                 if request.query_params.get("raw") == "1":
                     # The file itself, for the in-app DOCX viewer: the browser cannot read S3 cross-origin.
                     import httpx
@@ -777,13 +1023,16 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         return _json(502, {"error": "Resume file could not be loaded. Please try again."})
                     if len(stored.content) > 10 * 1024 * 1024:
                         return _json(413, {"error": "This resume is too large to preview. Download it instead."})
-                    filename = str(signed.get("filename") or "resume")
-                    from urllib.parse import quote
-
                     ascii_name = filename.encode("ascii", "ignore").decode().strip() or "resume"
+                    if content_type == "application/pdf" and not ascii_name.lower().endswith(".pdf"):
+                        ascii_name = f"{ascii_name}.pdf"
+                    elif content_type.endswith("wordprocessingml.document") and not ascii_name.lower().endswith(".docx"):
+                        ascii_name = f"{ascii_name}.docx"
+                    elif content_type == "application/msword" and not ascii_name.lower().endswith(".doc"):
+                        ascii_name = f"{ascii_name}.doc"
                     return Response(
                         content=stored.content,
-                        media_type=signed.get("contentType") or "application/octet-stream",
+                        media_type=content_type,
                         headers={
                             "Cache-Control": "private, no-store",
                             "X-Content-Type-Options": "nosniff",
@@ -798,8 +1047,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "viewUrl": signed["url"],
                         "downloadUrl": signed["url"],
                         "expiresInSeconds": signed.get("expiresInSeconds"),
-                        "contentType": signed.get("contentType"),
-                        "filename": signed.get("filename"),
+                        "contentType": content_type,
+                        "filename": filename,
                     },
                 )
             except ValueError as err:
@@ -887,11 +1136,16 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             job = get_org_job_for_recruiter(db, access["tenant"]["organization"]["id"], app["jobId"], scope)
             jd = str((job or {}).get("jobDescription") or "")
             required = (job or {}).get("requiredSkills") or app.get("data", {}).get("primarySkills") or []
+            applicant = app.get("data") or {}
             profile = {
-                "resumeText": app.get("data", {}).get("resumeText") or "",
-                "workExperiences": app.get("data", {}).get("workExperiences") or [],
-                "skills": app.get("data", {}).get("skills") or [],
-                "experienceYears": app.get("data", {}).get("experienceYears") or "",
+                "resumeText": applicant.get("resumeText") or "",
+                "workExperiences": applicant.get("workExperiences") or [],
+                "skills": applicant.get("skills") or [],
+                "experienceYears": applicant.get("experienceYears") or "",
+                "currentRole": applicant.get("currentRole") or "",
+                "achievements": applicant.get("achievements") or [],
+                "metrics": applicant.get("metrics") or [],
+                "education": applicant.get("education") or [],
             }
             digest = ia.summarize_profile(profile, app.get("data", {}).get("candidateName") or app.get("candidateEmail"))
             skill_analysis = ia.analyze_interview_skill_match(
@@ -936,6 +1190,10 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 fresher=fresher,
             )
 
+            from app.services.interview_question_model import classify_question_model
+
+            preview_model = classify_question_model(profile)
+
             async def _build_plan() -> dict:
                 # One Gemini call with the same structure the candidate will get (it used to be 8 sequential calls,
                 # 12-35 s, which could outlast the page's wait).
@@ -952,6 +1210,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "skillFocus": skill_focus,
                         "jdFirst": preview_jd_first,
                         "jdSkills": (skill_analysis or {}).get("jdSkills") or required,
+                        "questionModel": preview_model["questionModel"],
                     }
                 )
                 questions = []
@@ -1010,12 +1269,22 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                             "code": "INVITE_ALREADY_USED",
                         },
                     )
-                # The invite knows which application it is for; never lose that job context because the
-                # browser's stored copy was missing (new tab, cleared storage, different device).
-                if invite and invite.get("application_id") and not body.get("applicationId"):
-                    body["applicationId"] = invite["application_id"]
             db = ctx.load_db()
+            if invite_token:
+                # The invite knows which job / application it is for: it wins over whatever job the browser still had
+                # stored (new tab, cleared storage, a different job's leftovers). An open job invite has no
+                # application yet: find or create it (T3 #1) so the recruiter sees this interview.
+                linked_app_id = invite.get("application_id") if invite else None
+                if not linked_app_id and invite and invite.get("job_id"):
+                    linked = await _link_invite_application(db, invite, email)
+                    linked_app_id = (linked or {}).get("id")
+                if linked_app_id:
+                    body["applicationId"] = linked_app_id
+                    body.pop("jobId", None)
             profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
+            from app.services.interview_question_model import career_role_label, classify_question_model
+
+            qmodel = classify_question_model(profile if isinstance(profile, dict) else {})
             account = await asyncio.to_thread(find_user, db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
             vendor_resolved = await _resolve_vendor_job_for_interview(db, body, email)
@@ -1033,6 +1302,81 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             is_job = retake_payments.verified_job_interview(
                 application=vendor_resolved.get("application"), invite_token=invite_token or None
             )
+            # One prepared / resumable session per candidate + context (T5 B9/B12): a reload, a second waiting-room
+            # load or a new tab gets the SAME session and questions back, without another question-generation call.
+            context_key = ivlife.interview_context_key(
+                email=email,
+                invite_token=invite_token or None,
+                application_id=str(vendor_resolved["application"]["id"]) if vendor_resolved.get("application") else None,
+                job_id=str(vendor_resolved["job"]["id"]) if vendor_resolved.get("job") else None,
+                role=str(body.get("role") or ""),
+                level=str(body.get("level") or ""),
+                job_description=str(body.get("jobDescription") or ""),
+            )
+            own_sessions = await asyncio.to_thread(session_items_for_email, db, email)
+            swept = ivlife.sweep_candidate_sessions(own_sessions)
+            reusable = ivlife.find_reusable_session(own_sessions, context_key)
+            if reusable and str(reusable[1].get("questionModel") or "") != qmodel["questionModel"]:
+                reusable = None
+            if reusable:
+                reuse_id, reuse_session = reusable
+                resumed = reuse_session.get("status") == ivlife.STATUS_ACTIVE
+                if resumed:
+                    idx = ivlife.resume_state(reuse_session)["questionIndex"]
+                    if ivlife.question_needs_generation(reuse_session, idx):
+                        try:
+                            nxt = await ia.generate_adaptive_question(
+                                {
+                                    "ctx": reuse_session.get("context") or digest,
+                                    "profile": profile,
+                                    "role": reuse_session.get("role"),
+                                    "level": reuse_session.get("level"),
+                                    "jobDescription": reuse_session.get("jobDescription") or "",
+                                    "history": reuse_session.get("history") or [],
+                                    "lastAnswer": str(((reuse_session.get("history") or [{}])[-1] or {}).get("answer") or ""),
+                                    "accountName": account.get("name") if account else None,
+                                    "varietySeed": str(reuse_session.get("varietySeed") or ""),
+                                    "totalTurns": reuse_session.get("totalTurns") or ia.INTERVIEW_TURN_COUNT,
+                                    "questionModel": reuse_session.get("questionModel"),
+                                }
+                            )
+                        except Exception as err:
+                            from app.services.interview_llm_questions import InterviewLlmQuestionError
+
+                            if isinstance(err, InterviewLlmQuestionError):
+                                return _json(err.status, {"error": str(err), "code": err.code})
+                            raise
+                        updated = list(reuse_session.get("questions") or [])
+                        while len(updated) <= idx:
+                            updated.append({"text": "", "focus": "pending"})
+                        updated[idx] = nxt
+                        reuse_session["questions"] = updated
+                    reuse_session["lastActivityAt"] = ivlife.now_iso()
+                db.setdefault("interviewSessions", {})[reuse_id] = reuse_session
+                await ctx.save_db(db)
+                return _json(200, _session_start_payload(reuse_id, reuse_session, resumed=resumed))
+            previous_attempt = ivlife.previous_attempt_notice(
+                next((s for s in reversed(swept) if s.get("contextKey") == context_key), None)
+                or ivlife.last_abandoned(own_sessions, context_key)
+            )
+            if swept:
+                await ctx.save_db(db)
+            # A booked slot locks the career interview until the slot opens, in every tab (T1: the lock lived only in
+            # sessionStorage, so a new tab bypassed it).
+            if not invite_token and not vendor_resolved.get("application"):
+                booking = await _candidate_booking(db, email, account)
+                if booking and booking["status"] == "too_early" and (
+                    not booking.get("jobId") or str(booking["jobId"]) == str((vendor_resolved.get("job") or {}).get("id") or "")
+                ):
+                    return _json(
+                        409,
+                        {
+                            "error": "Your interview is booked. It opens at your scheduled time.",
+                            "code": "INTERVIEW_BOOKED",
+                            "booking": booking,
+                            "serverNow": ivlife.now_iso(),
+                        },
+                    )
             retake_charged = False
             free_claim = False
             payments_db = persistence_ready(config.database_url)
@@ -1118,6 +1462,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             jd_first = is_jd_first_interview(
                 question_mode=question_mode, job_description=effective_jd, invite_token=invite_token
             )
+            job_interview = bool(vendor_job) or bool(is_job) or question_mode in ("employer", "vendor_jd")
+            if qmodel["questionModel"] == "non_technical" and not job_interview:
+                role = career_role_label(profile if isinstance(profile, dict) else {})
             try:
                 batch = await ia.generate_adaptive_question_batch(
                     {
@@ -1133,6 +1480,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "skillFocus": skill_focus,
                         "jdFirst": jd_first,
                         "jdSkills": (skill_analysis or {}).get("jdSkills") or required_skills,
+                        "questionModel": qmodel["questionModel"],
                     }
                 )
                 questions = batch["questions"]
@@ -1150,33 +1498,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 raise
             agent_label = first.get("focus") or "adaptive-llm"
             session_id = secrets.token_hex(12)
-            if free_claim or retake_charged:
-                from psycopg.rows import dict_row
-
-                def _take_slot() -> str | None:
-                    # Atomic: the free slot is a unique row (migration 0005) and a credit is taken FOR UPDATE SKIP
-                    # LOCKED, so N parallel starts get at most one free interview plus one per paid credit.
-                    with db_store.db_pool(config.database_url).connection() as conn:
-                        conn.row_factory = dict_row
-                        if free_claim and retake_payments.claim_free_interview(conn, email, session_id):
-                            conn.commit()
-                            return "free"
-                        if retake_payments.consume_credit_for_start(conn, email, session_id):
-                            conn.commit()
-                            return "credit"
-                        conn.commit()
-                        return None
-
-                if not await asyncio.to_thread(_take_slot):  # taken by another tab between the check and now
-                    return _json(
-                        402,
-                        {
-                            "error": f"You have used your free interview. A retake costs ₹{retake_payments.retake_price_inr()}.",
-                            "code": "RETAKE_PAYMENT_REQUIRED",
-                            "priceInr": retake_payments.retake_price_inr(),
-                            "paymentsConfigured": retake_payments.payments_configured(),
-                        },
-                    )
+            # No free interview / credit is taken here: the session is only prepared (`pending`). It is claimed when
+            # the candidate enters the room (POST /api/interview/enter) or records the first answer (T5 B11).
+            created_at = ivlife.now_iso()
             session = {
                 "id": session_id,
                 "email": email,
@@ -1204,9 +1528,17 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "inviteToken": invite_token or None,
                 "questionMode": question_mode,
                 "skillAnalysis": skill_analysis,
-                "startedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                "status": "active",
+                "startedAt": created_at,
+                "createdAt": created_at,
+                "lastActivityAt": created_at,
+                "status": ivlife.STATUS_PENDING,
+                "contextKey": context_key,
+                "billingPending": "free" if free_claim else ("credit" if retake_charged else None),
+                "jobSummary": (
+                    {"id": vendor_job["id"], "title": vendor_job.get("title"), "roleTrack": vendor_job.get("roleTrack")}
+                    if vendor_job
+                    else None
+                ),
                 "totalTurns": interview_total_turns,
                 "varietySeed": variety_seed,
                 "preloadedQuestionBatch": preloaded_question_batch,
@@ -1218,43 +1550,59 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 "consent": consent_record,
                 # Decided on the server (V-06): counts towards the paid-retake rule unless it is a verified job link.
                 "careerInterview": not is_job,
+                "questionModel": qmodel["questionModel"],
+                "questionModelConfidence": qmodel["questionModelConfidence"],
+                "questionModelReason": qmodel["questionModelReason"],
             }
             db.setdefault("interviewSessions", {})[session_id] = session
             await ctx.save_db(db)
-            return _json(
-                200,
-                {
-                    "sessionId": session_id,
-                    "agent": agent_label,
-                    "adaptive": True,
-                    "llm": ia.llm_configured(),
-                    "total": interview_total_turns,
-                    "questionIndex": 0,
-                    "question": questions[0],
-                    "questions": questions,
-                    "varietySeed": variety_seed,
-                    "jdFirst": jd_first,
-                    "durationMinutes": JD_INTERVIEW_DURATION_MINUTES if jd_first else None,
-                    "profileDigest": digest,
-                    "questionMode": question_mode,
-                    "skillAnalysis": (
-                        {
-                            "jdSkills": skill_analysis.get("jdSkills"),
-                            "matchedSkills": skill_analysis.get("matchedSkills"),
-                            "missingSkills": skill_analysis.get("missingSkills"),
-                            "atsScore": skill_analysis.get("atsScore"),
-                            "jdMatchScore": skill_analysis.get("jdMatchScore"),
-                        }
-                        if skill_analysis
-                        else None
-                    ),
-                    "job": (
-                        {"id": vendor_job["id"], "title": vendor_job.get("title"), "roleTrack": vendor_job.get("roleTrack")}
-                        if vendor_job
-                        else None
-                    ),
-                },
-            )
+            return _json(200, _session_start_payload(session_id, session, previous=previous_attempt))
+
+        if method == "POST" and path == "/api/interview/enter":
+            # The candidate clicked "Enter interview room": only now does the interview count (free / paid credit).
+            email = await runtime.require_auth_email(request)
+            body = await runtime.read_json_body(request)
+            db = ctx.load_db()
+            session_id = str(body.get("sessionId") or "")
+            session = (db.get("interviewSessions") or {}).get(session_id)
+            if not session or session.get("email") != email:
+                return _json(404, {"error": "Interview session not found."})
+            if session.get("status") == "completed":
+                return _json(409, {"error": "This interview is already finished.", "code": "SESSION_COMPLETED"})
+            if session.get("inviteToken") and invite_attempt_used(db, str(session["inviteToken"])):
+                return _json(409, {"error": "You have already completed the interview for this invitation.", "code": "INVITE_ALREADY_USED"})
+            refused = await _activate_interview_session(session, session_id, email)
+            db["interviewSessions"][session_id] = session
+            await ctx.save_db(db)
+            if refused:
+                return refused
+            return _json(200, {"ok": True, "sessionId": session_id, "status": session.get("status")})
+
+        if method == "POST" and path == "/api/interview/answer":
+            # Each answer is stored as it is given, so a reload / crash resumes with the answers kept (T5 B9).
+            email = await runtime.require_auth_email(request)
+            if not ctx.rate_limit(f"ivanswer:{email}", 60):
+                return _json(429, {"error": "Answer rate limited."})
+            body = await runtime.read_json_body(request)
+            db = ctx.load_db()
+            session_id = str(body.get("sessionId") or "")
+            session = (db.get("interviewSessions") or {}).get(session_id)
+            if not session or session.get("email") != email:
+                return _json(404, {"error": "Interview session not found."})
+            if session.get("status") == "completed":
+                return _json(409, {"error": "This interview is already finished.", "code": "SESSION_COMPLETED"})
+            refused = await _activate_interview_session(session, session_id, email)
+            if refused:
+                db["interviewSessions"][session_id] = session
+                await ctx.save_db(db)
+                return refused
+            index = _int_param(body.get("questionIndex"), -1, lo=-1, hi=100)
+            if index < 0:
+                return _json(400, {"error": "questionIndex is required."})
+            history = ivlife.record_answer(session, index, body.get("question"), str(body.get("answer") or ""))
+            db["interviewSessions"][session_id] = session
+            await ctx.save_db(db)
+            return _json(200, {"ok": True, "answered": len(history)})
 
         if method == "POST" and path == "/api/contact":
             # Public contact / demo-request form. IP rate limited, stored, and emailed when mail is configured.
@@ -1320,8 +1668,13 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "alreadyScored": True,
                     },
                 )
+            if session.get("status") in _ENDED_STATUSES:
+                return _session_ended_response(session)
             if session_is_stale(session):
                 return _json(410, {"error": "This interview session has expired. Please start a new interview.", "code": "SESSION_EXPIRED"})
+            refused = await _activate_interview_session(session, session_id, email)
+            if refused:
+                return refused
             # V-14: role, level (rubric difficulty) and profile come from the server's session / stored profile only.
             profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, None)
             # The server's own question list is authoritative; client-sent questions only if the session has none.
@@ -1623,6 +1976,12 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             session = (db.get("interviewSessions") or {}).get(session_id)
             if not session or session.get("email") != email:
                 return _json(404, {"error": "Interview session not found."})
+            refused = await _activate_interview_session(session, session_id, email)
+            if refused:
+                db["interviewSessions"][session_id] = session
+                await ctx.save_db(db)
+                return refused
+            session["lastActivityAt"] = ivlife.now_iso()
             profile = await asyncio.to_thread(runtime.merge_interview_profile, db, email, body.get("profile"))
             account = await asyncio.to_thread(find_user, db, email=email)
             digest = ia.summarize_profile(profile, account.get("name") if account else None)
@@ -1657,6 +2016,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "accountName": account.get("name") if account else None,
                         "varietySeed": str(body.get("varietySeed") or session.get("varietySeed") or ""),
                         "totalTurns": total_turns,
+                        "questionModel": session.get("questionModel"),
                     }
                 )
             except Exception as err:
@@ -1985,6 +2345,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             except Exception:
                 viewer_email = None
             is_invitee = bool(viewer_email) and viewer_email == str(row.get("candidate_email") or "").strip().lower()
+            if (is_invitee or not viewer_email) and not row.get("opened_at"):
+                # "Link opened" on the recruiter's invite status (a recruiter previewing the link does not count).
+                from app.services.vendor.invite_status import mark_invite_opened
+
+                try:
+                    await asyncio.to_thread(mark_invite_opened, pool, token)
+                except Exception:
+                    logger.warning("Could not record invite open", exc_info=True)
             resume_text = ctx_json.get("resumeText") or (app or {}).get("data", {}).get("resumeText") or (db.get("profiles") or {}).get(row.get("candidate_email"), {}).get("resumeText") or ""
             job_description = ctx_json.get("jobDescription") or (job or {}).get("jobDescription") or (app or {}).get("data", {}).get("jobDescription") or ""
             resume_ready = len(str(resume_text or "").strip()) > 20
@@ -2030,6 +2398,8 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                         "status": access.get("status"),
                         "canStart": access.get("canStart"),
                         "canReschedule": can_reschedule,
+                        # Latest reminder for this slot (emailed, or recorded in-app while email is off).
+                        "reminder": _invite_reminder_info(row) if is_invitee else None,
                         "interviewPath": f"/interview/invite/{row.get('token')}",
                     }
                 },

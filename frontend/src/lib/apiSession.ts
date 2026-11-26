@@ -8,10 +8,10 @@ import {
   apiLogin,
   apiMe,
   apiSaveProfile,
-  apiSignup,
   getApiToken,
   setApiToken,
 } from './api'
+import { demoAccountForEmail } from './authDemo'
 import { isNetworkFailure } from './networkFailure'
 import { isSupabaseEnabled } from './supabaseClient'
 import { refreshSupabaseApiToken } from './supabaseAuth'
@@ -56,7 +56,8 @@ async function validateToken(expectedEmail?: string): Promise<boolean> {
 
 /**
  * Ensures a valid API Bearer token exists for the current browser session.
- * Works for demo@hireright.com and any locally stored user with password.
+ * Relies on the stored API token / cookie session only: passwords are never kept in the browser, so an expired
+ * session means signing in again (the built-in demo candidate is the one exception).
  */
 export async function ensureApiSession(): Promise<boolean> {
   if (syncInFlight) return syncInFlight
@@ -68,31 +69,20 @@ export async function ensureApiSession(): Promise<boolean> {
 
     const user = isLoggedIn() ? getUser() : null
     const email = user?.email?.trim().toLowerCase()
-    const password = user?.password
 
     if (await validateToken(isSupabaseEnabled() ? undefined : email)) return true
 
     const healthy = await apiHealth()
     if (!healthy) return false
 
-    if (email && password) {
+    // Built-in demo accounts: their (public, hard-coded) credentials live in code, never in storage.
+    const demo = email ? demoAccountForEmail(email) : undefined
+    if (!isSupabaseEnabled() && demo && demo.email !== DEMO_CANDIDATE.email) {
       try {
-        await apiLogin(email, password)
+        await apiLogin(demo.email, demo.password)
         return true
       } catch {
-        // account may exist only in this browser — register it on the API
-      }
-      if (user?.name && user.phone) {
-        try {
-          await apiSignup(user.name, email, password, {
-            role: user.role ?? 'jobseeker',
-            companyName: user.companyName,
-            phone: user.phone,
-          })
-          return true
-        } catch {
-          // fall through to demo bootstrap
-        }
+        return false
       }
     }
 

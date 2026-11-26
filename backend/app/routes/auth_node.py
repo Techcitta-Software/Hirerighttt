@@ -20,6 +20,7 @@ from app.proctoring.strip_proctoring import strip_interview_result_for_candidate
 from app.server import background, runtime
 from app.services import audit, login_guard, password_reset as pw_reset
 from app.services.candidate_name import apply_resume_name, is_candidate_account
+from app.services.interview_question_model import apply_question_model
 from app.services.interview_invites import public_app_origin, trusted_request_origin
 from app.services.mail_service import send_mail, smtp_configured
 
@@ -374,6 +375,9 @@ SERVER_OWNED_PROFILE_FIELDS = frozenset(
         "interviewResult",
         "email",
         "userId",
+        "questionModel",
+        "questionModelConfidence",
+        "questionModelReason",
     }
 )
 PROFILE_VISIBILITY_VALUES = ("marketplace", "organization_only", "private")
@@ -424,6 +428,7 @@ async def put_profile(request: Request, body: dict) -> dict:
         if is_candidate_account(account):
             # The candidate's name always comes from the resume (a contradicting name in the patch is dropped).
             prev = apply_resume_name(prev, (account or {}).get("name") or "")
+        prev = apply_question_model(prev)
         prev["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         db.setdefault("profiles", {})[email] = prev
         return prev

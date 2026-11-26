@@ -235,6 +235,22 @@
   font-weight: 800;
 }
 
+.openingLink {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.openingLink:focus-visible {
+  outline: var(--ds-focus-outline);
+  outline-offset: 2px;
+}
+
+.openingLink:hover .jobName,
+.openingLink:focus-visible .jobName {
+  color: var(--ds-brand-hover, #4338ca);
+}
+
 .jobName {
   display: block;
   font-weight: 700;
@@ -245,8 +261,20 @@
   text-overflow: ellipsis;
 }
 
-.jobName:hover {
+.countLink {
+  color: inherit;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.countLink:hover,
+.countLink:focus-visible {
   color: var(--ds-brand-hover, #4338ca);
+}
+
+.countLink:focus-visible {
+  outline: var(--ds-focus-outline);
+  outline-offset: 2px;
 }
 
 .miniTable .barTrack {
@@ -379,17 +407,34 @@
 }
 
 .listRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-height: 56px;
-  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--ds-border);
   font-size: var(--fs-sm);
 }
 
 .listRow:last-child {
   border-bottom: 0;
+}
+
+.listLink {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-3) var(--space-5);
+  color: inherit;
+  text-decoration: none;
+}
+
+.listLink:hover .listMain strong,
+.listLink:focus-visible .listMain strong {
+  color: var(--ds-brand-hover, #4338ca);
+}
+
+.listLink:focus-visible {
+  outline: var(--ds-focus-outline);
+  outline-offset: -2px;
 }
 
 .listMain {
@@ -436,69 +481,6 @@
   text-align: center;
 }
 
-/* Quick actions */
-.shortcuts {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
-  flex-wrap: wrap;
-  padding: var(--space-4) var(--space-5);
-}
-
-.shortcutsTitle {
-  margin: 0;
-  font-size: var(--fs-card-title);
-  font-weight: 700;
-  line-height: 1.4;
-  color: var(--ds-text);
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-/* Secondary md button (§2.2). */
-.action {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h-md);
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--ds-border-strong);
-  background: var(--ds-surface);
-  color: var(--ds-text);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  line-height: 1.2;
-  text-decoration: none;
-  transition:
-    border-color var(--ds-duration-fast) var(--ds-ease-out),
-    color var(--ds-duration-fast) var(--ds-ease-out);
-}
-
-.action > svg {
-  flex-shrink: 0;
-  color: var(--ds-text-muted);
-  transition: color var(--ds-duration-fast) var(--ds-ease-out);
-}
-
-.action:hover {
-  border-color: var(--ds-brand);
-  color: var(--ds-brand-hover);
-}
-
-.action:hover > svg {
-  color: currentColor;
-}
-
-.action:focus-visible {
-  outline: var(--ds-focus-outline);
-  outline-offset: 2px;
-}
-
 @media (max-width: 900px) {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -525,7 +507,7 @@
 
   .attentionRow,
   .allClear,
-  .listRow,
+  .listLink,
   .miniTable th,
   .miniTable td,
   .loading {
@@ -549,15 +531,6 @@
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
-  }
-
-  .shortcuts {
-    padding: var(--space-4);
-  }
-
-  .actions,
-  .action {
-    width: 100%;
   }
 }
 

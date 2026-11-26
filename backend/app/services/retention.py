@@ -59,6 +59,17 @@ def purge_expired(pool: Any, *, delete_object=None) -> dict[str, int]:
             )
         conn.commit()
 
+    # Interview sessions: abandon the ones left mid-interview, drop waiting-room sessions never entered.
+    try:
+        from app.services.interview_session_lifecycle import sweep_sessions_sql
+
+        with pool.connection() as conn:
+            with conn.transaction():
+                counts.update(sweep_sessions_sql(conn))
+            conn.commit()
+    except Exception:
+        logger.warning("Interview session sweep failed", exc_info=True)
+
     media_days = _days("RECORDING_RETENTION_DAYS", None)
     if media_days and delete_object is not None:
         for table, key in (("interview_recordings", "recordings"), ("interview_artifacts", "artifacts")):

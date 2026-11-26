@@ -22,7 +22,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.interview_rubric_scoring import INTERVIEW_RUBRICS, classify_question_scoring_profile
+from app.services.interview_rubric_scoring import (
+    INTERVIEW_RUBRICS,
+    NONTECH_RUBRIC_LABELS,
+    classify_question_scoring_profile,
+)
 
 TECHNICAL_WEIGHT = 15.0
 OTHER_WEIGHT = 10.0
@@ -42,7 +46,11 @@ def is_closing(question: dict[str, Any] | None) -> bool:
 
 
 def is_technical(question: dict[str, Any] | None) -> bool:
-    return classify_question_scoring_profile(question or {}) == "technical"
+    """15-point slot. Non-technical interviews reserve that for situational and stakeholder questions."""
+    q = question or {}
+    if str(q.get("questionModel") or "") == "non_technical":
+        return str(q.get("scoringProfile") or "").strip().lower() in ("situational", "stakeholder")
+    return classify_question_scoring_profile(q) == "technical"
 
 
 def _label(question: dict[str, Any], index: int) -> str:
@@ -111,11 +119,14 @@ def compute_weighted_score(
 
     # Dimension scores across the whole plan: a question nobody answered counts as 0 for its share, so one good
     # answer can no longer stand in for the whole interview.
+    nontech_interview = any(str((q or {}).get("questionModel") or "") == "non_technical" for q in questions)
+    labels = NONTECH_RUBRIC_LABELS if nontech_interview else {defn["id"]: defn["label"] for defn in INTERVIEW_RUBRICS}
     dimensions: list[dict[str, Any]] = []
     for defn in INTERVIEW_RUBRICS:
         rid = defn["id"]
+        label = labels.get(rid, defn["label"])
         if rid == "roleSkillsFit":
-            dimensions.append({"id": rid, "label": defn["label"], "score": max(0, min(100, int(role_fit_score)))})
+            dimensions.append({"id": rid, "label": label, "score": max(0, min(100, int(role_fit_score)))})
             continue
         numerator = 0.0
         denominator = question_total
@@ -129,7 +140,7 @@ def compute_weighted_score(
             seen = True
             numerator += weight * int(value)
         if seen and denominator > 0:
-            dimensions.append({"id": rid, "label": defn["label"], "score": max(0, min(100, round(numerator / denominator)))})
+            dimensions.append({"id": rid, "label": label, "score": max(0, min(100, round(numerator / denominator)))})
 
     return {
         "overall": overall,

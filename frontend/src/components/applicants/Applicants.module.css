@@ -221,6 +221,7 @@
 
 .sidebarHead {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--space-2, 8px);
   padding: var(--space-3, 12px) var(--space-4, 16px);
@@ -242,8 +243,11 @@
 }
 
 .sidebarScroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  /* The rail stays sticky; this is the only scrollport, with a real cap so the wheel scrolls the filters. */
+  max-height: calc(100vh - var(--nav-height, 64px) - 7.5rem);
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -258,6 +262,8 @@
 }
 
 .fGroup {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -269,6 +275,8 @@
 }
 
 .fGroupTitle {
+  /* A full-width legend otherwise paints over the options and swallows their clicks. */
+  float: left;
   width: 100%;
   padding: 0;
 }
@@ -289,6 +297,7 @@
   font-weight: 700;
   text-align: left;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .fGroupToggle:hover {
@@ -310,10 +319,14 @@
 }
 
 .fGroupBody {
+  position: relative;
+  z-index: 1;
   display: flex;
+  clear: both;
   flex-direction: column;
   gap: var(--space-2, 8px);
   padding: 0 var(--space-4, 16px) var(--space-4, 16px);
+  pointer-events: auto;
 }
 
 .checkList {
@@ -340,6 +353,7 @@
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--ds-brand, #5046e5);
+  pointer-events: auto;
 }
 
 .checkRowMuted {
@@ -388,6 +402,7 @@
   font-size: var(--fs-2xs, 0.75rem);
   font-weight: 600;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .fChip:hover:not(:disabled) {
@@ -688,6 +703,17 @@
   color: var(--ds-text-secondary, #363b5c);
 }
 
+.tupleLoc {
+  flex-shrink: 0;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.tupleLoc::before {
+  content: '·';
+  margin-right: var(--space-2, 8px);
+  color: var(--ds-text-muted, #5f6686);
+}
+
 .metaLine {
   display: flex;
   align-items: center;
@@ -950,8 +976,8 @@
   gap: var(--space-1-5, 6px);
 }
 
-/* In the row, the secondary actions (Download, Save for later, Invite) are icon buttons with a tooltip and an
-   aria-label, so "Active … · Applied …" is never cut off; the "⋯" menu on phones keeps the full labels. */
+/* Download stays an icon button (label only for assistive tech). Invite is the word, since there is no mail icon.
+   The "⋯" menu on phones keeps the full labels. */
 .wideActions .actBtn:has(.actLabel) {
   justify-content: center;
   min-width: 34px;
@@ -1484,20 +1510,6 @@
   gap: var(--space-2, 8px);
 }
 
-.timelineBox {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2, 8px);
-  padding-top: var(--space-4, 16px);
-  border-top: 1px solid var(--ds-border, #e5e5ef);
-}
-
-.panelH3 {
-  margin: 0;
-  font-size: var(--fs-card-title, 1rem);
-  font-weight: 800;
-}
-
 /* ── Responsive ── */
 @media (max-width: 1023px) {
   .panelBackdrop {
@@ -1536,9 +1548,24 @@
     inset: 0;
     z-index: 1002;
     display: flex;
-    max-height: none;
+    flex-direction: column;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
     border: 0;
     border-radius: 0;
+  }
+
+  /* The sheet header and footer stay put; the same scroll region moves above the footer. */
+  .sidebarOpen .sidebarScroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+  }
+
+  .sidebarOpen .sheetFoot {
+    flex-shrink: 0;
   }
 
   .sidebar .sheetClose {

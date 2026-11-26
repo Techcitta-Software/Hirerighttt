@@ -32,6 +32,8 @@ _NOT_NAME_WORDS = re.compile(
     r"html|css|streamlit|opencv|tensorflow|pytorch|keras|pandas|numpy|microsoft|excel|tableau|powerbi|generative|"
     r"agentic|machine|learning|vision|computer|lambda|serverless|kafka|graphql|rest|json|jwt|oauth|figma|jira|"
     r"salesforce|oracle|"
+    # Design / product tools: a designer's two-column resume can start with "Figma / Adobe XD / Sketch".
+    r"adobe|xd|sketch|photoshop|illustrator|indesign|lightroom|premiere|canva|framer|invision|zeplin|blender|autocad|protopie|axure|balsamiq|miro|webflow|procreate|coreldraw|corel|solidworks|revit|behance|dribbble|uxpin|lottie|tools|ui|ux|wireframing|prototyping|usability|interaction|"
     # Degrees, institutions, places and other headings.
     r"bachelor|master|technology|university|institute|college|school|india|hyderabad|bengaluru|bangalore|chennai|"
     r"mumbai|pune|delhi|kolkata|noida|gurgaon|gurugram|certifications?|projects?|languages?|strengths?|core|"

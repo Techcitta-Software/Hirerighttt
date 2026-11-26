@@ -41,3 +41,10 @@ export function isDemoEmail(email: string) {
   const normalized = email.trim().toLowerCase()
   return DEMO_LIST.some((d) => d.email === normalized)
 }
+
+/** The built-in demo account for this email (dev / demo mode only), so a silent API re-login never needs a stored password. */
+export function demoAccountForEmail(email: string) {
+  if (!DEMO_ENABLED) return undefined
+  const normalized = email.trim().toLowerCase()
+  return DEMO_LIST.find((d) => d.email === normalized)
+}

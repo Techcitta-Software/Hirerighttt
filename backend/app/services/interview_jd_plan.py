@@ -95,6 +95,12 @@ DIFFICULTY_BY_TIER = {
     "senior": "Senior level: architecture, scaling, failure modes, trade-offs, ownership and leading others.",
 }
 
+NONTECH_DIFFICULTY_BY_TIER = {
+    "entry": "Entry level: what they would do and the result they would watch. Ask for a decision and who is affected. Not debugging, architecture, or mechanics.",
+    "mid": "Mid level: the trade-off and who they would have to convince. Ask for a decision, who is affected, what they would do, and what result they would watch. Not debugging, architecture, or mechanics.",
+    "senior": "Senior level: a missed target, what they would change, and who owned the outcome. Ask for a decision, who is affected, what they would do, and what result they would watch. Not debugging, architecture, or mechanics.",
+}
+
 
 def extract_jd_responsibilities(jd: str, limit: int = 4) -> list[str]:
     """Short duty statements from the JD ("Design and maintain REST APIs for ..."), most explicit first.
@@ -172,6 +178,7 @@ def build_jd_first_plan(
     fresher: bool = False,
     resume_jobs: list[str] | None = None,
     scored: int = JD_INTERVIEW_SCORED_QUESTIONS,
+    question_model: str = "",
 ) -> list[dict[str, Any]]:
     """One entry per scored turn: {turnNumber, slot, target, purpose}. The closing turn is added by the caller."""
     mix = jd_question_mix(scored)
@@ -198,7 +205,8 @@ def build_jd_first_plan(
     behaviour_target = duties[0] if duties else (skills[0] if skills else "the responsibilities of this job")
     recent = (resume_jobs or [""])[0] if resume_jobs else ""
     tier = seniority_tier(level, fresher)
-    difficulty = DIFFICULTY_BY_TIER[tier]
+    nontech = question_model == "non_technical"
+    difficulty = NONTECH_DIFFICULTY_BY_TIER[tier] if nontech else DIFFICULTY_BY_TIER[tier]
 
     plan: list[dict[str, Any]] = []
     ji = ai = 0
@@ -207,7 +215,26 @@ def build_jd_first_plan(
         if slot == SLOT_JD:
             target = jd_targets[ji]
             ji += 1
-            if target["kind"] == "responsibility":
+            if nontech:
+                if target["kind"] == "responsibility":
+                    purpose = (
+                        f'JD responsibility: "{target["text"]}". Ask for a decision on this duty in this job: '
+                        "who is affected, what they would do, and what result they would watch. "
+                        "Not debugging, architecture, or how a system is built."
+                    )
+                elif target["kind"] == "skill-deeper":
+                    purpose = (
+                        f"JD requirement (second angle): {target['text']}. Ask a different question than any earlier one: "
+                        "a decision, who is affected, what they would do, and what result they would watch. "
+                        "Not a definition, not mechanics, not debugging."
+                    )
+                else:
+                    purpose = (
+                        f"JD required skill/tool: {target['text']}. Ask what decision they would make about "
+                        f"{target['text']} in this job, who is affected, what they would do, and what result they would watch. "
+                        "Name the skill in the question. Not debugging, architecture, or mechanics."
+                    )
+            elif target["kind"] == "responsibility":
                 purpose = (
                     f'JD responsibility: "{target["text"]}". Ask how the candidate would actually carry out this duty in '
                     "this job: concrete steps, tools, checks and trade-offs. Not a story, not a definition."
@@ -227,7 +254,15 @@ def build_jd_first_plan(
         elif slot == SLOT_ALIGNMENT:
             target = {"kind": "alignment", "text": align_targets[ai % len(align_targets)]}
             ai += 1
-            if turn == 1:
+            if nontech:
+                anchor = f" (most recent: {recent})" if recent and turn == 1 else ""
+                hello = " Ava has already greeted them, so do not say hello." if turn == 1 else ""
+                purpose = (
+                    f"Resume-to-JD: connect their past work{anchor} to this job's need for {target['text']}. "
+                    "Ask what decision they made, who was affected, what they did, and what result they watched. "
+                    f"Not debugging, architecture, or mechanics.{hello}"
+                )
+            elif turn == 1:
                 anchor = f" (most recent: {recent})" if recent else ""
                 purpose = (
                     "Opening, tied to the job: ask the candidate to connect their most recent role or project from the "
@@ -242,11 +277,18 @@ def build_jd_first_plan(
                 )
         else:
             target = {"kind": "behavioural", "text": behaviour_target}
-            purpose = (
-                "Behavioural (STAR): ask for ONE specific past situation that shows how the candidate behaves when "
-                f"doing work like '{target['text']}' (ownership, conflict, deadline pressure, a mistake, or stakeholder "
-                "disagreement). Start with 'Tell me about a time' or 'Describe a situation'."
-            )
+            if nontech:
+                purpose = (
+                    "Behavioural: ask for ONE specific past situation (start with 'Tell me about a time' or 'Describe a "
+                    f"situation') about work like '{target['text']}'. Ask what decision they made, who was affected, "
+                    "what they did, and what result they watched. Not debugging, architecture, or mechanics."
+                )
+            else:
+                purpose = (
+                    "Behavioural (STAR): ask for ONE specific past situation that shows how the candidate behaves when "
+                    f"doing work like '{target['text']}' (ownership, conflict, deadline pressure, a mistake, or stakeholder "
+                    "disagreement). Start with 'Tell me about a time' or 'Describe a situation'."
+                )
         plan.append({"turnNumber": turn, "slot": slot, "target": target["text"], "targetKind": target["kind"], "purpose": purpose})
     return plan
 
@@ -310,10 +352,65 @@ def annotate_slot_question(question: dict[str, Any], slot: dict[str, Any]) -> di
     }
 
 
-def fallback_question_for_slot(slot: dict[str, Any], role: str = "") -> dict[str, Any]:
+# JD slot stays the 15-point core (situational). Alignment and behavioural stay 10-point,
+# matching the technical plan where only the "jd" slot uses the technical scoring profile.
+_NONTECH_JD_PROFILE = {
+    SLOT_JD: "situational",
+    SLOT_ALIGNMENT: "achievement",
+    SLOT_BEHAVIOURAL: "followup",
+}
+_NONTECH_JD_LOOKFOR = {
+    SLOT_JD: ["situation", "own_action", "result"],
+    SLOT_ALIGNMENT: ["own_action", "result", "situation"],
+    SLOT_BEHAVIOURAL: ["stakeholder", "own_action", "result"],
+}
+
+
+def stamp_nontech_jd_question(question: dict[str, Any], slot: dict[str, Any]) -> dict[str, Any]:
+    """Mark a job-interview question as non-technical without changing its plan slot."""
+    kind = str(slot.get("slot") or SLOT_JD)
+    target = str(slot.get("target") or "").strip()
+    look = list(_NONTECH_JD_LOOKFOR.get(kind, ["situation", "own_action", "result"]))
+    if kind == SLOT_JD and target and len(target) <= 40:
+        look = ["situation", "own_action", f"tool:{target}"]
+    category = "Problem Solving" if kind == SLOT_JD else question.get("category")
+    return {
+        **question,
+        "questionModel": "non_technical",
+        "scoringProfile": _NONTECH_JD_PROFILE.get(kind, "situational"),
+        "category": category or "Problem Solving",
+        "lookFor": look[:4],
+    }
+
+
+def fallback_question_for_slot(slot: dict[str, Any], role: str = "", question_model: str = "") -> dict[str, Any]:
     """Deterministic, still job-specific question for a slot the model failed to fill (never a generic question)."""
     target = str(slot.get("target") or "this role's main requirements")
     kind = slot.get("slot")
+    if question_model == "non_technical":
+        if kind == SLOT_BEHAVIOURAL:
+            text = (
+                f"Tell me about a time you had to make a decision about {target.rstrip('.')}. "
+                "Who was affected, what did you do, and what result did you watch?"
+            )
+        elif kind == SLOT_ALIGNMENT:
+            text = (
+                f"This job needs {target}. Which past situation on your resume is closest, what did you decide, "
+                "who was affected, and what was the result?"
+            )
+        else:
+            text = (
+                f"This job involves {target}. What decision would you make, who would it affect, "
+                "what would you do, and what result would you watch?"
+            )
+        q = {
+            "text": text,
+            "keywords": [target] if len(target) <= 40 else [],
+            "hint": "Name the decision, who was affected, and the result you would watch.",
+            "topic": target if len(target) <= 60 else (role or "Job description"),
+            "fallback": True,
+        }
+        return stamp_nontech_jd_question(annotate_slot_question(q, slot), slot)
     if kind == SLOT_BEHAVIOURAL:
         text = (
             f"Tell me about a time you were responsible for work like {target.rstrip('.')}, and something went wrong "

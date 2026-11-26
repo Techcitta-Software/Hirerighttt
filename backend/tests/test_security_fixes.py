@@ -304,13 +304,21 @@ def test_talent_hits_keep_email():
 # --------------------------------------------------------------------------------------------- V-06
 def test_parallel_free_interviews_only_one_is_free(env):
     client, db, pool = env
+    # Two different career interviews prepared in parallel (e.g. two tabs): preparing claims nothing (T5 B11) ...
     first = client.post("/api/interview/start", headers=_auth("tok-cand"), json={"consent": CONSENT, "role": "Dev"})
-    assert first.status_code == 200, first.text
-    # The first session is still running (not completed): the old check counted only COMPLETED interviews.
-    second = client.post("/api/interview/start", headers=_auth("tok-cand"), json={"consent": CONSENT, "role": "Dev"})
-    assert second.status_code == 402
-    assert second.json()["code"] == "RETAKE_PAYMENT_REQUIRED"
+    second = client.post("/api/interview/start", headers=_auth("tok-cand"), json={"consent": CONSENT, "role": "QA"})
+    assert first.status_code == 200 and second.status_code == 200, (first.text, second.text)
+    assert first.json()["sessionId"] != second.json()["sessionId"]
+    # ... and only one of them can be entered for free: the claim happens on entry and is atomic.
+    a = client.post("/api/interview/enter", headers=_auth("tok-cand"), json={"sessionId": first.json()["sessionId"]})
+    b = client.post("/api/interview/enter", headers=_auth("tok-cand"), json={"sessionId": second.json()["sessionId"]})
+    assert a.status_code == 200, a.text
+    assert b.status_code == 402
+    assert b.json()["code"] == "RETAKE_PAYMENT_REQUIRED"
     assert db["interviewSessions"][first.json()["sessionId"]]["careerInterview"] is True
+    # Once the free interview is used, a new career interview cannot even be prepared.
+    third = client.post("/api/interview/start", headers=_auth("tok-cand"), json={"consent": CONSENT, "role": "PM"})
+    assert third.status_code == 402
 
 
 def test_a_public_job_id_alone_does_not_make_the_interview_free(env):

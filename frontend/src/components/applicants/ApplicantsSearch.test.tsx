@@ -147,7 +147,10 @@ describe('Candidates mode', () => {
   }
 
   it('shows the candidates groups and says candidates', () => {
-    const html = render('/employer/applicants', { mode: 'candidates' })
+    const people = ROWS.map((row) =>
+      row.id === 'ana' ? ({ ...row, currentLocation: 'Vijayawada' } as EmployerApplicant) : row,
+    )
+    const html = render('/employer/applicants', { mode: 'candidates', applicants: people })
     expect(html).toContain('Showing 1–3 of 3 candidates')
     expect(html).toContain('aria-label="Search candidates"')
     expect(html).toContain('Show candidates')
@@ -165,8 +168,13 @@ describe('Candidates mode', () => {
     expect(filters).toContain('5–8 yrs')
     expect(filters).toContain('8+ yrs')
     expect(filters).toContain('Location (mentioned in resume)')
-    expect(filters).toContain('Bengaluru')
-    expect(filters).toContain('Delhi NCR')
+    expect(filters).toContain('Vijayawada')
+    expect(filters).not.toContain('Bengaluru')
+    expect(filters).not.toContain('Delhi NCR')
+    expect(filters).not.toContain('Hyderabad')
+    expect(html).toContain('data-testid="tuple-location"')
+    expect(html).not.toContain('Save for later')
+    expect(html).not.toContain('Saved for later')
     expect(filters).toContain('Interviewed')
     expect(filters).toContain('Score 80 and above')
     expect(filters).toContain('Score 60 and above')

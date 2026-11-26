@@ -61,8 +61,11 @@ async function captureElementCanvas(root: HTMLElement): Promise<HTMLCanvasElemen
   window.scrollTo(0, 0)
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
 
-  const captureWidth = Math.max(root.scrollWidth, root.offsetWidth, 900)
-  const captureHeight = root.scrollHeight
+  // The export stylesheet lays the scorecard out at 900px. A wider windowWidth
+  // (scrollWidth from an overflowing grid) reflows the clone after the height
+  // was measured, and html2canvas then paints the sections on top of each other.
+  const captureWidth = 900
+  const captureHeight = Math.max(root.scrollHeight, root.offsetHeight)
   const scale = Math.min(2, 2400 / captureWidth)
 
   try {
@@ -84,8 +87,25 @@ async function captureElementCanvas(root: HTMLElement): Promise<HTMLCanvasElemen
           cloned.style.overflow = 'visible'
           cloned.style.maxHeight = 'none'
           cloned.style.height = 'auto'
+          cloned.style.minHeight = '0'
           cloned.style.width = `${captureWidth}px`
+          cloned.style.minWidth = `${captureWidth}px`
           cloned.style.maxWidth = `${captureWidth}px`
+          cloned.style.display = 'block'
+          cloned.style.position = 'relative'
+          cloned.style.transform = 'none'
+          let parent = cloned.parentElement
+          while (parent) {
+            parent.style.overflow = 'visible'
+            parent.style.maxHeight = 'none'
+            parent.style.height = 'auto'
+            parent.style.transform = 'none'
+            parent.style.animation = 'none'
+            if (parent !== doc.body && parent !== doc.documentElement) {
+              parent.style.position = 'static'
+            }
+            parent = parent.parentElement
+          }
         }
         doc.querySelectorAll('[data-download-exclude]').forEach((node) => {
           ;(node as HTMLElement).style.display = 'none'

@@ -17,6 +17,8 @@ import { candidateScore, needsIntegrityReview } from './candidateSearch'
 import { hasResumeContent } from './employerCandidateUtils'
 import { compareTopCandidature, roleSkillsFitOf } from './jobApplicantFilters'
 import { formatPhoneForDisplay } from './phone'
+import { buildTimelineMarkers, countByCategory } from './proctorTimeline'
+import { normalizeFlagSections } from './reviewEventsToFlagSections'
 import type { EmployerApplicant } from './store'
 
 /* ─────────────────────────── Query parsing ─────────────────────────── */
@@ -311,8 +313,33 @@ export function jobIdsOf(a: Pick<EmployerApplicant, 'jobId' | 'appliedJobIds'>):
 }
 
 /** Camera / integrity flags raised during the interview (proctoring summary, else face violations). */
+function proctorMarkers(a: Pick<EmployerApplicant, 'interviewResult'>) {
+  const integrity = a.interviewResult?.integrity
+  const logs = Array.isArray(integrity?.logs) ? integrity.logs : []
+  return buildTimelineMarkers(logs, normalizeFlagSections(integrity?.proctoring?.flaggedSections))
+}
+
+/** "No face 3, Multiple faces 1, Left tab / window 1": the same breakdown as the timeline bar's summary line. */
+export function proctorFlagBreakdown(a: Pick<EmployerApplicant, 'interviewResult'>): string[] {
+  return countByCategory(proctorMarkers(a)).map((c) => `${c.label} ${c.count}`)
+}
+
+/** Recruiter notes that are not camera deviations: the interview ended early, or the camera was off by choice. */
+export function proctorNotes(a: Pick<EmployerApplicant, 'interviewResult'>): string[] {
+  const r = a.interviewResult
+  const integrity = r?.integrity
+  const notes: string[] = []
+  if (r?.endedEarly || integrity?.endedEarly || integrity?.banned) notes.push('Ended early: left the interview tab')
+  if (integrity?.cameraOffByChoice) notes.push('Camera off by choice')
+  return notes
+}
+
 export function proctorFlagCount(a: Pick<EmployerApplicant, 'interviewResult'>): number {
   const integrity = a.interviewResult?.integrity
+  // Same source as the timeline bar under the video ("5 deviations"), so the card and the bar never disagree.
+  const logs = Array.isArray(integrity?.logs) ? integrity.logs : []
+  const sections = normalizeFlagSections(integrity?.proctoring?.flaggedSections)
+  if (logs.length || sections.length) return proctorMarkers(a).length
   const total = integrity?.proctoring?.counts?.total
   if (typeof total === 'number') return total
   return integrity?.faceViolations ?? 0
@@ -331,9 +358,8 @@ export function interviewStatusOf(a: Pick<EmployerApplicant, 'aiScore' | 'interv
   return a.interviewResult || candidateScore(a) !== null ? 'completed' : 'not_interviewed'
 }
 
-/** Shortlist and Save for later are different lists; the same words are used on rows, the drawer, the bulk bar and filters. */
+/** Shortlist is the recruiter's list on the job. The same words are used on rows, the drawer, and the bulk bar. */
 export const SHORTLIST_HINT = 'Shortlist moves the applicant forward on the job (their application status changes).'
-export const SAVE_HINT = 'Save for later is your private list on this device. The applicant is not told and nothing changes on the job.'
 
 /** How the row reached this organisation, in recruiter words. */
 export function sourceLabel(source: string | undefined): string {
@@ -381,30 +407,70 @@ export function experiencePresetId(expMin: string, expMax: string): string | nul
   return CANDIDATE_EXPERIENCE_PRESETS.find((p) => p.min === min && p.max === max)?.id ?? null
 }
 
-/** Cities offered on the candidates rail, in display order. Matched on resume text and role, with word boundaries. */
-const CANDIDATE_CITIES: { value: string; pattern: RegExp }[] = [
-  { value: 'Bengaluru', pattern: /\b(?:bengaluru|bangalore)\b/i },
-  { value: 'Hyderabad', pattern: /\bhyderabad\b/i },
-  { value: 'Chennai', pattern: /\bchennai\b/i },
-  { value: 'Pune', pattern: /\bpune\b/i },
-  { value: 'Mumbai', pattern: /\bmumbai\b/i },
-  { value: 'Delhi NCR', pattern: /\b(?:delhi|gurgaon|gurugram|noida)\b/i },
-  { value: 'Kolkata', pattern: /\bkolkata\b/i },
-]
+/**
+ * Spelling variants folded into the city label we show (bangalore → Bengaluru).
+ * This is not a list of filters: a city appears only when a candidate has it.
+ */
+const LOCATION_ALIASES: Record<string, string> = {
+  bangalore: 'Bengaluru',
+  bengaluru: 'Bengaluru',
+  bombay: 'Mumbai',
+  madras: 'Chennai',
+  calcutta: 'Kolkata',
+  gurgaon: 'Gurugram',
+}
 
-function citiesMentioned(resumeText: string | undefined, role: string | undefined): string[] {
-  const text = `${resumeText ?? ''}\n${role ?? ''}`
-  if (!text.trim()) return []
-  return CANDIDATE_CITIES.filter((c) => c.pattern.test(text)).map((c) => c.value)
+/** The person's city as we show it: trimmed, empty when unknown, with spelling aliases folded. */
+export function foldLocationLabel(raw: string | null | undefined): string {
+  const trimmed = String(raw ?? '').trim().replace(/\s+/g, ' ')
+  if (!trimmed || trimmed.toLowerCase() === 'unknown') return ''
+  return LOCATION_ALIASES[trimmed.toLowerCase()] ?? trimmed
+}
+
+function explicitLocation(a: EmployerApplicant): string {
+  const extra = a as EmployerApplicant & {
+    currentLocation?: string | null
+    location?: string | null
+    city?: string | null
+  }
+  for (const value of [extra.currentLocation, extra.location, extra.city]) {
+    const label = foldLocationLabel(value)
+    if (label) return label
+  }
+  return ''
+}
+
+/** Explicit location field when the applicant has one, otherwise the resume headline city. */
+export function locationLabelOf(a: EmployerApplicant, headline: ResumeHeadline = resumeHeadline(a.resumeText)): string {
+  return explicitLocation(a) || foldLocationLabel(headline.location)
 }
 
 function canonicalCities(values: string[]): string[] {
   const out: string[] = []
+  const seen = new Set<string>()
   for (const raw of values) {
-    const hit = CANDIDATE_CITIES.find((c) => c.value.toLowerCase() === raw.trim().toLowerCase())
-    if (hit && !out.includes(hit.value)) out.push(hit.value)
+    const label = foldLocationLabel(raw)
+    const key = label.toLowerCase()
+    if (!label || seen.has(key)) continue
+    seen.add(key)
+    out.push(label)
   }
   return out
+}
+
+/** City name as its own word (or phrase), so "pune" does not match "punes". */
+function textHasCityWord(text: string, city: string): boolean {
+  const phrase = city.trim()
+  if (!phrase || !text.trim()) return false
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?=$|[^A-Za-z0-9])`, 'i').test(text)
+}
+
+function candidateMatchesCity(row: IndexedApplicant, city: string): boolean {
+  const wanted = foldLocationLabel(city)
+  if (!wanted) return false
+  if (row.locationLabel.toLowerCase() === wanted.toLowerCase()) return true
+  return textHasCityWord(row.applicant.resumeText || '', wanted)
 }
 
 export type ApplicantFilters = {
@@ -420,7 +486,7 @@ export type ApplicantFilters = {
   skills: string[]
   /** Current-role checkboxes (any of). Values are trimmed lower-case role text. */
   roles: string[]
-  /** City checkboxes (any of). Canonical names from the candidates location list. */
+  /** City checkboxes (any of). Labels taken from the candidates, not a fixed city list. */
   cities: string[]
   /** Resume radio. Empty means any. */
   resume: ResumeFilter
@@ -561,8 +627,8 @@ export type IndexedApplicant = {
   roleKey: string
   /** First spelling of that role on this person. */
   roleLabel: string
-  /** Canonical cities mentioned in the resume or role. */
-  cities: string[]
+  /** This person's city (explicit field, else resume headline). Original spelling, alias-folded, empty when unknown. */
+  locationLabel: string
   hasResume: boolean
   /** Lower-case search fields. */
   fields: { name: string; role: string; skills: string; job: string; contact: string; resume: string }
@@ -598,7 +664,7 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
     headline,
     roleKey: roleLabel.toLowerCase(),
     roleLabel,
-    cities: citiesMentioned(a.resumeText, roleLabel),
+    locationLabel: locationLabelOf(a, headline),
     hasResume: hasResumeContent(a),
     fields: {
       name: lc(a.candidateName),
@@ -680,7 +746,13 @@ function passes(
   const a = row.applicant
   if (skip !== 'base') {
     const loc = f.location.trim().toLowerCase()
-    if (loc && !row.fields.resume.includes(loc) && !row.fields.role.includes(loc) && !row.fields.job.includes(loc)) {
+    if (
+      loc &&
+      !row.locationLabel.toLowerCase().includes(loc) &&
+      !row.fields.resume.includes(loc) &&
+      !row.fields.role.includes(loc) &&
+      !row.fields.job.includes(loc)
+    ) {
       return false
     }
     if (!matchesExperience(row.experience, f.expMin, f.expMax)) return false
@@ -704,7 +776,7 @@ function passes(
     const wanted = new Set(f.roles.map((r) => r.trim().toLowerCase()).filter(Boolean))
     if (!row.roleKey || !wanted.has(row.roleKey)) return false
   }
-  if (skip !== 'cities' && f.cities.length && !row.cities.some((c) => f.cities.includes(c))) return false
+  if (skip !== 'cities' && f.cities.length && !f.cities.some((city) => candidateMatchesCity(row, city))) return false
   if (skip !== 'resume' && f.resume === 'yes' && !row.hasResume) return false
   if (skip !== 'resume' && f.resume === 'no' && row.hasResume) return false
   if (skip !== 'sources' && f.sources.length && !f.sources.includes(row.applicant.recordSource || '')) return false
@@ -869,12 +941,25 @@ export function searchApplicants(
   }
 
   const cityPool = pool('cities')
-  const cityCounts = tally(cityPool, (r) => r.cities)
-  const cities = CANDIDATE_CITIES.map((c) => ({
-    value: c.value,
-    label: c.value,
-    count: cityCounts.get(c.value) ?? 0,
-  }))
+  const cityLabels = new Map<string, string>()
+  const cityCounts = new Map<string, number>()
+  for (const r of cityPool) {
+    const label = r.locationLabel.trim()
+    if (!label) continue
+    const key = label.toLowerCase()
+    if (!cityLabels.has(key)) cityLabels.set(key, label)
+    cityCounts.set(key, (cityCounts.get(key) ?? 0) + 1)
+  }
+  const cities = Array.from(cityCounts.entries())
+    .map(([key, count]) => ({ value: cityLabels.get(key) || key, label: cityLabels.get(key) || key, count }))
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  for (const city of filters.cities) {
+    const label = foldLocationLabel(city)
+    const key = label.toLowerCase()
+    if (!label || cities.some((c) => c.value.toLowerCase() === key)) continue
+    cities.push({ value: label, label, count: 0 })
+  }
 
   const resumePool = pool('resume')
   const resumeYes = resumePool.filter((r) => r.hasResume).length
@@ -950,7 +1035,6 @@ export function activeFilterChips(
   if (f.activeWithin) chips.push({ key: 'active', label: `Active in ${f.activeWithin} days`, clear: { activeWithin: 0 } })
   if (f.integrityReviewOnly) chips.push({ key: 'review', label: 'Needs integrity review', clear: { integrityReviewOnly: false } })
   if (f.shortlistedOnly) chips.push({ key: 'short', label: 'Shortlisted', clear: { shortlistedOnly: false } })
-  if (f.savedOnly) chips.push({ key: 'saved', label: 'Saved', clear: { savedOnly: false } })
   return chips
 }
 

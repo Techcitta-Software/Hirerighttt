@@ -32,6 +32,12 @@ function formatFullDate(iso: string): string {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/** One opening's applicants, or the jobs list when this person is not tied to a job. */
+function applicantsPath(jobId?: string | null): string {
+  const id = typeof jobId === 'string' ? jobId.trim() : ''
+  return id ? `/employer/jobs?jobId=${encodeURIComponent(id)}` : '/employer/jobs'
+}
+
 /**
  * Vendor home: headline numbers, the hiring pipeline and what needs attention.
  * Job management lives on /employer/jobs. A job's applications open at /employer/jobs?jobId=.
@@ -91,7 +97,7 @@ export function VendorDashboardPage() {
 
   const tiles = [
     { label: 'All jobs', value: stats.allJobs, hint: 'Openings you have posted', to: '/employer/jobs' },
-    { label: 'Active jobs', value: stats.activeJobs, hint: 'Openings with applicants', to: '/employer/jobs' },
+    { label: 'Active jobs', value: stats.activeJobs, hint: 'Openings that are still open', to: '/employer/jobs' },
     { label: 'Applicants', value: stats.totalCandidates, hint: `${stats.newThisWeek} new this week`, to: '/employer/jobs' },
     {
       label: 'Interviews completed',
@@ -234,24 +240,29 @@ export function VendorDashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stats.perJob.slice(0, 6).map((j) => (
-                      <tr key={j.id}>
-                        <td>
-                          <Link className={styles.jobName} title={j.title} to={`/employer/jobs?jobId=${encodeURIComponent(j.id)}`}>
-                            {j.title}
-                          </Link>
-                          <span className={styles.barTrack} aria-hidden="true">
-                            <span
-                              className={`${styles.barFill} ${styles.toneNew}`}
-                              style={{ width: `${(j.count / perJobMax) * 100}%` }}
-                            />
-                          </span>
-                        </td>
-                        <td className={styles.numCell}>
-                          {j.count === 0 ? <span className={styles.zero}>0</span> : j.count}
-                        </td>
-                      </tr>
-                    ))}
+                    {stats.perJob.slice(0, 6).map((j) => {
+                      const to = applicantsPath(j.id)
+                      return (
+                        <tr key={j.id}>
+                          <td>
+                            <Link className={styles.openingLink} title={j.title} to={to}>
+                              <span className={styles.jobName}>{j.title}</span>
+                              <span className={styles.barTrack} aria-hidden="true">
+                                <span
+                                  className={`${styles.barFill} ${styles.toneNew}`}
+                                  style={{ width: `${(j.count / perJobMax) * 100}%` }}
+                                />
+                              </span>
+                            </Link>
+                          </td>
+                          <td className={styles.numCell}>
+                            <Link className={styles.countLink} to={to} aria-label={`${j.count} applicants for ${j.title}`}>
+                              {j.count === 0 ? <span className={styles.zero}>0</span> : j.count}
+                            </Link>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
@@ -333,17 +344,19 @@ export function VendorDashboardPage() {
                     const score = candidateScore(c)
                     return (
                       <li key={c.id} className={styles.listRow}>
-                        <span className={styles.listMain}>
-                          <strong title={c.candidateName}>{c.candidateName}</strong>
-                          <span>
-                            {score !== null ? 'Completed the interview' : 'Applied'}
-                            {c.jobTitle ? ` · ${c.jobTitle}` : ''}
+                        <Link className={styles.listLink} to={applicantsPath(c.jobId)}>
+                          <span className={styles.listMain}>
+                            <strong title={c.candidateName}>{c.candidateName}</strong>
+                            <span>
+                              {score !== null ? 'Completed the interview' : 'Applied'}
+                              {c.jobTitle ? ` · ${c.jobTitle}` : ''}
+                            </span>
                           </span>
-                        </span>
-                        {score !== null && <Score value={score} />}
-                        <span className={styles.listDate} title={formatFullDate(c.appliedAt)}>
-                          {formatDate(c.appliedAt)}
-                        </span>
+                          {score !== null && <Score value={score} />}
+                          <span className={styles.listDate} title={formatFullDate(c.appliedAt)}>
+                            {formatDate(c.appliedAt)}
+                          </span>
+                        </Link>
                       </li>
                     )
                   })}
@@ -373,38 +386,20 @@ export function VendorDashboardPage() {
                 <ol className={styles.list}>
                   {top.map((c, i) => (
                     <li key={c.id} className={styles.listRow}>
-                      <span className={styles.rank}>{i + 1}</span>
-                      <span className={styles.listMain}>
-                        <strong title={c.candidateName}>{c.candidateName}</strong>
-                        <span>{c.role || c.jobTitle || c.candidateEmail}</span>
-                      </span>
-                      <Score value={candidateScore(c) ?? 0} />
+                      <Link className={styles.listLink} to={applicantsPath(c.jobId)}>
+                        <span className={styles.rank}>{i + 1}</span>
+                        <span className={styles.listMain}>
+                          <strong title={c.candidateName}>{c.candidateName}</strong>
+                          <span>{c.role || c.jobTitle || c.candidateEmail}</span>
+                        </span>
+                        <Score value={candidateScore(c) ?? 0} />
+                      </Link>
                     </li>
                   ))}
                 </ol>
               )}
             </section>
           </div>
-
-          <section className={`${shell.panel} ${styles.shortcuts}`} aria-labelledby="vd-actions">
-            <h2 id="vd-actions" className={styles.shortcutsTitle}>
-              Quick actions
-            </h2>
-            <div className={styles.actions}>
-              <Link to="/employer/jobs" state={{ createJob: true }} className={styles.action}>
-                <HrIcon name="briefcase" size={16} /> Create or share a job opening
-              </Link>
-              <Link to="/employer/jobs" state={{ inviteDialog: true }} className={styles.action}>
-                <HrIcon name="link" size={16} /> Send AI interview links
-              </Link>
-              <Link to="/employer/jobs" className={styles.action}>
-                <HrIcon name="users" size={16} /> Review applicants and reports
-              </Link>
-              <Link to="/employer/candidates" className={styles.action}>
-                <HrIcon name="folder" size={16} /> Open candidates
-              </Link>
-            </div>
-          </section>
         </div>
       </div>
     </div>

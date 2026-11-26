@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { docxToSafeHtml, isDocxDocument } from '../../lib/docxPreview'
 import {
-  fetchVendorCandidateResumeDocument,
-  fetchVendorCandidateResumeFile,
+  fetchVendorCandidateResumeDownload,
   type VendorCandidateDocumentLink,
 } from '../../lib/vendorApi'
 import styles from './Applicants.module.css'
@@ -28,11 +27,20 @@ function isMissingResumeFile(err: unknown): boolean {
   return err instanceof Error && /no stored resume file/i.test(err.message)
 }
 
+function headerStartsWith(data: ArrayBuffer, marker: string): boolean {
+  if (data.byteLength < marker.length) return false
+  const bytes = new Uint8Array(data, 0, marker.length)
+  for (let i = 0; i < marker.length; i += 1) {
+    if (bytes[i] !== marker.charCodeAt(i)) return false
+  }
+  return true
+}
+
 /**
  * The stored resume file, as the recruiter document viewer shows it: PDF in the browser's viewer, Word converted to
  * sanitised HTML, anything else with a Download button. The bytes always come through the API (never an S3 link in the
- * frame), so a storage failure shows "Resume file could not be loaded" with Retry and Download instead of a raw S3 error
- * page or a blank frame. The API decides who may see the file.
+ * frame). When that fetch fails, the extracted resume text is shown in the panel so it does not stay blank. The API
+ * decides who may see the file.
  */
 export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateName, fallbackText, onDownload, onMissing }: Props) {
   const onMissingRef = useRef(onMissing)
@@ -57,36 +65,47 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
       let link: VendorCandidateDocumentLink | null = null
       try {
         const who = { userId: candidateUserId }
-        link = await fetchVendorCandidateResumeDocument(candidateEmail, who)
+        const file = await fetchVendorCandidateResumeDownload(candidateEmail, who)
         if (cancelled) return
-        const docx = isDocxDocument(link.contentType, link.filename)
-        if (!docx && !isPdf(link)) {
-          setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: '' })
-          return
+        link = {
+          viewUrl: '',
+          downloadUrl: '',
+          expiresInSeconds: null,
+          contentType: file.contentType,
+          filename: file.filename,
         }
-        const bytes = await fetchVendorCandidateResumeFile(candidateEmail, who)
-        if (cancelled) return
+        const pdfMagic = headerStartsWith(file.data, '%PDF')
+        const zipMagic = headerStartsWith(file.data, 'PK')
+        const namedPdf = (file.filename || '').toLowerCase().endsWith('.pdf')
+        const pdf = pdfMagic || isPdf(link)
+        // A PK zip whose name is not already .pdf is a Word file, even when the stored type is text/plain.
+        const docx = !pdf && (isDocxDocument(link.contentType, link.filename) || (zipMagic && !namedPdf))
         if (docx) {
-          const html = await docxToSafeHtml(bytes)
+          const html = await docxToSafeHtml(file.data)
           if (!cancelled) setState({ loading: false, failed: false, link, docxHtml: html, pdfUrl: '' })
           return
         }
-        objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
-        setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: objectUrl })
+        if (pdf) {
+          objectUrl = URL.createObjectURL(new Blob([file.data], { type: 'application/pdf' }))
+          setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: objectUrl })
+          return
+        }
+        setState({ loading: false, failed: false, link, docxHtml: '', pdfUrl: '' })
       } catch (err) {
         if (cancelled) return
         const noFile = isMissingResumeFile(err)
         setState({ loading: false, failed: true, link, docxHtml: '', pdfUrl: '', noFile })
-        if (noFile) onMissingRef.current?.()
+        // The parent swaps in an empty state that hides this panel. Keep the extracted text on screen instead.
+        if (noFile && !fallbackText?.trim()) onMissingRef.current?.()
       }
     })()
     return () => {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [candidateEmail, candidateUserId, attempt])
+  }, [candidateEmail, candidateUserId, attempt, fallbackText])
 
-  const { loading, failed, link, docxHtml, pdfUrl, noFile } = state
+  const { loading, failed, link, docxHtml, pdfUrl } = state
   if (loading) {
     return (
       <div className={styles.pageSkeleton} role="status" aria-label="Loading the resume">
@@ -96,7 +115,6 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
       </div>
     )
   }
-  if (noFile && onMissing) return null
   if (pdfUrl && !failed) {
     return (
       <iframe
@@ -110,6 +128,21 @@ export function ResumeFilePreview({ candidateEmail, candidateUserId, candidateNa
   if (docxHtml) {
     // docxToSafeHtml keeps document markup only: no scripts, handlers, styles or unsafe URLs.
     return <article className={styles.docxPage} dangerouslySetInnerHTML={{ __html: docxHtml }} />
+  }
+  if (failed && fallbackText?.trim()) {
+    return (
+      <div data-testid="resume-text-fallback">
+        <p className={styles.panelNote}>The original file could not be loaded.</p>
+        <article className={styles.docxPage} style={{ whiteSpace: 'pre-wrap' }}>
+          {fallbackText.trim()}
+        </article>
+        <div className={styles.noteActions}>
+          <button type="button" className={styles.actBtn} onClick={() => setAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      </div>
+    )
   }
   return (
     <div className={styles.panelNote} data-testid={failed ? 'resume-load-failed' : 'resume-no-preview'}>

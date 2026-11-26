@@ -32,20 +32,61 @@ const result = {
   },
 } as unknown as InterviewResult
 
+const renderReport = (r: InterviewResult) =>
+  renderToStaticMarkup(
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(CareerIntelligenceDashboard, { result: r, candidateName: 'Priya Nair' }),
+    ),
+  )
+
 describe('interview report', () => {
-  it('keeps the career score report: 0-1000 score, status, questions, and download', () => {
-    const html = renderToStaticMarkup(
-      createElement(
-        MemoryRouter,
-        null,
-        createElement(CareerIntelligenceDashboard, { result, candidateName: 'Priya Nair' }),
-      ),
-    )
+  it('keeps the career score report: 0-1000 score, status, summary sections, and download', () => {
+    const html = renderReport(result)
     expect(html).toContain('720')
     expect(html).toContain('/1000')
     expect(html).toContain('Industry Ready')
-    expect(html).toContain('Questions and scores')
-    expect(html).toContain(QUESTION)
+    expect(html).toContain('Score bands')
+    expect(html).toContain('Score by area')
+    expect(html).toContain('Top strengths')
+    expect(html).toContain('Top growth areas')
+    expect(html).toContain('What to work on')
+    expect(html).toContain('Coach notes')
+    expect(html).toContain('Resume suggestions')
+    expect(html).toContain('Final career status')
     expect(html).toContain('Download report')
+    // The question count stat in the summary is still shown.
+    expect(html).toMatch(/<dt>Questions<\/dt><dd>1<\/dd>/)
+  })
+
+  it('never renders the questions table or the question / feedback text', () => {
+    const html = renderReport(result)
+    expect(html).not.toContain('Questions and scores')
+    expect(html).not.toContain('<table')
+    expect(html).not.toContain(QUESTION)
+    expect(html).not.toContain('Good answer.')
+  })
+
+  it('still renders the interview performance summary (rating by topic) as the card heading', () => {
+    const html = renderReport(result)
+    expect(html).toMatch(/<h2 id="report-performance-heading"[^>]*>Interview performance summary<\/h2>/)
+    expect(html).toContain('aria-labelledby="report-performance-heading"')
+    expect(html).toContain('Node.js')
+    expect(html).toContain('★★★★☆')
+    expect(html).toContain('4 of 5 stars')
+    expect(html).toContain('Strong')
+  })
+
+  it('renders no empty performance card when there is nothing to rate', () => {
+    const empty = {
+      ...result,
+      answers: [],
+      scorecard: { ...result.scorecard, qaRows: [], starPatterns: [] },
+    } as unknown as InterviewResult
+    const html = renderReport(empty)
+    expect(html).not.toContain('Interview performance summary')
+    expect(html).not.toContain('report-performance-heading')
+    expect(html).toContain('Top strengths')
   })
 })

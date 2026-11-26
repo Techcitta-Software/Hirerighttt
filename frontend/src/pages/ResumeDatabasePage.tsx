@@ -86,7 +86,6 @@ export function ResumeDatabasePage() {
             error={error}
             onRetry={() => setReloadKey((k) => k + 1)}
             onUpdateApplicant={updateApplicant}
-            savedStorageKey={user?.email ? `hireright.candidates.saved.${user.email.toLowerCase()}` : undefined}
             loadRanking={false}
           />
         </div>

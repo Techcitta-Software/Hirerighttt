@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from app.services.gemini_client import gemini_configured, generate_content
-from app.services.interview_rubric_scoring import classify_question_scoring_profile, _clean
+from app.services.interview_rubric_scoring import classify_question_scoring_profile, validated_evidence_quote, _clean
 
 
 def llm_eval_configured() -> bool:
@@ -57,6 +57,20 @@ FEEDBACK must be specific to this answer, never generic ("good answer", "could a
 Return ONLY valid JSON:
 {"answers":[{"index":1,"correctness":0-100,"depth":0-100,"communication":0-100,"evidence":"short quote","feedback":"one or two specific sentences"}]}"""
 
+NONTECH_EVAL_PARAGRAPH = """NON-TECHNICAL QUESTIONS (questionModel is "non_technical"): do not judge code, APIs, or tools. Naming React, Python, SQL, AWS, or any other technology adds nothing unless that exact word is in lookFor. Score the claim against lookFor: was this the situation asked for (correctness), what did THIS candidate personally do and what was the result (depth), and can a listener follow situation then action then result (communication). A fluent answer with no real situation, no personal action, and no result scores at most 50 for correctness and at most 35 for depth. "I would" or "I will", when the question asks for something they already did, scores at most 55 for depth. 85 or above on any dimension requires a lookFor item the answer actually covers, plus a quote copied from the answer. For these items return evidence as {"correctness":{"quote":"","why":""},"depth":{"quote":"","why":""},"communication":{"quote":"","why":""}}: quote is at most 12 words copied from the answer, or empty; why is one sentence."""
+
+
+def _nontech_rubric_evidence(raw: Any, answer: str) -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    source = raw if isinstance(raw, dict) else {}
+    for dim in ("correctness", "depth", "communication"):
+        item = source.get(dim) if isinstance(source.get(dim), dict) else {}
+        out[dim] = {
+            "quote": validated_evidence_quote(str(item.get("quote") or ""), answer),
+            "why": str(item.get("why") or "").strip(),
+        }
+    return out
+
 
 async def evaluate_answers_with_llm(
     *,
@@ -71,20 +85,22 @@ async def evaluate_answers_with_llm(
     items = []
     for i, q in enumerate(questions):
         profile = _clean(q.get("scoringProfile")) or classify_question_scoring_profile(q)
-        items.append(
-            {
-                "index": i + 1,
-                "scoringProfile": profile,
-                "question": _clean(q.get("text")),
-                "category": q.get("category"),
-                "topic": q.get("topic"),
-                "keywords": (q.get("keywords") or [])[:8],
-                "resumeAnchor": q.get("resumeAnchor"),
-                "planSlot": q.get("planSlot"),
-                "jdTarget": q.get("jdTarget"),
-                "answer": _clean(answers[i] if i < len(answers) else ""),
-            }
-        )
+        answer_text = _clean(answers[i] if i < len(answers) else "")
+        item = {
+            "index": i + 1,
+            "scoringProfile": profile,
+            "questionModel": q.get("questionModel") or None,
+            "lookFor": (q.get("lookFor") or [])[:8] if isinstance(q.get("lookFor"), list) else [],
+            "question": _clean(q.get("text")),
+            "category": q.get("category"),
+            "topic": q.get("topic"),
+            "keywords": (q.get("keywords") or [])[:8],
+            "resumeAnchor": q.get("resumeAnchor"),
+            "planSlot": q.get("planSlot"),
+            "jdTarget": q.get("jdTarget"),
+            "answer": answer_text,
+        }
+        items.append(item)
 
     user = json.dumps(
         {
@@ -100,6 +116,10 @@ async def evaluate_answers_with_llm(
     )
 
     model = _fast_model()
+    nontech_batch = any(str(q.get("questionModel") or "") == "non_technical" for q in questions)
+    system = EVAL_SYSTEM + ("\n\n" + NONTECH_EVAL_PARAGRAPH if nontech_batch else "")
+    answer_by_index = {i + 1: _clean(answers[i] if i < len(answers) else "") for i in range(len(questions))}
+    nontech_index = {i + 1: str(q.get("questionModel") or "") == "non_technical" for i, q in enumerate(questions)}
 
     deadline = time.time() + 38.0  # the browser waits ~45s for the score; fall back to provisional scoring after that
     for temperature in (0.12, 0.08):
@@ -107,7 +127,7 @@ async def evaluate_answers_with_llm(
             break
         try:
             result = await generate_content(
-                system=EVAL_SYSTEM,
+                system=system,
                 user=user,
                 temperature=temperature,
                 max_tokens=4096,
@@ -130,13 +150,16 @@ async def evaluate_answers_with_llm(
                 idx = int(row.get("index") or 0)
                 if not idx:
                     continue
-                by_index[idx] = {
+                parsed_row = {
                     "correctness": row.get("correctness"),
                     "depth": row.get("depth"),
                     "communication": row.get("communication"),
                     "feedback": row.get("feedback"),
-                    "evidence": str(row.get("evidence") or "")[:160],
+                    "evidence": str(row.get("evidence") or "")[:160] if not isinstance(row.get("evidence"), dict) else "",
                 }
+                if nontech_index.get(idx):
+                    parsed_row["rubricEvidence"] = _nontech_rubric_evidence(row.get("evidence"), answer_by_index.get(idx, ""))
+                by_index[idx] = parsed_row
             if by_index:
                 return by_index
         except Exception:

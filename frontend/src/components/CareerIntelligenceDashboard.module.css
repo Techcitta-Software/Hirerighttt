@@ -675,142 +675,6 @@
   color: var(--ds-text-muted);
 }
 
-/* ─── Questions table (§2.6) ─── */
-.tableCard {
-  overflow: hidden;
-}
-
-.tableScroll {
-  /* Contains the visually hidden header labels so they can't widen the page on a phone. */
-  position: relative;
-  width: 100%;
-  overflow-x: auto;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--radius-md);
-  -webkit-overflow-scrolling: touch;
-}
-
-.qaTable {
-  width: 100%;
-  min-width: 860px;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-
-.qaTable th {
-  height: 40px;
-  padding: 0 var(--space-4);
-  background: var(--ds-surface-subtle);
-  border-bottom: 1px solid var(--ds-border);
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  text-align: left;
-  color: var(--ds-text-muted);
-  white-space: nowrap;
-  word-break: keep-all;
-  vertical-align: middle;
-}
-
-.qaTable td {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--ds-border);
-  vertical-align: top;
-  color: var(--ds-text);
-  line-height: 1.5;
-}
-
-.qaTable th:first-child,
-.qaTable td:first-child {
-  padding-left: var(--space-5);
-}
-
-.qaTable th:last-child,
-.qaTable td:last-child {
-  padding-right: var(--space-5);
-}
-
-.qaTable tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.qaTable tbody tr:hover td {
-  background: var(--ds-surface-subtle);
-}
-
-.qaTable .numCol {
-  width: 56px;
-  text-align: left;
-}
-
-.qaTable .questionCol {
-  width: 28%;
-}
-
-.qaTable .scoreCol {
-  width: 72px;
-  text-align: right;
-}
-
-.qaTable .ratingCol {
-  width: 96px;
-}
-
-.rowCircle {
-  display: inline-grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-full);
-  background: var(--ds-neutral-soft);
-  font-size: var(--fs-2xs);
-  font-weight: 700;
-  color: var(--ds-text);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Tag (§2.7) */
-.topicTag {
-  display: inline-block;
-  max-width: 160px;
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--ds-neutral-soft);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--ds-text-secondary);
-  /* Break between words, not inside them ("Profe/ssion/al"): the column keeps room for the longest word. */
-  overflow-wrap: break-word;
-}
-
-.qaTable .topicCol {
-  min-width: 120px;
-}
-
-.questionCell {
-  min-width: 220px;
-}
-
-.totalScoreCell {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.totalScoreCell strong {
-  font-weight: 800;
-}
-
-.starsCell {
-  color: var(--ds-warning);
-  white-space: nowrap;
-  letter-spacing: 1px;
-}
-
-.qaTable .feedbackCell {
-  min-width: 240px;
-  color: var(--ds-text-secondary);
-}
-
 .starSummaryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1250,25 +1114,6 @@
     height: 40px;
     font-size: var(--fs-body-lg);
   }
-
-  /* Table scrolls inside its own container; keep the # column pinned */
-  .qaTable {
-    min-width: 760px;
-  }
-
-  .qaTable th:first-child,
-  .qaTable td:first-child {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    padding-left: var(--space-4);
-    background: var(--ds-surface);
-  }
-
-  .qaTable th:first-child,
-  .qaTable tbody tr:hover td:first-child {
-    background: var(--ds-surface-subtle);
-  }
 }
 
 @media (max-width: 640px) {
@@ -1296,37 +1141,159 @@
   }
 }
 
-/* ─── PDF export (html2canvas captures at a fixed 900px width) ─── */
+/* ─── PDF export (html2canvas captures at a fixed 900px width) ───
+   html2canvas paints grid/flex tracks and absolute bars on top of each other
+   when a track height collapses. Export only: stack every section in normal flow.
+   On-screen layout is unchanged. */
 .dashboardContainer[data-pdf-export] {
+  container-type: normal !important;
+  contain: none !important;
+  display: block !important;
+  position: relative !important;
   width: 900px !important;
+  min-width: 900px !important;
   max-width: 900px !important;
-  overflow: visible !important;
+  height: auto !important;
+  min-height: 0 !important;
   max-height: none !important;
+  margin: 0 !important;
   padding: 0 !important;
-}
-
-.dashboardContainer[data-pdf-export] .tableCard {
-  overflow: visible;
-}
-
-.dashboardContainer[data-pdf-export] .tableScroll {
   overflow: visible !important;
+  flex: none !important;
+  float: none !important;
+  transform: none !important;
 }
 
-.dashboardContainer[data-pdf-export] .qaTable {
-  min-width: 0 !important;
+.dashboardContainer[data-pdf-export] > * {
+  display: block !important;
+  position: static !important;
+  float: none !important;
+  clear: both !important;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 0 24px !important;
+  overflow: visible !important;
+  transform: none !important;
+  break-inside: auto !important;
+  page-break-inside: auto !important;
 }
 
-.dashboardContainer[data-pdf-export] .qaTable th:first-child,
-.dashboardContainer[data-pdf-export] .qaTable td:first-child {
-  position: static;
+.dashboardContainer[data-pdf-export] > *:last-child {
+  margin-bottom: 0 !important;
 }
 
 .dashboardContainer[data-pdf-export] .card,
 .dashboardContainer[data-pdf-export] .headerCard,
-.dashboardContainer[data-pdf-export] .footerRibbon {
-  break-inside: avoid;
-  page-break-inside: avoid;
+.dashboardContainer[data-pdf-export] .footerRibbon,
+.dashboardContainer[data-pdf-export] .candidateProfileRow,
+.dashboardContainer[data-pdf-export] .candidateLeftBlock,
+.dashboardContainer[data-pdf-export] .metaGridRight,
+.dashboardContainer[data-pdf-export] .summaryCard,
+.dashboardContainer[data-pdf-export] .summaryBody,
+.dashboardContainer[data-pdf-export] .summaryStats,
+.dashboardContainer[data-pdf-export] .scoreBandList,
+.dashboardContainer[data-pdf-export] .healthList,
+.dashboardContainer[data-pdf-export] .healthRow,
+.dashboardContainer[data-pdf-export] .donutRow,
+.dashboardContainer[data-pdf-export] .rowGridTwo,
+.dashboardContainer[data-pdf-export] .rowGridThree,
+.dashboardContainer[data-pdf-export] .starSummaryGrid,
+.dashboardContainer[data-pdf-export] .footerTopRow,
+.dashboardContainer[data-pdf-export] .brandRow,
+.dashboardContainer[data-pdf-export] .cardHead,
+.dashboardContainer[data-pdf-export] .strengthsList,
+.dashboardContainer[data-pdf-export] .growthAreasList,
+.dashboardContainer[data-pdf-export] .priorityList,
+.dashboardContainer[data-pdf-export] .growthList,
+.dashboardContainer[data-pdf-export] .positioningIcons,
+.dashboardContainer[data-pdf-export] .skillsRibbon,
+.dashboardContainer[data-pdf-export] .rolePills {
+  display: block !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  grid-auto-rows: auto !important;
+  position: static !important;
+  float: none !important;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+.dashboardContainer[data-pdf-export] .candidateProfileRow > *,
+.dashboardContainer[data-pdf-export] .metaGridRight > *,
+.dashboardContainer[data-pdf-export] .summaryCard > *,
+.dashboardContainer[data-pdf-export] .summaryStats > *,
+.dashboardContainer[data-pdf-export] .scoreBandList > *,
+.dashboardContainer[data-pdf-export] .healthRow > *,
+.dashboardContainer[data-pdf-export] .donutRow > *,
+.dashboardContainer[data-pdf-export] .rowGridTwo > *,
+.dashboardContainer[data-pdf-export] .rowGridThree > *,
+.dashboardContainer[data-pdf-export] .starSummaryGrid > *,
+.dashboardContainer[data-pdf-export] .footerTopRow > *,
+.dashboardContainer[data-pdf-export] .brandRow > *,
+.dashboardContainer[data-pdf-export] .strengthsList > li,
+.dashboardContainer[data-pdf-export] .growthAreasList > li,
+.dashboardContainer[data-pdf-export] .priorityList > li,
+.dashboardContainer[data-pdf-export] .growthList > li,
+.dashboardContainer[data-pdf-export] .positioningIcons > li {
+  display: block !important;
+  position: static !important;
+  float: none !important;
+  grid-column: auto !important;
+  grid-row: auto !important;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 0 12px !important;
+  overflow: visible !important;
+  transform: none !important;
+}
+
+/* Keep the thin score bars inside their tracks. Absolute fills were escaping a 0-height grid. */
+.dashboardContainer[data-pdf-export] .scoreScaleTrack,
+.dashboardContainer[data-pdf-export] .barTrack {
+  display: block !important;
+  position: relative !important;
+  width: 100% !important;
+  height: 6px !important;
+  min-height: 6px !important;
+  max-height: 6px !important;
+  margin: 8px 0 !important;
+  overflow: hidden !important;
+}
+
+.dashboardContainer[data-pdf-export] .scoreScaleFill,
+.dashboardContainer[data-pdf-export] .barFill {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  height: 6px !important;
+  max-height: 6px !important;
+  margin: 0 !important;
+}
+
+.dashboardContainer[data-pdf-export] .scoreScaleTick {
+  position: absolute !important;
+  top: 0 !important;
+  height: 6px !important;
+  margin: 0 !important;
+}
+
+.dashboardContainer[data-pdf-export] .summaryScore {
+  padding-right: 0 !important;
+  border-right: none !important;
+}
+
+.dashboardContainer[data-pdf-export] .posIconBox {
+  position: relative !important;
 }
 
 @media print {
@@ -1338,20 +1305,6 @@
   .dashboardContainer {
     max-width: 100% !important;
     margin: 0 !important;
-  }
-
-  .tableCard,
-  .tableScroll {
-    overflow: visible !important;
-  }
-
-  .qaTable {
-    min-width: 0 !important;
-  }
-
-  .qaTable th:first-child,
-  .qaTable td:first-child {
-    position: static;
   }
 
   .card,

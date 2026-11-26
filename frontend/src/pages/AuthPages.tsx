@@ -27,6 +27,7 @@ import {
   persistLoggedInUser,
   saveAccountPrefs,
   saveUser,
+  setLocalOfflinePassword,
 } from '../lib/store'
 import {
   apiConnectionHint,
@@ -153,7 +154,6 @@ async function authenticateWithEmailPassword(
             {
               name: authenticatedUser.name,
               email: targetEmail,
-              password,
               role: authenticatedUser.role,
               companyName: authenticatedUser.companyName,
               phone: authenticatedUser.phone,
@@ -177,7 +177,7 @@ async function authenticateWithEmailPassword(
 
   // Browser-local accounts exist for offline development only; production always authenticates on the server.
   if (!authenticatedUser && !requireApiForAuth()) {
-    authenticatedUser = login(targetEmail, password)
+    authenticatedUser = await login(targetEmail, password)
   }
 
   if (!authenticatedUser) {
@@ -187,7 +187,6 @@ async function authenticateWithEmailPassword(
         {
           name: demo.name,
           email: demo.email,
-          password: demo.password,
           role: demo.role,
           companyName: 'companyName' in demo ? demo.companyName : undefined,
         },
@@ -344,7 +343,7 @@ export function LoginPage({
     if (handoff) {
       setAuthMode('login')
       setLoginEmail(handoff.email)
-      setLoginPassword(handoff.password)
+      if (handoff.password) setLoginPassword(handoff.password)
       if (handoff.message) setSuccessMessage(handoff.message)
       return
     }
@@ -563,7 +562,6 @@ export function LoginPage({
           {
             name: signupName.trim(),
             email: createdEmailSb,
-            password: signupPassword,
             role: signupRole,
             companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
             phone: phoneNormSb,
@@ -595,7 +593,6 @@ export function LoginPage({
           {
             name: signupName.trim(),
             email: createdEmail,
-            password: signupPassword,
             role: signupRole,
             companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
             phone: phoneNorm,
@@ -614,7 +611,6 @@ export function LoginPage({
         {
           name: signupName.trim(),
           email: createdEmailLocal,
-          password: signupPassword,
           role: signupRole,
           companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
           phone: normalizePhone(signupPhone) || signupPhone.trim(),
@@ -622,6 +618,8 @@ export function LoginPage({
         true,
         false,
       )
+      // Offline-only account: keep a salted digest (never the password) so it can sign in again in this browser.
+      await setLocalOfflinePassword(createdEmailLocal, signupPassword)
       finishSignupAndShowLogin(createdEmailLocal, signupPassword)
       return
     } catch (err) {

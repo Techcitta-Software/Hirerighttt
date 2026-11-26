@@ -142,6 +142,32 @@ def delete_object(key: str) -> None:
         _client().delete_object(Bucket=bucket, Key=key)
 
 
+_tagging_disabled = {"value": False}
+
+
+def is_tagging_access_denied(err: BaseException) -> bool:
+    """True when S3 refused an upload only because the principal may not tag objects (s3:PutObjectTagging).
+
+    boto3's managed transfer wraps the ClientError in S3UploadFailedError, so the message is checked as well."""
+    code = ""
+    if isinstance(err, ClientError):
+        code = str(err.response.get("Error", {}).get("Code", ""))
+    text = str(err)
+    denied = code in ("AccessDenied", "AccessDeniedException") or "AccessDenied" in text
+    return denied and "tagging" in text.lower()
+
+
+def _note_tagging_denied() -> None:
+    """Remember for this process that tagging is not allowed (no extra failing request per upload); log once."""
+    if not _tagging_disabled["value"]:
+        _tagging_disabled["value"] = True
+        import logging
+
+        logging.getLogger("hireright.storage").warning(
+            "S3 denied s3:PutObjectTagging; uploads continue without object tags (retention via lifecycle rules)."
+        )
+
+
 def upload_fileobj(*, key: str, fileobj: Any, content_type: str, tags: dict[str, str] | None = None) -> dict[str, str]:
     """Stream a (spooled) file to S3 without reading it into memory first (multipart for large files)."""
     from app.services.storage.s3_key_layout import assert_writable_user_object_key
@@ -152,9 +178,21 @@ def upload_fileobj(*, key: str, fileobj: Any, content_type: str, tags: dict[str,
         raise RuntimeError(f'S3_BUCKET="{bucket}" does not match S3_EXPECTED_BUCKET="{expected}". Fix repo-root .env.')
     safe_key = assert_writable_user_object_key(key)
     extra: dict[str, Any] = {"ContentType": content_type, "ServerSideEncryption": "AES256"}
-    if tags:
+    if tags and not _tagging_disabled["value"]:
         extra["Tagging"] = "&".join(f"{k}={v}" for k, v in tags.items())
-    _client().upload_fileobj(fileobj, bucket, safe_key, ExtraArgs=extra)
+    start_pos = fileobj.tell() if hasattr(fileobj, "tell") else None
+    try:
+        _client().upload_fileobj(fileobj, bucket, safe_key, ExtraArgs=extra)
+    except Exception as err:
+        if "Tagging" not in extra or not is_tagging_access_denied(err):
+            raise
+        # The IAM principal may not hold s3:PutObjectTagging: store the object untagged (retention still comes from
+        # the bucket's lifecycle rule on the key prefix) instead of failing the whole upload.
+        _note_tagging_denied()
+        extra.pop("Tagging", None)
+        if start_pos is not None and hasattr(fileobj, "seek"):
+            fileobj.seek(start_pos)
+        _client().upload_fileobj(fileobj, bucket, safe_key, ExtraArgs=extra)
     return {"bucket": bucket, "key": safe_key}
 
 
@@ -175,7 +213,14 @@ def upload_object(*, key: str, body: bytes, content_type: str, tags: dict[str, s
         "ContentType": content_type,
         "ServerSideEncryption": "AES256",
     }
-    if tags:
+    if tags and not _tagging_disabled["value"]:
         params["Tagging"] = "&".join(f"{k}={v}" for k, v in tags.items())
-    _client().put_object(**params)
+    try:
+        _client().put_object(**params)
+    except Exception as err:
+        if "Tagging" not in params or not is_tagging_access_denied(err):
+            raise
+        _note_tagging_denied()
+        params.pop("Tagging", None)
+        _client().put_object(**params)
     return {"bucket": bucket, "key": safe_key}

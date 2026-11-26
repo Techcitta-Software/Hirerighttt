@@ -337,6 +337,7 @@ RULES
 - workExperiences: employment only. Academic/personal projects, coursework and "Project:" lines are NOT jobs.
 - skills: the candidate's own skills, in their own words, from the skills section and the experience. No duplicates, no sentences.
 - certifications: each certification separately (name + issuing organization). Never merge two into one.
+- education: each degree separately as written ("B.Tech, Computer Science"), with the institution and the years shown.
 - If a field is not in the resume use "" or [].
 
 JSON SCHEMA
@@ -347,7 +348,8 @@ JSON SCHEMA
  "workExperiences":[{"jobTitle":"","company":"","employmentType":"Full-time","startDate":"","endDate":"","currentlyWorking":false,"location":"","responsibilities":""}],
  "achievements":[""],
  "metrics":[{"metric":"","contribution":"","impact":"","timePeriod":""}],
- "certifications":[{"name":"","organization":"","dateEarned":"","credentialId":""}]}"""
+ "certifications":[{"name":"","organization":"","dateEarned":"","credentialId":""}],
+ "education":[{"degree":"","institution":"","startYear":"","endYear":""}]}"""
 
 
 def _resume_fallback_extract(text: str) -> dict:
@@ -356,12 +358,16 @@ def _resume_fallback_extract(text: str) -> dict:
     from app.services.candidate_name import resume_name
 
     named = resume_name({"resumeText": text})
-    return {
-        "fullName": named,
-        "resumeFullName": named,
-        "skills": ctx.get("skills") or [],
-        "resumeText": text[:50000],
-    }
+    from app.services.interview_question_model import apply_question_model
+
+    return apply_question_model(
+        {
+            "fullName": named,
+            "resumeFullName": named,
+            "skills": ctx.get("skills") or [],
+            "resumeText": text[:50000],
+        }
+    )
 
 
 # The onboarding flow parses the same resume more than once (upload, then the profile step). A successful AI extract
@@ -415,7 +421,9 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     cache_key = hashlib.sha256(clean[:50000].encode("utf-8", "ignore")).hexdigest()
     cached = _resume_cache_get(cache_key)
     if cached is not None:
-        return cached
+        from app.services.interview_question_model import apply_question_model
+
+        return apply_question_model(cached)
 
     try:
         result = await generate_content(
@@ -438,7 +446,7 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     # Keep only the fields we asked for, and guard the two that a model sometimes gets wrong.
     allowed = {
         "fullName", "currentRole", "totalExperience", "currentLocation", "skills", "whoAreYou", "whatDrivesYou",
-        "keyStrengths", "experienceSummary", "workExperiences", "achievements", "metrics", "certifications",
+        "keyStrengths", "experienceSummary", "workExperiences", "achievements", "metrics", "certifications", "education",
     }
     extract = {k: v for k, v in data.items() if k in allowed}
     extract["resumeText"] = clean[:50000]
@@ -449,6 +457,9 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     extract["fullName"] = named
     extract["resumeFullName"] = named
     extract["source"] = "gemini"
+    from app.services.interview_question_model import apply_question_model
+
+    extract = apply_question_model(extract)
     _resume_cache_put(cache_key, extract)  # only real AI extracts are cached; a fallback retries the model next time
     return extract
 

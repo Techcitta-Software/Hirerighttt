@@ -38,6 +38,7 @@ import {
   fetchOrganizationCandidates,
   fetchVendorJobs,
   sendApplicantInterviewInvite,
+  vendorJobStatus,
   type EmployerApplicationAlert,
 } from '../lib/vendorApi'
 import { subscribeEmployerApplicationAlerts } from '../lib/employerAlertsFeed'
@@ -867,6 +868,8 @@ export function EmployerDashboard() {
                         const isCopied = copiedCode === job.shareableCode
                         const isPending = isOptimisticJobId(job.id)
                         const isDeleting = deletingJobId === job.id
+                        const jobStatus = vendorJobStatus(job)
+                        const applyClosed = jobStatus === 'closed' || jobStatus === 'archived'
                         const rowClass = [
                           isPending ? styles.rowPending : '',
                           isDeleting ? styles.rowDeleting : '',
@@ -905,17 +908,21 @@ export function EmployerDashboard() {
                               </div>
                             </td>
                             <td data-label="Apply link">
-                              <button
-                                type="button"
-                                className={`${styles.copyBtn} ${isCopied ? styles.copyBtnDone : ''}`}
-                                disabled={isPending || isDeleting}
-                                onClick={() => handleCopyLink(job)}
-                                aria-label={`Copy apply link for ${job.title}`}
-                                title={isPending ? 'Generating the apply link…' : buildApplyUrl(job.company, job.shareableCode)}
-                              >
-                                <HrIcon name={isCopied ? 'check' : 'link'} size={14} />
-                                {isPending ? 'Generating…' : isCopied ? 'Copied' : 'Copy link'}
-                              </button>
+                              {applyClosed ? (
+                                <span className={styles.mutedCell}>Closed</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className={`${styles.copyBtn} ${isCopied ? styles.copyBtnDone : ''}`}
+                                  disabled={isPending || isDeleting}
+                                  onClick={() => handleCopyLink(job)}
+                                  aria-label={`Copy apply link for ${job.title}`}
+                                  title={isPending ? 'Generating the apply link…' : buildApplyUrl(job.company, job.shareableCode)}
+                                >
+                                  <HrIcon name={isCopied ? 'check' : 'link'} size={14} />
+                                  {isPending ? 'Generating…' : isCopied ? 'Copied' : 'Copy link'}
+                                </button>
+                              )}
                             </td>
                             <td data-label="Applicants" className={styles.numCol}>
                               <button
@@ -990,7 +997,6 @@ export function EmployerDashboard() {
               onRetry={() => setReloadKey((k) => k + 1)}
               onUpdateApplicant={updateApplicant}
               onInviteByEmail={() => setShowInviteDialog(true)}
-              savedStorageKey={user?.email ? `hireright.applicants.saved.${user.email.toLowerCase()}` : undefined}
             />
           </>
         )}

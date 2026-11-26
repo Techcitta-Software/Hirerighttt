@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services.interview_agent import score_session
+from app.services.interview_rubric_scoring import compute_heuristic_rubric_scores
 
 RESUME = (
     "Priya Nair Senior Full Stack Engineer. Built a real-time reconciliation dashboard in React and "
@@ -161,3 +162,38 @@ def test_lockdown_and_copy_paste_events_do_not_become_face_penalties() -> None:
     ]
     sections = review_logs_to_flag_sections(logs)
     assert [s["type"] for s in sections] == ["SIDE_GAZE_LOOKING_AWAY"]
+
+
+def test_non_technical_heuristic_rewards_a_real_action_over_buzzwords() -> None:
+    question = {
+        "questionModel": "non_technical",
+        "scoringProfile": "situational",
+        "text": "What did you tell the customer about the refund?",
+        "lookFor": ["own_action", "stakeholder", "result"],
+    }
+    owned = compute_heuristic_rubric_scores(
+        question,
+        "I told the customer we would miss Friday and the refund was approved",
+        {},
+    )
+    vague = compute_heuristic_rubric_scores(question, "I would leverage synergy with the team", {})
+    assert owned["depth"] > vague["depth"]
+
+
+def test_non_technical_heuristic_does_not_bonus_engineering_tools() -> None:
+    question = {
+        "questionModel": "non_technical",
+        "scoringProfile": "situational",
+        "text": "What did you decide?",
+        "lookFor": ["own_action", "result"],
+    }
+    with_react = "I decided to call the customer and the refund was approved after I mentioned React"
+    without_react = "I decided to call the customer and the refund was approved after I mentioned email"
+    react_score = compute_heuristic_rubric_scores(question, with_react, {})
+    plain_score = compute_heuristic_rubric_scores(question, without_react, {})
+    assert react_score["depth"] == plain_score["depth"]
+
+    technical = {"category": "Technical", "text": "How does React rendering work?", "keywords": [], "focus": "structured-skill"}
+    tech_react = compute_heuristic_rubric_scores(technical, with_react, {})
+    tech_plain = compute_heuristic_rubric_scores(technical, without_react, {})
+    assert tech_react["depth"] == tech_plain["depth"] + 12

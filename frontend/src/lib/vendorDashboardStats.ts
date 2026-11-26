@@ -1,6 +1,6 @@
 import { candidateScore, needsIntegrityReview } from "./candidateSearch";
 import type { EmployerApplicant } from "./store";
-import type { VendorJob } from "./vendorApi";
+import { vendorJobStatus, type VendorJob } from "./vendorApi";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -14,12 +14,11 @@ function jobIdsOf(
 
 /** The employer dashboard's numbers. A person on several openings counts on each (same as the Jobs list). */
 export function vendorDashboardStats(
-  jobs: Pick<VendorJob, "id" | "title">[],
+  jobs: Pick<VendorJob, "id" | "title" | "status">[],
   candidates: EmployerApplicant[],
   now: number,
 ) {
   // A person who applied to several openings counts on each of them (same numbers as the Jobs list).
-  const jobIdsWithApplicants = new Set(candidates.flatMap((c) => jobIdsOf(c)));
   const interviewed = candidates.filter((c) => Boolean(c.interviewResult));
   const scores = interviewed
     .map((c) => candidateScore(c))
@@ -39,7 +38,8 @@ export function vendorDashboardStats(
     .sort((a, b) => b.count - a.count);
   return {
     allJobs: jobs.length,
-    activeJobs: jobs.filter((j) => jobIdsWithApplicants.has(j.id)).length,
+    // Published openings are the ones still open. Legacy "active" counts as published.
+    activeJobs: jobs.filter((j) => vendorJobStatus(j) === "published").length,
     totalCandidates: candidates.length,
     interviewsCompleted: interviewed.length,
     averageScore: scores.length

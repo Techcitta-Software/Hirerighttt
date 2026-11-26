@@ -9,6 +9,7 @@ from app.db import db_pool
 from app.db.talent_index import upsert_candidate_talent
 from app.services import interview_api as ia
 from app.services.candidate_name import apply_resume_name
+from app.services.interview_question_model import apply_question_model
 from app.services.storage.resume_storage import (
     object_storage_configured,
     parse_resume_upload_body,
@@ -190,6 +191,7 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     )
     # The new resume's name replaces the old one everywhere (profile, talent index, recruiter views).
     profile_patch = apply_resume_name(profile_patch, (account or {}).get("name") or "")
+    profile_patch = apply_question_model(profile_patch)
     db["profiles"][email] = profile_patch
     await save_db(db)
     if pool:

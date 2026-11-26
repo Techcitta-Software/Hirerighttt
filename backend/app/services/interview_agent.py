@@ -321,7 +321,19 @@ def _analyze_answer_detailed(
         "source": merged.get("source", "heuristic"),
     }
     profile = _clean(question.get("scoringProfile")) or heuristic.get("scoringProfile") or classify_question_scoring_profile(question)
-    rubrics = build_weighted_rubrics(merged, profile)
+    rubrics = build_weighted_rubrics(merged, profile, question)
+    if str(question.get("questionModel") or "") == "non_technical":
+        llm_evidence = llm_row.get("rubricEvidence") if isinstance(llm_row, dict) else None
+        heuristic_evidence = heuristic.get("evidence") if isinstance(heuristic.get("evidence"), dict) else {}
+        for row in rubrics:
+            rid = str(row.get("id") or "")
+            if rid == "roleSkillsFit":
+                row["evidence"] = {"quote": "", "why": ""}
+                continue
+            chosen = llm_evidence.get(rid) if isinstance(llm_evidence, dict) else None
+            if not isinstance(chosen, dict):
+                chosen = heuristic_evidence.get(rid) if isinstance(heuristic_evidence.get(rid), dict) else {}
+            row["evidence"] = {"quote": str((chosen or {}).get("quote") or ""), "why": str((chosen or {}).get("why") or "")}
     question_score = weighted_question_score(rubrics)
     if merged.get("source") != "llm":
         question_score = min(question_score, HEURISTIC_CEILING)
@@ -558,8 +570,12 @@ def _finalize_score_payload(
     skills_referenced = skills_referenced_early
     resume_fit_score = role_fit_score
 
-    if integrity.get("banned"):
-        overall = 0
+    # Leaving the interview tab (or fullscreen) ends the interview early. The answers given so far are still scored
+    # (unanswered questions already count as 0); the recruiter sees an "Ended early" flag instead of a silent 0.
+    ended_early = bool(integrity.get("banned"))
+    ended_early_reason = (
+        str(integrity.get("banReason") or "").strip() or "The interview ended early: the candidate left the interview tab."
+    ) if ended_early else None
 
     strengths: list[str] = []
     improvements: list[str] = []
@@ -590,7 +606,11 @@ def _finalize_score_payload(
     if comm_scores and round(sum(comm_scores) / len(comm_scores)) >= 75 and content_ok and weak_share <= 1 / 3:
         strengths.append("Communication is clear and well structured.")
     if avg_correctness is not None and avg_correctness < 55:
-        improvements.append("Tighten technical accuracy — answer the exact question asked.")
+        nontech_interview = any(str((q or {}).get("questionModel") or "") == "non_technical" for q in questions)
+        if nontech_interview:
+            improvements.append("Tie each answer to the situation asked, with what you did and the result.")
+        else:
+            improvements.append("Tighten technical accuracy — answer the exact question asked.")
     if weak_share > 1 / 3 and len(scored) >= 3:
         improvements.append(f"{round(weak_share * len(scored))} of {len(scored)} answers did not address the question; prepare examples for each area of your resume.")
 
@@ -620,8 +640,8 @@ def _finalize_score_payload(
             strengths.append(f"{best['label']} stands out ({best['score']}/100).")
         if worst["score"] < 60:
             improvements.append(f"Strengthen {worst['label']} ({worst['score']}/100).")
-    if integrity.get("banned"):
-        improvements.insert(0, integrity.get("banReason") or "Session banned for integrity.")
+    if ended_early:
+        improvements.insert(0, f"Ended early: {ended_early_reason}")
 
     strengths_out = _unique(strengths)[:6]
     improvements_out = _unique(improvements)[:6]
@@ -646,6 +666,7 @@ def _finalize_score_payload(
         "level": level,
         "date": datetime.now(UTC).isoformat(),
         "overall": overall,
+        "endedEarly": ended_early,
         "resumeFitScore": resume_fit_score,
         "scoreModel": score_model,
         "categories": categories,
@@ -660,6 +681,9 @@ def _finalize_score_payload(
             "maxFacesSeen": int(integrity.get("maxFacesSeen") or 1),
             "banned": bool(integrity.get("banned")),
             "banReason": integrity.get("banReason"),
+            "endedEarly": ended_early,
+            "endedEarlyReason": ended_early_reason,
+            "cameraOffByChoice": bool(integrity.get("cameraOffByChoice")),
             "sideLookWarnings": int(integrity.get("sideLookWarnings") or 0),
             "tooFarWarnings": int(integrity.get("tooFarWarnings") or 0),
         },

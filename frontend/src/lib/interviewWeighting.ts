@@ -9,14 +9,14 @@
  * after one question cannot produce a high score.
  */
 import type { Question } from './interviewEngine'
-import { classifyQuestionScoringProfile, INTERVIEW_RUBRICS } from './interviewRubrics'
+import { classifyQuestionScoringProfile, INTERVIEW_RUBRICS, NON_TECH_DIMENSION_LABELS } from './interviewRubrics'
 
 export const TECHNICAL_WEIGHT = 15
 export const OTHER_WEIGHT = 10
 export const MIN_ROLE_FIT_WEIGHT = 10
 
 type ScoredAnswer = { score: number; answer?: string; rubrics?: { id: string; score: number | null }[] }
-type QuestionLike = Question & { focus?: string; scoringProfile?: string; topic?: string }
+type QuestionLike = Question & { focus?: string; scoringProfile?: string; topic?: string; questionModel?: string }
 
 export type WeightedRow = {
   label: string
@@ -57,6 +57,10 @@ export function isClosingQuestion(q: QuestionLike): boolean {
 }
 
 export function isTechnicalQuestion(q: QuestionLike): boolean {
+  if (q.questionModel === 'non_technical') {
+    const profile = (q.scoringProfile || '').trim().toLowerCase()
+    return profile === 'situational' || profile === 'stakeholder'
+  }
   return classifyQuestionScoringProfile(q) === 'technical'
 }
 
@@ -114,10 +118,12 @@ export function computeWeightedScore(options: {
   const roleFitPoints = (roleWeight * roleFit) / 100
   const overall = clamp(earned + roleFitPoints)
 
+  const nonTechnical = options.questions.some((q) => q.questionModel === 'non_technical')
   const dimensions: WeightedScore['dimensions'] = []
   for (const def of INTERVIEW_RUBRICS) {
+    const label = nonTechnical ? NON_TECH_DIMENSION_LABELS[def.id] || def.label : def.label
     if (def.id === 'roleSkillsFit') {
-      dimensions.push({ id: def.id, label: def.label, score: roleFit })
+      dimensions.push({ id: def.id, label, score: roleFit })
       continue
     }
     let numerator = 0
@@ -133,7 +139,7 @@ export function computeWeightedScore(options: {
       seen = true
       numerator += weight * Number(value)
     }
-    if (seen && denominator > 0) dimensions.push({ id: def.id, label: def.label, score: clamp(numerator / denominator) })
+    if (seen && denominator > 0) dimensions.push({ id: def.id, label, score: clamp(numerator / denominator) })
   }
 
   return {

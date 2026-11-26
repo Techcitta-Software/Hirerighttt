@@ -151,3 +151,23 @@ def test_stored_resume_keeps_its_real_extension():
     assert stored_resume_filename("users/u1/resume/resume.pdf", "") == "resume.pdf"
     assert stored_resume_filename("users/u1/resume/resume.pdf", 'evil"name\r\n.pdf') == "evil name .pdf"
     assert infer_resume_content_type(stored_resume_filename("k/resume.docx", None)).endswith("wordprocessingml.document")
+
+
+def test_infer_resume_content_type_prefers_extension_over_stored_text():
+    """A PDF stored as text/plain or octet-stream must still be served as application/pdf."""
+    from app.services.storage.resume_storage import infer_resume_content_type
+
+    pdf = "application/pdf"
+    docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    doc = "application/msword"
+    assert infer_resume_content_type("resume.pdf") == pdf
+    assert infer_resume_content_type("resume.pdf", "text/plain") == pdf
+    assert infer_resume_content_type("resume.pdf", "text/plain; charset=utf-8") == pdf
+    assert infer_resume_content_type("resume.pdf", "application/octet-stream") == pdf
+    assert infer_resume_content_type("resume.pdf", pdf) == pdf
+    assert infer_resume_content_type("resume.docx", "text/plain") == docx
+    assert infer_resume_content_type("resume.docx", pdf) == docx
+    assert infer_resume_content_type("resume.doc", "text/plain") == doc
+    assert infer_resume_content_type("resume.doc", doc) == doc
+    assert infer_resume_content_type("resume", "text/plain") == "application/octet-stream"
+    assert infer_resume_content_type("resume", pdf) == pdf

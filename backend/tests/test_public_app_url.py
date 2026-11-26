@@ -66,7 +66,18 @@ def test_production_without_url_or_request_origin_refuses_to_build_localhost_lin
     assert inv.public_app_origin("https://app.hireright.test") == "https://app.hireright.test"
 
 
-def test_development_without_anything_uses_the_dev_server():
+def test_development_without_url_or_request_uses_the_configured_web_origin():
+    """Scheduler reminders / scripts have no browser request: use the site in CORS_ORIGINS, not localhost:5173."""
+    assert inv.public_app_origin() == "https://app.hireright.test"
+    assert inv.invite_public_url("tok") == "https://app.hireright.test/interview/invite/tok"
+
+
+def test_development_without_anything_uses_the_dev_server(monkeypatch):
+    import dataclasses
+
+    from app import node_config
+
+    monkeypatch.setattr(node_config, "config", dataclasses.replace(node_config.config, cors_origins=["*"]))
     assert inv.public_app_origin() == "http://localhost:5173"
 
 

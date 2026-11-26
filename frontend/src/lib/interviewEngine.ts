@@ -9,6 +9,8 @@ export type Question = {
   topic?: string
   focus?: string
   scoringProfile?: string
+  questionModel?: 'technical' | 'non_technical'
+  lookFor?: string[]
 }
 
 export const ROLES = [

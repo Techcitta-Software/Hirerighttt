@@ -550,10 +550,11 @@ def test_invite_page_reminder_and_reschedule(client, world, monkeypatch):
     assert mine["signedInAsInvitee"] is True and mine["resumeText"] and mine["atsScore"] is not None
     assert client.get(f"/api/interview-invites/{token}", headers=other["h"]).json()["invite"]["resumeText"] == ""
     assert client.get("/api/interview-invites/doesnotexist").status_code == 404
-    # Reminders: secret required; mail off -> 503 (never sends).
+    # Reminders: secret required; mail off -> due reminders are recorded in-app (never sends).
     monkeypatch.setenv("CRON_SECRET", "qa-cron-secret")
     assert client.post("/api/internal/interview-reminders").status_code == 401
-    assert client.post("/api/internal/interview-reminders", headers={"x-cron-secret": "qa-cron-secret"}).status_code == 503
+    off = client.post("/api/internal/interview-reminders", headers={"x-cron-secret": "qa-cron-secret"})
+    assert off.status_code == 200 and off.json()["emailConfigured"] is False  # recorded in-app, never 503
     # A recruiter-scheduled slot cannot be moved by the candidate.
     new = (datetime.now(timezone.utc) + timedelta(days=5)).isoformat()
     refused = client.post(f"/api/interview-invites/{token}/reschedule", json={"scheduledStart": new}, headers=cand["h"])

@@ -104,3 +104,33 @@ export function decideAnswerTick(input: AnswerTickInput): 'wait' | 'submit-now' 
   }
   return input.noAnswerHandled ? 'wait' : 'no-answer'
 }
+
+/**
+ * The last turn ("Thank you for your time today…") is a goodbye, not a question: it gets no "Question N" label, no
+ * answer timer and no listening window; the interview finishes once Ava has said it.
+ */
+export function isClosingStatement(q: { focus?: string | null } | null | undefined): boolean {
+  const focus = String(q?.focus ?? '')
+  return focus === 'structured-closing' || focus === 'pending-closing'
+}
+
+/**
+ * The 3:00 answer clock runs only while the answer window is open: it starts when Ava has finished asking (so a
+ * slow or stuck voice never eats the candidate's time) and it never runs for the closing line.
+ */
+export function answerClockRunning(input: { answerWindowStartedAt: number; aiSpeaking: boolean; closing: boolean }): boolean {
+  return !input.closing && !input.aiSpeaking && input.answerWindowStartedAt > 0
+}
+
+/**
+ * The delayed "no answer, moving on" may only advance the question it was raised for. (A late timer from the
+ * previous question used to skip the next one before the candidate ever got a listening window.)
+ */
+export function noAnswerAdvanceStillValid(input: {
+  raisedForIndex: number
+  currentIndex: number
+  raisedGen: number
+  currentGen: number
+}): boolean {
+  return input.raisedForIndex === input.currentIndex && input.raisedGen === input.currentGen
+}

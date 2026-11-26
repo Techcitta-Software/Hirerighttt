@@ -92,7 +92,6 @@ function OrganizationSignupForm() {
         {
           name: name.trim(),
           email: cleanEmail,
-          password,
           role: 'employer',
           companyName: company.trim(),
           phone: phoneNorm,

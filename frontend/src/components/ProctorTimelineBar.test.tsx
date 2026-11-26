@@ -106,6 +106,35 @@ describe('ProctorTimelineBar', () => {
   })
 })
 
+describe('without a video', () => {
+  const noVideo = (props: Partial<Parameters<typeof ProctorTimelineBar>[0]> = {}) =>
+    renderToStaticMarkup(createElement(ProctorTimelineBar, props))
+
+  it('still draws the one line with red marks at interview time and the same count line', () => {
+    const html = noVideo({
+      durationHint: 400,
+      events: [
+        ev({ id: 'a', startOffsetSec: 100, durationSec: 6 }),
+        ev({ id: 'b', eventType: 'TAB_OR_WINDOW_LEFT', startOffsetSec: 300, durationSec: 0 }),
+      ],
+    })
+    expect(html).toContain('data-seekable="false"')
+    expect(html.match(/data-testid="proctor-marker"/g)).toHaveLength(2)
+    expect(leftOf(html, 0)).toBeCloseTo(25)
+    expect(leftOf(html, 1)).toBeCloseTo(75)
+    expect(html).toContain('2 deviations · Looked away 1 · Left tab / window 1')
+    expect(html).toContain('Interview length 06:40')
+  })
+
+  it('is not a seek slider and each mark shows its time instead', () => {
+    const html = noVideo({ durationHint: 400, events: [ev({ id: 'a', startOffsetSec: 222, durationSec: 6 })] })
+    expect(html).not.toContain('role="slider"')
+    expect(html).not.toContain('00:00 /')
+    expect(html).toContain('title="Looked away · 03:42 (6s)"')
+    expect(html).toContain('aria-label="Looked away · 03:42 (6s)"')
+  })
+})
+
 describe('seeking', () => {
   it('moves the video to the start of a mark, clamped to the recording', () => {
     const video = { currentTime: 0 }

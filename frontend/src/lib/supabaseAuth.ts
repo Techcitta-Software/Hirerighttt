@@ -63,7 +63,6 @@ export function applySupabaseSession(session: Session | null, user: User | null)
     {
       name: String(meta.name || user.email.split('@')[0]),
       email: user.email.toLowerCase(),
-      password: '',
       role,
       companyName: meta.companyName ? String(meta.companyName) : undefined,
     },

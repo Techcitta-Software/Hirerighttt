@@ -276,7 +276,13 @@ export function formatTimelineClock(sec: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${String(m).padStart(2, '0')}:${ss}`
 }
 
-function formatSpan(sec: number): string {
+export function formatSpan(sec: number): string {
+  // Short events keep their real length: a 2.5 s look-away must not read "(3s)", which is the point where the
+  // score penalty starts. Rounded down so nothing under 3 s is ever shown as 3 s.
+  if (Number.isFinite(sec) && sec < 10) {
+    const tenths = Math.max(0.1, Math.floor(sec * 10 + 1e-6) / 10)
+    return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)}s`
+  }
   const s = Math.max(1, Math.round(sec))
   if (s < 60) return `${s}s`
   const m = Math.floor(s / 60)

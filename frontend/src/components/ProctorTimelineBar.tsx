@@ -26,8 +26,11 @@ import {
 import styles from './ProctorTimelineBar.module.css'
 
 type Props = {
-  /** The <video> playing the stored interview recording. */
-  videoRef: RefObject<HTMLVideoElement | null>
+  /**
+   * The <video> playing the stored interview recording. Omit it when no video was saved: the bar is then drawn on
+   * interview time from the review events, marks are not seekable and only show their time on hover/focus.
+   */
+  videoRef?: RefObject<HTMLVideoElement | null> | null
   events?: readonly IntegrityLogEvent[] | null
   flaggedSections?: readonly InterviewFlagSection[] | null
   /** Duration stored with the recording (seconds); used while the browser cannot tell (MediaRecorder WebM). */
@@ -56,10 +59,13 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   const markers = useMemo(() => buildTimelineMarkers(events, flaggedSections), [events, flaggedSections])
   const { durationSec, known } = resolveTimelineDuration(videoDuration, durationHint, markers)
   const placed = useMemo(() => placeMarkers(markers, durationSec), [markers, durationSec])
+  const seekable = Boolean(videoRef)
+  const pastEnd = seekable ? ' · after the end of the video' : ' · after the end of the interview'
+
   const summary = useMemo(() => timelineSummary(markers), [markers])
 
   useEffect(() => {
-    const video = videoRef.current
+    const video = videoRef?.current
     if (!video) return
     let probingDuration = false
     const syncDuration = () => {
@@ -105,7 +111,10 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   }, [videoRef])
 
   const seekTo = useCallback(
-    (sec: number) => setCurrentTime(seekVideo(videoRef.current, sec, durationSec)),
+    (sec: number) => {
+      if (!videoRef) return
+      setCurrentTime(seekVideo(videoRef.current, sec, durationSec))
+    },
     [videoRef, durationSec],
   )
 
@@ -147,8 +156,14 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
   const total = markers.length
 
   return (
-    <div className={`${styles.root} ${tone === 'dark' ? styles.dark : ''} ${className ?? ''}`} data-tone={tone} data-testid="proctor-timeline">
+    <div
+      className={`${styles.root} ${tone === 'dark' ? styles.dark : ''} ${seekable ? '' : styles.static} ${className ?? ''}`}
+      data-tone={tone}
+      data-testid="proctor-timeline"
+      data-seekable={seekable ? 'true' : 'false'}
+    >
       <div className={styles.trackWrap}>
+        {seekable ? (
         <div
           className={styles.track}
           role="slider"
@@ -164,11 +179,20 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
           <span className={styles.rail} aria-hidden="true" />
           <span className={styles.played} style={{ width: `${playPct}%` }} aria-hidden="true" />
         </div>
+        ) : (
+          <div className={styles.track} aria-hidden="true">
+            <span className={styles.rail} />
+          </div>
+        )}
 
         {placed.length ? (
-          <div className={styles.markers} role="group" aria-label="Deviation marks. Use the arrow keys to move between them.">
+          <div className={styles.markers} role="group" aria-label={
+              seekable
+                ? 'Deviation marks. Use the arrow keys to move between them.'
+                : 'Deviation marks on the interview timeline. Use the arrow keys to move between them.'
+            }>
             {placed.map((m, i) => {
-              const text = markerTooltip(m) + (m.clamped ? ' · after the end of the video' : '')
+              const text = markerTooltip(m) + (m.clamped ? pastEnd : '')
               return (
                 <button
                   key={m.id}
@@ -188,9 +212,11 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
                   tabIndex={i === tabStop ? 0 : -1}
                   aria-label={text}
                   aria-describedby={tipIndex === i ? tipId : undefined}
+                  title={seekable ? undefined : text}
                   onClick={() => {
                     setFocusIndex(i)
-                    seekTo(seekTargetForMarker(m, durationSec))
+                    if (seekable) seekTo(seekTargetForMarker(m, durationSec))
+                    else setTipIndex(i)
                   }}
                   onKeyDown={(e) => onMarkerKeyDown(e, i)}
                   onFocus={() => {
@@ -206,7 +232,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
           </div>
         ) : null}
 
-        <div className={styles.playhead} style={{ left: `${playPct}%` }} aria-hidden="true" />
+        {seekable ? <div className={styles.playhead} style={{ left: `${playPct}%` }} aria-hidden="true" /> : null}
 
         {tip ? (
           <div
@@ -216,7 +242,7 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
             style={{ left: `${tip.instant ? tip.leftPct : tip.leftPct + tip.widthPct / 2}%` }}
           >
             {markerTooltip(tip)}
-            {tip.clamped ? ' · after the end of the video' : ''}
+            {tip.clamped ? pastEnd : ''}
           </div>
         ) : null}
       </div>
@@ -225,9 +251,13 @@ export function ProctorTimelineBar({ videoRef, events, flaggedSections, duration
         <span className={total ? styles.countFlagged : styles.countClear} role="status" title={summary}>
           {summary}
         </span>
-        <span className={styles.clock} aria-hidden="true">
-          {formatTimelineClock(currentTime)} / {known ? formatTimelineClock(durationSec) : '--:--'}
-        </span>
+        {seekable ? (
+          <span className={styles.clock} aria-hidden="true">
+            {formatTimelineClock(currentTime)} / {known ? formatTimelineClock(durationSec) : '--:--'}
+          </span>
+        ) : (
+          <span className={styles.clock}>{known ? `Interview length ${formatTimelineClock(durationSec)}` : 'Interview time'}</span>
+        )}
       </p>
     </div>
   )

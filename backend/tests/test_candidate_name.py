@@ -252,3 +252,30 @@ def test_city_in_email_is_not_added_to_the_name():
 
 def test_email_does_not_duplicate_part_of_an_apostrophe_name():
     assert _from_text("PRIYA D'SOUZA\nStaff Nurse\npriya.dsouza@gmail.com") == "Priya D'Souza"
+
+
+# --- design tools are never a name (T4: two-column designer resume became "Adobe Xd") ----------------------------
+
+DESIGNER_RESUME = (
+    "TOOLS\nFigma\nAdobe XD\nSketch\nAdobe Illustrator\nAdobe Photoshop\nProtopie\nCONTACT\n"
+    "ananya.kulkarni@t5.test\n+91 97300 12121\nPune, Maharashtra\nbehance.net/ananyak\nSKILLS\nUI Design\n"
+    "UX Research\nWireframing\nPrototyping\nEDUCATION\nB.Des, Interaction Design\nMIT Institute of Design, Pune\n2019\n"
+    "ANANYA\nKULKARNI\nSenior Product Designer\nPROFILE\nProduct designer with 5 years of experience."
+)
+
+
+def test_design_tool_lines_are_not_a_name():
+    assert name_from_resume_text(DESIGNER_RESUME) == "Ananya Kulkarni"
+
+
+def test_design_tools_never_look_like_a_person():
+    from app.services.candidate_name import looks_like_person_name
+
+    for tool in ("Adobe XD", "Adobe Xd", "Sketch", "Adobe Photoshop", "Adobe Illustrator", "InDesign", "Canva",
+                 "Framer", "InVision", "Zeplin", "Blender", "AutoCAD", "Protopie"):
+        assert not looks_like_person_name(tool), tool
+
+
+def test_parsed_tool_name_is_replaced_by_the_resume_name():
+    profile = {"resumeFullName": "Adobe Xd", "resumeText": DESIGNER_RESUME}
+    assert resume_name(profile) == "Ananya Kulkarni"

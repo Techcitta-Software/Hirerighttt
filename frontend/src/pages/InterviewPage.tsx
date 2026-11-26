@@ -109,7 +109,10 @@ import {
   NO_ANSWER_NOTICE_HOLD_MS,
   NO_ANSWER_PROMPT,
   NO_ANSWER_SPEECH_MAX_MS,
+  answerClockRunning,
   decideAnswerTick,
+  isClosingStatement,
+  noAnswerAdvanceStillValid,
   stripAnswerDoneCommand,
 } from '../lib/answerTiming'
 
@@ -832,6 +835,8 @@ export function InterviewPage() {
     setAiSpeaking(false)
     aiSpeakingRef.current = false
     listenAfterTtsRef.current = true
+    // The candidate spoke over Ava: their answer window (and the answer clock) starts now.
+    if (!answerWindowStartedAtRef.current) answerWindowStartedAtRef.current = Date.now()
   }
 
   function shouldUseMoonshineVad(): boolean {
@@ -971,6 +976,9 @@ export function InterviewPage() {
         : '')
 
     const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
+    // Every question gets a fresh 3:00; the clock itself only runs once Ava has finished asking.
+    setSecondsLeft(QUESTION_SECONDS)
+    const closing = isClosingStatement(question)
 
     const speakQuestion = () => speakText(spoken, {
       onStart: () => {
@@ -983,6 +991,10 @@ export function InterviewPage() {
         if (gen !== speakGenRef.current) return
         setAiSpeaking(false)
         aiSpeakingRef.current = false
+        if (closing) {
+          finishAfterClosing()
+          return
+        }
         listenAfterTtsRef.current = true
         answerWindowStartedAtRef.current = Date.now()
         if (
@@ -997,6 +1009,10 @@ export function InterviewPage() {
         if (gen !== speakGenRef.current) return
         setAiSpeaking(false)
         aiSpeakingRef.current = false
+        if (closing) {
+          finishAfterClosing()
+          return
+        }
         listenAfterTtsRef.current = true
         answerWindowStartedAtRef.current = Date.now()
         if (stageRef.current === 'interview' && micOnRef.current) startListening()
@@ -1032,7 +1048,8 @@ export function InterviewPage() {
         finishingRef.current ||
         advancingRef.current ||
         aiSpeakingRef.current ||
-        interviewBanned
+        interviewBanned ||
+        isClosingStatement(questions[currentRef.current])
       ) {
         return
       }
@@ -1060,6 +1077,17 @@ export function InterviewPage() {
     setSecondsLeft(QUESTION_SECONDS)
     let alive = true
     const id = window.setInterval(() => {
+      // The 3:00 starts when Ava has finished asking (never while she speaks, never for the closing line).
+      if (
+        !answerClockRunning({
+          answerWindowStartedAt: answerWindowStartedAtRef.current,
+          aiSpeaking: aiSpeakingRef.current,
+          closing: isClosingStatement(questions[currentRef.current]),
+        }) ||
+        advancingRef.current
+      ) {
+        return
+      }
       setSecondsLeft((s) => {
         if (s <= 1) {
           window.clearInterval(id)
@@ -1156,6 +1184,8 @@ export function InterviewPage() {
       sideLookWarnings: 0,
       tooFarWarnings: 0,
       banned: false,
+      // "Continue without camera" chosen explicitly: no "no face" penalty, the recruiter sees "camera off by choice".
+      cameraOffByChoice: skipCamera,
     }
     stopAllSpeech()
     try {
@@ -1308,12 +1338,24 @@ export function InterviewPage() {
     finish(next, false)
   }
 
+  /** Ava has said the closing line (a goodbye, not a question): finish without waiting for an "answer". */
+  function finishAfterClosing() {
+    if (finishingRef.current || stageRef.current !== 'interview') return
+    stopListening()
+    const next = [...answersRef.current]
+    next[currentRef.current] = ''
+    answersRef.current = next
+    finishingRef.current = true
+    finish(next, false)
+  }
+
   /**
    * The candidate stayed silent after the question (answerTiming.NO_ANSWER_TIMEOUT_MS): Ava says so out loud and on
    * screen, waits NO_ANSWER_NOTICE_HOLD_MS, then moves on with an empty answer.
    */
   function announceNoAnswerAndAdvance() {
     const gen = speakGenRef.current
+    const raisedForIndex = currentRef.current
     listenAfterTtsRef.current = false
     stopListening()
     setNoAnswerNotice(NO_ANSWER_PROMPT)
@@ -1323,7 +1365,19 @@ export function InterviewPage() {
     const advance = () => {
       if (done) return
       done = true
-      if (gen !== speakGenRef.current || finishingRef.current || stageRef.current !== 'interview') return
+      if (
+        !noAnswerAdvanceStillValid({
+          raisedForIndex,
+          currentIndex: currentRef.current,
+          raisedGen: gen,
+          currentGen: speakGenRef.current,
+        }) ||
+        finishingRef.current ||
+        advancingRef.current ||
+        stageRef.current !== 'interview'
+      ) {
+        return
+      }
       setNoAnswerNotice('')
       setAiSpeaking(false)
       aiSpeakingRef.current = false
@@ -1698,7 +1752,10 @@ export function InterviewPage() {
     !starting &&
     scheduleAllowsStart &&
     (skipCamera || (streamReady && !faceBlocks && faceStatus.faceCount === 1))
-  const callStatus = advancing
+  const closingTurn = stage === 'interview' && isClosingStatement(question)
+  const callStatus = closingTurn
+    ? 'Ava is wrapping up the interview — no answer needed'
+    : advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
       ? 'Recording your answer…'
@@ -1711,6 +1768,7 @@ export function InterviewPage() {
             : 'Live call with Ava'
 
   const canSubmit =
+    !closingTurn &&
     draft.trim().length >= 1 &&
     !aiSpeaking &&
     !faceBlocks &&
@@ -1751,9 +1809,11 @@ export function InterviewPage() {
                 {faceStatus.label}
               </span>
             )}
-            <span className={secondsLeft < 30 ? styles.timerLow : styles.timer}>
-              {timeLabel}
-            </span>
+            {closingTurn ? null : (
+              <span className={secondsLeft < 30 ? styles.timerLow : styles.timer}>
+                {timeLabel}
+              </span>
+            )}
           </div>
         ) : stage === 'analyzing' ? (
           <div className={styles.appMeta}>
@@ -2102,9 +2162,15 @@ export function InterviewPage() {
                     />
                   </div>
                   <span>
-                    Question {current + 1}
-                    {adaptiveRef.current ? '' : ` of ${questions.length}`}
-                    {question.topic || question.category ? ` · ${question.topic || question.category}` : ''}
+                    {closingTurn ? (
+                      'Closing message'
+                    ) : (
+                      <>
+                        Question {current + 1}
+                        {adaptiveRef.current ? '' : ` of ${questions.length}`}
+                        {question.topic || question.category ? ` · ${question.topic || question.category}` : ''}
+                      </>
+                    )}
                   </span>
                 </div>
 
@@ -2158,7 +2224,7 @@ export function InterviewPage() {
             </div>
 
             <footer className={styles.dock}>
-              {(showTypeFallback || !speechSupported) && (
+              {!closingTurn && (showTypeFallback || !speechSupported) && (
                 <textarea
                   className={styles.typeFallback}
                   value={draft}
@@ -2167,7 +2233,7 @@ export function InterviewPage() {
                   onChange={(e) => setDraft(e.target.value)}
                 />
               )}
-              {speechSupported && (
+              {speechSupported && !closingTurn && (
                 <button
                   type="button"
                   className={styles.textBtn}

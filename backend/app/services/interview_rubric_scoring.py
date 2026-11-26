@@ -21,6 +21,60 @@ RUBRIC_WEIGHT_BY_PROFILE: dict[str, dict[str, float]] = {
     "balanced": {"correctness": 0.3, "depth": 0.25, "communication": 0.25, "roleSkillsFit": 0.2},
 }
 
+# Non-technical interviews only. roleSkillsFit stays at 0 so naming a tool cannot move the question score.
+NONTECH_RUBRIC_WEIGHTS: dict[str, dict[str, float]] = {
+    "opening": {"correctness": 0.20, "depth": 0.20, "communication": 0.60, "roleSkillsFit": 0.0},
+    "situational": {"correctness": 0.40, "depth": 0.40, "communication": 0.20, "roleSkillsFit": 0.0},
+    "stakeholder": {"correctness": 0.35, "depth": 0.40, "communication": 0.25, "roleSkillsFit": 0.0},
+    "achievement": {"correctness": 0.25, "depth": 0.55, "communication": 0.20, "roleSkillsFit": 0.0},
+    "followup": {"correctness": 0.35, "depth": 0.40, "communication": 0.25, "roleSkillsFit": 0.0},
+    "communication": {"correctness": 0.15, "depth": 0.15, "communication": 0.70, "roleSkillsFit": 0.0},
+}
+
+NONTECH_RUBRIC_LABELS = {
+    "correctness": "Situation fit",
+    "depth": "Ownership & result",
+    "communication": "Communication",
+    "roleSkillsFit": "Role Skills Fit",
+}
+
+_OWNERSHIP_RE = re.compile(
+    r"\b(decided|told|asked|called|emailed|wrote|sent|met|escalated|negotiated|refused|declined|approved|"
+    r"prioritized|owned|scheduled|followed|took|hired|presented|recommended|convinced|closed|resolved|"
+    r"renewed|retained|handled|collected|onboarded)\b",
+    re.I,
+)
+_STAKEHOLDER_RE = re.compile(
+    r"\b(client|customer|stakeholder|manager|director|executive|legal|finance|recruiter|candidate|vendor|"
+    r"partner|teammate|team|user|boss|buyer|hiring)\b",
+    re.I,
+)
+_OUTCOME_WORD_RE = re.compile(
+    r"\b(saved|reduced|increased|signed|hired|launched|approved|declined|missed|delayed|delivered|result|outcome|quota)\b",
+    re.I,
+)
+_VAGUE_PHRASES = (
+    "somehow",
+    "stuff",
+    "things",
+    "a lot",
+    "various",
+    "basically",
+    "kind of",
+    "sort of",
+    "team player",
+    "hard worker",
+    "passionate",
+    "synergy",
+    "leverage",
+    "circle back",
+)
+_WHY_ACTION_RESULT = "The answer states a personal action and a concrete result."
+_WHY_ACTION_ONLY = "The answer states a personal action but no measurable result."
+_WHY_STAKEHOLDER_ONLY = "The answer names a stakeholder but not what the candidate did."
+_WHY_STRUCTURE_ONLY = "The answer is organized but does not pin down an action or a result."
+_WHY_NONE = "No specific situation, action, or result was stated."
+
 STRUCTURE_SIGNALS = [
     "for example",
     "first",
@@ -88,6 +142,82 @@ def get_rubric_weights(profile: str) -> dict[str, float]:
     return dict(RUBRIC_WEIGHT_BY_PROFILE.get(profile) or RUBRIC_WEIGHT_BY_PROFILE["balanced"])
 
 
+def is_non_technical_question(question: dict[str, Any] | None) -> bool:
+    return str((question or {}).get("questionModel") or "") == "non_technical"
+
+
+def non_technical_scoring_profile(question: dict[str, Any] | None) -> str:
+    explicit = _clean((question or {}).get("scoringProfile")).lower()
+    if explicit in NONTECH_RUBRIC_WEIGHTS:
+        return explicit
+    focus = _clean((question or {}).get("focus")).lower()
+    if "opening" in focus:
+        return "opening"
+    if "closing" in focus:
+        return "communication"
+    return "situational"
+
+
+def _collapse_ws(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def validated_evidence_quote(quote: str, answer: str) -> str:
+    """At most 12 words, and only if it is still a substring of the answer after whitespace collapse."""
+    collapsed_quote = _collapse_ws(quote)
+    words = collapsed_quote.split()
+    if len(words) > 12:
+        collapsed_quote = " ".join(words[:12])
+    collapsed_answer = _collapse_ws(answer)
+    if collapsed_quote and collapsed_quote.lower() in collapsed_answer.lower():
+        return collapsed_quote
+    return ""
+
+
+def _quote_around(answer: str, needle: str) -> str:
+    collapsed = _collapse_ws(answer)
+    words = collapsed.split()
+    if not words:
+        return ""
+    if needle:
+        idx = collapsed.lower().find(needle.lower())
+        if idx >= 0:
+            start = len(collapsed[:idx].split()) - (0 if collapsed[:idx].endswith(" ") or idx == 0 else 1)
+            start = max(0, start)
+            return validated_evidence_quote(" ".join(words[start : start + 12]), collapsed)
+    return validated_evidence_quote(" ".join(words[:12]), collapsed)
+
+
+def _nontech_evidence(answer: str, *, ownership: list[str], outcome: bool, stakeholder: bool, structure_hits: int) -> dict[str, dict[str, str]]:
+    if ownership and outcome:
+        why = _WHY_ACTION_RESULT
+        quote = _quote_around(answer, ownership[0])
+    elif ownership:
+        why = _WHY_ACTION_ONLY
+        quote = _quote_around(answer, ownership[0])
+    elif stakeholder:
+        why = _WHY_STAKEHOLDER_ONLY
+        quote = _quote_around(answer, "")
+    elif structure_hits:
+        why = _WHY_STRUCTURE_ONLY
+        quote = _quote_around(answer, "")
+    else:
+        why = _WHY_NONE
+        quote = ""
+    item = {"quote": quote, "why": why}
+    return {"correctness": dict(item), "depth": dict(item), "communication": dict(item)}
+
+
+def _communication_score(text: str, lower: str, word_count: int) -> tuple[int, int]:
+    structure_hits = sum(1 for s in STRUCTURE_SIGNALS if s in lower)
+    clarity_band = _word_count_band_score(word_count)
+    filler_penalty = 10 if re.search(r"\b(um+|uh+|like,|you know)\b", text, re.I) else 0
+    communication = _clamp(clarity_band * 0.55 + min(100, (structure_hits / 3) * 100) * 0.45 - filler_penalty)
+    if word_count < 8:
+        communication = min(communication, 20)
+    return communication, structure_hits
+
+
 def _word_count_band_score(word_count: int) -> int:
     if word_count < 8:
         return 15
@@ -102,7 +232,110 @@ def _word_count_band_score(word_count: int) -> int:
     return 55
 
 
+def _lookfor_hit_ratio(
+    question: dict[str, Any],
+    lower: str,
+    word_count: int,
+    *,
+    ownership: bool,
+    stakeholder: bool,
+    outcome: bool,
+) -> float:
+    items = question.get("lookFor") if isinstance(question.get("lookFor"), list) else []
+    if not items:
+        return 0.0
+    hits = 0
+    for item in items:
+        token = str(item or "")
+        key = token.lower()
+        if key == "own_action" and ownership:
+            hits += 1
+        elif key == "stakeholder" and stakeholder:
+            hits += 1
+        elif key == "situation" and word_count >= 25:
+            hits += 1
+        elif key == "result" and outcome:
+            hits += 1
+        elif key.startswith("tool:") or key.startswith("employer:"):
+            name = token.split(":", 1)[1].strip().lower()
+            if name and name in lower:
+                hits += 1
+    return hits / len(items)
+
+
+def _heuristic_non_technical(question: dict[str, Any], answer: str) -> dict[str, Any]:
+    """Judgment scoring. Engineering tool names (React, Python, Docker, ...) add nothing."""
+    text = _clean(answer)
+    lower = text.lower()
+    words = [w for w in text.split() if w]
+    word_count = len(words)
+    ownership = list(dict.fromkeys(m.group(0).lower() for m in _OWNERSHIP_RE.finditer(lower)))
+    stakeholder = _STAKEHOLDER_RE.search(lower) is not None
+    has_number = bool(re.search(r"\d", text))
+    has_outcome_word = _OUTCOME_WORD_RE.search(lower) is not None
+    has_mark = bool(re.search(r"%|\$", text))
+    outcome = has_number or has_mark or has_outcome_word
+    vague = sum(1 for phrase in _VAGUE_PHRASES if phrase in lower)
+    hypothetical = len(ownership) == 0 and re.search(r"\bi would\b|\bi will\b|\bi could\b", lower) is not None
+    communication, structure_hits = _communication_score(text, lower, word_count)
+    ratio = _lookfor_hit_ratio(
+        question, lower, word_count, ownership=bool(ownership), stakeholder=stakeholder, outcome=outcome
+    )
+
+    correctness = 20
+    if word_count >= 25:
+        correctness += 25
+    if word_count >= 60:
+        correctness += 15
+    correctness += round(ratio * 40)
+    if stakeholder:
+        correctness += 10
+    if word_count < 10:
+        correctness = min(correctness, 25)
+    if word_count < 5:
+        correctness = min(correctness, 10)
+    if vague >= 3 and not ownership:
+        correctness = min(correctness, 40)
+    if hypothetical:
+        correctness = min(correctness, 55)
+    correctness = _clamp(correctness)
+
+    depth = 18
+    if len(ownership) >= 1:
+        depth += 16
+    if len(ownership) >= 2:
+        depth += 8
+    if word_count >= 20 and not ownership:
+        depth -= 12
+    if has_number:
+        depth += 14
+    if has_outcome_word:
+        depth += 16
+    if structure_hits >= 2:
+        depth += 12
+    if word_count >= 40 and not ownership and not has_number and not has_outcome_word:
+        depth = min(depth, 35)
+    if hypothetical:
+        depth = min(depth, 55)
+    depth = _clamp(depth)
+
+    return {
+        "correctness": correctness,
+        "depth": depth,
+        "communication": communication,
+        "wordCount": word_count,
+        "keywordsHit": [],
+        "skillsHit": [],
+        "scoringProfile": non_technical_scoring_profile(question),
+        "evidence": _nontech_evidence(
+            text, ownership=ownership, outcome=outcome, stakeholder=stakeholder, structure_hits=structure_hits
+        ),
+    }
+
+
 def compute_heuristic_rubric_scores(question: dict[str, Any], answer: str, ctx: dict[str, Any]) -> dict[str, Any]:
+    if is_non_technical_question(question):
+        return _heuristic_non_technical(question, answer)
     text = _clean(answer)
     lower = text.lower()
     words = [w for w in text.split() if w]
@@ -165,12 +398,7 @@ def compute_heuristic_rubric_scores(question: dict[str, Any], answer: str, ctx: 
     depth += min(12, len(skills_hit) * 4)
     depth = _clamp(depth)
 
-    structure_hits = sum(1 for s in STRUCTURE_SIGNALS if s in lower)
-    clarity_band = _word_count_band_score(word_count)
-    filler_penalty = 10 if re.search(r"\b(um+|uh+|like,|you know)\b", text, re.I) else 0
-    communication = _clamp(clarity_band * 0.55 + min(100, (structure_hits / 3) * 100) * 0.45 - filler_penalty)
-    if word_count < 8:
-        communication = min(communication, 20)
+    communication, _structure_hits = _communication_score(text, lower, word_count)
 
     profile = classify_question_scoring_profile(question)
     return {
@@ -217,8 +445,16 @@ def merge_rubric_scores(heuristic: dict[str, Any], llm: dict[str, Any] | None) -
     }
 
 
-def build_weighted_rubrics(scores: dict[str, Any], profile: str) -> list[dict[str, Any]]:
-    weights = get_rubric_weights(profile)
+def build_weighted_rubrics(
+    scores: dict[str, Any], profile: str, question: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    nontech = is_non_technical_question(question)
+    if nontech:
+        weights = dict(NONTECH_RUBRIC_WEIGHTS[non_technical_scoring_profile(question)])
+        labels = NONTECH_RUBRIC_LABELS
+    else:
+        weights = get_rubric_weights(profile)
+        labels = {defn["id"]: defn["label"] for defn in INTERVIEW_RUBRICS}
     out = []
     for defn in INTERVIEW_RUBRICS:
         rid = defn["id"]
@@ -227,7 +463,7 @@ def build_weighted_rubrics(scores: dict[str, Any], profile: str) -> list[dict[st
         out.append(
             {
                 "id": rid,
-                "label": defn["label"],
+                "label": labels.get(rid, defn["label"]),
                 "weight": weights.get(rid, 0.33),
                 "score": score,
             }

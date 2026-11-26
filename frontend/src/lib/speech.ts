@@ -98,14 +98,68 @@ export function speakText(text: string, options?: SpeakOptions): void {
   })
 }
 
+/** Device voices speak roughly this many words per second at rate 1. */
+const DEVICE_WORDS_PER_SEC = 2.5
+/** Extra time after the estimated end before the watchdog ends the speech itself. */
+export const SPEECH_WATCHDOG_MARGIN_MS = 3_000
+/** If the device voice has not started by then (no voices installed, blocked audio), stop waiting for it. */
+export const SPEECH_START_TIMEOUT_MS = 3_000
+
+/** How long `text` takes to say at `rate`, in ms (an estimate; used only as a safety net). */
+export function estimatedSpeechMs(text: string, rate = 1): number {
+  const words = text.trim().split(/\s+/).filter(Boolean).length
+  return Math.round((words / (DEVICE_WORDS_PER_SEC * Math.max(0.5, rate || 1))) * 1000)
+}
+
+/**
+ * Speaks with the device voice. A device without voices (locked-down PCs, headless browsers) may never fire
+ * onstart / onend, which used to leave the room stuck on "Ava is speaking" with no answer window. A watchdog ends
+ * the speech after the estimated duration plus a margin (or sooner if it never starts), so onEnd always fires once.
+ */
 function speakWithDeviceVoice(prepared: string, options?: SpeakOptions): void {
   if (!isSpeechSynthesisSupported()) {
     options?.onEnd?.()
     return
   }
-  window.speechSynthesis.cancel()
+  const generation = speakGeneration
+  const synth = window.speechSynthesis
+  synth.cancel()
+
+  let settled = false
+  let started = false
+  let watchdog: number | undefined
+  const rate = options?.rate ?? INTERVIEW_VOICE.rate
+  const settle = (kind: 'end' | 'error') => {
+    if (settled) return
+    settled = true
+    window.clearTimeout(watchdog)
+    // Speech that was cancelled or replaced ends as "interrupted", like the browser's own error event.
+    if (generation !== speakGeneration) kind = 'error'
+    if (kind === 'error' && options?.onError) options.onError()
+    else options?.onEnd?.()
+  }
+  const arm = (ms: number, onFire: () => void) => {
+    window.clearTimeout(watchdog)
+    watchdog = window.setTimeout(onFire, ms)
+  }
+  const endByWatchdog = () => {
+    if (settled) return
+    if (generation === speakGeneration) {
+      try {
+        synth.cancel()
+      } catch {
+        /* nothing to cancel */
+      }
+    }
+    settle('end')
+  }
 
   const run = () => {
+    if (settled) return
+    if (generation !== speakGeneration) {
+      settle('error')
+      return
+    }
     const utterance = new SpeechSynthesisUtterance(prepared)
     const voice = pickVoice()
     if (voice) {
@@ -114,25 +168,45 @@ function speakWithDeviceVoice(prepared: string, options?: SpeakOptions): void {
     } else {
       utterance.lang = INTERVIEW_VOICE.language
     }
-    utterance.rate = options?.rate ?? INTERVIEW_VOICE.rate
+    utterance.rate = rate
     utterance.pitch = options?.pitch ?? INTERVIEW_VOICE.pitch
     utterance.volume = 1
-    utterance.onstart = () => options?.onStart?.()
-    utterance.onend = () => options?.onEnd?.()
-    utterance.onerror = () => options?.onError?.()
-    window.speechSynthesis.speak(utterance)
+    const speechBudgetMs = estimatedSpeechMs(prepared, rate) + SPEECH_WATCHDOG_MARGIN_MS
+    utterance.onstart = () => {
+      if (started || settled) return
+      started = true
+      arm(speechBudgetMs, endByWatchdog)
+      options?.onStart?.()
+    }
+    utterance.onend = () => settle('end')
+    utterance.onerror = () => settle('error')
+    arm(SPEECH_START_TIMEOUT_MS, () => {
+      if (started || settled) return
+      // Some voices speak without firing onstart: give them the rest of the estimated time, never cut them off.
+      if (synth.speaking) {
+        started = true
+        arm(Math.max(0, speechBudgetMs - SPEECH_START_TIMEOUT_MS), endByWatchdog)
+      } else {
+        endByWatchdog()
+      }
+    })
+    synth.speak(utterance)
   }
 
-  if (window.speechSynthesis.getVoices().length === 0) {
+  if (synth.getVoices().length === 0) {
     const onVoices = () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
+      synth.removeEventListener('voiceschanged', onVoices)
       run()
     }
-    window.speechSynthesis.addEventListener('voiceschanged', onVoices)
+    synth.addEventListener('voiceschanged', onVoices)
     window.setTimeout(() => {
-      window.speechSynthesis.removeEventListener('voiceschanged', onVoices)
-      if (!window.speechSynthesis.speaking) run()
+      synth.removeEventListener('voiceschanged', onVoices)
+      if (!synth.speaking) run()
     }, 500)
+    // Even if neither the event nor the timer leads to speech, the candidate still gets the answer window.
+    arm(500 + SPEECH_START_TIMEOUT_MS, () => {
+      if (!started) endByWatchdog()
+    })
     return
   }
 

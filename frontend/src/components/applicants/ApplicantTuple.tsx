@@ -1,8 +1,9 @@
 import { memo, useRef, type MouseEvent } from 'react'
 import {
-  SAVE_HINT,
   experienceLabel,
   keywordSnippet,
+  proctorFlagBreakdown,
+  proctorNotes,
   relativeActive,
   sourceLabel,
   type IndexedApplicant,
@@ -21,14 +22,13 @@ function applicantHref(id: string): string {
   return `${window.location.pathname}?${params.toString()}`
 }
 
-export type TupleAction = 'view' | 'download' | 'shortlist' | 'save' | 'invite'
+export type TupleAction = 'view' | 'download' | 'shortlist' | 'invite'
 
 type Props = {
   row: IndexedApplicant
   terms: string[]
   selected: boolean
   active: boolean
-  saved: boolean
   busy?: string
   now: number
   /** How many applicants of this row's job have a rank (rank is shown when 2 or more do). */
@@ -48,6 +48,8 @@ function absoluteDate(iso: string): string {
 }
 
 function flagSummary(row: IndexedApplicant): string {
+  const breakdown = proctorFlagBreakdown(row.applicant)
+  if (breakdown.length) return `Proctoring flags: ${breakdown.join(', ')}`
   const counts = row.applicant.interviewResult?.integrity?.proctoring?.counts
   if (!counts) return `${row.flags} proctoring flag${row.flags === 1 ? '' : 's'}`
   const parts = [
@@ -64,7 +66,6 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   terms,
   selected,
   active,
-  saved,
   busy = '',
   now,
   rankTotal = 0,
@@ -147,24 +148,12 @@ export const ApplicantTuple = memo(function ApplicantTuple({
       <button
         type="button"
         className={styles.actBtn}
-        onClick={() => act('save')}
-        aria-pressed={saved}
-        aria-label={saved ? `Remove ${name} from Saved for later` : `Save ${name} for later`}
-        title={SAVE_HINT}
-      >
-        <HrIcon name="star" size={14} />{' '}
-        <span className={styles.actLabel}>{saved ? 'Saved for later' : 'Save for later'}</span>
-      </button>
-      <button
-        type="button"
-        className={styles.actBtn}
         onClick={() => act('invite')}
         disabled={!contactVisible || busy === 'invite'}
         aria-label={`Invite ${name} to interview`}
         title={contactVisible ? 'Email an interview link' : 'No e-mail address on file'}
       >
-        <HrIcon name="calendar" size={14} />{' '}
-        <span className={styles.actLabel}>{busy === 'invite' ? 'Sending…' : 'Invite'}</span>
+        {busy === 'invite' ? 'Sending…' : 'Invite'}
       </button>
     </>
   )
@@ -210,15 +199,15 @@ export const ApplicantTuple = memo(function ApplicantTuple({
               <Highlighted text={roleLine} terms={terms} />
             </span>
           ) : null}
+          {row.locationLabel ? (
+            <span className={styles.tupleLoc} data-testid="tuple-location">
+              {row.locationLabel}
+            </span>
+          ) : null}
         </h3>
 
         <p className={styles.metaLine}>
           <span>{exp || 'Experience —'}</span>
-          {row.headline.location ? (
-            <span title={`Location on the resume: ${row.headline.location}`}>
-              <HrIcon name="map-pin" size={12} /> {row.headline.location}
-            </span>
-          ) : null}
           {appliedToLabel ? (
             <span className={styles.jobChip} title={appliedToLabel.replace(/^(Also applied|Applied) to:/, (m) => m.replace(' to:', ' for'))}>
               {appliedToLabel}
@@ -227,7 +216,6 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             <span>{sourceLabel(a.recordSource)}</span>
           )}
           {shortlisted ? <span className={styles.statusText}>Shortlisted</span> : null}
-          {saved ? <span className={styles.statusText}>Saved for later</span> : null}
           {row.education ? (
             <span className={styles.metaEdu} title={row.education}>
               {row.education}
@@ -341,6 +329,14 @@ export const ApplicantTuple = memo(function ApplicantTuple({
             ) : (
               <span className={styles.cleanText}>No flags</span>
             )}
+            {row.interview === 'completed'
+              ? proctorNotes(row.applicant).map((note) => (
+                  <span key={note} className={styles.flagText} data-testid="proctor-note">
+                    {' · '}
+                    {note}
+                  </span>
+                ))
+              : null}
           </dd>
         </div>
         )}

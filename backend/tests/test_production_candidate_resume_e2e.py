@@ -166,6 +166,29 @@ def test_download_returns_the_original_file_for_a_hidden_candidate(employer_clie
     assert "Anita_Rao_Resume.pdf" in disposition
 
 
+def test_raw_download_content_type_follows_pdf_name_not_stored_text(employer_client, monkeypatch):
+    """text/plain on the stored object must not make Download save resume.pdf as text."""
+    client, _db = employer_client
+
+    async def text_plain_sign(profile, pool, **kwargs):
+        key = str(profile.get("resumeStoragePath") or "")
+        return {
+            "url": f"https://s3.example/{key}?sig=1",
+            "expiresInSeconds": 300,
+            "contentType": "text/plain",
+            "filename": "resume.pdf",
+        }
+
+    monkeypatch.setattr("app.dispatch.api_dispatch.resolve_resume_download_from_profile", text_plain_sign)
+    res = client.get("/api/vendor/candidate-documents/resume?userId=u-anita&raw=1", headers=_auth("tok-emp"))
+    assert res.status_code == 200, res.text
+    assert res.content == PDF
+    assert res.headers["content-type"].startswith("application/pdf")
+    disposition = res.headers["content-disposition"].lower()
+    assert "resume.pdf" in disposition
+    assert ".txt" not in disposition
+
+
 def test_download_link_is_separate_from_the_file_bytes(employer_client):
     client, _db = employer_client
     res = client.get(

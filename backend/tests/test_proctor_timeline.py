@@ -280,3 +280,21 @@ def test_non_reviewer_roles_cannot_fetch_the_events(client, mem_db):
 def test_unauthenticated_requests_are_refused(client, mem_db):
     assert client.get("/api/vendor/interview-review?sessionId=sess-a&email=cand@example.com").status_code == 401
     assert client.post("/api/interview/review-events", json={"sessionId": "sess-a", "events": []}).status_code == 401
+
+
+def test_review_without_video_still_returns_events_and_interview_length(client, mem_db):
+    # No recording saved (e.g. the upload failed): the reviewer still gets the events plus the interview's length so
+    # the face-gaze bar can be drawn on interview time.
+    mem_db["interviewSessions"]["sess-a"].update(
+        {"startedAt": "2026-11-20T10:00:00Z", "completedAt": "2026-11-20T10:06:30Z"}
+    )
+    _post(client, "cand@example.com", [_ev(), _ev(2, eventType="NO_FACE_SEEN", startOffsetSec=200, durationSec=3)])
+    body = _review(client, "org-a").json()
+    assert body["videoUrl"] is None
+    assert body["interviewDurationSec"] == 390
+    assert [e["startOffsetMs"] for e in body["events"]] == [12500, 200000]
+
+
+def test_interview_length_is_none_when_the_session_has_no_times(client, mem_db):
+    body = _review(client, "org-a").json()
+    assert body["interviewDurationSec"] is None

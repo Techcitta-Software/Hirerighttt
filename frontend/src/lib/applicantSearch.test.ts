@@ -25,7 +25,7 @@ import { buildZip, uniqueZipNames } from './zipStore'
 const NOW = Date.parse('2026-11-20T12:00:00Z')
 const daysAgo = (d: number) => new Date(NOW - d * 86_400_000).toISOString()
 
-function app(over: Partial<EmployerApplicant>): EmployerApplicant {
+function app(over: Partial<EmployerApplicant> & { currentLocation?: string; location?: string; city?: string }): EmployerApplicant {
   return {
     id: 'a',
     jobId: 'job-fe',
@@ -170,20 +170,52 @@ describe('filters and facets', () => {
     expect(ids(run({ expMin: '4', expMax: '6' })).sort()).toEqual(['ana', 'rah'])
   })
 
-  it('matches cities on the resume and role, with aliases and word boundaries', () => {
+  it('builds location checkboxes from the candidates and matches the label or a resume word', () => {
     const people = [
-      app({ id: 'blr', role: 'Engineer', resumeText: 'Lives in Bangalore' }),
-      app({ id: 'ncr', role: 'Engineer, Gurugram', resumeText: 'hello' }),
+      app({ id: 'blr', role: 'Engineer', resumeText: 'Asha\nEngineer at Acme | Bangalore' }),
+      app({ id: 'via', role: 'Engineer', resumeText: 'No city in this resume', currentLocation: 'Vijayawada' }),
+      app({ id: 'pun', role: 'Engineer', resumeText: 'Based in Pune.' }),
+      app({ id: 'pun2', role: 'Engineer', resumeText: 'Also here', currentLocation: 'Pune' }),
+      app({ id: 'pun3', role: 'Engineer', resumeText: 'Third', currentLocation: 'pune' }),
       app({ id: 'no', role: 'Dev', resumeText: 'I like punes and paranoida' }),
-      app({ id: 'pun', role: '', resumeText: 'Based in Pune.' }),
+      app({ id: 'word', role: 'Engineer', resumeText: 'Worked in Bengaluru for a year.' }),
     ].map(indexApplicant)
+    expect(people.find((r) => r.applicant.id === 'blr')?.locationLabel).toBe('Bengaluru')
+    expect(people.find((r) => r.applicant.id === 'via')?.locationLabel).toBe('Vijayawada')
+    expect(people.find((r) => r.applicant.id === 'pun')?.locationLabel).toBe('')
+    expect(people.find((r) => r.applicant.id === 'no')?.locationLabel).toBe('')
+
+    const open = searchApplicants(people, EMPTY_APPLICANT_FILTERS, 'relevance')
+    expect(open.facets.cities.map((c) => [c.label, c.count])).toEqual([
+      ['Pune', 2],
+      ['Bengaluru', 1],
+      ['Vijayawada', 1],
+    ])
+    expect(open.facets.cities.some((c) => c.label === 'Delhi NCR' || c.label === 'Hyderabad')).toBe(false)
+
     const found = (cities: string[]) =>
       searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, cities }, 'relevance').rows.map((r) => r.applicant.id).sort()
-    expect(found(['Bengaluru'])).toEqual(['blr'])
-    expect(found(['Delhi NCR'])).toEqual(['ncr'])
-    expect(found(['Pune'])).toEqual(['pun'])
-    expect(found(['Bengaluru', 'Pune'])).toEqual(['blr', 'pun'])
-    expect(people.find((r) => r.applicant.id === 'no')?.cities).toEqual([])
+    // Label match (Bangalore folded to Bengaluru) plus the resume word "Bengaluru". "punes" is not Pune.
+    expect(found(['Bengaluru'])).toEqual(['blr', 'word'])
+    expect(found(['Pune'])).toEqual(['pun', 'pun2', 'pun3'])
+    expect(found(['Vijayawada'])).toEqual(['via'])
+    expect(found(['Bengaluru', 'Pune'])).toEqual(['blr', 'pun', 'pun2', 'pun3', 'word'])
+
+    // A typed city filters locationLabel and resume text even when that city is not a checkbox.
+    const typed = searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, location: 'vijayawada' }, 'relevance')
+    expect(typed.rows.map((r) => r.applicant.id)).toEqual(['via'])
+    const mentioned = searchApplicants(
+      [indexApplicant(app({ id: 'trip', resumeText: 'Visited Vijayawada once' }))],
+      { ...EMPTY_APPLICANT_FILTERS, location: 'Vijayawada' },
+      'relevance',
+    )
+    expect(mentioned.rows.map((r) => r.applicant.id)).toEqual(['trip'])
+    expect(mentioned.facets.cities).toEqual([])
+
+    // A selected city nobody has stays in the list so it can be turned off, and is not offered otherwise.
+    const held = searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, cities: ['Kochi'] }, 'relevance')
+    expect(held.facets.cities.find((c) => c.value === 'Kochi')).toMatchObject({ count: 0 })
+    expect(held.rows).toEqual([])
   })
 
   it('groups roles case-insensitively, falls back to the headline, and counts without its own filter', () => {

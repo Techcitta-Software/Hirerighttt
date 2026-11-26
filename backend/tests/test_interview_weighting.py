@@ -127,15 +127,54 @@ def test_end_to_end_a_full_set_of_good_answers_scores_much_higher():
     assert full["scoring"]["notice"] and "planned questions were answered" not in full["scoring"]["notice"]
 
 
-def test_banned_session_is_still_zero():
-    out = score_session(
-        role="Backend Developer", level="Fresher", questions=FRESHER_PLAN[:2], answers=[LONG, LONG], profile=PROFILE,
-        integrity={"banned": True, "banReason": "test"}, name="T",
-    )
-    assert out["overall"] == 0
+def test_session_ended_by_tab_switch_keeps_the_score_and_flags_it():
+    """Leaving the tab ends the interview, but the answers given so far are scored (no silent 0)."""
+    kwargs = dict(role="Backend Developer", level="Fresher", questions=FRESHER_PLAN[:2], answers=[LONG, LONG], profile=PROFILE, name="T")
+    normal = score_session(integrity={}, **kwargs)
+    ended = score_session(integrity={"banned": True, "banReason": "You left the interview tab."}, **kwargs)
+    assert ended["overall"] == normal["overall"] > 0
+    assert ended["endedEarly"] is True and normal["endedEarly"] is False
+    assert ended["integrity"]["endedEarly"] is True
+    assert "left the interview tab" in ended["integrity"]["endedEarlyReason"]
+    assert ended["improvements"][0].startswith("Ended early:")
 
 
 @pytest.mark.parametrize("fresher,expected_role", [(True, 25.0), (False, 15.0)])
 def test_role_fit_weight_by_candidate_type(fresher, expected_role):
     out = w.compute_weighted_score(questions=[], analyses=[], fresher=fresher, role_fit_score=0)
     assert out["model"]["roleFitWeight"] == expected_role
+
+
+def test_non_technical_situational_and_stakeholder_are_the_15_point_slot():
+    def nq(profile: str) -> dict:
+        return {
+            "questionModel": "non_technical",
+            "scoringProfile": profile,
+            "text": "What did you decide at that employer?",
+            "category": "Problem Solving",
+            "focus": "nontech-craft",
+        }
+
+    questions = [nq("situational"), nq("stakeholder"), nq("situational"), nq("opening"), nq("achievement")]
+    rubrics = [{"id": "correctness", "score": 80}, {"id": "depth", "score": 70}, {"id": "communication", "score": 60}]
+    out = w.compute_weighted_score(
+        questions=questions, analyses=[analysis(100, rubrics)] * 5, fresher=True, role_fit_score=40
+    )
+    answered = [row for row in out["model"]["rows"] if row["answered"]]
+    assert [row["type"] for row in answered] == ["technical", "technical", "technical", "other", "other"]
+    assert answered[0]["weight"] == 15.0 and answered[1]["weight"] == 15.0
+    assert answered[3]["weight"] == 10.0 and answered[4]["weight"] == 10.0
+    labels = {item["id"]: item["label"] for item in out["dimensions"]}
+    assert labels["correctness"] == "Situation fit"
+    assert labels["depth"] == "Ownership & result"
+    assert labels["communication"] == "Communication"
+    assert labels["roleSkillsFit"] == "Role Skills Fit"
+
+
+def test_question_without_question_model_keeps_the_technical_weight_path():
+    assert w.is_technical(FRESHER_PLAN[1]) is True
+    assert w.is_technical(FRESHER_PLAN[0]) is False
+    out = w.compute_weighted_score(questions=[FRESHER_PLAN[1]], analyses=[analysis(100)], fresher=True, role_fit_score=0)
+    assert out["overall"] == 15
+    labels = {item["id"]: item["label"] for item in out["dimensions"]}
+    assert labels["roleSkillsFit"] == "Role Skills Fit"

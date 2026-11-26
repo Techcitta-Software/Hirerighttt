@@ -68,6 +68,22 @@ def _mark_invite_email_sent(pool, token: str) -> None:
         conn.commit()
 
 
+def _session_duration_sec(session: dict) -> float | None:
+    """Seconds from startedAt to completedAt (or the scored result's durationSeconds); None when unknown."""
+    try:
+        started = datetime.fromisoformat(str(session.get("startedAt") or "").replace("Z", "+00:00"))
+        ended = datetime.fromisoformat(str(session.get("completedAt") or "").replace("Z", "+00:00"))
+        sec = (ended - started).total_seconds()
+        if math.isfinite(sec) and sec > 0:
+            return round(sec, 1)
+    except (ValueError, TypeError):
+        pass
+    raw = (session.get("result") or {}).get("durationSeconds") if isinstance(session.get("result"), dict) else None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw) and raw > 0:
+        return float(raw)
+    return None
+
+
 def _load_session_row(pool, session_id: str):
     """Blocking (run via asyncio.to_thread)."""
     with pool.connection() as conn:
@@ -281,6 +297,45 @@ async def try_extended_routes(
                 }
             },
         )
+
+    if method == "GET" and path == "/api/vendor/interview-invites":
+        # Invite status for the recruiter: sent / link opened / booked / started / completed / expired, per invite.
+        db = ctx.load_db()
+        access = await runtime.require_employer_tenant(request, db)
+        if not access:
+            return None
+        if not persistence_ready(config.database_url):
+            return json_fn(200, {"invites": [], "smtpConfigured": smtp_configured()})
+        from app.services.vendor.invite_status import list_org_invites, serialize_invite
+
+        org_id = access["tenant"]["organization"]["id"]
+        q = request.query_params
+        job_id = str(q.get("jobId") or "").strip()[:64] or None
+        application_id = str(q.get("applicationId") or "").strip()[:64] or None
+        email_q = str(q.get("email") or "").strip().lower()[:254] or None
+        if job_id and not await asyncio.to_thread(get_org_job_for_recruiter, db, org_id, job_id, vendor_scope(access)):
+            return json_fn(404, {"error": "Job not found."})
+        pool = db_store.db_pool(config.database_url)
+        rows, statuses = await asyncio.to_thread(
+            list_org_invites, pool, org_id, job_id=job_id, application_id=application_id, candidate_email=email_q
+        )
+        visible_jobs: dict[str, bool] = {}
+
+        def _job_visible(jid: str | None) -> bool:
+            if not jid:
+                return True
+            if jid not in visible_jobs:
+                visible_jobs[jid] = bool(get_org_job_for_recruiter(db, org_id, jid, vendor_scope(access)))
+            return visible_jobs[jid]
+
+        now = datetime.now(timezone.utc)
+        origin = trusted_request_origin(request)
+        invites = [
+            serialize_invite(r, statuses.get(str(r["token"]), []), now=now, request_origin=origin)
+            for r in rows
+            if _job_visible(r.get("job_id"))
+        ]
+        return json_fn(200, {"invites": invites, "smtpConfigured": smtp_configured()})
 
     if method == "POST" and path == "/api/vendor/interview-invites/send":
         # Recruiter sends an open interview link to one or many people. The link works any time until it expires,
@@ -642,6 +697,8 @@ async def try_extended_routes(
                 # Each event carries startOffsetMs/endOffsetMs from the recording start for the video timeline.
                 "events": timeline_events(combine_review_logs(session.get("reviewEvents"), result_logs)),
                 "recordingDurationSec": recording_duration_sec,
+                # Length of the interview itself, so the timeline can be drawn when no video was saved.
+                "interviewDurationSec": _session_duration_sec(session),
                 "proctoring": proctoring,
                 "videoUrl": video_url,
                 "recordingStatus": recording_status,

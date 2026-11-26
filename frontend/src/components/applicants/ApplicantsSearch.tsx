@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { Link } from 'react-router-dom'
 import {
   CANDIDATE_EXPERIENCE_PRESETS,
-  SAVE_HINT,
   SHORTLIST_HINT,
   SORT_LABELS,
   activeFilterChips,
@@ -43,31 +42,9 @@ export type ApplicantsSearchProps = {
   onUpdateApplicant?: (id: string, patch: Partial<EmployerApplicant>) => void
   /** Opens the "Invite to interview" (email links) dialog from the empty state. */
   onInviteByEmail?: () => void
-  /** localStorage key for the recruiter's saved applicants (per account). */
-  savedStorageKey?: string
   /** Fetch each job's ranking in the background (off in tests). */
   loadRanking?: boolean
   now?: number
-}
-
-function readSaved(key: string | undefined): Set<string> {
-  if (!key) return new Set()
-  try {
-    const raw = localStorage.getItem(key)
-    const ids = raw ? (JSON.parse(raw) as unknown) : []
-    return new Set(Array.isArray(ids) ? ids.map(String) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-function writeSaved(key: string | undefined, ids: Set<string>) {
-  if (!key) return
-  try {
-    localStorage.setItem(key, JSON.stringify(Array.from(ids)))
-  } catch {
-    /* storage unavailable: the star still works for this visit */
-  }
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -116,18 +93,21 @@ function CheckList({
   options,
   values,
   onToggle,
+  disableEmpty = true,
 }: {
   name: string
   options: FacetCount[]
   values: string[]
   onToggle: (value: string) => void
+  /** When false, a zero-count option stays clickable (so a selected city or skill can be turned off). */
+  disableEmpty?: boolean
 }) {
   if (!options.length) return <p className={styles.fEmpty}>No data yet</p>
   return (
     <ul className={styles.checkList}>
       {options.map((o) => {
-        const checked = values.includes(o.value)
-        const dead = !o.count && !checked
+        const checked = values.some((v) => v.toLowerCase() === o.value.toLowerCase())
+        const dead = disableEmpty && !o.count && !checked
         return (
           <li key={o.value}>
             <label className={`${styles.checkRow} ${dead ? styles.checkRowMuted : ''}`}>
@@ -218,7 +198,6 @@ export function ApplicantsSearch({
   onRetry,
   onUpdateApplicant,
   onInviteByEmail,
-  savedStorageKey,
   loadRanking = true,
   now: nowProp,
 }: ApplicantsSearchProps) {
@@ -239,7 +218,6 @@ export function ApplicantsSearch({
   const { busy, bulkBusy, notice, setNotice } = actions
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
-  const [saved, setSaved] = useState<Set<string>>(() => readSaved(savedStorageKey))
   const [reportFor, setReportFor] = useState<EmployerApplicant | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(
@@ -259,8 +237,8 @@ export function ApplicantsSearch({
   const jobTitles = useMemo(() => Object.fromEntries(jobs.map((j) => [j.id, j.title])), [jobs])
   const effectiveFilters = useMemo(() => filtersForApplicantSearch(mode, filters), [mode, filters])
   const result = useMemo(
-    () => searchApplicants(indexed, effectiveFilters, sort, { saved, now, jobTitles }),
-    [indexed, effectiveFilters, sort, saved, now, jobTitles],
+    () => searchApplicants(indexed, effectiveFilters, sort, { now, jobTitles }),
+    [indexed, effectiveFilters, sort, now, jobTitles],
   )
 
   const pageCount = Math.max(1, Math.ceil(result.rows.length / APPLICANTS_PAGE_SIZE))
@@ -390,22 +368,6 @@ export function ApplicantsSearch({
     }
   }, [activeId])
 
-  const toggleSave = useCallback(
-    (ids: string[], force?: boolean) => {
-      setSaved((prev) => {
-        const next = new Set(prev)
-        const add = force ?? !ids.every((id) => prev.has(id))
-        for (const id of ids) {
-          if (add) next.add(id)
-          else next.delete(id)
-        }
-        writeSaved(savedStorageKey, next)
-        return next
-      })
-    },
-    [savedStorageKey],
-  )
-
   // Latest action handlers, for the memoised rows and the keyboard shortcuts.
   const actionsRef = useRef(actions)
   useEffect(() => {
@@ -418,10 +380,9 @@ export function ApplicantsSearch({
       if (action === 'view') openPanel(row.applicant.id)
       else if (action === 'download') void h.download(row)
       else if (action === 'shortlist') void h.shortlist([row], { toggle: true })
-      else if (action === 'save') toggleSave([row.applicant.id])
       else if (action === 'invite') void h.invite([row])
     },
-    [openPanel, toggleSave],
+    [openPanel],
   )
 
   /* Keyboard: "/" focuses the search; with the drawer open j / k move, s shortlists, Esc closes. Never while typing. */
@@ -670,7 +631,7 @@ export function ApplicantsSearch({
                         type="button"
                         className={`${styles.fChip} ${on ? styles.fChipOn : ''}`}
                         aria-pressed={on}
-                        disabled={!on && !s.count}
+                        disabled={s.count === 0 && !on}
                         onClick={() =>
                           patchFilters({
                             skills: on
@@ -717,9 +678,18 @@ export function ApplicantsSearch({
             <FilterGroup id="location" title="Location (mentioned in resume)" open={openGroups.has('location')} onToggle={toggleGroup}>
               <CheckList
                 name="city"
-                options={result.facets.cities}
+                disableEmpty={false}
+                options={result.facets.cities.filter(
+                  (c) => c.count > 0 || effectiveFilters.cities.some((v) => v.toLowerCase() === c.value.toLowerCase()),
+                )}
                 values={effectiveFilters.cities}
-                onToggle={(v) => patchFilters({ cities: toggleIn(effectiveFilters.cities, v) })}
+                onToggle={(v) =>
+                  patchFilters({
+                    cities: effectiveFilters.cities.some((c) => c.toLowerCase() === v.toLowerCase())
+                      ? effectiveFilters.cities.filter((c) => c.toLowerCase() !== v.toLowerCase())
+                      : [...effectiveFilters.cities, v],
+                  })
+                }
               />
             </FilterGroup>
 
@@ -847,7 +817,7 @@ export function ApplicantsSearch({
                   disabled={Boolean(bulkBusy)}
                   aria-busy={bulkBusy === 'invite'}
                 >
-                  <HrIcon name="calendar" size={14} /> {bulkBusy === 'invite' ? 'Sending…' : 'Invite to interview'}
+                  <HrIcon name="message" size={14} /> {bulkBusy === 'invite' ? 'Sending…' : 'Invite to interview'}
                 </button>
                 <button
                   type="button"
@@ -856,14 +826,6 @@ export function ApplicantsSearch({
                   disabled={Boolean(bulkBusy)}
                 >
                   <HrIcon name="download" size={14} /> {bulkBusy === 'zip' ? 'Preparing…' : 'Download resumes (zip)'}
-                </button>
-                <button
-                  type="button"
-                  className={styles.actBtn}
-                  onClick={() => toggleSave(Array.from(selected), true)}
-                  title={SAVE_HINT}
-                >
-                  <HrIcon name="star" size={14} /> Save for later
                 </button>
                 <button type="button" className={styles.linkBtn} onClick={() => setSelected(new Set())}>
                   Clear selection
@@ -964,7 +926,6 @@ export function ApplicantsSearch({
                     terms={result.terms}
                     selected={selected.has(row.applicant.id)}
                     active={row.applicant.id === activeId}
-                    saved={saved.has(row.applicant.id)}
                     busy={busy[row.applicant.id]}
                     now={now}
                     rankTotal={row.applicant.jobId ? rankTotals[row.applicant.jobId] : 0}
@@ -1030,14 +991,12 @@ export function ApplicantsSearch({
             position={{ index: Math.max(0, activeIndex), total: Math.max(result.rows.length, 1) }}
             tab={tab}
             onTab={(t) => commit({ tab: t }, { replace: true })}
-            saved={saved.has(activeRow.applicant.id)}
             busy={busy[activeRow.applicant.id]}
             rankTotal={activeRow.applicant.jobId ? rankTotals[activeRow.applicant.jobId] : 0}
             onClose={closePanel}
             onPrev={activeIndex > 0 ? () => goTo(activeIndex - 1) : undefined}
             onNext={activeIndex >= 0 && activeIndex < result.rows.length - 1 ? () => goTo(activeIndex + 1) : undefined}
             onShortlist={() => void actions.shortlist([activeRow], { toggle: true })}
-            onToggleSave={() => toggleSave([activeRow.applicant.id])}
             onInvite={() => void actions.invite([activeRow])}
             onDownload={() => void actions.download(activeRow)}
             onOpenFullReport={() => setReportFor(activeRow.applicant)}

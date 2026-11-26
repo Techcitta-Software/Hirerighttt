@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { applicantsToCsv, type IndexedApplicant } from '../../lib/applicantSearch'
 import { mapWithConcurrency } from '../../lib/concurrency'
-import { downloadResumeFile, mapApplicantStatusToApi } from '../../lib/employerCandidateUtils'
+import { mapApplicantStatusToApi } from '../../lib/employerCandidateUtils'
 import type { EmployerApplicant } from '../../lib/store'
 import {
   fetchVendorCandidateResumeDownload,
@@ -39,6 +39,42 @@ function resumeSaveName(person: string, filename: string, contentType: string): 
   const base = (filename || person || 'resume').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'resume'
   return ext && !base.toLowerCase().endsWith(ext) ? `${base.replace(/\.(pdf|docx)$/i, '')}${ext}` : base
 }
+
+const PDF_TYPE = 'application/pdf'
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+function headerStartsWith(data: ArrayBuffer, marker: string): boolean {
+  if (data.byteLength < marker.length) return false
+  const bytes = new Uint8Array(data, 0, marker.length)
+  for (let i = 0; i < marker.length; i += 1) {
+    if (bytes[i] !== marker.charCodeAt(i)) return false
+  }
+  return true
+}
+
+function withExtension(filename: string, ext: '.pdf' | '.docx'): string {
+  const stem = filename.replace(/\.[A-Za-z0-9]{1,8}$/, '').replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '')
+  return `${stem || 'resume'}${ext}`
+}
+
+/** Save the original bytes. Magic bytes override a text/plain or missing name so a PDF is never saved as .txt. */
+function resumeDownloadFile(
+  person: string,
+  file: { data: ArrayBuffer; filename: string; contentType: string },
+): { data: ArrayBuffer; filename: string; contentType: string } {
+  let contentType = file.contentType || 'application/octet-stream'
+  let filename = file.filename || ''
+  if (headerStartsWith(file.data, '%PDF')) {
+    contentType = PDF_TYPE
+    if (!filename.toLowerCase().endsWith('.pdf')) filename = withExtension(filename || person, '.pdf')
+  } else if (headerStartsWith(file.data, 'PK') && !filename.toLowerCase().endsWith('.pdf')) {
+    contentType = DOCX_TYPE
+    if (!filename.toLowerCase().endsWith('.docx')) filename = withExtension(filename || person, '.docx')
+  } else {
+    filename = resumeSaveName(person, filename, contentType)
+  }
+  return { data: file.data, filename, contentType }
+}
 export const canShortlist = (r: IndexedApplicant) =>
   r.applicant.recordSource === 'application' || (!r.applicant.recordSource && Boolean(r.applicant.jobId))
 
@@ -63,24 +99,16 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
     const a = r.applicant
     mark([a.id], 'download')
     try {
-      // Applications do not say up front whether a file is stored: with contact access, ask for the original first.
-      if (hasOriginalFile(r) || (a.hasResumeFile === undefined && hasContact(r))) {
-        try {
-          const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
-          saveBlob(
-            new Blob([file.data], { type: file.contentType || 'application/octet-stream' }),
-            resumeSaveName(a.candidateName, file.filename || a.resumeName || '', file.contentType),
-          )
-          return
-        } catch (err) {
-          // No file was ever uploaded: the resume text below is all there is. Anything else is a real failure.
-          if (!(err instanceof Error && /no stored resume file/i.test(err.message)) || !a.resumeText?.trim()) throw err
-        }
+      const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
+      const saved = resumeDownloadFile(a.candidateName, file)
+      saveBlob(new Blob([saved.data], { type: saved.contentType || 'application/octet-stream' }), saved.filename)
+    } catch (err) {
+      // The extracted text is not a resume file. Never save it as <name>.txt from Download.
+      if (err instanceof Error && /no stored resume file/i.test(err.message)) {
+        setNotice({ tone: 'error', text: 'No original resume file is stored for this person.' })
+      } else {
+        setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s original resume. Please try again.` })
       }
-      if (a.resumeText?.trim()) downloadResumeFile(a)
-      else setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s resume. Please try again.` })
-    } catch {
-      setNotice({ tone: 'error', text: `Couldn’t download ${a.candidateName}’s original resume. Please try again.` })
     } finally {
       mark([a.id], null)
     }
@@ -119,7 +147,7 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
     if (rows.length > 1 && bulkBusy) return // a second click while the first bulk action runs
     const eligible = rows.filter(canShortlist)
     if (!eligible.length) {
-      setNotice({ tone: 'info', text: 'Only people who applied to one of your jobs can be shortlisted. Use Save for later for the others.' })
+      setNotice({ tone: 'info', text: 'Only people who applied to one of your jobs can be shortlisted.' })
       return
     }
     if (opts.toggle && eligible.length === 1 && eligible[0].applicant.status === 'Shortlisted') {
@@ -205,14 +233,10 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
       const base = a.candidateName.replace(/\s+/g, '_')
       try {
         const file = await fetchVendorCandidateResumeDownload(a.candidateEmail, { userId: a.candidateUserId })
-        files.push({
-          name: resumeSaveName(base, file.filename || a.resumeName || '', file.contentType),
-          data: new Uint8Array(file.data),
-        })
+        const saved = resumeDownloadFile(base, file)
+        files.push({ name: saved.filename, data: new Uint8Array(saved.data) })
       } catch {
-        if (!a.hasResumeFile && a.resumeText?.trim()) {
-          files.push({ name: `${base}.txt`, data: new TextEncoder().encode(a.resumeText) })
-        }
+        // No stored file: skip this person. Do not invent a .txt download.
       }
     })
     setBulkBusy('')

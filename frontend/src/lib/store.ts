@@ -8,7 +8,11 @@ export type User = {
   id: string
   name: string
   email: string
-  password: string
+  /**
+   * Never a password. Only browser-local (offline development) accounts carry a salted SHA-256 digest so the
+   * offline login can check it; accounts that exist on the API store nothing credential-related here.
+   */
+  localPasswordHash?: string
   role?: UserRole
   companyName?: string
   phone?: string
@@ -218,6 +222,8 @@ export type InterviewResult = {
   proctorScorePenalty?: number
   proctorDeviationCount?: number
   scoreBeforeProctorPenalty?: number
+  /** Set by the server when the interview ended early (left the interview tab). */
+  endedEarly?: boolean
   agent?: string
   /** How the score was produced. `reliable: false` means the AI evaluator was unavailable. */
   scoring?: { mode: 'llm' | 'heuristic'; reliable: boolean; notice?: string | null }
@@ -228,6 +234,11 @@ export type InterviewResult = {
     maxFacesSeen: number
     banned?: boolean
     banReason?: string
+    /** The interview ended early because the candidate left the tab / fullscreen (answers so far were scored). */
+    endedEarly?: boolean
+    endedEarlyReason?: string | null
+    /** The candidate chose "Continue without camera": no "no face" penalty, shown to the recruiter instead. */
+    cameraOffByChoice?: boolean
     sideLookWarnings?: number
     tooFarWarnings?: number
     logs?: IntegrityLogEvent[]
@@ -391,6 +402,15 @@ export function applyClientStorageMigration(): void {
   }
 }
 
+/** Older builds saved `password` in plaintext on every user row; it is dropped on the next read. */
+type LegacyStoredUser = User & { password?: unknown }
+
+function stripStoredPassword(user: LegacyStoredUser): User {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { password: _dropped, ...rest } = user
+  return rest
+}
+
 function readUsers(): User[] {
   try {
     applyClientStorageMigration()
@@ -398,7 +418,7 @@ function readUsers(): User[] {
     if (!raw) {
       const legacy = localStorage.getItem('hireright.user')
       if (legacy) {
-        const user = JSON.parse(legacy) as User
+        const user = stripStoredPassword(JSON.parse(legacy) as LegacyStoredUser)
         if (!user.id) user.id = uid()
         if (LEGACY_DEMO_EMAILS.has(user.email.trim().toLowerCase())) {
           localStorage.removeItem('hireright.user')
@@ -410,18 +430,19 @@ function readUsers(): User[] {
       }
       return []
     }
-    const users = JSON.parse(raw) as User[]
+    const users = JSON.parse(raw) as LegacyStoredUser[]
     if (users.length === 0) return []
+    const hadPassword = users.some((u) => 'password' in u)
     const next: User[] = users.map((u) => ({
-      ...u,
+      ...stripStoredPassword(u),
       role:
         u.role ??
         (u.email.includes('employer') ? ('employer' as const) : ('jobseeker' as const)),
       companyName: u.companyName,
     }))
-    const changed = next.some(
-      (u, i) => u.role !== users[i]?.role || u.companyName !== users[i]?.companyName,
-    )
+    const changed =
+      hadPassword ||
+      next.some((u, i) => u.role !== users[i]?.role || u.companyName !== users[i]?.companyName)
     if (changed) writeUsers(next)
     return next
   } catch {
@@ -430,11 +451,14 @@ function readUsers(): User[] {
 }
 
 function writeUsers(users: User[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
+  localStorage.setItem(USERS_KEY, JSON.stringify(users.map((u) => stripStoredPassword(u))))
 }
 
+/** Account fields the app keeps in the browser. A password is never one of them. */
+export type SaveUserInput = Omit<User, 'id' | 'createdAt' | 'localPasswordHash'> & { createdAt?: string }
+
 export function saveUser(
-  input: Omit<User, 'id' | 'createdAt'> & { createdAt?: string },
+  input: SaveUserInput,
   allowOverwrite = false,
   autoSignIn = true,
 ): User {
@@ -449,7 +473,6 @@ export function saveUser(
     users[existingIdx] = {
       ...users[existingIdx],
       name: input.name.trim() || users[existingIdx].name,
-      password: input.password || users[existingIdx].password,
       role: input.role ?? users[existingIdx].role,
       companyName: input.companyName ?? users[existingIdx].companyName,
       phone: input.phone ?? users[existingIdx].phone,
@@ -466,7 +489,6 @@ export function saveUser(
     id: uid(),
     name: input.name.trim(),
     email,
-    password: input.password,
     role: input.role ?? 'jobseeker',
     companyName: input.companyName,
     phone: input.phone,
@@ -495,14 +517,40 @@ export function isLoggedIn(): boolean {
   return Boolean(getUser())
 }
 
-export function login(email: string, password: string): User | null {
-  const user = readUsers().find(
-    (u) => u.email === email.trim().toLowerCase() && u.password === password,
-  )
-  if (!user) return null
-  localStorage.setItem(SESSION_KEY, user.email)
+async function digestLocalPassword(email: string, password: string): Promise<string | null> {
+  try {
+    const subtle = globalThis.crypto?.subtle
+    if (!subtle) return null
+    const bytes = new TextEncoder().encode(`hireright-offline:${email.trim().toLowerCase()}:${password}`)
+    const hash = await subtle.digest('SHA-256', bytes)
+    return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Offline development only (no API): remember a salted digest so the browser-local account can sign in again.
+ * The password itself is never written to storage.
+ */
+export async function setLocalOfflinePassword(email: string, password: string): Promise<void> {
+  const normalized = email.trim().toLowerCase()
+  const digest = await digestLocalPassword(normalized, password)
+  if (!digest) return
+  const users = readUsers().map((u) => (u.email === normalized ? { ...u, localPasswordHash: digest } : u))
+  writeUsers(users)
+}
+
+/** Offline-only sign-in against a browser-local account. API-backed accounts never match here. */
+export async function login(email: string, password: string): Promise<User | null> {
+  const normalized = email.trim().toLowerCase()
+  const candidate = readUsers().find((u) => u.email === normalized)
+  if (!candidate?.localPasswordHash) return null
+  const digest = await digestLocalPassword(normalized, password)
+  if (!digest || digest !== candidate.localPasswordHash) return null
+  localStorage.setItem(SESSION_KEY, candidate.email)
   window.dispatchEvent(new Event('hireright-auth'))
-  return user
+  return candidate
 }
 
 export function logout() {
@@ -550,7 +598,6 @@ export function persistLoggedInUser(
     id: input.id || uid(),
     name: input.name.trim() || email.split('@')[0],
     email,
-    password: '',
     role,
     companyName: input.companyName,
     phone: input.phone,
@@ -575,58 +622,6 @@ export function updateUserName(name: string): User | null {
   writeUsers(users)
   window.dispatchEvent(new Event('hireright-auth'))
   return users.find((entry) => entry.email === user.email) ?? null
-}
-
-export function updateUserPassword(
-  currentPassword: string,
-  nextPassword: string,
-): { ok: true } | { ok: false; error: string } {
-  const user = getUser()
-  if (!user) return { ok: false, error: 'Not signed in.' }
-  if (user.password !== currentPassword) {
-    return { ok: false, error: 'Current password is incorrect.' }
-  }
-  if (nextPassword.length < 6) {
-    return { ok: false, error: 'New password must be at least 6 characters.' }
-  }
-  const users = readUsers().map((entry) =>
-    entry.email === user.email ? { ...entry, password: nextPassword } : entry,
-  )
-  writeUsers(users)
-  return { ok: true }
-}
-
-export function updateUserEmail(
-  nextEmail: string,
-  password: string,
-): { ok: true; email: string } | { ok: false; error: string } {
-  const user = getUser()
-  if (!user) return { ok: false, error: 'Not signed in.' }
-  if (user.password !== password) {
-    return { ok: false, error: 'Password is incorrect.' }
-  }
-  const email = nextEmail.trim().toLowerCase()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { ok: false, error: 'Enter a valid email address.' }
-  }
-  if (readUsers().some((u) => u.email === email && u.email !== user.email)) {
-    return { ok: false, error: 'That email is already in use.' }
-  }
-  const users = readUsers().map((entry) =>
-    entry.email === user.email ? { ...entry, email } : entry,
-  )
-  writeUsers(users)
-  localStorage.setItem(SESSION_KEY, email)
-  // Migrate profile key if present
-  const oldKey = `${PROFILE_KEY}.${user.email}`
-  const newKey = `${PROFILE_KEY}.${email}`
-  const profileRaw = localStorage.getItem(oldKey)
-  if (profileRaw) {
-    localStorage.setItem(newKey, profileRaw)
-    localStorage.removeItem(oldKey)
-  }
-  window.dispatchEvent(new Event('hireright-auth'))
-  return { ok: true, email }
 }
 
 export type AccountPrefs = {

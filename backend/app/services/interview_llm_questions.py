@@ -52,6 +52,7 @@ from app.services.interview_jd_plan import (  # noqa: E402
     fallback_question_for_slot,
     jd_question_mix,
     plan_mix_counts,
+    NONTECH_DIFFICULTY_BY_TIER,
     seniority_tier,
     validate_slot_question,
 )
@@ -184,6 +185,338 @@ def _turn_plan(*, total: int, fresher: bool, role_skills: list[str], from_job: b
     return plan
 
 
+_BANNED_NONTECH_QUESTION = re.compile(
+    r"tell me about yourself|what are your strengths|\byour strengths\b|why should we hire|why should i hire|why hire you",
+    re.I,
+)
+
+
+def _nontech_text_ok(text: str, anchor: str) -> bool:
+    cleaned = str(text or "").strip()
+    if len(cleaned) < 24 or len(cleaned.split()) > 45:
+        return False
+    if _BANNED_NONTECH_QUESTION.search(cleaned):
+        return False
+    if not anchor:
+        return True
+    if anchor.lower() in cleaned.lower():
+        return True
+    from app.services.interview_question_model import normalize_evidence
+
+    return normalize_evidence(anchor) in normalize_evidence(cleaned)
+
+
+def _turn_plan_non_technical(anchors: dict[str, str]) -> dict[int, dict[str, Any]]:
+    """Six scored turns. The server stamps category, scoring profile, and lookFor after the model answers."""
+    employer = anchors.get("employer") or ""
+    title = anchors.get("title") or ""
+    tool = anchors.get("tool") or ""
+    duty = anchors.get("duty") or ""
+    stakeholder = anchors.get("stakeholder") or "the person you were helping"
+    metric = anchors.get("metric") or ""
+    activity = anchors.get("activity") or ""
+    place = employer
+    title_bit = f" ({title})" if title else ""
+
+    def pack(purpose: str, anchor: str, category: str, profile: str, focus: str, look: list[str], topic: str) -> dict[str, Any]:
+        return {
+            "purpose": purpose,
+            "anchor": anchor,
+            "category": category,
+            "scoringProfile": profile,
+            "focus": focus,
+            "lookFor": look[:4],
+            "topic": (topic or "Experience")[:80],
+        }
+
+    if place:
+        turn1 = pack(
+            f"One activity they owned at {place}{title_bit}. Ava has already greeted them, so do not say hello again. "
+            f'The question must contain "{place}".',
+            place,
+            "Experience",
+            "opening",
+            "nontech-opening",
+            ["own_action", "result"],
+            place,
+        )
+    elif activity:
+        turn1 = pack(
+            f"One activity they owned in this college, campus, or part-time activity from the resume: {activity}. "
+            "Do not invent a company. Ava has already greeted them, so do not say hello again. "
+            f'The question must contain "{activity}".',
+            activity,
+            "Experience",
+            "opening",
+            "nontech-opening",
+            ["own_action", "result"],
+            activity,
+        )
+    else:
+        turn1 = pack(
+            "One activity they owned that appears in the resume. Do not invent a company or employer. "
+            "Ava has already greeted them, so do not say hello again.",
+            "",
+            "Experience",
+            "opening",
+            "nontech-opening",
+            ["own_action", "result"],
+            "Experience",
+        )
+
+    if tool:
+        turn2 = pack(
+            f"Judgment with {tool} in one real case{(' at ' + place) if place else ''}. "
+            "What they decided and who else was involved. "
+            f'The question must contain "{tool}".',
+            tool,
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action", f"tool:{tool}"],
+            tool,
+        )
+    elif place:
+        turn2 = pack(
+            f"Judgment in one real case at {place}. What they decided and who else was involved. "
+            f'The question must contain "{place}".',
+            place,
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action", f"employer:{place}"],
+            place,
+        )
+    else:
+        turn2 = pack(
+            "Judgment in one real case from the resume. What they decided and who else was involved. "
+            "Do not invent a tool or employer.",
+            "",
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action"],
+            "Judgment",
+        )
+
+    if duty and place:
+        turn3 = pack(
+            f"Judgment on this duty at {place}: {duty}. What they checked and who had to agree. "
+            f'The question must contain "{place}".',
+            place,
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action", f"employer:{place}"],
+            duty,
+        )
+    elif duty:
+        fragment = " ".join(duty.split()[:4])
+        turn3 = pack(
+            f"Judgment on this duty: {duty}. What they checked and who had to agree. "
+            f'The question must contain "{fragment}".',
+            fragment,
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action"],
+            duty,
+        )
+    elif place:
+        turn3 = pack(
+            f"Judgment on the work they did at {place}. What they checked and who had to agree. "
+            f'The question must contain "{place}".',
+            place,
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action", f"employer:{place}"],
+            place,
+        )
+    else:
+        turn3 = pack(
+            "Judgment on work that appears in the resume. What they checked and who had to agree. Do not invent a duty.",
+            "",
+            "Problem Solving",
+            "situational",
+            "nontech-craft",
+            ["situation", "own_action"],
+            "Judgment",
+        )
+
+    if place:
+        turn4 = pack(
+            f"One real case at {place} with {stakeholder}. What they said, what they did, and how it ended. "
+            f'The question must contain "{place}".',
+            place,
+            "Problem Solving",
+            "stakeholder",
+            "nontech-craft",
+            ["situation", "own_action", f"employer:{place}"],
+            place,
+        )
+    else:
+        turn4 = pack(
+            f"One real case from the resume with {stakeholder}. What they said, what they did, and how it ended. "
+            f'The question must contain "{stakeholder}". Do not invent an employer.',
+            stakeholder,
+            "Problem Solving",
+            "stakeholder",
+            "nontech-craft",
+            ["situation", "own_action"],
+            stakeholder,
+        )
+
+    if metric:
+        number = re.search(r"\d[\d,]*(?:\.\d+)?%?", metric)
+        anchor = number.group(0) if number else ""
+        turn5 = pack(
+            f"The metric from the resume: {metric}. Their part and what happened. "
+            + (f'The question must contain "{anchor}". ' if anchor else "")
+            + "Do not invent a different number.",
+            anchor,
+            "Experience",
+            "achievement",
+            "nontech-result",
+            ["own_action", "result"],
+            metric,
+        )
+    elif duty and place:
+        turn5 = pack(
+            f"The outcome of this duty at {place}: {duty}. Their part and what happened. "
+            f'The question must contain "{place}". Do not invent a metric.',
+            place,
+            "Experience",
+            "achievement",
+            "nontech-result",
+            ["own_action", "result"],
+            duty,
+        )
+    elif duty:
+        fragment = " ".join(duty.split()[:4])
+        turn5 = pack(
+            f"The outcome of this duty: {duty}. Their part and what happened. "
+            f'The question must contain "{fragment}". Do not invent a metric.',
+            fragment,
+            "Experience",
+            "achievement",
+            "nontech-result",
+            ["own_action", "result"],
+            duty,
+        )
+    elif place:
+        turn5 = pack(
+            f"The outcome of their work at {place}. Their part and what happened. "
+            f'The question must contain "{place}". Do not invent a metric.',
+            place,
+            "Experience",
+            "achievement",
+            "nontech-result",
+            ["own_action", "result"],
+            place,
+        )
+    else:
+        turn5 = pack(
+            "The outcome of work that appears in the resume. Their part and what happened. "
+            "Do not invent a metric or employer.",
+            "",
+            "Experience",
+            "achievement",
+            "nontech-result",
+            ["own_action", "result"],
+            "Result",
+        )
+
+    turn6 = pack(
+        f"Same situation as the previous question. The gap: who they asked, and what they told {stakeholder} while waiting. "
+        f'The question must contain "{stakeholder}". Do not introduce a new tool.',
+        stakeholder,
+        "Problem Solving",
+        "followup",
+        "nontech-same",
+        ["stakeholder", "result"],
+        stakeholder,
+    )
+    return {1: turn1, 2: turn2, 3: turn3, 4: turn4, 5: turn5, 6: turn6}
+
+
+def _nontech_fallback_meta(anchors: dict[str, str]) -> dict[str, Any]:
+    stakeholder = anchors.get("stakeholder") or "the person you were helping"
+    return {
+        "purpose": (
+            "One question about lastAnswer: a result or stakeholder they skipped. "
+            f'The question must contain "{stakeholder}". Do not introduce a new tool.'
+        ),
+        "anchor": stakeholder,
+        "category": "Problem Solving",
+        "scoringProfile": "followup",
+        "focus": "nontech-followup",
+        "lookFor": ["stakeholder", "result"],
+        "topic": stakeholder[:80],
+    }
+
+
+def _stamp_nontech_question(question: dict[str, Any], meta: dict[str, Any], anchors: dict[str, str]) -> dict[str, Any]:
+    keywords = [item for item in (anchors.get("employer"), anchors.get("tool")) if item]
+    return {
+        **question,
+        "questionModel": "non_technical",
+        "category": meta["category"],
+        "scoringProfile": meta["scoringProfile"],
+        "focus": meta["focus"],
+        "topic": meta.get("topic") or question.get("topic") or "Experience",
+        "keywords": keywords,
+        "resumeAnchor": anchors.get("employer") or anchors.get("activity") or "",
+        "lookFor": list(meta.get("lookFor") or []),
+    }
+
+
+def _nontech_rules(level: str, fresher: bool) -> str:
+    tier = seniority_tier(level, fresher)
+    pitched = {
+        "entry": "entry = what they did and the result",
+        "mid": "mid = the trade-off and who they had to convince",
+        "senior": "senior = a missed target, what they changed, and who owned the outcome",
+    }[tier]
+    return f"""Rules:
+- Never ask them to code, write a query, define a term, compare frameworks, or explain how a system is built.
+- Ask for judgment in one real situation: who else was involved, what THEY did, and what resulted.
+- The question must contain the employer, duty, or tool named in that turn's purpose.
+- One question, at most two sentences, under 45 words.
+- No "tell me about yourself", strengths, "why should we hire you", or five-year plan.
+- Never invent an employer, tool, quota, metric, or project that is not in the payload.
+- Difficulty: entry = what they did and the result; mid = the trade-off and who they had to convince; senior = a missed target, what they changed, and who owned the outcome.
+- For this candidate use {pitched}."""
+
+
+def _system_prompt_non_technical(*, turn: int, total: int, role: str, level: str, fresher: bool, purpose: str) -> str:
+    return f"""You are Ava, a professional interviewer. Generate exactly ONE interview question as JSON only.
+Turn {turn} of {total}. Role: {role}. Experience: {level}.
+This candidate is non-technical. Ask for judgment in one real situation from their resume.
+Purpose for this turn: {purpose}
+{_nontech_rules(level, fresher)}
+Return ONLY: {{"question":{{"text":"...","keywords":["..."],"hint":"...","topic":"..."}}}}"""
+
+
+def _batch_system_prompt_non_technical(*, total: int, role: str, level: str, fresher: bool) -> str:
+    skip = ""
+    if not fresher:
+        fb = _experienced_fallback_turn_number()
+        cl = _experienced_closing_turn_number()
+        skip = (
+            f"Do NOT generate turn {fb} (fallback follow-up) or turn {cl} (closing thanks) — "
+            "those are generated later, in order, after prior answers."
+        )
+    return f"""You are Ava, a professional interviewer. Generate the interview questions for this non-technical candidate in ONE JSON response.
+Total turns in session: {total}. Role: {role}. Experience: {level}.
+{_nontech_rules(level, fresher)}
+- Generate exactly one question per turnNumber in the user payload "turns" list and follow that turn's "purpose" exactly.
+- {skip}
+- Each question must be distinct.
+- If the payload has "alreadyAsked", those questions are already in the session: never repeat or rephrase them.
+Return ONLY: {{"questions":[{{"turnNumber":1,"question":{{"text":"...","keywords":["..."],"hint":"...","topic":"..."}}}}, ...]}}"""
+
+
 def _pending_fallback_question() -> dict[str, Any]:
     return {
         "text": "",
@@ -252,35 +585,64 @@ async def generate_adaptive_question_llm(input: dict) -> dict:
         return closing_statement(role, str(input.get("varietySeed") or ""))
     is_fallback_turn = experienced_flow and turn == _experienced_fallback_turn_number()
     prior = [str((h.get("question") or {}).get("text") or h.get("question") or "") for h in history]
-    user = json.dumps(
-        {
-            "turnNumber": turn,
-            "totalTurns": total,
-            "role": role,
-            "experienceLevel": level,
-            "varietySeed": input.get("varietySeed"),
-            "jobDescription": (input.get("jobDescription") or "")[:4000] or None,
-            "candidateSummary": {
-                "skills": (ctx.get("skills") or [])[:16],
-                "jobs": (ctx.get("jobs") or [])[:4],
-                "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
-            },
-            "priorQuestions": prior,
-            "lastAnswer": (input.get("lastAnswer") or "").strip() or None,
-        }
-    )
-    system = _system_prompt(turn=turn, total=total, role=role, level=level)
-    if is_fallback_turn:
-        system += (
-            "\nThis turn is the FOLLOW-UP on recent work: ask one short, specific follow-up about something the candidate "
-            "said in lastAnswer or about their most recent role. Do not introduce a new unrelated technical topic."
+    nontech = str(input.get("questionModel") or "") == "non_technical"
+    nt_meta: dict[str, Any] | None = None
+    anchors: dict[str, str] = {}
+    payload: dict[str, Any] = {
+        "turnNumber": turn,
+        "totalTurns": total,
+        "role": role,
+        "experienceLevel": level,
+        "varietySeed": input.get("varietySeed"),
+        "jobDescription": (input.get("jobDescription") or "")[:4000] or None,
+        "candidateSummary": {
+            "skills": (ctx.get("skills") or [])[:16],
+            "jobs": (ctx.get("jobs") or [])[:4],
+            "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
+        },
+        "priorQuestions": prior,
+        "lastAnswer": (input.get("lastAnswer") or "").strip() or None,
+    }
+    if nontech:
+        from app.services.interview_api import _is_fresher
+        from app.services.interview_question_model import resume_question_anchors
+
+        profile = input.get("profile") if isinstance(input.get("profile"), dict) else {}
+        fresher = _is_fresher(profile, level, ctx)
+        anchors = resume_question_anchors(profile, fresher=fresher)
+        if is_fallback_turn:
+            nt_meta = _nontech_fallback_meta(anchors)
+        else:
+            planned = _turn_plan_non_technical(anchors)
+            nt_meta = planned.get(turn) or planned[1]
+        payload["anchors"] = anchors
+        payload["purpose"] = nt_meta["purpose"]
+        system = _system_prompt_non_technical(
+            turn=turn, total=total, role=role, level=level, fresher=fresher, purpose=str(nt_meta["purpose"])
         )
+        if is_fallback_turn:
+            system += (
+                "\nThis turn is the FOLLOW-UP. Ask one short question about lastAnswer: a result or stakeholder they skipped. "
+                "Do not introduce a new tool."
+            )
+    else:
+        system = _system_prompt(turn=turn, total=total, role=role, level=level)
+        if is_fallback_turn:
+            system += (
+                "\nThis turn is the FOLLOW-UP on recent work: ask one short, specific follow-up about something the candidate "
+                "said in lastAnswer or about their most recent role. Do not introduce a new unrelated technical topic."
+            )
+    user = json.dumps(payload)
     deadline = time.time() + REQUEST_DEADLINE_SECONDS
     for temperature in (0.55, 0.35, 0.22):
         if time.time() > deadline:
             break
         raw = await _gemini_generate(system, user, temperature=temperature)
         q = _parse_question(raw, prior)
+        if q and nontech and nt_meta is not None and not _nontech_text_ok(q["text"], str(nt_meta.get("anchor") or "")):
+            q = None
+        if q and nontech and nt_meta is not None:
+            q = _stamp_nontech_question(q, nt_meta, anchors)
         if q:
             return q
     raise InterviewLlmQuestionError(
@@ -313,35 +675,59 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
     # Vendor job interviews pass skillFocus (skills shared by the JD and the resume); everyone else gets the
     # role's standard skills. Every other turn (opening, projects, follow-up, closing) is identical.
     skill_focus = [str(s) for s in (input.get("skillFocus") or []) if str(s).strip()]
-    role_skills = skill_focus or _resume_grounded_role_skills(role, profile or {}, ctx)
-    plan = _turn_plan(total=total, fresher=fresher, role_skills=role_skills, from_job=bool(skill_focus))
+    question_model = str(input.get("questionModel") or "")
+    nontech = question_model == "non_technical"
+    anchors: dict[str, str] = {}
+    nt_plan: dict[int, dict[str, Any]] = {}
+    if nontech:
+        from app.services.interview_question_model import resume_question_anchors
+
+        anchors = resume_question_anchors(profile if isinstance(profile, dict) else {}, fresher=fresher)
+        nt_plan = _turn_plan_non_technical(anchors)
+        plan = {turn: str(meta["purpose"]) for turn, meta in nt_plan.items()}
+    else:
+        role_skills = skill_focus or _resume_grounded_role_skills(role, profile or {}, ctx)
+        plan = _turn_plan(total=total, fresher=fresher, role_skills=role_skills, from_job=bool(skill_focus))
     fresher_closing_turn = total if fresher else None
     turn_numbers = [
         t
         for t in range(1, total + 1)
         if t != fallback_turn and t != closing_turn and t != fresher_closing_turn
     ]
-    user = json.dumps(
-        {
-            "totalTurns": total,
-            "role": role,
-            "experienceLevel": level,
-            "varietySeed": input.get("varietySeed"),
-            "jobDescription": (input.get("jobDescription") or "")[:4000] or None,
-            "turns": [{"turnNumber": t, "purpose": plan.get(t, "Resume-grounded interview question.")} for t in turn_numbers],
-            "candidateSummary": {
-                "skills": (ctx.get("skills") or [])[:16],
-                "jobs": (ctx.get("jobs") or [])[:4],
-                "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
-            },
-        }
+    batch_payload: dict[str, Any] = {
+        "totalTurns": total,
+        "role": role,
+        "experienceLevel": level,
+        "varietySeed": input.get("varietySeed"),
+        "jobDescription": (input.get("jobDescription") or "")[:4000] or None,
+        "turns": [{"turnNumber": t, "purpose": plan.get(t, "Resume-grounded interview question.")} for t in turn_numbers],
+        "candidateSummary": {
+            "skills": (ctx.get("skills") or [])[:16],
+            "jobs": (ctx.get("jobs") or [])[:4],
+            "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
+        },
+    }
+    if nontech:
+        batch_payload["anchors"] = anchors
+    user = json.dumps(batch_payload)
+    system = (
+        _batch_system_prompt_non_technical(total=total, role=role, level=level, fresher=fresher)
+        if nontech
+        else _batch_system_prompt(total=total, role=role, level=level, fresher=fresher)
     )
-    system = _batch_system_prompt(total=total, role=role, level=level, fresher=fresher)
     ordered: list[dict[str, Any] | None] = [None] * total
     # Slots filled without the model: the follow-up and closing are written later, the fresher closing is fixed text.
     for turn in range(1, total + 1):
         if fallback_turn and turn == fallback_turn:
-            ordered[turn - 1] = _pending_fallback_question()
+            pending = _pending_fallback_question()
+            if nontech:
+                pending = {
+                    **pending,
+                    "questionModel": "non_technical",
+                    "scoringProfile": "followup",
+                    "lookFor": ["stakeholder", "result"],
+                }
+            ordered[turn - 1] = pending
         elif closing_turn and turn == closing_turn:
             ordered[turn - 1] = _pending_closing_question()
         elif fresher_closing_turn and turn == fresher_closing_turn:
@@ -369,6 +755,12 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
                 continue
             prior = [str(q.get("text") or "") for q in ordered if q and q.get("text")]
             q = _parse_question(json.dumps({"question": item["question"]}), prior)
+            if q and nontech:
+                meta = nt_plan.get(turn)
+                if not meta or not _nontech_text_ok(str(q.get("text") or ""), str(meta.get("anchor") or "")):
+                    q = None
+                else:
+                    q = _stamp_nontech_question(q, meta, anchors)
             if q:
                 ordered[turn - 1] = q
 
@@ -401,7 +793,20 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
     )
 
 
-def _jd_batch_system_prompt(*, total: int, role: str, level: str, tier: str) -> str:
+def _jd_batch_system_prompt(*, total: int, role: str, level: str, tier: str, question_model: str = "") -> str:
+    nontech = question_model == "non_technical"
+    difficulty = NONTECH_DIFFICULTY_BY_TIER.get(tier, "") if nontech else DIFFICULTY_BY_TIER.get(tier, "")
+    if nontech:
+        slot_rules = """- slot "jd": ask for a decision about the named target in THIS job: who is affected, what they would do, and what result they would watch. Name the skill or duty. Do not ask them to code, define a term, debug, or explain how a system is built.
+- slot "jd-alignment": name a specific employer, project or duty that IS in candidateSummary and connect it to the target. Ask what they decided, what they did, and the result. Never invent employers, projects or numbers.
+- slot "behavioural": ask for one specific past situation (start with "Tell me about a time" or "Describe a situation"), tied to the target duty. Ask what they did and the result."""
+    else:
+        slot_rules = """- slot "jd": ask about the named target as it is used in THIS job. Name the skill/tool/duty in the question. Not a
+  story question, not a textbook definition on its own: ask how/why/which trade-off in the context of the job's work.
+- slot "jd-alignment": name a specific employer, project or duty that IS in candidateSummary and connect it to the
+  target requirement. Never invent employers, projects or numbers.
+- slot "behavioural": ask for one specific past situation (start with "Tell me about a time" or "Describe a
+  situation"), tied to the target duty."""
     return f"""You are Ava, a professional interviewer hiring for a specific job. Write the questions for this interview
 in ONE JSON response. Total turns: {total}. Role: {role}. Candidate experience: {level}.
 The interview is JOB-DESCRIPTION FIRST: about 80% of questions test the requirements in "jobDescription"
@@ -409,13 +814,8 @@ The interview is JOB-DESCRIPTION FIRST: about 80% of questions test the requirem
 relates to those requirements; at least one is behavioural.
 Rules:
 - Generate exactly one question per item in "turns" and follow that item's "slot", "target" and "purpose" exactly.
-- slot "jd": ask about the named target as it is used in THIS job. Name the skill/tool/duty in the question. Not a
-  story question, not a textbook definition on its own: ask how/why/which trade-off in the context of the job's work.
-- slot "jd-alignment": name a specific employer, project or duty that IS in candidateSummary and connect it to the
-  target requirement. Never invent employers, projects or numbers.
-- slot "behavioural": ask for one specific past situation (start with "Tell me about a time" or "Describe a
-  situation"), tied to the target duty.
-- {DIFFICULTY_BY_TIER.get(tier, "")}
+{slot_rules}
+- {difficulty}
 - One question per turn, at most two sentences, under 45 words. Never two questions in one.
 - No generic questions ("tell me about yourself", "what are your strengths", "why should we hire you").
 - Every question distinct: different concept and angle. Never repeat or rephrase anything in "alreadyAsked".
@@ -430,6 +830,7 @@ async def _generate_jd_first_batch(
 
     Off-plan output (wrong kind, off-target, duplicate) is rejected and only those slots are asked for again; any slot
     still empty after the retries gets a deterministic job-specific question, so the mix is always enforced."""
+    from app.services.interview_jd_plan import stamp_nontech_jd_question
     from app.services.vendor.ats_score import extract_primary_skills_from_jd
 
     role = str(input.get("role") or "this role")
@@ -438,12 +839,14 @@ async def _generate_jd_first_batch(
     for s in input.get("jdSkills") or extract_primary_skills_from_jd(jd, []):
         if str(s).strip() and all(str(s).lower() != k.lower() for k in skills):
             skills.append(str(s))
+    question_model = str(input.get("questionModel") or "")
     plan = build_jd_first_plan(
         job_description=jd,
         jd_skills=skills[:8],
         level=level,
         fresher=fresher,
         resume_jobs=[str(j) for j in (ctx.get("jobs") or [])[:2]],
+        question_model=question_model,
     )
     total = len(plan) + 1  # + spoken closing
     tier = seniority_tier(level, fresher)
@@ -464,7 +867,7 @@ async def _generate_jd_first_batch(
             "resumeSnippet": (ctx.get("resumeSnippet") or "")[:2800],
         },
     }
-    system = _jd_batch_system_prompt(total=total, role=role, level=level, tier=tier)
+    system = _jd_batch_system_prompt(total=total, role=role, level=level, tier=tier, question_model=question_model)
 
     def missing() -> list[int]:
         return [p["turnNumber"] for p in plan if ordered[p["turnNumber"] - 1] is None]
@@ -488,7 +891,10 @@ async def _generate_jd_first_batch(
             prior = [str(q.get("text") or "") for q in ordered[:-1] if q and q.get("text")]
             q = _parse_question(json.dumps({"question": item["question"]}), prior)
             if q and validate_slot_question(q, by_turn[turn], prior, jd):
-                ordered[turn - 1] = annotate_slot_question(q, by_turn[turn])
+                stamped = annotate_slot_question(q, by_turn[turn])
+                if question_model == "non_technical":
+                    stamped = stamp_nontech_jd_question(stamped, by_turn[turn])
+                ordered[turn - 1] = stamped
 
     deadline = time.time() + JD_REQUEST_DEADLINE_SECONDS
     for temperature in (0.5, 0.4, 0.3):
@@ -514,7 +920,7 @@ async def _generate_jd_first_batch(
             (status_snapshot().get("lastError") or "no usable output")[:200],
         )
     for turn in missing():
-        ordered[turn - 1] = fallback_question_for_slot(by_turn[turn], role)
+        ordered[turn - 1] = fallback_question_for_slot(by_turn[turn], role, question_model)
     questions = [q for q in ordered if q]
     return {
         "questions": questions,

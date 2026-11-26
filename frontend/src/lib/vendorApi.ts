@@ -373,6 +373,9 @@ export type VendorInterviewReviewPayload = {
   proctoring?: import('./store').InterviewProctoringSummary | null
   videoUrl: string | null
   recordingStatus: string
+  recordingDurationSec?: number | null
+  /** Interview length (startedAt → completedAt), used to draw the timeline when no video was saved. */
+  interviewDurationSec?: number | null
 }
 
 export async function fetchVendorInterviewReview(sessionId: string, candidateEmail: string) {

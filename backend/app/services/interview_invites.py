@@ -143,7 +143,9 @@ def public_app_origin(request_origin: str | None = None) -> str:
 
     1. PUBLIC_APP_URL (or VITE_PUBLIC_APP_URL / FRONTEND_URL / APP_URL), scheme + host only;
     2. else the origin of the browser request that triggered the email, when it is an allowed CORS origin;
-    3. else, outside production, the Vite dev server; in production it is an error (no localhost links)."""
+    3. else, outside production, the first configured web origin (CORS_ORIGINS), so links made without a browser
+       request (scheduler reminders, scripts) point at the site actually being served, then the Vite default;
+       in production it is an error (no guessed links)."""
     for key in PUBLIC_URL_ENV_KEYS:
         explicit = _origin_of(os.environ.get(key), require_root=True)
         if explicit:
@@ -151,6 +153,12 @@ def public_app_origin(request_origin: str | None = None) -> str:
     if request_origin:
         return request_origin.rstrip("/")
     if os.environ.get("NODE_ENV") != "production":
+        from app.node_config import config
+
+        for origin in config.cors_origins:
+            configured = _origin_of(origin, require_root=True)
+            if configured:
+                return configured
         return "http://localhost:5173"
     raise RuntimeError("PUBLIC_APP_URL is required to create working email links in production.")
 

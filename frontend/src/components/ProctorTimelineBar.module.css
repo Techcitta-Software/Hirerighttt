@@ -207,3 +207,12 @@
   flex: none;
   font-variant-numeric: tabular-nums;
 }
+
+/* No video saved: marks sit on interview time and only show their time; nothing to seek. */
+.static .track {
+  cursor: default;
+}
+
+.static .mark {
+  cursor: help;
+}

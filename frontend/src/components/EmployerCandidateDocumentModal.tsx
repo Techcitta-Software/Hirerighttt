@@ -322,7 +322,7 @@ export function EmployerCandidateDocumentModal({ kind, applicant, onClose }: Pro
                     <span className={styles.titleIcon} aria-hidden="true">
                       <HrIcon name="video" size={18} />
                     </span>
-                    <h3 className={styles.videoTitle}>Interview recording</h3>
+                    <h2 className={styles.videoTitle}>Interview video</h2>
                   </div>
                   <p className={styles.sectionHint}>
                     Full session video from secure storage, with camera flags marked on the timeline.

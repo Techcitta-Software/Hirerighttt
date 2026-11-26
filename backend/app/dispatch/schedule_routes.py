@@ -129,6 +129,36 @@ def _current_resume_name(pool, invite: dict) -> str:
     return resume_name(data if isinstance(data, dict) else {})
 
 
+def record_due_reminders(pool, now: datetime | None = None) -> dict[str, int]:
+    """Email is off: record which reminder is due on each slot (no email) so the app can show "reminder due".
+
+    Each kind is recorded once per slot; the *_sent_at columns stay empty, so the email still goes out if email is
+    configured before the slot."""
+    now = now or datetime.now(timezone.utc)
+    recorded = {"24h": 0, "2h": 0}
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM interview_invites
+               WHERE scheduled_start > %s AND scheduled_start <= %s
+                 AND (reminder_24h_sent_at IS NULL OR reminder_2h_sent_at IS NULL)""",
+            (now, now + timedelta(hours=24)),
+        ).fetchall()
+        for row in rows:
+            invite = dict(row)
+            kind = reminder_kind(invite, now)
+            if not kind:
+                continue
+            got = conn.execute(
+                """UPDATE interview_invites SET reminder_due_kind = %s, reminder_due_at = %s
+                   WHERE token = %s AND reminder_due_kind IS DISTINCT FROM %s RETURNING token""",
+                (kind, now, invite["token"], kind),
+            ).fetchone()
+            if got:
+                recorded[kind] += 1
+        conn.commit()
+    return recorded
+
+
 async def send_due_reminders(pool, now: datetime | None = None) -> dict[str, int]:
     now = now or datetime.now(timezone.utc)
     def _due_rows():
@@ -190,10 +220,18 @@ async def try_schedule_routes(
         given = request.headers.get("x-cron-secret") or ""
         if not secret or not hmac.compare_digest(secret.encode(), given.encode("utf-8", "replace")):
             return json_fn(401, {"error": "Unauthorized"})
-        if not persistence_ready(config.database_url) or not smtp_configured():
-            return json_fn(503, {"error": "Database and email must be configured."})
-        sent = await send_due_reminders(db_store.db_pool(config.database_url))
-        return json_fn(200, {"ok": True, "sent": sent})
+        if not persistence_ready(config.database_url):
+            return json_fn(503, {"error": "Database must be configured."})
+        pool = db_store.db_pool(config.database_url)
+        if not smtp_configured():
+            # No email provider: record the due reminders so the recruiter's invite status and the candidate's
+            # invite page show "reminder due" instead of the reminder silently never happening.
+            recorded = await asyncio.to_thread(record_due_reminders, pool)
+            return json_fn(
+                200, {"ok": True, "emailConfigured": False, "sent": {"24h": 0, "2h": 0, "failed": 0}, "recorded": recorded}
+            )
+        sent = await send_due_reminders(pool)
+        return json_fn(200, {"ok": True, "emailConfigured": True, "sent": sent})
 
     if method == "POST" and path == "/api/internal/maintenance":
         secret = os.environ.get("CRON_SECRET") or ""

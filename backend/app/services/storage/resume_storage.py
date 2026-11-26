@@ -43,13 +43,33 @@ def parse_resume_upload_body(body: dict) -> dict[str, Any]:
     return {"filename": filename, "buffer": buf, "contentType": body.get("contentType")}
 
 
+_PDF_TYPE = "application/pdf"
+_DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_DOC_TYPE = "application/msword"
+_RESUME_CONTENT_TYPES = frozenset({_PDF_TYPE, _DOCX_TYPE, _DOC_TYPE})
+
+
 def infer_resume_content_type(filename: str, content_type: str | None = None) -> str:
-    if content_type:
-        return content_type
-    if filename.lower().endswith(".pdf"):
-        return "application/pdf"
-    if filename.lower().endswith(".docx"):
-        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    """The filename extension wins. A stored type is used only when it is already a resume type and matches that extension.
+
+    text/plain and application/octet-stream must not label a .pdf or .docx (the browser then saves or shows the file as text).
+    """
+    name = (filename or "").strip().lower()
+    if name.endswith(".pdf"):
+        by_ext = _PDF_TYPE
+    elif name.endswith(".docx"):
+        by_ext = _DOCX_TYPE
+    elif name.endswith(".doc"):
+        by_ext = _DOC_TYPE
+    else:
+        by_ext = ""
+    stored = str(content_type or "").split(";", 1)[0].strip().lower()
+    if by_ext:
+        if stored == by_ext:
+            return stored
+        return by_ext
+    if stored in _RESUME_CONTENT_TYPES:
+        return stored
     return "application/octet-stream"
 
 
@@ -109,9 +129,15 @@ async def resolve_resume_download_from_profile(
         err.status = 404  # type: ignore[attr-defined]
         raise err
     name = stored_resume_filename(str(key), profile.get("resumeName"))
+    stored_type = profile.get("resumeContentType") or profile.get("contentType")
+    content_type = infer_resume_content_type(name, str(stored_type) if stored_type else None)
     mode = "inline" if inline else "attachment"
-    signed = presign_download(str(key), disposition=f'{mode}; filename="{name}"')
-    return {**signed, "contentType": infer_resume_content_type(name), "filename": name}
+    signed = presign_download(
+        str(key),
+        disposition=f'{mode}; filename="{name}"',
+        content_type=content_type,
+    )
+    return {**signed, "contentType": content_type, "filename": name}
 
 
 async def resolve_resume_download_for_user(**opts) -> dict[str, Any]:

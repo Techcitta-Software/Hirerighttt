@@ -84,6 +84,8 @@ export type IntegritySnapshot = {
   maxFacesSeen: number
   banned?: boolean
   banReason?: string
+  /** "Continue without camera" was chosen in the lobby: the server skips the "no face" penalty. */
+  cameraOffByChoice?: boolean
   sideLookWarnings?: number
   tooFarWarnings?: number
   logs?: IntegrityLogEvent[]
@@ -598,8 +600,10 @@ export async function scoreInterviewRemote(options: {
     // continue to Gemini / local
   }
 
-  // 2. Direct Gemini scoring — dev only
-  if (clientLlmAllowed()) {
+  // 2. Direct Gemini scoring — dev only. Non-technical interviews stay on the local rubric
+  // scorer so a tool/code prompt cannot grade a judgment answer.
+  const nonTechnicalInterview = options.questions.some((q) => q.questionModel === 'non_technical')
+  if (clientLlmAllowed() && !nonTechnicalInterview) {
     try {
       const scored = await scoreWithGeminiDirect({ ...options, profile: agentProfile })
       if (scored) return scored

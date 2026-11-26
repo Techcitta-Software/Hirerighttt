@@ -1,0 +1,363 @@
+/* "Questions asked" and "Interview video" under the interview report (applicant drawer and the full-report modal). */
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  min-width: 0;
+  padding-top: var(--space-5, 20px);
+  border-top: 1px solid var(--ds-border, #e5e5ef);
+  scroll-margin-top: var(--space-3, 12px);
+}
+
+.blockHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1, 4px) var(--space-3, 12px);
+}
+
+.blockTitle {
+  margin: 0;
+  font-size: var(--fs-card-title, 1rem);
+  font-weight: 800;
+  color: var(--ds-text, #141638);
+}
+
+.blockTitle:focus {
+  outline: none;
+}
+
+.blockTitle:focus-visible {
+  outline: var(--ds-focus-outline, 2px solid #5046e5);
+  outline-offset: 2px;
+}
+
+.blockMeta {
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 600;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--space-5, 20px);
+  border: 1px dashed var(--ds-border-strong, #d4d4e2);
+  border-radius: var(--radius-md, 10px);
+  font-size: var(--fs-sm, 0.875rem);
+  text-align: center;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+/* ── Questions asked ── */
+.qList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+  min-width: 0;
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: var(--radius-md, 10px);
+  background: var(--ds-surface, #fff);
+}
+
+.qHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+
+.qNum {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--ds-neutral-soft, #f1f1f7);
+  color: var(--ds-text-secondary, #363b5c);
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.qTopic {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 0 var(--space-2, 8px);
+  overflow: hidden;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--ds-surface-accent, #eef2ff);
+  color: var(--ds-brand-hover, #4338ca);
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qScore {
+  margin-left: auto;
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text-muted, #5f6686);
+  white-space: nowrap;
+}
+
+.qScore strong {
+  font-size: var(--fs-md, 1rem);
+  font-weight: 800;
+}
+
+.band_strong strong,
+.band_strong .qBand {
+  color: var(--ds-success, #047857);
+}
+
+.band_fair strong,
+.band_fair .qBand {
+  color: var(--ds-warning, #b45309);
+}
+
+.band_weak strong,
+.band_weak .qBand {
+  color: var(--ds-danger, #be123c);
+}
+
+.band_none {
+  font-style: italic;
+}
+
+.qText {
+  margin: 0;
+  font-size: var(--fs-sm, 0.875rem);
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--ds-text, #141638);
+  overflow-wrap: anywhere;
+}
+
+.qAnswerBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1, 4px);
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border-left: 3px solid var(--ds-border-strong, #d4d4e2);
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.qLabel,
+.qLabelInline {
+  margin: 0;
+  font-size: var(--fs-2xs, 0.75rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.qLabelInline {
+  margin-right: var(--space-1, 4px);
+}
+
+.qAnswer {
+  margin: 0;
+  font-size: var(--fs-sm, 0.875rem);
+  line-height: 1.55;
+  color: var(--ds-text-secondary, #363b5c);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.qAnswerClamped {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.qMuted {
+  font-style: italic;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.qToggle {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-brand-hover, #4338ca);
+  font: inherit;
+  font-size: var(--fs-xs, 0.8125rem);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.qToggle:hover {
+  text-decoration: underline;
+}
+
+.qToggle:focus-visible,
+.retryBtn:focus-visible {
+  outline: var(--ds-focus-outline, 2px solid #5046e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.qFeedback {
+  margin: 0;
+  font-size: var(--fs-xs, 0.8125rem);
+  line-height: 1.5;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+/* ── Interview video ── */
+.videoWrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md, 10px);
+  background: #0f172a;
+  object-fit: contain;
+}
+
+/* Same footprint as the video, so the page does not jump when it loads. */
+.videoState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2, 8px);
+  aspect-ratio: 16 / 9;
+  max-height: 320px;
+  width: 100%;
+  padding: var(--space-5, 20px);
+  box-sizing: border-box;
+  border: 1px dashed var(--ds-border-strong, #d4d4e2);
+  border-radius: var(--radius-md, 10px);
+  font-size: var(--fs-sm, 0.875rem);
+  text-align: center;
+  color: var(--ds-text-secondary, #363b5c);
+}
+
+.videoState p {
+  max-width: 44ch;
+  margin: 0;
+}
+
+.videoState > svg {
+  color: var(--ds-text-muted, #5f6686);
+}
+
+/* Nothing to play: a short note, not a big empty frame. Only "loading" keeps the video's footprint. */
+.videoState:not(.videoLoading) {
+  aspect-ratio: auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  padding: var(--space-4, 16px) var(--space-5, 20px);
+}
+
+.videoLoading {
+  border-style: solid;
+  border-color: var(--ds-border, #e5e5ef);
+  background: var(--ds-surface-subtle, #f6f6fb);
+}
+
+.retryBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--space-4, 16px);
+  border: 1px solid var(--ds-border-strong, #d4d4e2);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--ds-surface, #fff);
+  color: var(--ds-text, #141638);
+  font: inherit;
+  font-size: var(--fs-sm, 0.875rem);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.retryBtn:hover {
+  border-color: var(--ds-brand, #5046e5);
+  color: var(--ds-brand-hover, #4338ca);
+}
+
+/* ── In-tab links: Report · Questions asked · Interview video ── */
+.jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1, 4px) var(--space-3, 12px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-xs, 0.8125rem);
+}
+
+.jumpLabel {
+  font-weight: 600;
+  color: var(--ds-text-muted, #5f6686);
+}
+
+.jumpLink {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-brand-hover, #4338ca);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.jumpLink:hover {
+  text-decoration: underline;
+}
+
+.jumpLink:focus-visible {
+  outline: var(--ds-focus-outline, 2px solid #5046e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (max-width: 480px) {
+  .qCard {
+    padding: var(--space-3, 12px);
+  }
+
+  .qScore {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .qToggle,
+  .jumpLink {
+    min-height: 44px;
+  }
+}

@@ -178,8 +178,8 @@ export function CareerIntelligenceDashboard({
 
   const qaRows = sc?.qaRows?.length ? sc.qaRows : buildQaRowsFromInterview(result)
 
-  /* Rating by topic is read from the same per-question star ratings the table shows,
-     so the summary can never disagree with the rows below it. */
+  /* Rating by topic is read from the per-question star ratings, so the summary always
+     agrees with the scored answers. */
   const ratingByTopic = (() => {
     if (qaRows.length === 0) return starPatterns
     const groups = new Map<string, { filled: number; score: number; scored: number; n: number }>()
@@ -488,92 +488,24 @@ export function CareerIntelligenceDashboard({
         </div>
       </section>
 
-      {/* ── Per-question detail ── */}
-      <section className={`${styles.card} ${styles.tableCard}`} aria-labelledby="report-questions-heading">
-        <div className={styles.cardHead}>
-          <h2 id="report-questions-heading" className={styles.cardTitle}>Questions and scores</h2>
-          <p className={styles.cardNote}>
-            {sessionStats?.interviewType ?? `${displayRole} · Adaptive AI interview`}
-          </p>
-        </div>
-        <div className={styles.tableScroll}>
-          <table className={styles.qaTable}>
-            <thead>
-              <tr>
-                <th scope="col" className={styles.numCol}>#</th>
-                <th scope="col" className={styles.topicCol}>Topic</th>
-                <th scope="col" className={styles.questionCol}>Question</th>
-                <th scope="col" className={styles.scoreCol}>Correct</th>
-                <th scope="col" className={styles.scoreCol}>Depth</th>
-                <th scope="col" className={styles.scoreCol}>Clarity</th>
-                <th scope="col" className={styles.scoreCol}>Overall</th>
-                <th scope="col" className={styles.ratingCol}>Rating</th>
-                <th scope="col">Feedback</th>
-              </tr>
-            </thead>
-            <tbody>
-              {qaRows.map((q) => (
-                <tr key={q.index}>
-                  <td className={styles.numCol}>
-                    <span className={styles.rowCircle}>{q.index}</span>
-                  </td>
-                  <td><span className={styles.topicTag}>{q.topic}</span></td>
-                  <td className={styles.questionCell}>{q.question}</td>
-                  <td className={styles.totalScoreCell}>
-                    {typeof q.correctnessScore === 'number' ? `${q.correctnessScore}%` : '—'}
-                  </td>
-                  <td className={styles.totalScoreCell}>
-                    {typeof q.depthScore === 'number'
-                      ? `${q.depthScore}%`
-                      : typeof q.depth === 'number'
-                        ? `${q.depth * 10}%`
-                        : '—'}
-                  </td>
-                  <td className={styles.totalScoreCell}>
-                    {typeof q.communicationScore === 'number'
-                      ? `${q.communicationScore}%`
-                      : typeof q.clarity === 'number'
-                        ? `${q.clarity * 10}%`
-                        : '—'}
-                  </td>
-                  <td className={styles.totalScoreCell}>
-                    <strong>
-                      {typeof q.questionScore === 'number'
-                        ? `${q.questionScore}%`
-                        : typeof q.total30 === 'number'
-                          ? `${Math.round((q.total30 / 30) * 100)}%`
-                          : '—'}
-                    </strong>
-                  </td>
-                  <td className={styles.starsCell}>
-                    <span aria-hidden="true">{q.stars}</span>
-                    <span className="ds-sr-only">{starCount(q.stars)} of 5 stars</span>
-                  </td>
-                  <td className={styles.feedbackCell}>{q.feedback}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {ratingByTopic.length > 0 ? (
-          <>
-            <h3 className={styles.subTitle}>Interview performance summary</h3>
-            <ul className={styles.starSummaryGrid}>
-              {ratingByTopic.map((p, i) => (
-                <li key={`${p.name}-${i}`} className={styles.starSummaryItem}>
-                  <span className={styles.starCategoryName}>{p.name}</span>
-                  <span className={styles.starString}>
-                    <span aria-hidden="true">{p.stars}</span>
-                    <span className="ds-sr-only">{starCount(p.stars)} of 5 stars</span>
-                  </span>
-                  <span className={styles.starLevelTag}>{p.level}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
-      </section>
+      {/* ── Interview performance summary (rating by topic) ── */}
+      {ratingByTopic.length > 0 ? (
+        <section className={styles.card} aria-labelledby="report-performance-heading">
+          <h2 id="report-performance-heading" className={styles.cardTitle}>Interview performance summary</h2>
+          <ul className={styles.starSummaryGrid}>
+            {ratingByTopic.map((p, i) => (
+              <li key={`${p.name}-${i}`} className={styles.starSummaryItem}>
+                <span className={styles.starCategoryName}>{p.name}</span>
+                <span className={styles.starString}>
+                  <span aria-hidden="true">{p.stars}</span>
+                  <span className="ds-sr-only">{starCount(p.stars)} of 5 stars</span>
+                </span>
+                <span className={styles.starLevelTag}>{p.level}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* ── What to do next ── */}
       <section className={styles.rowGridTwo} aria-label="Improvement plan">
