@@ -70,6 +70,91 @@ export type InterviewStartResponse = {
   jdFirst?: boolean
   /** Time budget for the whole interview (20 for JD-first interviews). */
   durationMinutes?: number
+  /** The candidate came back to an interview already in progress (reload / crash): continue, don't restart. */
+  resumed?: boolean
+  /** Resume point: first unanswered question and the answers the server already recorded. */
+  questionIndex?: number
+  answers?: string[]
+  history?: { question: Question; answer: string }[]
+  /** An earlier attempt at this interview ended unfinished (shown to the candidate). */
+  previousAttempt?: { status: string; answered: number; message: string } | null
+}
+
+/** Error name when /api/interview/start answers 409 INTERVIEW_BOOKED: a booked slot has not opened yet. */
+export const INTERVIEW_BOOKED_ERROR = 'InterviewBookedError'
+
+export type InterviewBooking = {
+  token: string
+  jobId?: string | null
+  applicationId?: string | null
+  jobTitle?: string
+  scheduledStart: string
+  scheduledEnd: string
+  status: 'too_early' | 'open'
+  inviteUrl?: string
+}
+
+export class InterviewBookedError extends Error {
+  booking: InterviewBooking | null
+  serverNow?: string
+  constructor(message: string, booking: InterviewBooking | null, serverNow?: string) {
+    super(message)
+    this.name = INTERVIEW_BOOKED_ERROR
+    this.booking = booking
+    this.serverNow = serverNow
+  }
+}
+
+/** The candidate's booked slot from the server (works in any tab / device). null when none or offline. */
+export async function fetchInterviewBooking(): Promise<{ booking: InterviewBooking | null; serverNow?: string } | null> {
+  try {
+    const res = await apiFetch('/api/interview/booking', { background: true })
+    if (!res.ok) return null
+    const data = (await res.json()) as { booking?: InterviewBooking | null; serverNow?: string }
+    return { booking: data.booking ?? null, serverNow: data.serverNow }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * "Enter interview room": only now does the interview count (the free career interview or a paid credit is claimed
+ * on the server). Opening the waiting room never claims it.
+ */
+export async function enterInterviewSession(sessionId: string): Promise<void> {
+  const res = await apiFetch('/api/interview/enter', {
+    method: 'POST',
+    background: true,
+    body: JSON.stringify({ sessionId }),
+  })
+  if (res.ok) return
+  const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string }
+  const err = new Error(data.error || 'We couldn’t open your interview. Please try again.')
+  if (res.status === 402 || data.code === 'RETAKE_PAYMENT_REQUIRED') err.name = RETAKE_PAYMENT_REQUIRED_ERROR
+  else if (data.code) err.name = data.code
+  throw err
+}
+
+/** Stores one answer on the server as it is given, so a reload resumes with it. Best effort, never blocks. */
+export async function recordInterviewAnswer(options: {
+  sessionId: string | null
+  questionIndex: number
+  question: Question
+  answer: string
+  /** Why the question moved on (answerTiming.AdvanceReason), stored with the turn for diagnosis. */
+  advanceReason?: string
+}): Promise<boolean> {
+  if (!isServerInterviewSession(options.sessionId)) return false
+  try {
+    const res = await apiFetch('/api/interview/answer', {
+      method: 'POST',
+      background: true,
+      body: JSON.stringify(options),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }
 
 export type JobLinkedInterviewMeta = {
@@ -233,6 +318,11 @@ export async function startInterviewSession(
       consentErr.name = 'ConsentRequiredError'
       throw consentErr
     }
+    if (res.status === 409 && (data as { code?: string }).code === 'INTERVIEW_BOOKED') {
+      // A booked slot that has not opened: the server enforces the lock in every tab. Never go offline.
+      const d = data as { error?: string; booking?: InterviewBooking; serverNow?: string }
+      throw new InterviewBookedError(d.error || 'Your interview is booked. It opens at your scheduled time.', d.booking ?? null, d.serverNow)
+    }
     if (res.status === 402 || (data as { code?: string }).code === 'RETAKE_PAYMENT_REQUIRED') {
       // The free interview is used up: never fall back to an offline session (it would not be saved or scored).
       const payErr = new Error(
@@ -272,10 +362,11 @@ export async function startInterviewSession(
             ? (data.question as Question)
             : questions![0]
         let firstQuestions: Question[] =
-          adaptive && batchPreloaded ? questions! : adaptive ? [serverFirst] : questions!
+          adaptive && (batchPreloaded || data.resumed === true) ? questions! : adaptive ? [serverFirst] : questions!
         if (
           adaptive &&
           !batchPreloaded &&
+          data.resumed !== true &&
           (!serverFirst?.text || serverFirst.text.length < 24) &&
           clientLlmAllowed()
         ) {
@@ -312,6 +403,11 @@ export async function startInterviewSession(
           varietySeed,
           jdFirst: data.jdFirst === true,
           durationMinutes: typeof data.durationMinutes === 'number' ? data.durationMinutes : undefined,
+          resumed: data.resumed === true,
+          questionIndex: typeof data.questionIndex === 'number' ? data.questionIndex : 0,
+          answers: Array.isArray(data.answers) ? (data.answers as string[]) : undefined,
+          history: Array.isArray(data.history) ? (data.history as { question: Question; answer: string }[]) : undefined,
+          previousAttempt: (data.previousAttempt as InterviewStartResponse['previousAttempt']) ?? null,
         }
       }
       if (isVendorJob) {
@@ -327,7 +423,10 @@ export async function startInterviewSession(
   } catch (err) {
     if (
       isVendorJob ||
-      (err instanceof Error && (err.name === 'ConsentRequiredError' || err.name === RETAKE_PAYMENT_REQUIRED_ERROR))
+      (err instanceof Error &&
+        (err.name === 'ConsentRequiredError' ||
+          err.name === RETAKE_PAYMENT_REQUIRED_ERROR ||
+          err.name === INTERVIEW_BOOKED_ERROR))
     ) {
       throw err
     }
@@ -365,8 +464,10 @@ export async function startInterviewSession(
     }
   }
 
+  // Candidate-facing: the developer hint (API keys, dev flags) belongs in the console, not on screen.
+  console.warn('[interview] no question source: API unreachable and client LLM disabled (VITE_ALLOW_CLIENT_LLM)')
   throw interviewLlmRequiredError(
-    'Could not start the interview: connect to the API with GEMINI_API_KEY, or enable dev client LLM (VITE_ALLOW_CLIENT_LLM + VITE_GEMINI_API_KEY).',
+    'We couldn’t start your interview right now — please try again in a minute.',
   )
 }
 

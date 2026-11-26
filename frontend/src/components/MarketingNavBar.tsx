@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { prefetchOnIntent, prefetchRouteChunk } from '../routeImports'
-import { getUser } from '../lib/store'
+import { getApiToken } from '../lib/api'
+import { requireApiForAuth } from '../lib/authConfig'
+import { apiSessionStatus, clearStoredAuth } from '../lib/authSession'
+import { getUser, type User } from '../lib/store'
 import { BrandLogo } from './BrandLogo'
 import styles from './MarketingNavBar.module.css'
 
@@ -49,7 +52,9 @@ function navLinkClass(pathname: string, match: readonly string[]) {
  */
 export function MarketingNavBar() {
   const { pathname } = useLocation()
-  const user = getUser()
+  // Stay on Log in / Sign up until a candidate or vendor session is confirmed. A leftover
+  // local account, with no valid sign-in, must not show Dashboard.
+  const [user, setUser] = useState<User | null>(null)
   const dashboardTo = user?.role === 'employer' ? '/employer/dashboard' : '/dashboard'
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const headerRef = useRef<HTMLElement>(null)
@@ -57,6 +62,34 @@ export function MarketingNavBar() {
   useEffect(() => {
     prefetchHeaderPagesWhenIdle()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function refresh() {
+      const local = getUser()
+      if (!local || (requireApiForAuth() && !getApiToken())) {
+        if (local) clearStoredAuth()
+        if (!cancelled) setUser(null)
+        return
+      }
+      if (requireApiForAuth()) {
+        const status = await apiSessionStatus()
+        if (cancelled) return
+        if (status === 'invalid') {
+          clearStoredAuth()
+          setUser(null)
+          return
+        }
+      }
+      if (!cancelled) setUser(getUser())
+    }
+    void refresh()
+    window.addEventListener('hireright-auth', refresh)
+    return () => {
+      cancelled = true
+      window.removeEventListener('hireright-auth', refresh)
+    }
+  }, [pathname])
 
   useEffect(() => {
     setMobileMenuOpen(false)
@@ -106,10 +139,10 @@ export function MarketingNavBar() {
           ) : (
             <>
               <Link to="/login" state={{ explicitLogin: true }} className={styles.navSignIn} {...prefetchOnIntent('/login')}>
-                Sign in
+                Log in
               </Link>
               <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} {...prefetchOnIntent('/signup')}>
-                Get started
+                Sign up
               </Link>
             </>
           )}
@@ -144,10 +177,10 @@ export function MarketingNavBar() {
             ) : (
               <>
                 <Link to="/login" state={{ explicitLogin: true }} className={styles.navSignIn} onClick={close} {...prefetchOnIntent('/login')}>
-                  Sign in
+                  Log in
                 </Link>
                 <Link to="/signup" state={{ explicitSignup: true }} className={styles.navCtaBtn} onClick={close}>
-                  Get started
+                  Sign up
                 </Link>
               </>
             )}

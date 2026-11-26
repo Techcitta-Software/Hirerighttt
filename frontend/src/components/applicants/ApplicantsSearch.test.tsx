@@ -167,8 +167,11 @@ describe('Candidates mode', () => {
     expect(filters).toContain('3–5 yrs')
     expect(filters).toContain('5–8 yrs')
     expect(filters).toContain('8+ yrs')
-    expect(filters).toContain('Location (mentioned in resume)')
-    expect(filters).toContain('Vijayawada')
+    // Location is the search-bar field, not a second list in the filter rail.
+    expect(filters).not.toContain('Location (mentioned in resume)')
+    expect(filters).not.toContain('id="fgroup-location"')
+    expect(filters).not.toContain('Vijayawada')
+    expect(html).toContain('placeholder="City, e.g. Bengaluru"')
     expect(filters).not.toContain('Bengaluru')
     expect(filters).not.toContain('Delhi NCR')
     expect(filters).not.toContain('Hyderabad')
@@ -188,7 +191,6 @@ describe('Candidates mode', () => {
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Current role/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Key skills/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Experience/)
-    expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Location \(mentioned in resume\)/)
     expect(html).toMatch(/aria-expanded="true"[^>]*>\s*Interview/)
     expect(filters).not.toContain('id="fgroup-jobs"')
     expect(filters).not.toContain('id="fgroup-fit"')
@@ -213,6 +215,16 @@ describe('Candidates mode', () => {
       'hid',
     ])
     expect(names(render('/employer/applicants?role=Frontend%20Developer', { mode: 'candidates' }))).toEqual(['ana'])
+    const located = ROWS.map((row) =>
+      row.id === 'ana' ? ({ ...row, currentLocation: 'Vijayawada' } as EmployerApplicant) : row,
+    )
+    // A leftover city checkbox link must not hide people; location is typed in the search bar.
+    expect(names(render('/employer/applicants?city=Vijayawada', { mode: 'candidates', applicants: located }))).toEqual([
+      'ana',
+      'vik',
+      'hid',
+    ])
+    expect(names(render('/employer/applicants?loc=Vijayawada', { mode: 'candidates', applicants: located }))).toEqual(['ana'])
   })
 
   it('shows one chip for the score-60 interview choice', () => {

@@ -68,6 +68,49 @@ def _insert_invite_sync(pool, row: dict) -> None:
         conn.commit()
 
 
+DUPLICATE_INVITE_WINDOW_MINUTES = 10
+
+
+async def insert_interview_invite_once(pool, row: dict) -> tuple[str, bool]:
+    """Idempotent per-applicant invite (T3: two concurrent POSTs made two invites). Returns (token, created).
+
+    A transaction-scoped advisory lock on the application serialises concurrent requests (also across workers); an
+    invite for the same application and slot made in the last few minutes is returned instead of a second one."""
+    import asyncio
+
+    return await asyncio.to_thread(_insert_invite_once_sync, pool, row)
+
+
+def _insert_invite_once_sync(pool, row: dict) -> tuple[str, bool]:
+    with pool.connection() as conn:
+        with conn.transaction():
+            conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"invite:{row.get('applicationId')}",))
+            existing = conn.execute(
+                """SELECT token FROM interview_invites
+                    WHERE application_id = %s AND scheduled_start = %s::timestamptz
+                      AND created_at > NOW() - make_interval(mins => %s)
+                    ORDER BY created_at DESC LIMIT 1""",
+                (row.get("applicationId"), row["scheduledStart"], DUPLICATE_INVITE_WINDOW_MINUTES),
+            ).fetchone()
+            if existing:
+                token = existing["token"] if isinstance(existing, dict) else existing[0]
+                return str(token), False
+            conn.execute(
+                """INSERT INTO interview_invites
+                  (token, organization_id, application_id, job_id, candidate_email, candidate_name, job_title,
+                   scheduled_start, scheduled_end, created_by_user_id, email_sent_at, context_json)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s::timestamptz,%s::timestamptz,%s,%s::timestamptz,%s::jsonb)""",
+                (
+                    row["token"], row.get("organizationId"), row.get("applicationId"), row.get("jobId"),
+                    row["candidateEmail"], row.get("candidateName"), row.get("jobTitle"), row["scheduledStart"],
+                    row["scheduledEnd"], row.get("createdByUserId"), row.get("emailSentAt"),
+                    json.dumps(row.get("contextJson") or {}),
+                ),
+            )
+        conn.commit()
+    return str(row["token"]), True
+
+
 async def get_interview_invite_by_token(pool, token: str) -> dict | None:
     import asyncio
 

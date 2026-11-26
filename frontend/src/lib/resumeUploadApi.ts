@@ -103,3 +103,26 @@ export async function uploadResumeViaApi(file: File): Promise<ResumeUploadResult
   const out = await uploadResumeViaApiWithStatus(file)
   return out.ok ? out.result : null
 }
+
+/**
+ * Job-apply form (T5 B14): the resume file is stored exactly like an onboarding upload, so the employer can open it
+ * ("No stored resume file for this account" before). Best effort: a storage outage never blocks the application,
+ * which still carries the parsed resume text.
+ */
+export async function storeApplyResumeFile(
+  file: File | null,
+  upload: typeof uploadResumeViaApiWithStatus = uploadResumeViaApiWithStatus,
+): Promise<ResumeUploadResult | null> {
+  if (!file) return null
+  try {
+    const out = await upload(file, { background: true })
+    if (!out.ok) {
+      console.warn('[apply] resume file not stored:', out.error)
+      return null
+    }
+    return out.result
+  } catch (err) {
+    console.warn('[apply] resume file not stored:', err)
+    return null
+  }
+}

@@ -39,3 +39,11 @@ export function acceptEssentialCookiesOnly(): CookieConsentChoice {
 export function clearCookieConsentForTesting(): void {
   localStorage.removeItem(STORAGE_KEY)
 }
+
+/**
+ * Never shown in the interview room (or its lobby / completion pages): the bar sat on top of the mic, camera and
+ * "Use keyboard" controls and swallowed clicks, so a candidate lost a question. It appears again on the next page.
+ */
+export function cookieBannerHiddenOn(pathname: string): boolean {
+  return /^\/interview(\/|$)/.test(pathname)
+}

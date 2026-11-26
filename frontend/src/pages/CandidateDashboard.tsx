@@ -5,6 +5,8 @@ import { buildApplyPath } from '../lib/jobLink'
 import { apiMe, apiListApplications } from '../lib/api'
 import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '../lib/apiSync'
 import { fetchOpenJobs } from '../lib/vendorApi'
+import { fetchInterviewBooking, type InterviewBooking } from '../lib/interviewAgentClient'
+import { formatSlotCountdown } from '../lib/interviewInviteGate'
 import {
   getUser,
   getProfile,
@@ -70,6 +72,18 @@ export function DashboardPage() {
   const email = sessionUser?.email
   const lastFocusRefresh = useRef(0)
   const jobRail = useRef<HTMLUListElement>(null)
+  /** The slot the candidate booked (T1: it appeared nowhere on the dashboard). */
+  const [booking, setBooking] = useState<InterviewBooking | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchInterviewBooking().then((got) => {
+      if (!cancelled) setBooking(got?.booking ?? null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [email])
 
   useEffect(() => {
     let cancelled = false
@@ -309,6 +323,38 @@ export function DashboardPage() {
             )}
           </div>
         </section>
+
+        {booking ? (
+          <section className={styles.nextStep} aria-labelledby="booked-interview-heading">
+            <span className={styles.nextStepIcon} aria-hidden="true">
+              <HrIcon name="calendar" size={20} />
+            </span>
+            <div className={styles.nextStepCopy}>
+              <p className={styles.eyebrow}>Booked interview</p>
+              <h2 id="booked-interview-heading" className={styles.nextStepTitle}>
+                {booking.jobTitle || 'AI interview'} ·{' '}
+                {new Date(booking.scheduledStart).toLocaleString(undefined, {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </h2>
+              <p className={styles.nextStepBody}>
+                {booking.status === 'open'
+                  ? 'Your interview is open now. Join before the window closes.'
+                  : `It opens in ${formatSlotCountdown(new Date(booking.scheduledStart).getTime() - Date.now())}. Come back at that time to join.`}
+              </p>
+            </div>
+            <div className={styles.nextStepActions}>
+              <Link to={`/interview/invite/${booking.token}`} className="ds-btn ds-btn--secondary">
+                {booking.status === 'open' ? 'Join interview' : 'View booking'}
+                <HrIcon name="arrow-right" size={18} />
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         <section className={styles.statStrip} aria-label="Overview">
           <div className={styles.stat}>

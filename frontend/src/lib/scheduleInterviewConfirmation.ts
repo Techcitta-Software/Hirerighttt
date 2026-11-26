@@ -64,6 +64,7 @@ export async function sendOnboardingConfirmationEmail(
     roleTrack: pending?.role || data.currentRole || '',
     experienceLevel: data.totalExperience || pending?.level || '',
     primarySkills: pending?.primarySkills || data.skills?.slice(0, 12) || [],
+    jobId: pending?.jobId || undefined,
   }
 
   const res = await sendInterviewConfirmationEmail(payload)
@@ -74,7 +75,7 @@ export async function sendOnboardingConfirmationEmail(
       scheduledStart: res.scheduledStart,
       scheduledEnd: res.scheduledEnd,
       jobTitle: payload.jobTitle,
-    })
+    }, { survivesNewTab: true })
     localStorage.setItem('hireright.lastInviteUrl', res.inviteUrl)
   }
   if (res.emailSent) {

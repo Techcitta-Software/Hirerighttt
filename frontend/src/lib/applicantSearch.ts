@@ -18,6 +18,7 @@ import { hasResumeContent } from './employerCandidateUtils'
 import { compareTopCandidature, roleSkillsFitOf } from './jobApplicantFilters'
 import { formatPhoneForDisplay } from './phone'
 import { buildTimelineMarkers, countByCategory } from './proctorTimeline'
+import { yearsWithinBand } from './resumeExperience'
 import { normalizeFlagSections } from './reviewEventsToFlagSections'
 import type { EmployerApplicant } from './store'
 
@@ -275,6 +276,26 @@ const JOB_SKILL_SOURCES = new Set(['application', 'interview_report'])
  * profile / vault rows) the skills on their profile. An application's `primarySkills` are the job's, so they are not
  * used for application rows.
  */
+/** Spellings of one skill that must be one filter chip. */
+const SKILL_CHIP_SAME_AS: Record<string, string> = {
+  reactjs: 'react', nodejs: 'node', expressjs: 'express', vuejs: 'vue', nextjs: 'next', postgres: 'postgresql',
+  js: 'javascript', ts: 'typescript', k8s: 'kubernetes', golang: 'go', restapis: 'restapi', restfulapis: 'restapi',
+  restapi: 'restapi', amazonwebservices: 'aws', msexcel: 'excel', advancedexcel: 'excel',
+}
+
+/** "Excel (pivot tables, XLOOKUP)" -> "Excel": the chip shows the skill, not the detail written after it. */
+export function skillChipLabel(raw: string): string {
+  const name = String(raw ?? '').replace(/\s+/g, ' ').trim()
+  const base = name.replace(/\s*[([][^)\]]*[)\]]\s*$/, '').trim()
+  return base.length >= 1 ? base : name
+}
+
+/** One key per skill: "Excel", "MS Excel", "Excel (pivot tables)" and "excel" all match the same filter. */
+export function skillChipKey(raw: string): string {
+  const key = skillChipLabel(raw).toLowerCase().replace(/^(?:ms|microsoft|adobe|apache)\s+/, '').replace(/[^a-z0-9+#]/g, '')
+  return SKILL_CHIP_SAME_AS[key] ?? key
+}
+
 export function applicantSkills(a: EmployerApplicant): string[] {
   const fromJobSource = !a.recordSource || JOB_SKILL_SOURCES.has(a.recordSource)
   const lists: (string[] | undefined)[] = [
@@ -287,9 +308,9 @@ export function applicantSkills(a: EmployerApplicant): string[] {
   const out: string[] = []
   for (const list of lists) {
     for (const s of list || []) {
-      const name = String(s || '').trim()
-      const key = name.toLowerCase()
-      if (!name || seen.has(key)) continue
+      const name = skillChipLabel(String(s || ''))
+      const key = skillChipKey(name)
+      if (!name || !key || seen.has(key)) continue
       seen.add(key)
       out.push(name)
     }
@@ -299,6 +320,9 @@ export function applicantSkills(a: EmployerApplicant): string[] {
 
 /** Years of experience as a number ("3-5 years" → 3, "6+ yrs" → 6, "2.5" → 2.5); null when unknown. */
 export function experienceYearsOf(a: Pick<EmployerApplicant, 'experienceYears'> & { resumeText?: string }): number | null {
+  // A band ("8 – 12 Years") is not the candidate's figure: the resume's own dates / statement inside that band are.
+  const precise = yearsWithinBand(a.experienceYears, a.resumeText)
+  if (precise !== null) return precise
   const m = String(a.experienceYears ?? '').match(/\d+(?:\.\d+)?/)
   if (m) return Number(m[0])
   // No experience on the application: the resume's own "6 years of experience" / "6+ yrs experience", never a guess.
@@ -524,6 +548,8 @@ export function stripCandidateIgnoredFilters(filters: ApplicantFilters): Applica
     jobs: [],
     fit: [],
     sources: [],
+    // Location is the search-bar field. The old city checkboxes have no control, so a leftover ?city= must not filter.
+    cities: [],
     integrityReviewOnly: false,
     savedOnly: false,
     shortlistedOnly: false,
@@ -651,7 +677,7 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
   return {
     applicant: a,
     skills,
-    skillKeys: new Set(skills.map((s) => s.toLowerCase())),
+    skillKeys: new Set(skills.map((s) => skillChipKey(s))),
     experience: experienceYearsOf(a),
     score: candidateScore(a),
     fit: roleSkillsFitOf(a),
@@ -714,6 +740,19 @@ function daysSince(iso: string, now: number): number {
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : (now - t) / 86_400_000
 }
 
+/**
+ * The search-bar location field. Matches the city label (including Bangalore → Bengaluru) and the same
+ * text in the resume, role or job, so the removed checkbox list is not required.
+ */
+function matchesTypedLocation(row: IndexedApplicant, raw: string): boolean {
+  const typed = raw.trim().toLowerCase()
+  if (!typed) return true
+  const folded = foldLocationLabel(raw).toLowerCase()
+  const needles = folded === typed ? [typed] : [typed, folded]
+  const haystacks = [row.locationLabel.toLowerCase(), row.fields.resume, row.fields.role, row.fields.job]
+  return needles.some((needle) => haystacks.some((hay) => hay.includes(needle)))
+}
+
 /** Which filter group a check belongs to; facet counts ignore their own group (standard faceted search). */
 type Group = 'base' | 'jobs' | 'interview' | 'score' | 'fit' | 'skills' | 'sources' | 'active' | 'roles' | 'cities' | 'resume'
 
@@ -745,16 +784,7 @@ function passes(
 ): boolean {
   const a = row.applicant
   if (skip !== 'base') {
-    const loc = f.location.trim().toLowerCase()
-    if (
-      loc &&
-      !row.locationLabel.toLowerCase().includes(loc) &&
-      !row.fields.resume.includes(loc) &&
-      !row.fields.role.includes(loc) &&
-      !row.fields.job.includes(loc)
-    ) {
-      return false
-    }
+    if (f.location.trim() && !matchesTypedLocation(row, f.location)) return false
     if (!matchesExperience(row.experience, f.expMin, f.expMax)) return false
     if (f.integrityReviewOnly && !row.review) return false
     if (f.savedOnly && !ctx.saved.has(a.id)) return false
@@ -771,7 +801,7 @@ function passes(
     const b = fitBucketOf(row.fit)
     if (!b || !f.fit.includes(b)) return false
   }
-  if (skip !== 'skills' && f.skills.length && !f.skills.every((s) => row.skillKeys.has(s.toLowerCase()))) return false
+  if (skip !== 'skills' && f.skills.length && !f.skills.every((s) => row.skillKeys.has(skillChipKey(s)))) return false
   if (skip !== 'roles' && f.roles.length) {
     const wanted = new Set(f.roles.map((r) => r.trim().toLowerCase()).filter(Boolean))
     if (!row.roleKey || !wanted.has(row.roleKey)) return false
@@ -895,7 +925,7 @@ export function searchApplicants(
   // Skills: keep the first spelling seen for each skill.
   const skillPool = pool('skills')
   const skillNames = new Map<string, string>()
-  for (const r of skillPool) for (const s of r.skills) if (!skillNames.has(s.toLowerCase())) skillNames.set(s.toLowerCase(), s)
+  for (const r of skillPool) for (const s of r.skills) if (!skillNames.has(skillChipKey(s))) skillNames.set(skillChipKey(s), s)
   const skc = tally(skillPool, (r) => Array.from(r.skillKeys))
   const skills = Array.from(skc.entries())
     .map(([key, count]) => ({ value: skillNames.get(key) || key, label: skillNames.get(key) || key, count }))
@@ -1105,6 +1135,9 @@ export function formatExperience(raw: string | undefined): string {
 
 /** The row's experience label: the application's own value, else what the resume states. */
 export function experienceLabel(row: Pick<IndexedApplicant, 'applicant' | 'experience'>): string {
+  // "9 yrs" worked out from the resume beats the band's lower bound ("8 – 12 Years" -> "8 yrs").
+  const precise = yearsWithinBand(row.applicant.experienceYears, row.applicant.resumeText)
+  if (precise !== null) return formatExperience(`${precise}`)
   return formatExperience(row.applicant.experienceYears || (row.experience !== null ? `${row.experience}` : ''))
 }
 

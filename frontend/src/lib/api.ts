@@ -378,6 +378,8 @@ export async function sendInterviewConfirmationEmail(payload: {
   roleTrack?: string
   experienceLevel?: string
   primarySkills?: string[]
+  /** The job link the slot was booked for: the server links the booking to the job / application. */
+  jobId?: string
 }) {
   const res = await apiFetch('/api/interview/confirmation-email', {
     method: 'POST',

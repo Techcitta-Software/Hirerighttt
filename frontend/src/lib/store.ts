@@ -22,12 +22,23 @@ export type User = {
 }
 
 
+export type EducationEntry = {
+  degree: string
+  institution: string
+  startYear?: string
+  endYear?: string
+}
+
 /** Profile without File objects — safe for localStorage. */
 export type SavedProfile = Omit<ProfileFormData, 'resumeFile'> & {
   fullName?: string
   name?: string
   /** The name written on the resume (set when the resume is parsed); the candidate's display name. */
   resumeFullName?: string
+  /** Degrees read from the resume (degree, institution, years). */
+  education?: EducationEntry[]
+  /** Months of real work the resume's job dates show (the band in totalExperience is only a range). */
+  experienceMonths?: number
   resumeName: string | null
   /** Raw extracted resume text for Ava's resume-accurate questions. */
   resumeText?: string
@@ -700,6 +711,8 @@ export function saveProfile(data: ProfileFormData, completedSteps = 0): SavedPro
     resumeName: data.resumeFile?.name ?? data.resumeName ?? getProfile()?.resumeName ?? null,
     resumeText: data.resumeText || getProfile()?.resumeText || '',
     resumeFullName: (data as { resumeFullName?: string }).resumeFullName ?? getProfile()?.resumeFullName ?? '',
+    education: (data as { education?: EducationEntry[] }).education ?? getProfile()?.education,
+    experienceMonths: (data as { experienceMonths?: number }).experienceMonths ?? getProfile()?.experienceMonths,
     resumeUrl: data.resumeUrl ?? getProfile()?.resumeUrl ?? null,
     resumeStoragePath: data.resumeStoragePath ?? getProfile()?.resumeStoragePath ?? null,
     resumeFileId: data.resumeFileId ?? getProfile()?.resumeFileId ?? null,

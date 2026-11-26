@@ -112,3 +112,19 @@ def test_reminders_with_email_off_are_recorded_and_shown_as_due(client, world, m
     mine = client.get(f"/api/interview-invites/{inv['token']}", headers=world["cand"]["h"]).json()["invite"]
     assert mine["reminder"]["kind"] == "2h"
     assert client.get(f"/api/interview-invites/{inv['token']}").json()["invite"]["reminder"] is None
+
+
+def test_running_interviews_are_listed_for_their_organisation_only(client, world):
+    import json as _json
+
+    app_id = _apply(client, world)["applicationId"]
+    org_id = world["job"]["organizationId"]
+    data = {"status": "active", "organizationId": org_id, "applicationId": app_id, "jobId": world["job"]["id"],
+            "startedAt": datetime.now(timezone.utc).isoformat()}
+    _sql("INSERT INTO interview_sessions (session_id, email, data, updated_at) VALUES (%s, %s, %s::jsonb, NOW())",
+         (f"live-{app_id}", world["cand"]["email"], _json.dumps(data)))
+    _sql("INSERT INTO interview_sessions (session_id, email, data, updated_at) VALUES (%s, %s, %s::jsonb, NOW() - INTERVAL '5 hours')",
+         (f"stale-{app_id}", world["cand"]["email"], _json.dumps({**data, "applicationId": "old"})))
+    active = _status(client, world["a"]).json()["activeInterviews"]
+    assert [a["applicationId"] for a in active] == [app_id]  # the 5-hour-idle session is abandoned, not running
+    assert _status(client, world["b"]).json()["activeInterviews"] == []

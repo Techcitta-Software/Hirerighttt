@@ -1,4 +1,6 @@
 import {
+  enterInterviewSession,
+  isServerInterviewSession,
   startInterviewSession,
   type InterviewStartResponse,
 } from './interviewAgentClient'
@@ -111,5 +113,43 @@ export async function runLobbySessionPrep(input: {
     targetJob: context.targetJob,
     mergedProfile: context.mergedProfile,
     context,
+  }
+}
+/** Where the room starts: question 0 for a new interview, the first unanswered one when resuming (reload / crash). */
+export function resumePointFromStart(started: InterviewStartResponse): {
+  current: number
+  answers: string[]
+  history: { question: InterviewStartResponse['question']; answer: string }[]
+} {
+  if (!started.resumed) return { current: 0, answers: [], history: [] }
+  const last = Math.max(0, (started.questions?.length || 1) - 1)
+  const current = Math.min(Math.max(0, started.questionIndex ?? 0), last)
+  const history = (started.history || []).slice(0, current)
+  const answers = (started.answers || history.map((h) => h.answer)).slice(0, current)
+  return { current, answers, history }
+}
+
+const ENDED_SESSION_CODES = new Set(['SESSION_EXPIRED', 'SESSION_ABANDONED'])
+
+/**
+ * "Enter interview room": claims the interview on the server (the free interview is never claimed by just opening
+ * the waiting room). A prepared session that expired meanwhile is prepared again once, transparently.
+ */
+export async function enterPreparedSession(
+  payload: LobbySessionPrepPayload,
+  prepareAgain: () => Promise<LobbySessionPrepPayload>,
+  enter: (sessionId: string) => Promise<void> = enterInterviewSession,
+): Promise<LobbySessionPrepPayload> {
+  const sid = payload.started.sessionId
+  if (!isServerInterviewSession(sid) || payload.started.offline) return payload
+  try {
+    await enter(sid)
+    return payload
+  } catch (err) {
+    if (!(err instanceof Error) || !ENDED_SESSION_CODES.has(err.name)) throw err
+    invalidateLobbySessionPrep()
+    const fresh = await prepareAgain()
+    if (isServerInterviewSession(fresh.started.sessionId)) await enter(fresh.started.sessionId)
+    return fresh
   }
 }

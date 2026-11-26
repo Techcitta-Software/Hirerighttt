@@ -142,12 +142,28 @@ def _q_text(q: Any) -> str:
     return str(q or "").strip()
 
 
-def record_answer(session: dict, index: int, question: Any, answer: str, now: datetime | None = None) -> list:
-    """Store one answer as the candidate gives it, so a reload keeps it. The server's own question wins."""
+ADVANCE_REASONS = frozenset({"submit", "voice-complete", "said-next", "skip", "time-up", "end"})
+
+
+def record_answer(
+    session: dict,
+    index: int,
+    question: Any,
+    answer: str,
+    now: datetime | None = None,
+    advance_reason: str | None = None,
+) -> list:
+    """Store one answer as the candidate gives it, so a reload keeps it. The server's own question wins.
+
+    ``advance_reason`` records WHY the question moved on (answered / skipped / time up …) so a skipped
+    question can be diagnosed later; unknown values are dropped.
+    """
     questions = session.get("questions") or []
     server_q = questions[index] if 0 <= index < len(questions) else None
     q = server_q if _q_text(server_q) else (question if isinstance(question, dict) else {"text": _q_text(question)})
     turn = {"question": q, "answer": str(answer or "")[:20000]}
+    if advance_reason in ADVANCE_REASONS:
+        turn["advanceReason"] = advance_reason
     history = [t for t in session.get("history") or [] if isinstance(t, dict)]
     if index < len(history):
         history = history[:index] + [turn]

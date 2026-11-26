@@ -148,6 +148,35 @@ def list_org_invites(
     return invites, statuses
 
 
+# An unfinished session idle for longer than this was abandoned, not "in progress".
+ACTIVE_SESSION_IDLE = timedelta(hours=2)
+
+
+def list_active_interviews(pool, organization_id: str, *, now: datetime | None = None) -> list[dict]:
+    """Interviews of this organisation running right now (started, not completed, touched recently)."""
+    now = now or datetime.now(timezone.utc)
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """SELECT data->>'applicationId' AS application_id, lower(email) AS email, data->>'jobId' AS job_id,
+                      data->>'startedAt' AS started_at
+                 FROM interview_sessions
+                WHERE COALESCE(organization_id, data->>'organizationId') = %s
+                  AND COALESCE(data->>'status', '') <> 'completed'
+                  AND updated_at >= %s
+                ORDER BY updated_at DESC LIMIT 200""",
+            (str(organization_id), now - ACTIVE_SESSION_IDLE),
+        ).fetchall()
+    return [
+        {
+            "applicationId": dict(r).get("application_id"),
+            "candidateEmail": dict(r).get("email"),
+            "jobId": dict(r).get("job_id"),
+            "startedAt": dict(r).get("started_at"),
+        }
+        for r in rows
+    ]
+
+
 def mark_invite_opened(pool, token: str) -> None:
     """First time the candidate loads the invite page (later loads keep the first time)."""
     with pool.connection() as conn:

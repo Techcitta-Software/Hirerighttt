@@ -17,6 +17,7 @@ import {
 } from '../lib/interviewInviteGate'
 import { beginImmediateInterviewTest, isImmediateInterviewTestEnabled } from '../lib/interviewTestMode'
 import styles from './InterviewInvitePage.module.css'
+import { writeTargetJob, clearTargetJob } from '../lib/targetJob'
 
 type InvitePayload = {
   token: string
@@ -178,11 +179,9 @@ export function InterviewInvitePage() {
       experienceLevel: invite.experienceLevel || '',
       primarySkills: invite.primarySkills || [],
     })
-    sessionStorage.removeItem('hireright.targetJob')
+    clearTargetJob()
     if (invite.applicationId && invite.jobId && invite.organizationId) {
-      sessionStorage.setItem(
-        'hireright.targetJob',
-        JSON.stringify({
+      writeTargetJob({
           title: invite.jobTitle || invite.roleTrack || 'Role',
           company: invite.company || '',
           role: invite.roleTrack || invite.jobTitle || '',
@@ -194,20 +193,16 @@ export function InterviewInvitePage() {
           primarySkills: invite.primarySkills || [],
           atsScore: invite.atsScore ?? undefined,
           jdMatchScore: invite.jdMatchScore ?? undefined,
-        }),
-      )
+        })
     } else if (invite.jobDescription?.trim()) {
-      sessionStorage.setItem(
-        'hireright.targetJob',
-        JSON.stringify({
+      writeTargetJob({
           title: invite.jobTitle || 'AI Interview',
           company: invite.company || '',
           role: invite.roleTrack || invite.jobTitle || '',
           level: invite.experienceLevel || '1–3 years',
           jd: invite.jobDescription,
           primarySkills: invite.primarySkills || [],
-        }),
-      )
+        })
     }
     // The invite carries its own job: an older job link stored during sign-up must not replace it.
     if (invite.applicationId || invite.jobDescription?.trim()) clearPendingJob()

@@ -193,6 +193,7 @@
 
 .result {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
@@ -274,4 +275,19 @@
   .toggleIcon {
     transition: none;
   }
+}
+
+/* The link itself, selectable, under the address (Copy may be blocked by the browser). */
+.url {
+  flex: 1 0 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--ds-border, #e5e5ef);
+  border-radius: 6px;
+  background: var(--ds-surface-subtle, #f6f6fb);
+  color: var(--ds-text, #141638);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  box-sizing: border-box;
 }

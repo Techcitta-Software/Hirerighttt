@@ -8,8 +8,10 @@ import {
   sourceLabel,
   type IndexedApplicant,
 } from '../../lib/applicantSearch'
+import type { InviteStatus } from '../../lib/vendorApi'
 import { HrIcon } from '../HrIcon'
 import { Highlighted } from './Highlighted'
+import { InviteStatusLine } from './InviteStatusLine'
 import { appliedJobsLabel, jobPageJobsLabel, scoreJobTitle } from './applicantJobs'
 import styles from './Applicants.module.css'
 
@@ -31,12 +33,16 @@ type Props = {
   active: boolean
   busy?: string
   now: number
-  /** How many applicants of this row's job have a rank (rank is shown when 2 or more do). */
+  /** How many applicants of this row's job have a rank (the rank shows as soon as one does: "#1 of 1"). */
   rankTotal?: number
   /** Candidates (the resume database): job-specific signals (rank, skills fit) show only when the person has them. */
   directory?: boolean
   /** Set on one job's own page: the "Applied to" chip then names only the person's other jobs. */
   pageJobId?: string
+  /** Latest interview invite for this person (sent / opened / booked / …). */
+  invite?: InviteStatus | null
+  /** One of their interviews is running right now. */
+  inProgress?: boolean
   onToggleSelect: (id: string) => void
   onAction: (action: TupleAction, row: IndexedApplicant) => void
 }
@@ -71,6 +77,8 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   rankTotal = 0,
   directory = false,
   pageJobId = '',
+  invite = null,
+  inProgress = false,
   onToggleSelect,
   onAction,
 }: Props) {
@@ -93,7 +101,7 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   const appliedLabel = a.appliedAt
     ? new Date(a.appliedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
     : ''
-  const showRank = typeof a.rank === 'number' && rankTotal >= 2
+  const showRank = typeof a.rank === 'number' && rankTotal >= 1
   // Several jobs: list them all, and say which job the interview score and the rank belong to.
   const appliedToLabel = pageJobId ? jobPageJobsLabel(a, pageJobId) : appliedJobsLabel(a)
   // On one job's page that job is implied: name the job only when the score or rank belongs to another one.
@@ -223,6 +231,10 @@ export const ApplicantTuple = memo(function ApplicantTuple({
           ) : null}
         </p>
 
+        {invite && row.score === null && !(inProgress && invite.state !== 'started') ? (
+          <InviteStatusLine invite={invite} />
+        ) : null}
+
         <ul className={styles.skillRow} aria-label="Key skills">
           {skills.length ? (
             skills.map((s) => {
@@ -279,6 +291,10 @@ export const ApplicantTuple = memo(function ApplicantTuple({
                   </span>
                 ) : null}
               </>
+            ) : inProgress ? (
+              <span className={styles.inProgressText} data-testid="interview-in-progress">
+                Interview in progress
+              </span>
             ) : (
               <span className={styles.notInterviewed}>Not interviewed</span>
             )}

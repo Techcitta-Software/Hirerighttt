@@ -3,6 +3,8 @@ import { formatPhoneForDisplay, phoneTelHref } from '../../lib/phone'
 import { experienceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
 import { CareerIntelligenceDashboard } from '../CareerIntelligenceDashboard'
 import { HrIcon } from '../HrIcon'
+import type { InviteStatus } from '../../lib/vendorApi'
+import { InviteStatusLine } from './InviteStatusLine'
 import { handleDialogKeyDown } from '../useDialog'
 import { InterviewVideoSection } from './InterviewVideoSection'
 import { ProfileDetails } from './ProfileDetails'
@@ -60,6 +62,8 @@ type Props = {
   originalResume?: boolean
   /** "Now" for "Active 3 days ago" (fixed in tests). */
   now?: number
+  /** Latest interview invite for this person: its state and the link as text. */
+  invite?: InviteStatus | null
 }
 
 /**
@@ -75,6 +79,7 @@ export function ApplicantResumePanel({
   onTab,
   busy = '',
   rankTotal = 0,
+  invite = null,
   onClose,
   onPrev,
   onNext,
@@ -126,7 +131,7 @@ export function ApplicantResumePanel({
   const isApplication = a.recordSource === 'application' || (!a.recordSource && Boolean(a.jobId))
   const shortlisted = a.status === 'Shortlisted'
   const exp = experienceLabel(row)
-  const showRank = typeof a.rank === 'number' && rankTotal >= 2
+  const showRank = typeof a.rank === 'number' && rankTotal >= 1
   // "Frontend Developer at CartWave · 4 yrs · Chennai": the resume headline, else the application's role.
   const title = row.headline.title || a.role || ''
   const roleLine = title && row.headline.company ? `${title} at ${row.headline.company}` : title
@@ -194,6 +199,7 @@ export function ApplicantResumePanel({
           <p className={styles.panelSub}>
             {[roleLine, exp, row.headline.location].filter(Boolean).join(' · ')}
           </p>
+          {invite ? <InviteStatusLine invite={invite} showUrl /> : null}
           {contactVisible || a.candidatePhone ? (
             <p className={styles.panelContact} aria-label="Contact" data-testid="panel-contact">
               {contactVisible ? (

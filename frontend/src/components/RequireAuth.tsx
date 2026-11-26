@@ -20,6 +20,11 @@ type Props = {
 const INVALID_MSG =
   'Your session expired or could not be verified. Please sign in again to continue.'
 
+/** Vendor workspace. A signed-out visit should show the public home page, not the login form. */
+function isVendorArea(pathname: string) {
+  return pathname === '/employer' || pathname.startsWith('/employer/')
+}
+
 /** Email of the user whose session was last verified in this tab. Lets later pages render straight away. */
 let verifiedEmail: string | null = null
 
@@ -71,7 +76,7 @@ export function RequireAuth({ children, role }: Props) {
         if (status === 'invalid') {
           verifiedEmail = null
           clearStoredAuth()
-          setAuthInvalidMessage(INVALID_MSG)
+          if (!isVendorArea(location.pathname)) setAuthInvalidMessage(INVALID_MSG)
           if (!cancelled) {
             setAllowed(false)
             setReady(true)
@@ -93,7 +98,7 @@ export function RequireAuth({ children, role }: Props) {
       cancelled = true
     }
     // Validate once per mount; route changes reuse cached /api/me when still fresh.
-  }, [])
+  }, [location.pathname])
 
   if (!ready) {
     return (
@@ -103,6 +108,9 @@ export function RequireAuth({ children, role }: Props) {
 
   const user = getUser()
   if (!user || !allowed) {
+    if (isVendorArea(location.pathname)) {
+      return <Navigate to="/" replace />
+    }
     return (
       <Navigate
         to="/login"

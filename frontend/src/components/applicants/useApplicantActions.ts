@@ -6,8 +6,10 @@ import type { EmployerApplicant } from '../../lib/store'
 import {
   fetchVendorCandidateResumeDownload,
   patchApplicantStatus,
+  sendApplicantInterviewInvite,
   sendInterviewLinks,
 } from '../../lib/vendorApi'
+import { formatSlot } from './inviteStatus'
 import { buildZip } from '../../lib/zipStore'
 
 export type Notice = { tone: 'success' | 'error' | 'info'; text: string; link?: string; undo?: () => void }
@@ -79,7 +81,11 @@ export const canShortlist = (r: IndexedApplicant) =>
   r.applicant.recordSource === 'application' || (!r.applicant.recordSource && Boolean(r.applicant.jobId))
 
 /** Recruiter actions on applicants, all through existing endpoints. */
-export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Partial<EmployerApplicant>) => void) {
+export function useApplicantActions(
+  onUpdateApplicant?: (id: string, patch: Partial<EmployerApplicant>) => void,
+  /** Called after any invite was created (the invite status reloads). */
+  onInvited?: () => void,
+) {
   const [busy, setBusy] = useState<Record<string, string>>({})
   const [bulkBusy, setBulkBusy] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -211,11 +217,41 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
           link,
         })
       }
+      onInvited?.()
     } catch {
       setNotice({ tone: 'error', text: 'Couldn’t send the interview invitation. Please try again.' })
     } finally {
       mark(ids, null)
       if (n > 1) setBulkBusy('')
+    }
+  }
+
+  /** One applicant, at a date and time the recruiter picked (POST /api/vendor/applicants/{id}/interview-invite). */
+  async function scheduleInvite(r: IndexedApplicant, slot: { scheduledStart: string; durationMinutes: number }) {
+    const a = r.applicant
+    if (busy[a.id] === 'invite') return false
+    mark([a.id], 'invite')
+    try {
+      const { invite } = await sendApplicantInterviewInvite(a.id, slot)
+      const when = formatSlot(invite.scheduledStart)
+      setNotice(
+        invite.emailSent
+          ? { tone: 'success', text: `Interview booked for ${when}. ${a.candidateName} was emailed the link.` }
+          : {
+              tone: 'info',
+              text: invite.smtpConfigured
+                ? `Interview booked for ${when}, but the email did not go out. Copy the link and send it yourself.`
+                : `Interview booked for ${when}. Email is not set up on the server, so copy the link and send it yourself.`,
+              link: invite.inviteUrl,
+            },
+      )
+      onInvited?.()
+      return true
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error && err.message ? err.message : 'Couldn’t schedule the interview. Please try again.' })
+      return false
+    } finally {
+      mark([a.id], null)
     }
   }
 
@@ -253,9 +289,13 @@ export function useApplicantActions(onUpdateApplicant?: (id: string, patch: Part
   }
 
   function exportCsv(rows: IndexedApplicant[], now: number) {
+    if (!rows.length) {
+      setNotice({ tone: 'info', text: 'Nothing to export.' })
+      return
+    }
     const csv = `﻿${applicantsToCsv(rows)}`
     saveBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `applicants-${new Date(now).toISOString().slice(0, 10)}.csv`)
   }
 
-  return { busy, bulkBusy, notice, setNotice, download, shortlist, invite, downloadZip, exportCsv }
+  return { busy, bulkBusy, notice, setNotice, download, shortlist, invite, scheduleInvite, downloadZip, exportCsv }
 }

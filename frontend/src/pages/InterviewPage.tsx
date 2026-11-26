@@ -34,13 +34,20 @@ import {
   scoreInterviewRemote,
   type IntegritySnapshot,
   RETAKE_PAYMENT_REQUIRED_ERROR,
+  INTERVIEW_BOOKED_ERROR,
+  InterviewBookedError,
+  fetchInterviewBooking,
+  recordInterviewAnswer,
 } from '../lib/interviewAgentClient'
 import { buildInterviewConsent, type InterviewConsent } from '../lib/interviewConsent'
 import { InterviewRecorder } from '../lib/interviewRecorder'
 import {
+  formatSlotCountdown,
   inviteAccessFromStored,
   isImmediateInterviewAllowed,
+  msUntilSlotOpens,
   readStoredInterviewInvite,
+  storeBookingLock,
 } from '../lib/interviewInviteGate'
 import {
   applyToJob,
@@ -82,8 +89,10 @@ import {
 } from '../lib/interviewLobbySttGate'
 import {
   beginLobbySessionPrep,
+  enterPreparedSession,
   invalidateLobbySessionPrep,
   lobbySessionPrepKey,
+  resumePointFromStart,
   runLobbySessionPrep,
 } from '../lib/interviewLobbySessionPrep'
 import { displayNameFromSessionProfile } from '../lib/interviewStartContext'
@@ -101,19 +110,31 @@ import { startInterviewFinishJob } from '../lib/interviewFinishJob'
 import { clearPendingJob, resolveInterviewJobContext } from '../lib/pendingJobApply'
 import { interviewDurationMinutes, isInterviewOverBudget } from '../lib/interviewDuration'
 import { HrIcon } from '../components/HrIcon'
+import {
+  ANSWER_SAVED_MESSAGE,
+  OFFLINE_ANSWER_MESSAGE,
+  PREPARING_AFTER_MS,
+  PREPARING_QUESTIONS_MESSAGE,
+  candidateStartErrorMessage,
+  candidateSyncErrorMessage,
+  sendWithReconnect,
+} from '../lib/candidateMessages'
 import { BrandLogo } from '../components/BrandLogo'
 import { easeOut } from '../motion/variants'
 import styles from './InterviewPage.module.css'
 import {
   MIN_ANSWER_CHARS,
-  NO_ANSWER_NOTICE_HOLD_MS,
-  NO_ANSWER_PROMPT,
-  NO_ANSWER_SPEECH_MAX_MS,
+  ENDING_COUNTDOWN_LABEL,
+  SILENCE_NUDGE_PROMPT,
+  SILENCE_NUDGE_SPOKEN,
+  TIME_LEFT_NUDGE_PROMPT,
+  saveAnswerBeforeAdvance,
+  type AdvanceReason,
   answerClockRunning,
   decideAnswerTick,
   isClosingStatement,
-  noAnswerAdvanceStillValid,
   stripAnswerDoneCommand,
+  timeUpCanAdvance,
 } from '../lib/answerTiming'
 
 /** Silero VAD + onnxruntime-web JS (~300 KB) load only once the mic stream is ready, not with the page. */
@@ -136,7 +157,7 @@ const QUESTION_SECONDS = 180
 /** Silence before an answer counts as finished: answerTiming.silenceAdvanceMs (2.8-5 s by answer length). */
 /** Longest the next question waits for Ava's bridge sentence to finish (a stuck audio callback never blocks). */
 const BRIDGE_MAX_WAIT_MS = 9000
-/** No answer at all after the question: answerTiming.NO_ANSWER_TIMEOUT_MS, then Ava says NO_ANSWER_PROMPT and moves on. */
+/** Silence never moves on (owner rule): answerTiming.SILENCE_NUDGE_MS, then Ava nudges once and keeps listening. */
 
 const LOBBY_TIPS = [
   'Only you on camera, facing the screen. Brief glances away are fine.',
@@ -195,7 +216,7 @@ export function InterviewPage() {
   const [result, setResult] = useState<InterviewResult | null>(null)
   const [listening, setListening] = useState(false)
   const [aiSpeaking, setAiSpeaking] = useState(false)
-  /** Shown (and spoken) when the candidate has not answered: NO_ANSWER_PROMPT. */
+  /** Shown (and spoken) when the candidate is quiet: SILENCE_NUDGE_PROMPT / TIME_LEFT_NUDGE_PROMPT. */
   const [noAnswerNotice, setNoAnswerNotice] = useState('')
   const [advancing, setAdvancing] = useState(false)
   const [camOn, setCamOn] = useState(true)
@@ -210,6 +231,12 @@ export function InterviewPage() {
   const interviewLockRequireFullscreenRef = useRef(false)
   const roomGuardDetachRef = useRef<(() => void) | null>(null)
   const [starting, setStarting] = useState(false)
+  /** Starting has taken more than PREPARING_AFTER_MS: show "Preparing your questions…". */
+  const [startingSlow, setStartingSlow] = useState(false)
+  /** The last start failed in a way a retry can fix: show a Retry button next to the message. */
+  const [startRetryable, setStartRetryable] = useState(false)
+  /** Offline / reconnected notice inside the interview room. */
+  const [connectionNotice, setConnectionNotice] = useState('')
   const [jobDetailsOpen, setJobDetailsOpen] = useState(false)
   const lobbyVoicePrepRef = useRef(false)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
@@ -311,17 +338,43 @@ export function InterviewPage() {
     void ensureApiSession()
   }, [])
 
+  /** Bumped when a booked slot arrives from the server (a new tab / device has no copy in sessionStorage). */
+  const [bookingVersion, setBookingVersion] = useState(0)
+  /** Lobby notice: an interview in progress to continue, or an earlier attempt that ended. */
+  const [lobbyNotice, setLobbyNotice] = useState('')
+
+  useEffect(() => {
+    // The booked slot lives on the server too: lock the lobby in every tab, not only the one that booked it.
+    if (isImmediateInterviewAllowed() || readStoredInterviewInvite()) return
+    let cancelled = false
+    void fetchInterviewBooking().then((got) => {
+      if (cancelled || !got?.booking || got.booking.status !== 'too_early') return
+      if (storeBookingLock(got.booking, got.serverNow)) setBookingVersion((v) => v + 1)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => {
     // Only a scheduled invite needs a live clock (countdown to the slot); otherwise don't re-render every second.
     if (isImmediateInterviewAllowed() || !readStoredInterviewInvite()) return
     const id = window.setInterval(() => setScheduleClock(Date.now()), 1000)
     return () => window.clearInterval(id)
-  }, [])
+  }, [bookingVersion])
 
   const scheduledInviteAccess = useMemo(() => {
     if (isImmediateInterviewAllowed()) return null
     return inviteAccessFromStored(readStoredInterviewInvite(), scheduleClock)
-  }, [scheduleClock])
+    // bookingVersion: re-read storage when the server reported a booking
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleClock, bookingVersion])
+  const slotStoredInvite = useMemo(
+    () => (scheduledInviteAccess ? readStoredInterviewInvite() : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scheduledInviteAccess?.status, bookingVersion],
+  )
+  const slotMsLeft = scheduledInviteAccess?.status === 'too_early' ? msUntilSlotOpens(slotStoredInvite, scheduleClock) : null
 
   const [customJd] = useState(
     targetJobRaw?.jd
@@ -344,6 +397,15 @@ export function InterviewPage() {
   const [guardNotice, setGuardNotice] = useState('')
   const guardNoticeTimer = useRef<number | undefined>(undefined)
   const [reviewSyncError, setReviewSyncError] = useState('')
+
+  useEffect(() => {
+    if (!starting) {
+      setStartingSlow(false)
+      return
+    }
+    const id = window.setTimeout(() => setStartingSlow(true), PREPARING_AFTER_MS)
+    return () => window.clearTimeout(id)
+  }, [starting])
   // Nothing is recorded (and the camera is not opened) until the candidate agrees in the waiting room.
   // The consent screen was removed: candidates go straight to the camera check. The server still requires a
   // consent object to start a session, so one is supplied automatically. The version tag marks these records as
@@ -417,10 +479,21 @@ export function InterviewPage() {
   const historyRef = useRef<{ question: Question; answer: string }[]>([])
   const lastSpeechAtRef = useRef(0)
   const answerWindowStartedAtRef = useRef(0)
-  const noAnswerSkipTriggeredRef = useRef(false)
+  const noAnswerSkipTriggeredRef = useRef(false) // the silence nudge was given for this question
+  const timeNudgedRef = useRef(false) // the "about 30 seconds left" nudge was given for this question
+  const timeUpRef = useRef(false) // the 3:00 ran out; advance as soon as the candidate is not speaking
+  const secondsLeftRef = useRef(QUESTION_SECONDS)
   const aiSpeakingRef = useRef(false)
   const listeningRef = useRef(false)
-  const submitAnswerRef = useRef<() => void>(() => {})
+  const submitAnswerRef = useRef<(reason?: AdvanceReason) => void>(() => {})
+  /** When the "Moving on… keep talking to continue" countdown started (0 = not running). */
+  const countdownStartedAtRef = useRef(0)
+  const [endingCountdown, setEndingCountdown] = useState(false)
+  /** Ava is saying a nudge: the mic stays on, but her own words must not count as a spoken command. */
+  const nudgeMutedUntilRef = useRef(0)
+  /** The answer could not be saved: the question stays, with a Retry (never a silent advance). */
+  const [saveFailedNotice, setSaveFailedNotice] = useState('')
+  const lastAdvanceReasonRef = useRef<AdvanceReason>('submit')
   const bargeCooldownRef = useRef(0)
 
   const sttReadyRef = useRef(false)
@@ -957,6 +1030,9 @@ export function InterviewPage() {
     lastSpeechAtRef.current = 0
     answerWindowStartedAtRef.current = 0
     noAnswerSkipTriggeredRef.current = false
+    timeNudgedRef.current = false
+    timeUpRef.current = false
+    secondsLeftRef.current = QUESTION_SECONDS
     setNoAnswerNotice('')
     setDraft('')
     draftRef.current = ''
@@ -1060,16 +1136,48 @@ export function InterviewPage() {
         sttPhase: sttPhaseRef.current,
         lastSpeechAt: lastSpeechAtRef.current,
         answerWindowStartedAt: answerWindowStartedAtRef.current,
-        noAnswerHandled: noAnswerSkipTriggeredRef.current,
+        nudged: noAnswerSkipTriggeredRef.current,
+        secondsLeft: secondsLeftRef.current,
+        timeNudged: timeNudgedRef.current,
+        countdownStartedAt: countdownStartedAtRef.current,
+        commandsMuted: Date.now() < nudgeMutedUntilRef.current,
       })
+      if (decision === 'start-countdown') {
+        countdownStartedAtRef.current = Date.now()
+        setEndingCountdown(true)
+        return
+      }
+      if (decision === 'cancel-countdown') {
+        countdownStartedAtRef.current = 0
+        setEndingCountdown(false)
+        return
+      }
       if (decision === 'submit' || decision === 'submit-now') {
-        submitAnswerRef.current()
-      } else if (decision === 'no-answer') {
+        countdownStartedAtRef.current = 0
+        setEndingCountdown(false)
+        submitAnswerRef.current(decision === 'submit' ? 'voice-complete' : 'said-next')
+      } else if (
+        timeUpRef.current &&
+        timeUpCanAdvance({
+          now: Date.now(),
+          lastSpeechAt: lastSpeechAtRef.current,
+          sttPhase: sttPhaseRef.current,
+          answerWindowStartedAt: answerWindowStartedAtRef.current,
+        })
+      ) {
+        // (c) the answer time fully ran out: save what was said and move on.
+        submitAnswerRef.current('time-up')
+      } else if (decision === 'nudge') {
         noAnswerSkipTriggeredRef.current = true
-        announceNoAnswerAndAdvance()
+        nudgeCandidate(SILENCE_NUDGE_PROMPT, SILENCE_NUDGE_SPOKEN)
+      } else if (decision === 'time-nudge') {
+        timeNudgedRef.current = true
+        nudgeCandidate(TIME_LEFT_NUDGE_PROMPT)
       }
     }, 400)
     return () => window.clearInterval(id)
+    // Reads live state through refs; nudgeCandidate / questions are read fresh for the current question.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, current, interviewBanned])
 
   useEffect(() => {
@@ -1091,9 +1199,12 @@ export function InterviewPage() {
       setSecondsLeft((s) => {
         if (s <= 1) {
           window.clearInterval(id)
-          if (alive) window.setTimeout(() => submitAnswer(), 0)
+          // The answer loop moves on once the candidate is not mid-sentence (answerTiming.timeUpCanAdvance).
+          if (alive) timeUpRef.current = true
+          secondsLeftRef.current = 0
           return 0
         }
+        secondsLeftRef.current = s - 1
         return s - 1
       })
     }, 1000)
@@ -1113,7 +1224,7 @@ export function InterviewPage() {
       inFlight = true
       void saveReviewEvents(sid, reviewRef.current.events)
         .then(() => setReviewSyncError(''))
-        .catch(e => setReviewSyncError(e.message))
+        .catch(e => setReviewSyncError(candidateSyncErrorMessage(e)))
         .finally(() => { inFlight = false })
     }, 5000)
     return () => window.clearInterval(timer)
@@ -1204,7 +1315,21 @@ export function InterviewPage() {
           interviewConsent,
         }),
       )
-      const [sessionPayload, voice] = await Promise.all([sessionPromise, voicePromise])
+      const [preparedPayload, voice] = await Promise.all([sessionPromise, voicePromise])
+      // Entering is what makes the interview count (free interview / paid credit), never the waiting room.
+      const sessionPayload = await enterPreparedSession(preparedPayload, () =>
+        beginLobbySessionPrep(lobbySessionKey, () =>
+          runLobbySessionPrep({
+            role,
+            level,
+            profile,
+            customJd,
+            targetJobRaw,
+            roleTrackExplicit: roleTrackExplicitRef.current,
+            interviewConsent,
+          }),
+        ),
+      )
       const { started, targetJob, mergedProfile } = sessionPayload
       activeJobRef.current = targetJob
       const nameFromProfile = displayNameFromSessionProfile(mergedProfile, candidateDisplayName)
@@ -1221,7 +1346,12 @@ export function InterviewPage() {
         MAX_ADAPTIVE_QUESTIONS,
       )
       setQuestions(started.questions)
-      setCurrent(0)
+      // Back after a reload / crash: same session, same questions, answers kept; continue where it stopped.
+      const resumePoint = resumePointFromStart(started)
+      answersRef.current = resumePoint.answers
+      historyRef.current = resumePoint.history
+      setCurrent(resumePoint.current)
+      setLobbyNotice('')
       setDraft('')
       setResult(null)
       setRecordingUrl(null)
@@ -1246,8 +1376,20 @@ export function InterviewPage() {
       window.setTimeout(() => attachStream(roomVideoRef.current), 50)
       window.setTimeout(() => attachStream(roomVideoRef.current), 300)
     } catch (err) {
-      setRetakePaymentRequired(err instanceof Error && err.name === RETAKE_PAYMENT_REQUIRED_ERROR)
-      setDeviceError(err instanceof Error ? err.message : 'We couldn’t start your interview. Please try again.')
+      if (err instanceof InterviewBookedError || (err instanceof Error && err.name === INTERVIEW_BOOKED_ERROR)) {
+        // A booked slot that has not opened (enforced by the server in every tab): show the lock and countdown.
+        invalidateLobbySessionPrep()
+        const booked = err as InterviewBookedError
+        if (storeBookingLock(booked.booking, booked.serverNow)) setBookingVersion((v) => v + 1)
+        setStartRetryable(false)
+        setDeviceError(booked.message)
+        return
+      }
+      const paymentRequired = err instanceof Error && err.name === RETAKE_PAYMENT_REQUIRED_ERROR
+      setRetakePaymentRequired(paymentRequired)
+      setStartRetryable(!paymentRequired)
+      // Never developer text (API keys, "Failed to fetch") in front of the candidate.
+      setDeviceError(paymentRequired && err instanceof Error ? err.message : candidateStartErrorMessage(err))
     } finally {
       setStarting(false)
     }
@@ -1310,9 +1452,22 @@ export function InterviewPage() {
         roleTrackExplicit: roleTrackExplicitRef.current,
         interviewConsent,
       }),
-    ).catch(() => {
-      /* join will retry; never surface “preparing questions” in the lobby */
-    })
+    )
+      .then(({ started }) => {
+        if (started.resumed) {
+          const n = (started.questionIndex ?? 0) + 1
+          setLobbyNotice(`You have an interview in progress. Enter the room to continue from question ${n} — your earlier answers are saved.`)
+        } else if (started.previousAttempt?.message) {
+          setLobbyNotice(started.previousAttempt.message)
+        }
+      })
+      .catch((err) => {
+        if (err instanceof InterviewBookedError) {
+          invalidateLobbySessionPrep()
+          if (storeBookingLock(err.booking, err.serverNow)) setBookingVersion((v) => v + 1)
+        }
+        /* otherwise join will retry; never surface “preparing questions” in the lobby */
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, interviewConsent, lobbySessionKey, scheduledInviteAccess?.canStart])
 
@@ -1350,49 +1505,46 @@ export function InterviewPage() {
   }
 
   /**
-   * The candidate stayed silent after the question (answerTiming.NO_ANSWER_TIMEOUT_MS): Ava says so out loud and on
-   * screen, waits NO_ANSWER_NOTICE_HOLD_MS, then moves on with an empty answer.
+   * The candidate has been quiet: Ava says `text` (on screen too) and then KEEPS LISTENING. Silence never moves to
+   * the next question (owner rule); only an answer, a skip, or the time running out does.
    */
-  function announceNoAnswerAndAdvance() {
-    const gen = speakGenRef.current
-    const raisedForIndex = currentRef.current
-    listenAfterTtsRef.current = false
-    stopListening()
-    setNoAnswerNotice(NO_ANSWER_PROMPT)
-    setAiSpeaking(true)
-    aiSpeakingRef.current = true
+  function nudgeCandidate(text: string, spoken: string = text) {
+    const forIndex = currentRef.current
+    // The microphone keeps running: nothing the candidate says during the nudge is lost. Ava's own words are
+    // kept out of the spoken-command check while she talks (and the spoken line has no "next question" in it).
+    setNoAnswerNotice(text)
+    nudgeMutedUntilRef.current = Date.now() + 60_000
     let done = false
-    const advance = () => {
+    const after = () => {
       if (done) return
       done = true
-      if (
-        !noAnswerAdvanceStillValid({
-          raisedForIndex,
-          currentIndex: currentRef.current,
-          raisedGen: gen,
-          currentGen: speakGenRef.current,
-        }) ||
-        finishingRef.current ||
-        advancingRef.current ||
-        stageRef.current !== 'interview'
-      ) {
-        return
-      }
-      setNoAnswerNotice('')
-      setAiSpeaking(false)
-      aiSpeakingRef.current = false
-      submitAnswerRef.current()
+      nudgeMutedUntilRef.current = Date.now() + 1_500
+      window.setTimeout(() => {
+        if (currentRef.current === forIndex) setNoAnswerNotice((n) => (n === text ? '' : n))
+      }, 6000)
+      if (finishingRef.current || stageRef.current !== 'interview' || currentRef.current !== forIndex) return
+      if (micOnRef.current && !listeningRef.current && !aiSpeakingRef.current) startListening()
     }
-    const holdThenAdvance = () => window.setTimeout(advance, NO_ANSWER_NOTICE_HOLD_MS)
-    speakText(NO_ANSWER_PROMPT, { onEnd: holdThenAdvance, onError: holdThenAdvance })
-    window.setTimeout(advance, NO_ANSWER_SPEECH_MAX_MS + NO_ANSWER_NOTICE_HOLD_MS)
+    speakText(spoken, { onEnd: after, onError: after })
   }
 
-  async function submitAnswer() {
+  /** "Skip question": the candidate chose to move on without answering this one. */
+  function skipQuestion() {
+    if (finishingRef.current || advancingRef.current || stage !== 'interview') return
+    draftRef.current = ''
+    setDraft('')
+    void submitAnswer('skip')
+  }
+
+  async function submitAnswer(reason: AdvanceReason = 'submit') {
     if (finishingRef.current || stage !== 'interview' || questions.length === 0) {
       return
     }
     if (interviewBanned || advancingRef.current) return
+    lastAdvanceReasonRef.current = reason
+    countdownStartedAtRef.current = 0
+    setEndingCountdown(false)
+    setSaveFailedNotice('')
     listenAfterTtsRef.current = false
     stopAllSpeech()
 
@@ -1426,6 +1578,38 @@ export function InterviewPage() {
       ...historyRef.current.slice(0, current),
       { question: currentQuestion, answer },
     ]
+    // Saved on the server BEFORE moving on (a reload / crash resumes with it). If it cannot be saved, the question
+    // stays with "Couldn't save — Retry": never a silent advance. advanceReason says why the question moved on.
+    if (isServerInterviewSession(sessionIdRef.current)) {
+      advancingRef.current = true
+      setAdvancing(true)
+      const saved = await saveAnswerBeforeAdvance(() =>
+        recordInterviewAnswer({
+          sessionId: sessionIdRef.current,
+          questionIndex: current,
+          question: currentQuestion,
+          answer,
+          advanceReason: reason,
+        }),
+      )
+      advancingRef.current = false
+      setAdvancing(false)
+      if (finishingRef.current || stageRef.current !== 'interview') return
+      if (!saved) {
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        setSaveFailedNotice(offline ? OFFLINE_ANSWER_MESSAGE : 'Couldn’t save your answer.')
+        if (offline) {
+          const onBack = () => {
+            window.removeEventListener('online', onBack)
+            if (stageRef.current === 'interview' && currentRef.current === current) submitAnswerRef.current(reason)
+          }
+          window.addEventListener('online', onBack)
+        }
+        listenAfterTtsRef.current = true
+        if (micOnRef.current) startListening()
+        return
+      }
+    }
 
     if (
       adaptiveRef.current &&
@@ -1493,6 +1677,16 @@ export function InterviewPage() {
         })
       }
 
+      if (usePreloaded && typeof navigator !== 'undefined' && navigator.onLine === false) {
+        // The next question is already here; the answer is kept and goes with the interview once back online.
+        setConnectionNotice(OFFLINE_ANSWER_MESSAGE)
+        const onBack = () => {
+          window.removeEventListener('online', onBack)
+          setConnectionNotice(ANSWER_SAVED_MESSAGE)
+          window.setTimeout(() => setConnectionNotice((n) => (n === ANSWER_SAVED_MESSAGE ? '' : n)), 5000)
+        }
+        window.addEventListener('online', onBack)
+      }
       if (usePreloaded) {
         if (finishingRef.current || stageRef.current !== 'interview') return
         if (historyRef.current.length >= totalTurnsRef.current) {
@@ -1502,7 +1696,8 @@ export function InterviewPage() {
         }
         setCurrent(nextIdx)
       } else {
-        const nextQuestion = await fetchNextAdaptiveQuestion({
+        // Offline: the answer is queued and re-sent when the connection returns (it is never dropped).
+        const nextQuestion = await sendWithReconnect(() => fetchNextAdaptiveQuestion({
           sessionId: sessionIdRef.current,
           role,
           level,
@@ -1517,6 +1712,13 @@ export function InterviewPage() {
           lastQuestion: currentQuestion,
           lastAnswer: answer,
           varietySeed: varietySeedRef.current,
+        }), {
+          onOffline: () => setConnectionNotice(OFFLINE_ANSWER_MESSAGE),
+          onSaved: () => {
+            setConnectionNotice(ANSWER_SAVED_MESSAGE)
+            window.setTimeout(() => setConnectionNotice((n) => (n === ANSWER_SAVED_MESSAGE ? '' : n)), 5000)
+          },
+          cancelled: () => finishingRef.current || stageRef.current !== 'interview',
         })
         if (finishingRef.current || stageRef.current !== 'interview') return
         if (historyRef.current.length >= totalTurnsRef.current) {
@@ -1550,8 +1752,8 @@ export function InterviewPage() {
     }
   }
 
-  submitAnswerRef.current = () => {
-    void submitAnswer()
+  submitAnswerRef.current = (reason?: AdvanceReason) => {
+    void submitAnswer(reason)
   }
 
   /**
@@ -1755,6 +1957,8 @@ export function InterviewPage() {
   const closingTurn = stage === 'interview' && isClosingStatement(question)
   const callStatus = closingTurn
     ? 'Ava is wrapping up the interview — no answer needed'
+    : endingCountdown
+    ? ENDING_COUNTDOWN_LABEL
     : advancing
     ? 'Moving to your next question…'
     : sttPhase === 'capturing'
@@ -1764,7 +1968,7 @@ export function InterviewPage() {
         : aiSpeaking
           ? 'Ava is speaking — wait for the full question, or speak clearly to interrupt'
           : listening
-            ? 'Listening — pause ~5s when you are done'
+            ? 'Listening — pause when you are done, or say “next question” to skip'
             : 'Live call with Ava'
 
   const canSubmit =
@@ -1830,7 +2034,12 @@ export function InterviewPage() {
         )}
       </header>
 
-      {reviewSyncError && <p role="alert" className="ds-alert ds-alert--warning">{reviewSyncError}</p>}
+      {reviewSyncError && !connectionNotice && <p role="alert" className="ds-alert ds-alert--warning">{reviewSyncError}</p>}
+      {connectionNotice && stage === 'interview' && (
+        <p role="status" aria-live="polite" className="ds-alert ds-alert--warning">
+          {connectionNotice}
+        </p>
+      )}
       <AnimatePresence mode="wait">
         {stage === 'setup' && (
           <motion.section
@@ -1911,9 +2120,29 @@ export function InterviewPage() {
                     ? 'Without the camera check, your interview may be flagged for the recruiter to review.'
                     : 'Your camera stays on for the whole interview.'}
                 </p>
+                {lobbyNotice && !deviceError && (
+                  <p className={styles.joinHint} role="status">
+                    {lobbyNotice}
+                  </p>
+                )}
                 {deviceError && (
                   <p className={styles.deviceError} role="alert">
                     {deviceError}
+                    {startRetryable && !retakePaymentRequired && !starting && canStart ? (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          className={styles.textBtn}
+                          onClick={() => {
+                            setStartRetryable(false)
+                            void joinInterviewRoom()
+                          }}
+                        >
+                          Retry
+                        </button>
+                      </>
+                    ) : null}
                     {retakePaymentRequired ? (
                       <>
                         {' '}
@@ -2054,6 +2283,11 @@ export function InterviewPage() {
                 >
                   {lobbyEnterButtonLabel({ starting })}
                 </motion.button>
+                {startingSlow && (
+                  <p className={styles.joinHint} role="status" aria-live="polite">
+                    {PREPARING_QUESTIONS_MESSAGE}
+                  </p>
+                )}
                 {savedReport && !starting && (
                   <button
                     type="button"
@@ -2067,7 +2301,17 @@ export function InterviewPage() {
                 {!canStart && !starting && (
                   <p className={styles.joinHint}>
                     {scheduledInviteAccess?.status === 'too_early'
-                      ? 'Your link opens at your scheduled time. Come back when the countdown reaches zero.'
+                      ? `Your interview is booked for ${
+                          slotStoredInvite?.scheduledStart
+                            ? new Date(slotStoredInvite.scheduledStart).toLocaleString(undefined, {
+                                weekday: 'short',
+                                day: 'numeric',
+                                month: 'short',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })
+                            : 'your scheduled time'
+                        }. It opens in ${formatSlotCountdown(slotMsLeft ?? 0)}.`
                       : scheduledInviteAccess?.status === 'expired'
                         ? 'Your interview window has ended. Ask your recruiter for a new invite link.'
                         : faceBlocks
@@ -2294,18 +2538,44 @@ export function InterviewPage() {
                 )}
               </div>
 
-              <div className={styles.callStatus} aria-live="polite">
+              <div className={styles.callStatus} aria-live="polite" data-testid="call-status">
                 {callStatus}
               </div>
+
+              {saveFailedNotice ? (
+                <p className="ds-alert ds-alert--warning" role="alert" data-testid="save-failed">
+                  {saveFailedNotice}{' '}
+                  <button
+                    type="button"
+                    className={styles.textBtn}
+                    onClick={() => submitAnswerRef.current(lastAdvanceReasonRef.current)}
+                    disabled={advancing}
+                  >
+                    Retry
+                  </button>
+                </p>
+              ) : null}
 
               <motion.button
                 type="button"
                 className={styles.nextBtnSecondary}
-                onClick={() => submitAnswer()}
+                onClick={() => submitAnswer('submit')}
                 disabled={!canSubmit}
               >
                 {faceBlocks ? 'Fix face check' : 'Submit answer now'}
               </motion.button>
+
+              {closingTurn ? null : (
+                <button
+                  type="button"
+                  className={styles.textBtn}
+                  onClick={skipQuestion}
+                  disabled={advancing || interviewBanned}
+                  data-testid="skip-question"
+                >
+                  Skip question
+                </button>
+              )}
 
               <button type="button" className={styles.endBtn} onClick={endInterviewEarly}>
                 Leave

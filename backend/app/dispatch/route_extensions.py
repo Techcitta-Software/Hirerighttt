@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.db.finders import find_user, memberships_for_user, remove_vault_item, vault_for_org
+from app.db.finders import find_employer_app_for, find_job, find_user, memberships_for_user, remove_vault_item, vault_for_org
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -24,6 +24,7 @@ from app.services.interview_invites import (
     INVITE_JOIN_WINDOW_MINUTES,
     build_interview_invite_email,
     insert_interview_invite,
+    insert_interview_invite_once,
     invite_join_window_end,
     invite_public_url,
     trusted_request_origin,
@@ -241,7 +242,7 @@ async def try_extended_routes(
             resume_text=(app.get("data") or {}).get("resumeText"),
             given=(app.get("data") or {}).get("candidateName"),
         )
-        await insert_interview_invite(
+        token, created = await insert_interview_invite_once(
             pool,
             {
                 "token": token,
@@ -257,6 +258,25 @@ async def try_extended_routes(
                 "contextJson": context_json,
             },
         )
+        if not created:
+            # A double click / concurrent request: answer with the invite that already exists, send no second email.
+            invite_url = invite_public_url(token, trusted_request_origin(request))
+            last = (app.get("data") or {}).get("lastInterviewInvite") or {}
+            return json_fn(
+                200,
+                {
+                    "invite": {
+                        "token": token,
+                        "inviteUrl": invite_url,
+                        "scheduledStart": start.isoformat().replace("+00:00", "Z"),
+                        "scheduledEnd": end.isoformat().replace("+00:00", "Z"),
+                        "emailSent": bool(last.get("emailSent")) if last.get("token") == token else False,
+                        "emailError": None,
+                        "smtpConfigured": smtp_configured(),
+                        "duplicate": True,
+                    }
+                },
+            )
         email_sent = False
         email_error = None
         if smtp_configured():
@@ -305,8 +325,8 @@ async def try_extended_routes(
         if not access:
             return None
         if not persistence_ready(config.database_url):
-            return json_fn(200, {"invites": [], "smtpConfigured": smtp_configured()})
-        from app.services.vendor.invite_status import list_org_invites, serialize_invite
+            return json_fn(200, {"invites": [], "activeInterviews": [], "smtpConfigured": smtp_configured()})
+        from app.services.vendor.invite_status import list_active_interviews, list_org_invites, serialize_invite
 
         org_id = access["tenant"]["organization"]["id"]
         q = request.query_params
@@ -335,7 +355,12 @@ async def try_extended_routes(
             for r in rows
             if _job_visible(r.get("job_id"))
         ]
-        return json_fn(200, {"invites": invites, "smtpConfigured": smtp_configured()})
+        active = [
+            a
+            for a in await asyncio.to_thread(list_active_interviews, pool, org_id, now=now)
+            if _job_visible(a.get("jobId")) and (not job_id or a.get("jobId") == job_id)
+        ]
+        return json_fn(200, {"invites": invites, "activeInterviews": active, "smtpConfigured": smtp_configured()})
 
     if method == "POST" and path == "/api/vendor/interview-invites/send":
         # Recruiter sends an open interview link to one or many people. The link works any time until it expires,
@@ -506,6 +531,17 @@ async def try_extended_routes(
             "joinWindowMinutes": INVITE_JOIN_WINDOW_MINUTES,
         }
         pool = db_store.db_pool(config.database_url)
+        # A slot booked from a job link belongs to that job (T3: self-booked invites had no job / application).
+        booked_job_id = None
+        booked_app_id = None
+        if body.get("jobId"):
+            booked_job = find_job(db, str(body["jobId"]))
+            if booked_job and str(booked_job.get("status") or "published").lower() in ("active", "published"):
+                booked_job_id = booked_job.get("id")
+                own = find_employer_app_for(db, booked_job_id, email)
+                booked_app_id = own.get("id") if own else None
+                if booked_job.get("organizationId"):
+                    org_id = booked_job.get("organizationId")
         self_name = candidate_display_name(db, email, given=user.get("name") if user else "")  # the resume name
         if self_name.lower() == str(email or "").lower():
             self_name = ""
@@ -514,6 +550,8 @@ async def try_extended_routes(
             {
                 "token": token,
                 "organizationId": org_id,
+                "jobId": booked_job_id,
+                "applicationId": booked_app_id,
                 "candidateEmail": email,
                 "candidateName": self_name,
                 "jobTitle": body.get("jobTitle") or context_json.get("jobTitle") or "AI Interview",

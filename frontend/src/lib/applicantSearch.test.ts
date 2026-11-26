@@ -204,6 +204,12 @@ describe('filters and facets', () => {
     // A typed city filters locationLabel and resume text even when that city is not a checkbox.
     const typed = searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, location: 'vijayawada' }, 'relevance')
     expect(typed.rows.map((r) => r.applicant.id)).toEqual(['via'])
+    const alias = searchApplicants(
+      [indexApplicant(app({ id: 'label-only', resumeText: 'No city word', currentLocation: 'Bengaluru' }))],
+      { ...EMPTY_APPLICANT_FILTERS, location: 'bangalore' },
+      'relevance',
+    )
+    expect(alias.rows.map((r) => r.applicant.id)).toEqual(['label-only'])
     const mentioned = searchApplicants(
       [indexApplicant(app({ id: 'trip', resumeText: 'Visited Vijayawada once' }))],
       { ...EMPTY_APPLICANT_FILTERS, location: 'Vijayawada' },
@@ -296,6 +302,9 @@ describe('filters and facets', () => {
     expect(candidates.sources).toEqual([])
     expect(candidates.savedOnly).toBe(false)
     expect(candidates.roles).toEqual(['qa'])
+    expect(
+      filtersForApplicantSearch('candidates', { ...EMPTY_APPLICANT_FILTERS, cities: ['Pune'], location: 'Pune' }).cities,
+    ).toEqual([])
   })
 })
 

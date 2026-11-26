@@ -101,6 +101,7 @@ def test_invite_route_links_to_the_site_the_recruiter_is_on(client):
     assert ok.json()["invite"]["inviteUrl"].startswith("http://localhost:5183/interview/invite/")
     evil = client.post(url, json={"scheduledStart": when, "durationMinutes": 30},
                        headers={**org["h"], "Origin": "https://evil.example"})
-    assert evil.status_code in (201, 403), evil.text  # CORS may refuse it outright; never an evil link
-    if evil.status_code == 201:
+    # CORS may refuse it outright, or the same slot is returned as a duplicate (200); never an evil link.
+    assert evil.status_code in (200, 201, 403), evil.text
+    if evil.status_code in (200, 201):
         assert not evil.json()["invite"]["inviteUrl"].startswith("https://evil.example")

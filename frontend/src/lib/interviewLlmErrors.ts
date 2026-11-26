@@ -13,13 +13,13 @@ export class InterviewLlmError extends Error {
 }
 
 export function interviewLlmRequiredError(
-  message = 'Interview questions require the API server with GEMINI_API_KEY (Google Gemini).',
+  message = 'We couldn’t start your interview right now — please try again in a minute.',
 ) {
   return new InterviewLlmError('LLM_QUESTION_REQUIRED', message)
 }
 
 export function interviewLlmGenerationFailedError(
-  message = 'Gemini could not generate a valid question. Check GEMINI_API_KEY and try again.',
+  message = 'We couldn’t prepare the next question right now — please try again in a minute.',
 ) {
   return new InterviewLlmError('LLM_QUESTION_FAILED', message)
 }

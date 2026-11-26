@@ -158,6 +158,14 @@ export function InviteCandidatesPanel({ jobs, embedded = false, defaultJobId = '
                     <button type="button" className={styles.copy} onClick={() => void copy(r.inviteUrl)}>
                       {copied === r.inviteUrl ? 'Copied' : 'Copy link'}
                     </button>
+                    <input
+                      className={styles.url}
+                      readOnly
+                      value={r.inviteUrl}
+                      aria-label={`Interview link for ${r.email}`}
+                      onFocus={(e) => e.currentTarget.select()}
+                      data-testid="invite-url"
+                    />
                   </li>
                 ))}
               </ul>

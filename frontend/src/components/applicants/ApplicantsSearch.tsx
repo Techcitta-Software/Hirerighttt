@@ -24,6 +24,9 @@ import { handleDialogKeyDown, useDialogFocus } from '../useDialog'
 import { ApplicantResumePanel } from './ApplicantResumePanel'
 import { ApplicantTuple, type TupleAction } from './ApplicantTuple'
 import { useApplicantActions } from './useApplicantActions'
+import { InviteApplicantDialog, type InviteChoice } from './InviteApplicantDialog'
+import { InviteStatusLine } from './InviteStatusLine'
+import { useInviteStatus } from './inviteStatus'
 import { useApplicantsUrl } from './useApplicantsUrl'
 import { useJobRanking } from './useJobRanking'
 import { projectApplicantsToJobs, rowHasApplicationId } from './applicantJobs'
@@ -44,6 +47,8 @@ export type ApplicantsSearchProps = {
   onInviteByEmail?: () => void
   /** Fetch each job's ranking in the background (off in tests). */
   loadRanking?: boolean
+  /** Fetch each invite's status (sent / opened / booked / …) in the background. */
+  loadInviteStatus?: boolean
   now?: number
 }
 
@@ -199,6 +204,7 @@ export function ApplicantsSearch({
   onUpdateApplicant,
   onInviteByEmail,
   loadRanking = true,
+  loadInviteStatus = true,
   now: nowProp,
 }: ApplicantsSearchProps) {
   const [now] = useState(() => nowProp ?? Date.now())
@@ -214,14 +220,18 @@ export function ApplicantsSearch({
     [applicants, jobFilterKey],
   )
   const { indexed, rankTotals } = useJobRanking(shownApplicants, jobs, { enabled: loadRanking, loading })
-  const actions = useApplicantActions(onUpdateApplicant)
+  const singleJobId = mode === 'applications' && filters.jobs.length === 1 ? filters.jobs[0] : undefined
+  const inviteStatus = useInviteStatus({ enabled: loadInviteStatus && !loading, jobId: singleJobId })
+  const actions = useApplicantActions(onUpdateApplicant, inviteStatus.refresh)
   const { busy, bulkBusy, notice, setNotice } = actions
+  // Row / profile "Invite" asks: open link, or a date and time slot.
+  const [inviteFor, setInviteFor] = useState<IndexedApplicant | null>(null)
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [reportFor, setReportFor] = useState<EmployerApplicant | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set(['role', 'skills', 'experience', 'location', 'interview']),
+    () => new Set(['role', 'skills', 'experience', 'interview']),
   )
   const [skillQuery, setSkillQuery] = useState('')
   const [showAllSkills, setShowAllSkills] = useState(false)
@@ -380,7 +390,7 @@ export function ApplicantsSearch({
       if (action === 'view') openPanel(row.applicant.id)
       else if (action === 'download') void h.download(row)
       else if (action === 'shortlist') void h.shortlist([row], { toggle: true })
-      else if (action === 'invite') void h.invite([row])
+      else if (action === 'invite') setInviteFor(row)
     },
     [openPanel],
   )
@@ -415,6 +425,24 @@ export function ApplicantsSearch({
 
   // Selection is kept across filters, pages and the drawer; rows a filter hides are counted, not dropped.
   const selectedRows = indexed.filter((r) => selected.has(r.applicant.id))
+
+  async function submitInvite(choice: InviteChoice) {
+    const row = inviteFor
+    if (!row) return
+    if (choice.kind === 'open') {
+      setInviteFor(null)
+      await actionsRef.current.invite([row])
+      return
+    }
+    const ok = await actionsRef.current.scheduleInvite(row, {
+      scheduledStart: choice.scheduledStart,
+      durationMinutes: choice.durationMinutes,
+    })
+    if (ok) setInviteFor(null)
+  }
+
+  // People invited to this job by e-mail who have not applied yet: otherwise invisible on the job page.
+  const pendingInvites = singleJobId ? inviteStatus.index.unmatched(applicants) : []
   const visibleIds = new Set(result.rows.map((r) => r.applicant.id))
   const hiddenSelected = selectedRows.filter((r) => !visibleIds.has(r.applicant.id)).length
   const pageIds = pageRows.map((r) => r.applicant.id)
@@ -530,7 +558,30 @@ export function ApplicantsSearch({
           className={`ds-alert ${notice.tone === 'error' ? 'ds-alert--error' : notice.tone === 'success' ? 'ds-alert--success' : 'ds-alert--info'} ${styles.notice}`}
           role={notice.tone === 'error' ? 'alert' : 'status'}
         >
-          <span>{notice.text}</span>
+          <span>
+            {notice.text}
+            {notice.link ? (
+              notice.link.includes('\n') ? (
+                <textarea
+                  className={styles.noticeLink}
+                  readOnly
+                  rows={Math.min(4, notice.link.split('\n').length)}
+                  value={notice.link}
+                  aria-label="Interview links"
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              ) : (
+                <input
+                  className={styles.noticeLink}
+                  readOnly
+                  value={notice.link}
+                  aria-label="Interview link"
+                  onFocus={(e) => e.currentTarget.select()}
+                  data-testid="notice-link"
+                />
+              )
+            ) : null}
+          </span>
           {notice.undo ? (
             <button type="button" className={styles.linkBtn} onClick={notice.undo}>
               Undo
@@ -675,24 +726,6 @@ export function ApplicantsSearch({
               />
             </FilterGroup>
 
-            <FilterGroup id="location" title="Location (mentioned in resume)" open={openGroups.has('location')} onToggle={toggleGroup}>
-              <CheckList
-                name="city"
-                disableEmpty={false}
-                options={result.facets.cities.filter(
-                  (c) => c.count > 0 || effectiveFilters.cities.some((v) => v.toLowerCase() === c.value.toLowerCase()),
-                )}
-                values={effectiveFilters.cities}
-                onToggle={(v) =>
-                  patchFilters({
-                    cities: effectiveFilters.cities.some((c) => c.toLowerCase() === v.toLowerCase())
-                      ? effectiveFilters.cities.filter((c) => c.toLowerCase() !== v.toLowerCase())
-                      : [...effectiveFilters.cities, v],
-                  })
-                }
-              />
-            </FilterGroup>
-
             <FilterGroup id="interview" title="Interview" open={openGroups.has('interview')} onToggle={toggleGroup}>
               <RadioList
                 name="interview-choice"
@@ -756,6 +789,17 @@ export function ApplicantsSearch({
                   <HrIcon name="settings" size={14} /> Filters{filterChipCount ? ` (${filterChipCount})` : ''}
                 </button>
               ) : null}
+              {mode === 'applications' ? (
+                <button
+                  type="button"
+                  className={styles.actBtn}
+                  onClick={() => actions.exportCsv(result.rows, now)}
+                  disabled={!result.rows.length}
+                  title={`Download the ${result.rows.length} ${result.rows.length === 1 ? person : people} shown as a CSV file`}
+                >
+                  <HrIcon name="download" size={14} /> Export CSV
+                </button>
+              ) : null}
               <label className={styles.sortLabel}>
                 <span>Sort by</span>
                 <select value={sort} onChange={(e) => commit({ sort: e.target.value as ApplicantSort, page: 1 })}>
@@ -772,6 +816,21 @@ export function ApplicantsSearch({
           </div>
 
           {refreshing ? <div className={styles.progress} role="progressbar" aria-label={`Updating ${people}`} /> : null}
+
+          {pendingInvites.length ? (
+            <details className={styles.pendingInvites} data-testid="pending-invites">
+              <summary>
+                Invited, not applied yet ({pendingInvites.length})
+              </summary>
+              <ul>
+                {pendingInvites.map((inv) => (
+                  <li key={inv.token}>
+                    <InviteStatusLine invite={inv} showUrl label={inv.candidateName || inv.candidateEmail} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
 
           {mode === 'candidates' && chips.length ? (
             <div className={styles.chipsBar} aria-label="Applied filters">
@@ -827,6 +886,11 @@ export function ApplicantsSearch({
                 >
                   <HrIcon name="download" size={14} /> {bulkBusy === 'zip' ? 'Preparing…' : 'Download resumes (zip)'}
                 </button>
+                {mode === 'applications' ? (
+                  <button type="button" className={styles.actBtn} onClick={() => actions.exportCsv(selectedRows, now)}>
+                    <HrIcon name="download" size={14} /> Export CSV
+                  </button>
+                ) : null}
                 <button type="button" className={styles.linkBtn} onClick={() => setSelected(new Set())}>
                   Clear selection
                 </button>
@@ -929,6 +993,8 @@ export function ApplicantsSearch({
                     busy={busy[row.applicant.id]}
                     now={now}
                     rankTotal={row.applicant.jobId ? rankTotals[row.applicant.jobId] : 0}
+                    invite={inviteStatus.index.forApplicant(row.applicant)}
+                    inProgress={inviteStatus.index.inProgress(row.applicant)}
                     directory={mode === 'candidates'}
                     pageJobId={mode === 'applications' && filters.jobs.length === 1 ? filters.jobs[0] : undefined}
                     onToggleSelect={toggleSelect}
@@ -997,13 +1063,23 @@ export function ApplicantsSearch({
             onPrev={activeIndex > 0 ? () => goTo(activeIndex - 1) : undefined}
             onNext={activeIndex >= 0 && activeIndex < result.rows.length - 1 ? () => goTo(activeIndex + 1) : undefined}
             onShortlist={() => void actions.shortlist([activeRow], { toggle: true })}
-            onInvite={() => void actions.invite([activeRow])}
+            onInvite={() => setInviteFor(activeRow)}
+            invite={inviteStatus.index.forApplicant(activeRow.applicant)}
             onDownload={() => void actions.download(activeRow)}
             onOpenFullReport={() => setReportFor(activeRow.applicant)}
             originalResume={mode === 'candidates'}
             now={now}
           />
         </>
+      ) : null}
+
+      {inviteFor ? (
+        <InviteApplicantDialog
+          candidateName={inviteFor.applicant.candidateName}
+          busy={busy[inviteFor.applicant.id] === 'invite'}
+          onSubmit={(choice) => void submitInvite(choice)}
+          onClose={() => setInviteFor(null)}
+        />
       ) : null}
 
       {reportFor ? (

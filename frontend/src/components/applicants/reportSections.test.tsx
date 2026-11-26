@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { indexApplicant } from '../../lib/applicantSearch'
 import type { EmployerApplicant, IntegrityLogEvent, InterviewResult } from '../../lib/store'
 import { ApplicantResumePanel } from './ApplicantResumePanel'
-import { InterviewVideoView, NO_VIDEO_TIMELINE_NOTE, noVideoState, type InterviewVideoState } from './InterviewVideoSection'
+import { InterviewVideoView } from './InterviewVideoSection'
+import { NO_VIDEO_TIMELINE_NOTE, noVideoState, type InterviewVideoState } from './interviewVideoState'
 
 vi.mock('../../lib/adminAccess', () => ({ canViewInterviewVideo: () => true }))
 

@@ -1,7 +1,12 @@
 """Classify a candidate as technical or non-technical from resume evidence only.
 
 No LLM. Never reads an existing questionModel, and never lets the job they are
-applying to (roleTrack, job title, job description) vote.
+applying to (roleTrack, job title, job description) vote. (For a job-linked interview, where the job SHOULD vote, use
+`interview_role_family.choose_question_model`.)
+
+`classify_question_model` now goes through the job-family detector (`interview_role_family.detect_role_family`), so
+nurses, teachers, chefs and medical reps are non-technical, and a thin or unknown resume defaults to the
+non-technical general_professional family instead of software prompts.
 """
 
 from __future__ import annotations
@@ -483,7 +488,18 @@ def _thin(profile: dict) -> dict[str, str]:
 
 
 def classify_question_model(profile: dict | None) -> dict[str, str]:
-    """Return questionModel, questionModelConfidence, and a short reason. Ignores any stored questionModel."""
+    """Return questionModel, questionModelConfidence, and a short reason. Ignores any stored questionModel.
+
+    Resume only (the job never votes here). Backed by the role-family detector, so an unknown profession or a thin
+    resume is non_technical (general_professional) rather than software-engineering."""
+    from app.services.interview_role_family import detect_role_family
+
+    fam = detect_role_family("", profile if isinstance(profile, dict) else {})
+    return _result(fam.track, fam.confidence, fam.reason)
+
+
+def _classify_resume_core(profile: dict | None) -> dict[str, str]:
+    """The original title/skill classifier: the technical vs non-technical backbone of the family detector."""
     profile = profile if isinstance(profile, dict) else {}
     # Drop keys that must not vote, even if a caller stuffed the applied job onto the profile.
     profile = {
@@ -636,9 +652,17 @@ def _tool_name(profile: dict, deciding: str) -> str:
     return ""
 
 
-def resume_question_anchors(profile: dict | None, *, fresher: bool) -> dict[str, str]:
-    """Employer, tool, duty, and stakeholder used to ground non-technical questions. Nothing is invented."""
+def resume_question_anchors(profile: dict | None, *, fresher: bool, family: str | None = None) -> dict[str, str]:
+    """Employer, tool, duty, and stakeholder used to ground non-technical questions. Nothing is invented.
+
+    Also carries the role family ("family", resume-detected unless the caller passes the job's family) and
+    "fresher" ("yes" or ""), so the non-technical turn plan can pick family competencies and the fresher variant."""
+    from app.services.interview_role_family import NON_TECHNICAL_FAMILIES, detect_role_family, family_spec
+
     profile = profile if isinstance(profile, dict) else {}
+    if family not in NON_TECHNICAL_FAMILIES:
+        detected = detect_role_family("", profile).family
+        family = detected if detected in NON_TECHNICAL_FAMILIES else "general_professional"
     job = _anchor_job(profile, fresher=fresher)
     employer = _job_company(job) if job else ""
     title = _job_title(job) if job else ""
@@ -651,6 +675,8 @@ def resume_question_anchors(profile: dict | None, *, fresher: bool) -> dict[str,
         duty = _first_sentence(_flatten(job.get("responsibilities") or job.get("description")))
     metric = _first_metric(profile, job)
     stakeholder = _stakeholder(title, str(profile.get("currentRole") or ""), duty)
+    if family != "general_professional" and stakeholder != "doctor":
+        stakeholder = str(family_spec(family).get("stakeholder") or stakeholder)
     return {
         "employer": employer,
         "title": title,
@@ -659,4 +685,6 @@ def resume_question_anchors(profile: dict | None, *, fresher: bool) -> dict[str,
         "stakeholder": stakeholder,
         "metric": metric,
         "activity": activity,
+        "family": family,
+        "fresher": "yes" if fresher else "",
     }

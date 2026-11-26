@@ -8,13 +8,15 @@ import {
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
 
-describe('silence before moving on', () => {
-  it('waits the full 5 s on a short answer (the candidate may still be thinking)', () => {
-    expect(silenceAdvanceMs(words(8))).toBe(5000)
+describe('silence before moving on (scales with the answer)', () => {
+  it('waits 8 s on a short answer (the candidate may still be thinking)', () => {
+    expect(silenceAdvanceMs(words(8))).toBe(8000)
+    expect(silenceAdvanceMs(words(24))).toBe(8000)
   })
-  it('moves on sooner once the answer is substantial', () => {
-    expect(silenceAdvanceMs(words(25))).toBe(3800)
-    expect(silenceAdvanceMs(words(60))).toBe(2800)
+  it('5 s for a medium answer, 3.5 s for a long one', () => {
+    expect(silenceAdvanceMs(words(25))).toBe(5000)
+    expect(silenceAdvanceMs(words(60))).toBe(5000)
+    expect(silenceAdvanceMs(words(61))).toBe(3500)
   })
 })
 

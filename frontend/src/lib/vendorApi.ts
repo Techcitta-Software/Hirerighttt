@@ -481,6 +481,7 @@ export async function sendApplicantInterviewInvite(
   })
   return parse<{
     invite: {
+      token?: string
       inviteUrl: string
       scheduledStart: string
       scheduledEnd: string
@@ -510,6 +511,40 @@ export async function sendInterviewLinks(payload: {
     body: JSON.stringify(payload),
   })
   return parse<{ ok: boolean; expiresAt: string; smtpConfigured: boolean; invites: SentInvite[] }>(res)
+}
+
+export type InviteState = 'sent' | 'opened' | 'booked' | 'started' | 'completed' | 'expired'
+
+/** One interview invite as the recruiter sees it (GET /api/vendor/interview-invites). */
+export type InviteStatus = {
+  token: string
+  inviteUrl: string
+  candidateEmail: string
+  candidateName: string
+  jobId: string | null
+  applicationId: string | null
+  jobTitle: string
+  openLink: boolean
+  scheduledStart: string | null
+  scheduledEnd: string | null
+  createdAt: string | null
+  emailSentAt: string | null
+  openedAt: string | null
+  state: InviteState
+  stateLabel: string
+  reminder: { kind: '24h' | '2h'; at: string | null; channel: 'email' | 'in_app' } | null
+  reminderDue: boolean
+}
+
+export type ActiveInterview = { applicationId: string | null; candidateEmail: string; jobId: string | null; startedAt: string | null }
+
+/** Invite status for this organisation (optionally one job), plus interviews running right now. */
+export async function fetchInviteStatuses(params: { jobId?: string } = {}, opts?: { background?: boolean }) {
+  const qs = new URLSearchParams()
+  if (params.jobId) qs.set('jobId', params.jobId)
+  const suffix = qs.toString() ? `?${qs}` : ''
+  const res = await apiFetch(`/api/vendor/interview-invites${suffix}`, { background: opts?.background })
+  return parse<{ invites: InviteStatus[]; activeInterviews?: ActiveInterview[]; smtpConfigured: boolean }>(res)
 }
 
 export async function patchApplicantStatus(applicantId: string, status: string) {

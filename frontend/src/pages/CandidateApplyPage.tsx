@@ -25,6 +25,8 @@ import { isValidPhone, normalizePhone } from '../lib/phone'
 import { companySlugMatches, slugifyCompany } from '../lib/jobLink'
 import { setPendingJob } from '../lib/pendingJobApply'
 import styles from './CandidateApplyPage.module.css'
+import { writeTargetJob } from '../lib/targetJob'
+import { storeApplyResumeFile } from '../lib/resumeUploadApi'
 
 /** Signed-in people get the app's own nav and footer; visitors get the same chrome as the rest of the public site. */
 function ApplyNav() {
@@ -207,6 +209,8 @@ export function CandidateApplyPage() {
           return
         }
 
+        // Store the file itself (like onboarding) before applying: the application picks up the stored copy.
+        await storeApplyResumeFile(resumeFile)
         const applied = await applyToPublicJob(
           job.shareableCode,
           {
@@ -229,9 +233,7 @@ export function CandidateApplyPage() {
           summary: applied.ats.summary,
         })
 
-        sessionStorage.setItem(
-          'hireright.targetJob',
-          JSON.stringify({
+        writeTargetJob({
             title: job.title,
             company: job.company,
             role: job.roleTrack,
@@ -243,21 +245,17 @@ export function CandidateApplyPage() {
             primarySkills: applied.ats.primarySkills || job.requiredSkills,
             atsScore: applied.ats.atsScore,
             jdMatchScore: applied.ats.jdMatchScore,
-          }),
-        )
+          })
         return
       }
 
-      sessionStorage.setItem(
-        'hireright.targetJob',
-        JSON.stringify({
+      writeTargetJob({
           title: job.title,
           company: job.company,
           role: job.roleTrack,
           level: job.experienceLevel,
           jd: job.jobDescription,
-        }),
-      )
+        })
       navigate('/interview')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not submit your application.')

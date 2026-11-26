@@ -1578,6 +1578,14 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 return refused
             return _json(200, {"ok": True, "sessionId": session_id, "status": session.get("status")})
 
+        if method == "GET" and path == "/api/interview/booking":
+            # The candidate's booked slot (lobby countdown / lock in any tab, dashboard "Your interview" card).
+            email = await runtime.require_auth_email(request)
+            db = ctx.load_db()
+            account = await asyncio.to_thread(find_user, db, email=email)
+            booking = await _candidate_booking(db, email, account)
+            return _json(200, {"booking": booking, "serverNow": ivlife.now_iso()})
+
         if method == "POST" and path == "/api/interview/answer":
             # Each answer is stored as it is given, so a reload / crash resumes with the answers kept (T5 B9).
             email = await runtime.require_auth_email(request)
@@ -1599,7 +1607,10 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             index = _int_param(body.get("questionIndex"), -1, lo=-1, hi=100)
             if index < 0:
                 return _json(400, {"error": "questionIndex is required."})
-            history = ivlife.record_answer(session, index, body.get("question"), str(body.get("answer") or ""))
+            history = ivlife.record_answer(
+                session, index, body.get("question"), str(body.get("answer") or ""),
+                advance_reason=str(body.get("advanceReason") or "") or None,
+            )
             db["interviewSessions"][session_id] = session
             await ctx.save_db(db)
             return _json(200, {"ok": True, "answered": len(history)})

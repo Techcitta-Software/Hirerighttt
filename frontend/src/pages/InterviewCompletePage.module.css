@@ -412,3 +412,37 @@ div.notice {
     padding-top: var(--space-5);
   }
 }
+
+/* "View dashboard" next to the primary "View report". */
+.ctaSecondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-h-lg, 48px);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-6);
+  border: 1px solid var(--ds-border-strong, #c7c9d1);
+  border-radius: var(--radius-md, 10px);
+  background: transparent;
+  color: var(--ds-text, #111827);
+  font-family: inherit;
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ctaSecondary:hover:not(:disabled) {
+  background: var(--ds-surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.ctaSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ctaSecondary:focus-visible {
+  outline: var(--ds-focus-outline, 2px solid #5046e5);
+  outline-offset: 2px;
+}

@@ -13,6 +13,7 @@ import {
   type InterviewFinishStatus,
 } from '../lib/interviewFinishJob'
 import { getInterviewResult, getProfile, getUser } from '../lib/store'
+import { interviewCompleteHeadline, interviewEndedEarly, interviewEndedEarlyReason } from '../lib/interviewCompleteCopy'
 import styles from './InterviewCompletePage.module.css'
 
 function formatDate(value: string | undefined): string {
@@ -49,7 +50,7 @@ export function InterviewCompletePage() {
 
   // Finishing the interview is the last onboarding step. Make sure it is recorded before opening the dashboard,
   // otherwise a refreshed page (or a failed save) bounces the candidate back to the profile wizard.
-  async function openDashboard() {
+  async function openDashboard(to: 'dashboard' | 'report' = 'dashboard') {
     if (opening) return
     setOpening(true)
     try {
@@ -57,7 +58,8 @@ export function InterviewCompletePage() {
     } catch {
       // the local profile is still marked complete
     }
-    goToCandidateDashboardAfterInterview(navigate)
+    if (to === 'report') navigate('/dashboard/report', { replace: true })
+    else goToCandidateDashboardAfterInterview(navigate)
   }
 
   useEffect(() => {
@@ -95,6 +97,8 @@ export function InterviewCompletePage() {
   const provisional = Boolean(result?.scoring && !result.scoring.reliable)
   const score = result && Number.isFinite(result.overall) ? Math.round(result.overall) : null
   const band = score != null ? scoreBand(score) : null
+  const endedEarly = interviewEndedEarly(result)
+  const headline = interviewCompleteHeadline({ first, score, endedEarly })
 
   const details: { label: string; value: string }[] = [
     { label: 'Full name', value: fullName },
@@ -131,9 +135,9 @@ export function InterviewCompletePage() {
       <main className={styles.main}>
         <section className={styles.card} aria-labelledby="complete-title">
           <div className={styles.hero}>
-            <CelebrationMark burst />
+            {headline.celebrate ? <CelebrationMark burst /> : null}
             <h1 id="complete-title" className={styles.title}>
-              {first ? `Congratulations, ${first}!` : 'Congratulations!'}
+              {headline.title}
             </h1>
             {/* Visible confirmation; the live region below carries the same words for screen readers. */}
             <p className={styles.status} aria-hidden="true">
@@ -155,6 +159,11 @@ export function InterviewCompletePage() {
             <p className="ds-sr-only" role="status" aria-live="polite">
               {announced ? 'Interview submitted and saved securely.' : ''}
             </p>
+            {endedEarly ? (
+              <p className={styles.notice} role="status" data-testid="ended-early-reason">
+                {interviewEndedEarlyReason(result)}
+              </p>
+            ) : null}
             <p className={styles.lede}>
               Thank you for your time and thoughtful answers.{' '}
               {scoring || scoringFailed
@@ -247,6 +256,15 @@ export function InterviewCompletePage() {
             <button
               type="button"
               className={styles.cta}
+              onClick={() => void openDashboard('report')}
+              disabled={opening || scoring || scoringFailed}
+              aria-busy={opening || undefined}
+            >
+              View report
+            </button>
+            <button
+              type="button"
+              className={styles.ctaSecondary}
               onClick={() => void openDashboard()}
               disabled={opening}
               aria-busy={opening || undefined}

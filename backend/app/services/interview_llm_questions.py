@@ -186,335 +186,92 @@ def _turn_plan(*, total: int, fresher: bool, role_skills: list[str], from_job: b
 
 
 _BANNED_NONTECH_QUESTION = re.compile(
-    r"tell me about yourself|what are your strengths|\byour strengths\b|why should we hire|why should i hire|why hire you",
+    r"tell me about yourself|what are your strengths|your strengths|why should we hire|why should i hire|why hire you",
     re.I,
 )
 
+# Non-technical career model. The wrappers below keep their signatures; the plan, validation, prompts and the
+# deterministic fallback bank live in interview_nontech_questions (family data: interview_role_family).
+
 
 def _nontech_text_ok(text: str, anchor: str) -> bool:
-    cleaned = str(text or "").strip()
-    if len(cleaned) < 24 or len(cleaned.split()) > 45:
+    """Length (<= 45 words), one question, no generic opener, no engineering vocabulary, and the anchor is present."""
+    from app.services.interview_nontech_questions import text_problems
+
+    if _BANNED_NONTECH_QUESTION.search(str(text or "")):
         return False
-    if _BANNED_NONTECH_QUESTION.search(cleaned):
-        return False
-    if not anchor:
-        return True
-    if anchor.lower() in cleaned.lower():
-        return True
-    from app.services.interview_question_model import normalize_evidence
-
-    return normalize_evidence(anchor) in normalize_evidence(cleaned)
+    return not text_problems(text, anchor=anchor)
 
 
-def _turn_plan_non_technical(anchors: dict[str, str]) -> dict[int, dict[str, Any]]:
-    """Six scored turns. The server stamps category, scoring profile, and lookFor after the model answers."""
-    employer = anchors.get("employer") or ""
-    title = anchors.get("title") or ""
-    tool = anchors.get("tool") or ""
-    duty = anchors.get("duty") or ""
-    stakeholder = anchors.get("stakeholder") or "the person you were helping"
-    metric = anchors.get("metric") or ""
-    activity = anchors.get("activity") or ""
-    place = employer
-    title_bit = f" ({title})" if title else ""
+def _turn_plan_non_technical(
+    anchors: dict[str, str], *, seed: str = "", fresher: bool | None = None, family: str | None = None
+) -> dict[int, dict[str, Any]]:
+    """Six scored turns: opening, job knowledge, scenario, STAR (competency A), result, STAR B (fresher: scenario B).
+    The family and fresher flag come from the anchors unless passed. The server stamps category, scoring profile,
+    lookFor, angle and family after the model answers."""
+    from app.services.interview_nontech_questions import build_plan
 
-    def pack(purpose: str, anchor: str, category: str, profile: str, focus: str, look: list[str], topic: str) -> dict[str, Any]:
-        return {
-            "purpose": purpose,
-            "anchor": anchor,
-            "category": category,
-            "scoringProfile": profile,
-            "focus": focus,
-            "lookFor": look[:4],
-            "topic": (topic or "Experience")[:80],
-        }
-
-    if place:
-        turn1 = pack(
-            f"One activity they owned at {place}{title_bit}. Ava has already greeted them, so do not say hello again. "
-            f'The question must contain "{place}".',
-            place,
-            "Experience",
-            "opening",
-            "nontech-opening",
-            ["own_action", "result"],
-            place,
-        )
-    elif activity:
-        turn1 = pack(
-            f"One activity they owned in this college, campus, or part-time activity from the resume: {activity}. "
-            "Do not invent a company. Ava has already greeted them, so do not say hello again. "
-            f'The question must contain "{activity}".',
-            activity,
-            "Experience",
-            "opening",
-            "nontech-opening",
-            ["own_action", "result"],
-            activity,
-        )
-    else:
-        turn1 = pack(
-            "One activity they owned that appears in the resume. Do not invent a company or employer. "
-            "Ava has already greeted them, so do not say hello again.",
-            "",
-            "Experience",
-            "opening",
-            "nontech-opening",
-            ["own_action", "result"],
-            "Experience",
-        )
-
-    if tool:
-        turn2 = pack(
-            f"Judgment with {tool} in one real case{(' at ' + place) if place else ''}. "
-            "What they decided and who else was involved. "
-            f'The question must contain "{tool}".',
-            tool,
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action", f"tool:{tool}"],
-            tool,
-        )
-    elif place:
-        turn2 = pack(
-            f"Judgment in one real case at {place}. What they decided and who else was involved. "
-            f'The question must contain "{place}".',
-            place,
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action", f"employer:{place}"],
-            place,
-        )
-    else:
-        turn2 = pack(
-            "Judgment in one real case from the resume. What they decided and who else was involved. "
-            "Do not invent a tool or employer.",
-            "",
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action"],
-            "Judgment",
-        )
-
-    if duty and place:
-        turn3 = pack(
-            f"Judgment on this duty at {place}: {duty}. What they checked and who had to agree. "
-            f'The question must contain "{place}".',
-            place,
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action", f"employer:{place}"],
-            duty,
-        )
-    elif duty:
-        fragment = " ".join(duty.split()[:4])
-        turn3 = pack(
-            f"Judgment on this duty: {duty}. What they checked and who had to agree. "
-            f'The question must contain "{fragment}".',
-            fragment,
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action"],
-            duty,
-        )
-    elif place:
-        turn3 = pack(
-            f"Judgment on the work they did at {place}. What they checked and who had to agree. "
-            f'The question must contain "{place}".',
-            place,
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action", f"employer:{place}"],
-            place,
-        )
-    else:
-        turn3 = pack(
-            "Judgment on work that appears in the resume. What they checked and who had to agree. Do not invent a duty.",
-            "",
-            "Problem Solving",
-            "situational",
-            "nontech-craft",
-            ["situation", "own_action"],
-            "Judgment",
-        )
-
-    if place:
-        turn4 = pack(
-            f"One real case at {place} with {stakeholder}. What they said, what they did, and how it ended. "
-            f'The question must contain "{place}".',
-            place,
-            "Problem Solving",
-            "stakeholder",
-            "nontech-craft",
-            ["situation", "own_action", f"employer:{place}"],
-            place,
-        )
-    else:
-        turn4 = pack(
-            f"One real case from the resume with {stakeholder}. What they said, what they did, and how it ended. "
-            f'The question must contain "{stakeholder}". Do not invent an employer.',
-            stakeholder,
-            "Problem Solving",
-            "stakeholder",
-            "nontech-craft",
-            ["situation", "own_action"],
-            stakeholder,
-        )
-
-    if metric:
-        number = re.search(r"\d[\d,]*(?:\.\d+)?%?", metric)
-        anchor = number.group(0) if number else ""
-        turn5 = pack(
-            f"The metric from the resume: {metric}. Their part and what happened. "
-            + (f'The question must contain "{anchor}". ' if anchor else "")
-            + "Do not invent a different number.",
-            anchor,
-            "Experience",
-            "achievement",
-            "nontech-result",
-            ["own_action", "result"],
-            metric,
-        )
-    elif duty and place:
-        turn5 = pack(
-            f"The outcome of this duty at {place}: {duty}. Their part and what happened. "
-            f'The question must contain "{place}". Do not invent a metric.',
-            place,
-            "Experience",
-            "achievement",
-            "nontech-result",
-            ["own_action", "result"],
-            duty,
-        )
-    elif duty:
-        fragment = " ".join(duty.split()[:4])
-        turn5 = pack(
-            f"The outcome of this duty: {duty}. Their part and what happened. "
-            f'The question must contain "{fragment}". Do not invent a metric.',
-            fragment,
-            "Experience",
-            "achievement",
-            "nontech-result",
-            ["own_action", "result"],
-            duty,
-        )
-    elif place:
-        turn5 = pack(
-            f"The outcome of their work at {place}. Their part and what happened. "
-            f'The question must contain "{place}". Do not invent a metric.',
-            place,
-            "Experience",
-            "achievement",
-            "nontech-result",
-            ["own_action", "result"],
-            place,
-        )
-    else:
-        turn5 = pack(
-            "The outcome of work that appears in the resume. Their part and what happened. "
-            "Do not invent a metric or employer.",
-            "",
-            "Experience",
-            "achievement",
-            "nontech-result",
-            ["own_action", "result"],
-            "Result",
-        )
-
-    turn6 = pack(
-        f"Same situation as the previous question. The gap: who they asked, and what they told {stakeholder} while waiting. "
-        f'The question must contain "{stakeholder}". Do not introduce a new tool.',
-        stakeholder,
-        "Problem Solving",
-        "followup",
-        "nontech-same",
-        ["stakeholder", "result"],
-        stakeholder,
-    )
-    return {1: turn1, 2: turn2, 3: turn3, 4: turn4, 5: turn5, 6: turn6}
+    return build_plan(anchors, seed=seed, fresher=fresher, family=family)
 
 
-def _nontech_fallback_meta(anchors: dict[str, str]) -> dict[str, Any]:
-    stakeholder = anchors.get("stakeholder") or "the person you were helping"
-    return {
-        "purpose": (
-            "One question about lastAnswer: a result or stakeholder they skipped. "
-            f'The question must contain "{stakeholder}". Do not introduce a new tool.'
-        ),
-        "anchor": stakeholder,
-        "category": "Problem Solving",
-        "scoringProfile": "followup",
-        "focus": "nontech-followup",
-        "lookFor": ["stakeholder", "result"],
-        "topic": stakeholder[:80],
-    }
+def _nontech_fallback_meta(anchors: dict[str, str], history: list | None = None) -> dict[str, Any]:
+    """Live follow-up turn. With `history`, it targets the biggest gap in the earlier answers; without, lastAnswer."""
+    from app.services.interview_nontech_questions import followup_meta
+
+    return followup_meta(anchors, history)
 
 
-def _stamp_nontech_question(question: dict[str, Any], meta: dict[str, Any], anchors: dict[str, str]) -> dict[str, Any]:
-    keywords = [item for item in (anchors.get("employer"), anchors.get("tool")) if item]
-    return {
-        **question,
-        "questionModel": "non_technical",
-        "category": meta["category"],
-        "scoringProfile": meta["scoringProfile"],
-        "focus": meta["focus"],
-        "topic": meta.get("topic") or question.get("topic") or "Experience",
-        "keywords": keywords,
-        "resumeAnchor": anchors.get("employer") or anchors.get("activity") or "",
-        "lookFor": list(meta.get("lookFor") or []),
-    }
+def _stamp_nontech_question(question: dict[str, Any], meta: dict[str, Any], anchors: dict[str, str]) -> dict[str, Any] | None:
+    """Stamp the plan's category/profile/lookFor/family onto a model question. Returns None (= rejected, the caller
+    retries) when the text breaks the turn's rules: STAR opener on behavioural turns, "what would you" on scenarios,
+    no definitions on job-knowledge turns, no engineering vocabulary."""
+    from app.services.interview_nontech_questions import stamp, text_problems
+
+    if text_problems(
+        str(question.get("text") or ""),
+        family=str(meta.get("family") or anchors.get("family") or ""),
+        kind=str(meta.get("kind") or ""),
+        anchor=str(meta.get("anchor") or ""),
+    ):
+        return None
+    return stamp(question, meta, anchors)
 
 
-def _nontech_rules(level: str, fresher: bool) -> str:
-    tier = seniority_tier(level, fresher)
-    pitched = {
-        "entry": "entry = what they did and the result",
-        "mid": "mid = the trade-off and who they had to convince",
-        "senior": "senior = a missed target, what they changed, and who owned the outcome",
-    }[tier]
-    return f"""Rules:
-- Never ask them to code, write a query, define a term, compare frameworks, or explain how a system is built.
-- Ask for judgment in one real situation: who else was involved, what THEY did, and what resulted.
-- The question must contain the employer, duty, or tool named in that turn's purpose.
-- One question, at most two sentences, under 45 words.
-- No "tell me about yourself", strengths, "why should we hire you", or five-year plan.
-- Never invent an employer, tool, quota, metric, or project that is not in the payload.
-- Difficulty: entry = what they did and the result; mid = the trade-off and who they had to convince; senior = a missed target, what they changed, and who owned the outcome.
-- For this candidate use {pitched}."""
+def _nontech_fallback_for_turn(
+    meta: dict[str, Any], anchors: dict[str, str], prior: list[str] | None = None, seed: str = ""
+) -> dict[str, Any]:
+    """Deterministic question for a non-technical turn when Gemini is down or every attempt was invalid."""
+    from app.services.interview_nontech_questions import fallback_question
+
+    return fallback_question(meta, anchors, prior, seed)
 
 
-def _system_prompt_non_technical(*, turn: int, total: int, role: str, level: str, fresher: bool, purpose: str) -> str:
-    return f"""You are Ava, a professional interviewer. Generate exactly ONE interview question as JSON only.
-Turn {turn} of {total}. Role: {role}. Experience: {level}.
-This candidate is non-technical. Ask for judgment in one real situation from their resume.
-Purpose for this turn: {purpose}
-{_nontech_rules(level, fresher)}
-Return ONLY: {{"question":{{"text":"...","keywords":["..."],"hint":"...","topic":"..."}}}}"""
+def _nontech_rules(level: str, fresher: bool, family: str = "") -> str:
+    from app.services.interview_nontech_questions import rules
+
+    return rules(level, fresher, family)
 
 
-def _batch_system_prompt_non_technical(*, total: int, role: str, level: str, fresher: bool) -> str:
+def _system_prompt_non_technical(
+    *, turn: int, total: int, role: str, level: str, fresher: bool, purpose: str, family: str = ""
+) -> str:
+    from app.services.interview_nontech_questions import system_prompt
+
+    return system_prompt(turn=turn, total=total, role=role, level=level, fresher=fresher, purpose=purpose, family=family)
+
+
+def _batch_system_prompt_non_technical(*, total: int, role: str, level: str, fresher: bool, family: str = "") -> str:
+    from app.services.interview_nontech_questions import batch_system_prompt
+
     skip = ""
     if not fresher:
         fb = _experienced_fallback_turn_number()
         cl = _experienced_closing_turn_number()
         skip = (
-            f"Do NOT generate turn {fb} (fallback follow-up) or turn {cl} (closing thanks) — "
+            f"Do NOT generate turn {fb} (live follow-up) or turn {cl} (closing thanks) — "
             "those are generated later, in order, after prior answers."
         )
-    return f"""You are Ava, a professional interviewer. Generate the interview questions for this non-technical candidate in ONE JSON response.
-Total turns in session: {total}. Role: {role}. Experience: {level}.
-{_nontech_rules(level, fresher)}
-- Generate exactly one question per turnNumber in the user payload "turns" list and follow that turn's "purpose" exactly.
-- {skip}
-- Each question must be distinct.
-- If the payload has "alreadyAsked", those questions are already in the session: never repeat or rephrase them.
-Return ONLY: {{"questions":[{{"turnNumber":1,"question":{{"text":"...","keywords":["..."],"hint":"...","topic":"..."}}}}, ...]}}"""
+    return batch_system_prompt(total=total, role=role, level=level, fresher=fresher, skip=skip, family=family)
 
 
 def _pending_fallback_question() -> dict[str, Any]:

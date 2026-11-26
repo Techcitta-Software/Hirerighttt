@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { acceptEssentialCookiesOnly, hasCookieConsentDecision } from '../lib/cookieConsent'
+import { acceptEssentialCookiesOnly, cookieBannerHiddenOn, hasCookieConsentDecision } from '../lib/cookieConsent'
 import styles from './CookieConsentBanner.module.css'
-
-/**
- * Never shown in the interview room (or its lobby / completion pages): the bar sat on top of the mic, camera and
- * "Use keyboard" controls and swallowed clicks, so a candidate lost a question. It appears again on the next page.
- */
-export function cookieBannerHiddenOn(pathname: string): boolean {
-  return /^\/interview(\/|$)/.test(pathname)
-}
 
 /**
  * One slim line at the bottom of the screen. We only use essential storage, so there is nothing to choose:

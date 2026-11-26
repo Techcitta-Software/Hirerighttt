@@ -243,3 +243,36 @@ export function computeExperience(
   }
   return { label: FRESHER_LABEL, months: 0, isFresher: true, source: 'none' }
 }
+
+/** "8 – 12 Years" -> [8, 12]; "12+ Years" -> [12, 60]; anything else -> null. */
+function bandBounds(band: string): [number, number] | null {
+  const range = band.match(/(\d+(?:\.\d+)?)\s*(?:–|-|to)\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)/i)
+  if (range) return [Number(range[1]), Number(range[2])]
+  const plus = band.match(/(\d+(?:\.\d+)?)\s*\+\s*(?:years?|yrs?)/i)
+  return plus ? [Number(plus[1]), 60] : null
+}
+
+/** The experience section of saved resume text (work history dates only, never education years). */
+function experienceSectionOf(text: string): string {
+  const m = text.match(
+    /(?:^|\n)\s*(?:work\s+experience|professional\s+experience|employment(?:\s+history)?|work\s+history|experience)\s*:?\s*\n([\s\S]*?)(?=\n\s*(?:education|skills|technical\s+skills|projects|certifications?|achievements?|awards?|internships?|tools|languages?|references|declaration)\b|$)/i,
+  )
+  return m?.[1] ?? ''
+}
+
+/**
+ * The candidate's real years inside an experience band ("8 – 12 Years" + a resume showing 9 years -> 9), so a card
+ * shows "9 yrs" instead of the band's lower bound. Uses the job dates of the experience section and the resume's own
+ * "N years of experience"; null when neither gives a figure inside the band.
+ */
+export function yearsWithinBand(band: string | undefined, resumeText: string | undefined, now = new Date()): number | null {
+  const bounds = bandBounds(String(band ?? ''))
+  const text = String(resumeText ?? '')
+  if (!bounds || !text.trim()) return null
+  const section = experienceSectionOf(text)
+  const dated = section ? mergedMonths(dateRangesIn(section, now)) : 0
+  const stated = pickStatedMonths(text) ?? 0
+  const years = Math.floor(Math.max(dated, stated) / 12)
+  const [lo, hi] = bounds
+  return years >= lo && years <= hi ? years : null
+}
