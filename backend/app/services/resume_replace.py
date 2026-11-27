@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from app.db.finders import session_items_for_email
-from app.db.finders import find_user
+import asyncio
 import json
+import logging
+import time
 from typing import Any
+
+from app.db.finders import find_user
+from app.db.finders import session_items_for_email
 
 from app.db import db_pool
 from app.db.talent_index import upsert_candidate_talent
@@ -18,6 +22,34 @@ from app.services.storage.resume_storage import (
 )
 from app.services.storage.s3_key_layout import key_belongs_to_candidate
 from app.services.storage.s3_storage import delete_object, s3_storage_configured
+
+logger = logging.getLogger("hireright.resume")
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro, label: str) -> None:
+    """Run work after the response. Failures are logged and do not change the response."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+
+    def _done(done: asyncio.Task) -> None:
+        _background_tasks.discard(done)
+        if done.cancelled():
+            return
+        err = done.exception()
+        if err is not None:
+            logger.warning("%s failed", label, exc_info=err)
+
+    task.add_done_callback(_done)
+
+
+def server_timing_header(*, upload_ms: float, save_ms: float) -> str:
+    """Purge and the talent upsert are not on the response path, so their durations are zero."""
+    return (
+        f"upload;dur={upload_ms:.1f}, save;dur={save_ms:.1f}, "
+        'purge;dur=0;desc="background", talent;dur=0;desc="background"'
+    )
+
 
 RESUME_SOURCED_KEYS = (
     "resumeText",
@@ -119,8 +151,6 @@ def _purge_postgres_sync(pool, email: str, prev: dict, owner_user_id: str | None
 
 
 async def _purge_prior_artifacts(pool, email: str, prev: dict, db: dict, owner_user_id: str | None = None) -> dict[str, int]:
-    import asyncio
-
     recordings = artifacts = 0
     if pool:
         counts = await asyncio.to_thread(_purge_postgres_sync, pool, email, prev, owner_user_id)
@@ -145,35 +175,39 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     db = opts["db"]
     save_db = opts["save_db"]
     parsed = parse_resume_upload_body(body)
-    import asyncio
 
     db.setdefault("profiles", {})
     account = await asyncio.to_thread(find_user, db, email=email)
     prev = dict(db["profiles"].get(email) or {})
     pool = db_pool(config.database_url) if config.database_url else None
     owner_id = account.get("id") if account else None
-    purged = await _purge_prior_artifacts(pool, email, prev, db, owner_id)
     extract = body.get("extract") if isinstance(body.get("extract"), dict) else None
     resume_text = str(body.get("resumeText") or (extract or {}).get("resumeText") or "").strip()[:100000]
 
     async def _no_parse() -> None:
         return None
 
-    import asyncio
-
-    # The S3 upload and the AI parse are independent: run them together instead of one after the other.
-    uploaded, parsed_extract = await asyncio.gather(
-        upload_resume_to_object_storage(
+    async def _timed_upload() -> dict:
+        return await upload_resume_to_object_storage(
             candidateEmail=email,
             ownerUserId=owner_id,
             filename=parsed["filename"],
             buffer=parsed["buffer"],
             contentType=parsed.get("contentType"),
-        ),
+        )
+
+    # The S3 upload and the AI parse are independent: run them together instead of one after the other.
+    upload_started = time.perf_counter()
+    uploaded, parsed_extract = await asyncio.gather(
+        _timed_upload(),
         ia.parse_resume_with_ai(resume_text) if (not extract and len(resume_text) >= 40) else _no_parse(),
     )
+    upload_ms = (time.perf_counter() - upload_started) * 1000
     if not extract:
         extract = parsed_extract
+    if isinstance(extract, dict):
+        extract = dict(extract)
+        extract.pop("_responseSource", None)
     if not extract:
         extract = {"resumeText": resume_text[:12000]} if resume_text else {}
     elif resume_text and not extract.get("resumeText"):
@@ -193,6 +227,7 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
     profile_patch = apply_resume_name(profile_patch, (account or {}).get("name") or "")
     profile_patch = apply_question_model(profile_patch)
     db["profiles"][email] = profile_patch
+    save_started = time.perf_counter()
     await save_db(db)
     if pool:
 
@@ -207,14 +242,24 @@ async def replace_candidate_resume(**opts: Any) -> dict[str, Any]:
                 conn.commit()
 
         await asyncio.to_thread(_write_profile)
-    if account and config.database_url:
-        try:
-            await upsert_candidate_talent(config.database_url, account, profile_patch, None)
-        except Exception:
-            import logging
+    save_ms = (time.perf_counter() - save_started) * 1000
 
-            logging.getLogger("hireright.resume").warning("talent index update failed", exc_info=True)
-    return {"profile": profile_patch, "purged": purged, "storagePath": uploaded["storagePath"]}
+    async def _purge_later() -> None:
+        await _purge_prior_artifacts(pool, email, prev, db, owner_id)
+        await save_db(db)
+
+    _spawn(_purge_later(), "prior-artifact purge")
+    if account and config.database_url:
+        _spawn(
+            upsert_candidate_talent(config.database_url, account, profile_patch, None),
+            "talent index update",
+        )
+    return {
+        "profile": profile_patch,
+        "purged": {"scheduled": True},
+        "storagePath": uploaded["storagePath"],
+        "_serverTiming": server_timing_header(upload_ms=upload_ms, save_ms=save_ms),
+    }
 
 
 def public_replace_resume_error(err: Exception) -> dict:

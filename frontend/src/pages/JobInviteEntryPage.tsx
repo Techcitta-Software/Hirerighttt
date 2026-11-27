@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { canonicalJobPath } from '../lib/jobLink'
 import { resolvePublicJob } from '../lib/resolvePublicJob'
 import { INVITE_ERROR_KEY, setPendingJob } from '../lib/pendingJobApply'
 import { getUser } from '../lib/store'
@@ -36,6 +37,12 @@ export function JobInviteEntryPage() {
           error || 'This job link is invalid or no longer accepting candidates.',
         )
         navigate('/', { replace: true })
+        return
+      }
+
+      const canonical = canonicalJobPath('jobs', code, companySlug, job)
+      if (canonical) {
+        navigate(canonical, { replace: true })
         return
       }
 

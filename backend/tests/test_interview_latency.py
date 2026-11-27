@@ -117,7 +117,13 @@ def test_start_batch_re_asks_only_the_missing_questions(monkeypatch):
     first_turns = [t["turnNumber"] for t in calls[0]["turns"]]
     second_turns = [t["turnNumber"] for t in calls[1]["turns"]]
     assert second_turns == first_turns[-2:]  # only the two that were missing or unusable
-    assert len(calls[1]["alreadyAsked"]) == len(first_turns) - 2
+    # The closing line is filled before the re-ask, so alreadyAsked is the good turns plus that line.
+    assert len(calls[1]["alreadyAsked"]) == len(first_turns) - 1
     texts = [x["text"] for x in out["questions"] if x.get("text")]
-    assert len(texts) == len(set(texts)) == len(first_turns)
-    assert out["questions"][out["fallbackTurn"] - 1]["focus"] == q.PENDING_FALLBACK_FOCUS
+    assert len(texts) == len(set(texts)) == len(first_turns) + 1
+    follow_up = out["questions"][out["fallbackTurn"] - 1]
+    assert follow_up["focus"] == q.PENDING_FALLBACK_FOCUS
+    assert follow_up["text"] == ""
+    closing = out["questions"][out["closingTurn"] - 1]
+    assert closing["focus"] == "structured-closing"
+    assert closing["text"]

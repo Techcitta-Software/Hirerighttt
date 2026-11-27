@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   EMPLOYMENT_TYPE_OPTIONS,
@@ -56,25 +56,23 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
       ).slice(0, 8)
     : []
 
+  // The suggestion helpers read only these fields, so the memos depend on exactly them.
+  const { currentRole, preferredRoles, workExperiences, resumeText, skills } = data
+
   const roleBasedSuggestions = useMemo(
-    () => suggestSkillsForProfile(data, SKILL_OPTIONS, 14),
-    [
-      data.currentRole,
-      data.preferredRoles,
-      data.workExperiences,
-      data.resumeText,
-      data.skills,
-    ],
+    () =>
+      suggestSkillsForProfile(
+        { currentRole, preferredRoles, workExperiences, resumeText, skills },
+        SKILL_OPTIONS,
+        14,
+      ),
+    [currentRole, preferredRoles, workExperiences, resumeText, skills],
   )
 
   const hasRoleContext = useMemo(
-    () => profileHasRoleContextForSkills(data),
-    [
-      data.currentRole,
-      data.preferredRoles,
-      data.workExperiences,
-      data.resumeText,
-    ],
+    () =>
+      profileHasRoleContextForSkills({ currentRole, preferredRoles, workExperiences, resumeText }),
+    [currentRole, preferredRoles, workExperiences, resumeText],
   )
 
   const idleSuggestions = useMemo(() => {
@@ -112,9 +110,15 @@ export function SkillsStep({ data, onChange }: SkillsStepProps) {
   const showFresherEmptyState =
     data.noPriorWorkExperience && !hasFilledWorkExperience(data.workExperiences)
 
+  // Latest onChange for the effect below, which must re-run only when the work history or the flag changes.
+  const onChangeRef = useRef(onChange)
+  useLayoutEffect(() => {
+    onChangeRef.current = onChange
+  })
+
   useEffect(() => {
     if (hasFilledWorkExperience(data.workExperiences) && data.noPriorWorkExperience) {
-      onChange('noPriorWorkExperience', false)
+      onChangeRef.current('noPriorWorkExperience', false)
     }
   }, [data.workExperiences, data.noPriorWorkExperience])
 

@@ -74,10 +74,18 @@ COMMON_SKILLS = [
 
 _ocr_instance = None
 
+def _ocr_unavailable() -> None:
+    print(json.dumps({"error": "ocr_unavailable"}))
+    raise SystemExit(2)
+
+
 def get_paddle_ocr():
     global _ocr_instance
     if _ocr_instance is None:
-        from paddleocr import PaddleOCR
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError:
+            _ocr_unavailable()
         _ocr_instance = PaddleOCR(
             lang='en',
             enable_mkldnn=False,

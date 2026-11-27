@@ -122,6 +122,20 @@ describe('locked interview lifecycle', () => {
     expect(onViolation).toHaveBeenCalledTimes(1)
   })
 
+  it('beforeunload with a plain Event does not throw', () => {
+    // Some runtimes expose returnValue as a read-only accessor on a plain Event (BUG-003).
+    const addSpy = vi.spyOn(win, 'addEventListener')
+    attach()
+    const call = addSpy.mock.calls.find(([type]) => type === 'beforeunload')
+    expect(call).toBeDefined()
+    const handler = call![1] as (event: Event) => void
+    const event = new Event('beforeunload', { cancelable: true })
+    Object.defineProperty(event, 'returnValue', { get: () => false })
+    expect(() => handler(event)).not.toThrow()
+    expect(event.defaultPrevented).toBe(true)
+    expect(onViolation).toHaveBeenCalledWith(expect.objectContaining({ reason: 'TAB_HIDDEN' }))
+  })
+
   it('detects a fullscreen exit that happened before attach', async () => {
     doc.fullscreenElement = null
     attach()

@@ -50,6 +50,12 @@ jobs:
 
       - run: npm run lint
 
+      - name: Frontend unit tests (vitest)
+        run: npm --prefix frontend test
+
+      - name: Type-check frontend
+        run: npx --prefix frontend tsc -p frontend/tsconfig.app.json --noEmit
+
       - name: Build frontend
         env:
           VITE_AUTH_PROVIDER: api

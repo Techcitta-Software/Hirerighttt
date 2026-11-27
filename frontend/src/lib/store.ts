@@ -263,7 +263,9 @@ export type Application = {
   company: string
   location: string
   match: number
-  status: 'Applied' | 'In Review' | 'Interview' | 'Offer'
+  status: 'Applied' | 'In Review' | 'Selected' | 'Not selected' | 'Interview' | 'Offer'
+  employerStatus?: 'applied' | 'interviewed' | 'shortlisted' | 'rejected'
+  timeline?: { key: string; label: string; done: boolean; current: boolean }[]
   appliedAt: string
   jobId?: string
   employerApplicationId?: string
@@ -316,6 +318,20 @@ export type EmployerApplicant = {
   candidateEmail: string
   candidatePhone: string
   role?: string
+  /** Profile current role, when the candidates API sends it separately from `role`. */
+  currentRole?: string
+  /** Intro paragraph. Never used as the card headline or the current-role filter. */
+  whoAreYou?: string
+  workExperiences?: {
+    jobTitle?: string
+    company?: string
+    startDate?: string
+    endDate?: string
+    currentlyWorking?: boolean
+    employmentType?: string
+  }[]
+  /** "active" while an interview session is in progress. */
+  interviewSessionStatus?: string
   experienceYears: string
   resumeName: string | null
   resumeText?: string

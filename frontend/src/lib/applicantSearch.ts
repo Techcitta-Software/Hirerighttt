@@ -18,7 +18,7 @@ import { hasResumeContent } from './employerCandidateUtils'
 import { compareTopCandidature, roleSkillsFitOf } from './jobApplicantFilters'
 import { formatPhoneForDisplay } from './phone'
 import { buildTimelineMarkers, countByCategory } from './proctorTimeline'
-import { yearsWithinBand } from './resumeExperience'
+import { latestJob, yearsWithinBand } from './resumeExperience'
 import { normalizeFlagSections } from './reviewEventsToFlagSections'
 import type { EmployerApplicant } from './store'
 
@@ -382,6 +382,53 @@ export function interviewStatusOf(a: Pick<EmployerApplicant, 'aiScore' | 'interv
   return a.interviewResult || candidateScore(a) !== null ? 'completed' : 'not_interviewed'
 }
 
+const UNKNOWN_ROLE = '—'
+
+function tidyRole(value: string | undefined): string {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+/** An intro paragraph ("I'm a builder who…") is not a job title. */
+function isIntroParagraph(text: string, intro: string): boolean {
+  if (!text) return true
+  if (intro && text === intro) return true
+  if (/^(?:i['’]?m|i am)\b/i.test(text)) return true
+  if (text.length > 100) return true
+  return false
+}
+
+function usableRole(value: string | undefined, intro: string): string {
+  const text = tidyRole(value)
+  return text && !isIntroParagraph(text, intro) ? text : ''
+}
+
+/**
+ * Card headline and current-role filter.
+ * currentRole (else the row's role) when that is a real title; otherwise the latest workExperiences job title.
+ * Neither, or only an intro paragraph: "—".
+ */
+export function resolveApplicantRole(
+  a: Pick<EmployerApplicant, 'role' | 'currentRole' | 'whoAreYou' | 'workExperiences'>,
+): { label: string; explicit: boolean; company: string } {
+  const intro = tidyRole(a.whoAreYou)
+  const explicit = usableRole(a.currentRole, intro) || usableRole(a.role, intro)
+  if (explicit) return { label: explicit, explicit: true, company: '' }
+  const job = latestJob(a.workExperiences || [])
+  const title = usableRole(job?.jobTitle, intro)
+  if (title) return { label: title, explicit: false, company: tidyRole(job?.company) }
+  return { label: UNKNOWN_ROLE, explicit: false, company: '' }
+}
+
+/** Row score cell: an active session reads "In progress" instead of "Not interviewed". */
+export function interviewProgressLabel(
+  a: Pick<EmployerApplicant, 'interviewSessionStatus'>,
+  inviteInProgress = false,
+): 'In progress' | 'Interview in progress' | null {
+  if (a.interviewSessionStatus === 'active') return 'In progress'
+  if (inviteInProgress) return 'Interview in progress'
+  return null
+}
+
 /** Shortlist is the recruiter's list on the job. The same words are used on rows, the drawer, and the bulk bar. */
 export const SHORTLIST_HINT = 'Shortlist moves the applicant forward on the job (their application status changes).'
 
@@ -649,7 +696,7 @@ export type IndexedApplicant = {
   summary: string
   /** Title / company / location from the resume headline line (empty when the resume has none). */
   headline: ResumeHeadline
-  /** Trimmed lower-case role (applicant.role, else the headline title). Empty when neither exists. */
+  /** Trimmed lower-case role (current role, else the latest job title, else "—"). */
   roleKey: string
   /** First spelling of that role on this person. */
   roleLabel: string
@@ -673,7 +720,20 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
       headline = { ...parsedHeadline, company: current.company }
     }
   }
-  const roleLabel = (a.role ?? '').trim() || headline.title.trim()
+  const resolved = resolveApplicantRole(a)
+  let roleLabel = resolved.label
+  if (!resolved.explicit && resolved.label !== UNKNOWN_ROLE) {
+    // Structured jobs win over a resume headline line. The intro paragraph never does.
+    headline = { title: resolved.label, company: resolved.company, location: headline.location }
+  } else if (!resolved.explicit) {
+    const fromHeadline = tidyRole(headline.title)
+    const intro = tidyRole(a.whoAreYou)
+    if (fromHeadline && !isIntroParagraph(fromHeadline, intro)) {
+      roleLabel = fromHeadline
+    } else {
+      headline = { title: UNKNOWN_ROLE, company: '', location: headline.location }
+    }
+  }
   return {
     applicant: a,
     skills,
@@ -694,7 +754,7 @@ export function indexApplicant(a: EmployerApplicant): IndexedApplicant {
     hasResume: hasResumeContent(a),
     fields: {
       name: lc(a.candidateName),
-      role: lc(a.role),
+      role: lc(roleLabel === UNKNOWN_ROLE ? '' : roleLabel),
       skills: lc(skills.join(' | ')),
       job: `${lc(a.jobTitle)} ${lc(a.company)}`,
       contact: `${lc(a.candidateEmail)} ${lc(a.candidatePhone)}`,

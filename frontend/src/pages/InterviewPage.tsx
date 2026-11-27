@@ -13,9 +13,9 @@ import {
   configureInterviewRecognition,
   getSpeechRecognition,
   interviewAudioConstraints,
+  classifySpokenSegment,
   isSpeechRecognitionSupported,
   isSpeechSynthesisSupported,
-  mergeRecognitionResults,
   speakText,
 } from '../lib/speech'
 import {
@@ -30,7 +30,6 @@ import { stripProctoringForCandidateView } from '../lib/candidateInterviewResult
 import { reviewEventsToFlagSections } from '../lib/reviewEventsToFlagSections'
 import {
   isServerInterviewSession,
-  processInterviewTurn,
   scoreInterviewRemote,
   type IntegritySnapshot,
   RETAKE_PAYMENT_REQUIRED_ERROR,
@@ -130,11 +129,15 @@ import {
   TIME_LEFT_NUDGE_PROMPT,
   saveAnswerBeforeAdvance,
   type AdvanceReason,
+  CAPTURE_STUCK_MS,
   answerClockRunning,
   decideAnswerTick,
+  isClosingQuestionAt,
   isClosingStatement,
   stripAnswerDoneCommand,
+  stripEchoOfQuestion,
   timeUpCanAdvance,
+  TRANSCRIPT_JOIN_MS,
 } from '../lib/answerTiming'
 
 /** Silero VAD + onnxruntime-web JS (~300 KB) load only once the mic stream is ready, not with the page. */
@@ -154,9 +157,7 @@ const createMoonshineVadSttController: typeof import('../lib/moonshineVadStt').c
 type Stage = 'setup' | 'interview' | 'analyzing' | 'results'
 
 const QUESTION_SECONDS = 180
-/** Silence before an answer counts as finished: answerTiming.silenceAdvanceMs (2.8-5 s by answer length). */
-/** Longest the next question waits for Ava's bridge sentence to finish (a stuck audio callback never blocks). */
-const BRIDGE_MAX_WAIT_MS = 9000
+/** Silence before an answer counts as finished: answerTiming.silenceAdvanceMs (4.5 s under 25 words, 3 s through 60, 2 s over 60; at least 6 words). */
 /** Silence never moves on (owner rule): answerTiming.SILENCE_NUDGE_MS, then Ava nudges once and keeps listening. */
 
 const LOBBY_TIPS = [
@@ -184,6 +185,21 @@ function Waveform({ active }: { active: boolean }) {
       ))}
     </div>
   )
+}
+
+/**
+ * Experience chip on the waiting-room job card: the job's own experience only.
+ * Hidden when the job has none, and never the candidate's profile total.
+ */
+export function waitingRoomJobExperience(
+  jobLevel: string | null | undefined,
+  profileExperience: string | null | undefined,
+): string {
+  const job = String(jobLevel || '').trim()
+  if (!job) return ''
+  const profileExp = String(profileExperience || '').trim()
+  if (profileExp && job.toLowerCase() === profileExp.toLowerCase()) return ''
+  return job
 }
 
 export function InterviewPage() {
@@ -241,9 +257,11 @@ export function InterviewPage() {
   const lobbyVoicePrepRef = useRef(false)
   const [sttPhase, setSttPhase] = useState<'idle' | 'capturing' | 'transcribing'>('idle')
   const sttPhaseRef = useRef(sttPhase)
+  const sttPhaseSinceRef = useRef(0)
   const [scheduleClock, setScheduleClock] = useState(() => Date.now())
 
   useEffect(() => {
+    if (sttPhaseRef.current !== sttPhase) sttPhaseSinceRef.current = Date.now()
     sttPhaseRef.current = sttPhase
   }, [sttPhase])
 
@@ -443,6 +461,9 @@ export function InterviewPage() {
   const proctorStoppedRef = useRef(false)
   const multiBanRef = useRef(0)
   const currentRef = useRef(0)
+  /** Live question list. The 400ms tick must not close over `questions` from the render that started the interval. */
+  const questionsRef = useRef(questions)
+  questionsRef.current = questions
   const recorderRef = useRef(new InterviewRecorder())
   const pendingClipRef = useRef<Awaited<ReturnType<InterviewRecorder['stop']>>>(null)
   const recordingBlobUrlRef = useRef<string | null>(null)
@@ -469,10 +490,6 @@ export function InterviewPage() {
   const stageRef = useRef<Stage>(stage)
   const listenAfterTtsRef = useRef(true)
   const speakGenRef = useRef(0)
-  const bridgeRef = useRef('')
-  /** Ava's bridge sentence, already playing while the next question is fetched (resolves when it ends). */
-  const bridgePlaybackRef = useRef<Promise<void> | null>(null)
-  const bridgeSpeakingRef = useRef(false)
   const advancingRef = useRef(false)
   const adaptiveRef = useRef(true)
   const interviewStartedAtRef = useRef<number>(0)
@@ -484,6 +501,12 @@ export function InterviewPage() {
   const timeUpRef = useRef(false) // the 3:00 ran out; advance as soon as the candidate is not speaking
   const secondsLeftRef = useRef(QUESTION_SECONDS)
   const aiSpeakingRef = useRef(false)
+  /** Which line Ava is in the middle of. The echo gate is on only for these; null means she is not speaking. */
+  const speakingKindRef = useRef<'question' | 'nudge' | 'ack' | null>(null)
+  /** Exact string passed to speakText for the current utterance. */
+  const spokenLineRef = useRef('')
+  /** Skip: drop late transcript segments until the next question clears this. */
+  const ignoreTranscriptRef = useRef(false)
   const listeningRef = useRef(false)
   const submitAnswerRef = useRef<(reason?: AdvanceReason) => void>(() => {})
   /** When the "Moving on… keep talking to continue" countdown started (0 = not running). */
@@ -601,32 +624,27 @@ export function InterviewPage() {
     }
   }, [stage, result])
 
-  const applyTranscriptSegmentRef = useRef<(text: string) => void>(() => {})
+  const applyTranscriptSegmentRef = useRef<(text: string, captureEndedAt?: number) => void>(() => {})
 
-  applyTranscriptSegmentRef.current = (raw: string) => {
-    const segment = raw.trim()
+  applyTranscriptSegmentRef.current = (raw: string, captureEndedAt?: number) => {
+    if (ignoreTranscriptRef.current) return
+    const questionText = questionsRef.current[currentRef.current]?.text || spokenLineRef.current
+    const segment = stripEchoOfQuestion(raw.trim(), questionText)
+    // A final that is only the tail of Ava's question is not an answer.
     if (!segment) return
 
-    if (aiSpeakingRef.current) {
-      const words = segment.split(/\s+/).filter(Boolean)
-      if (words.length >= 2) {
-        handleBargeIn()
-        const base = transcriptCommittedRef.current.trim()
-        const line = base ? `${base} ${segment}` : segment
-        transcriptCommittedRef.current = line
-        setDraft(line)
-        draftRef.current = line
-        lastSpeechAtRef.current = Date.now()
-      }
-      return
-    }
+    const speaking = speakingKindRef.current
+    const gateOn = speaking === 'question' || speaking === 'nudge' || speaking === 'ack'
+    if (gateOn && classifySpokenSegment(segment, spokenLineRef.current) !== 'clear') return
 
     const base = transcriptCommittedRef.current.trim()
     const line = base ? `${base} ${segment}` : segment
     transcriptCommittedRef.current = line
     setDraft(line)
     draftRef.current = line
-    lastSpeechAtRef.current = Date.now()
+    // Stamp the capture-end recorded before transcription, not the time the text is written.
+    if (typeof captureEndedAt === 'number') lastSpeechAtRef.current = captureEndedAt
+    if (speaking === 'question') handleBargeIn()
   }
 
   useEffect(() => {
@@ -641,9 +659,9 @@ export function InterviewPage() {
     void createMoonshineVadSttController({
       getStream: () => streamRef.current,
       isAiSpeaking: () => aiSpeakingRef.current,
-      onSpeechCaptureStart: () => setSttPhase('capturing'),
-      onTranscribing: (active) => setSttPhase(active ? 'transcribing' : 'idle'),
-      onSegmentText: (text) => applyTranscriptSegmentRef.current(text),
+      onSpeechCaptureStart: () => markSttPhase('capturing'),
+      onTranscribing: (active) => markSttPhase(active ? 'transcribing' : 'idle'),
+      onSegmentText: (text, captureEndedAt) => applyTranscriptSegmentRef.current(text, captureEndedAt),
       onError: (message) => {
         console.warn('[moonshine-vad-stt]', message)
         setSttPhase('idle')
@@ -658,7 +676,11 @@ export function InterviewPage() {
         setShowTypeFallback(true)
         if (webSpeechSupported) {
           markWebSpeechFallback()
-          if (listeningRef.current && micOnRef.current && !aiSpeakingRef.current) {
+          if (
+            listeningRef.current &&
+            micOnRef.current &&
+            (!aiSpeakingRef.current || speakingKindRef.current === 'question')
+          ) {
             stopListening()
             startWebSpeechListening()
           }
@@ -796,6 +818,12 @@ export function InterviewPage() {
     if (roomVideoRef.current) roomVideoRef.current.srcObject = null
   }
 
+  function markSttPhase(phase: 'idle' | 'capturing' | 'transcribing') {
+    if (sttPhaseRef.current !== phase) sttPhaseSinceRef.current = Date.now()
+    sttPhaseRef.current = phase
+    setSttPhase(phase)
+  }
+
   function stopListening() {
     void moonshineVadRef.current?.stop()
     try {
@@ -806,7 +834,7 @@ export function InterviewPage() {
     recognitionRef.current = null
     setListening(false)
     listeningRef.current = false
-    setSttPhase('idle')
+    markSttPhase('idle')
   }
 
   function stopAllSpeech() {
@@ -815,6 +843,7 @@ export function InterviewPage() {
     cancelSpeech()
     setAiSpeaking(false)
     aiSpeakingRef.current = false
+    speakingKindRef.current = null
     stopListening()
   }
 
@@ -893,22 +922,28 @@ export function InterviewPage() {
     setTrackEnabled('audio', next)
     micOnRef.current = next
     if (!next) stopListening()
-    else if (stage === 'interview' && !aiSpeaking && speechSupported) {
+    else if (
+      stage === 'interview' &&
+      speechSupported &&
+      (!aiSpeaking || speakingKindRef.current === 'question')
+    ) {
       startListening()
     }
   }
 
   function handleBargeIn() {
+    if (speakingKindRef.current !== 'question') return
     if (!aiSpeakingRef.current) return
     const now = Date.now()
     if (now - bargeCooldownRef.current < 400) return
     bargeCooldownRef.current = now
+    speakingKindRef.current = null
     speakGenRef.current += 1
     cancelSpeech()
     setAiSpeaking(false)
     aiSpeakingRef.current = false
     listenAfterTtsRef.current = true
-    // The candidate spoke over Ava: their answer window (and the answer clock) starts now.
+    // The candidate spoke over the question: their answer window (and the answer clock) starts now.
     if (!answerWindowStartedAtRef.current) answerWindowStartedAtRef.current = Date.now()
   }
 
@@ -926,42 +961,45 @@ export function InterviewPage() {
     if (!recognition) return
     configureInterviewRecognition(recognition)
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const merged = mergeRecognitionResults(event, transcriptCommittedRef.current)
-      transcriptCommittedRef.current = merged.committed
+      if (ignoreTranscriptRef.current) return
+      let finalChunk = ''
+      let interimChunk = ''
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i]
+        const chunk = (result[0]?.transcript || '').trim()
+        if (!chunk) continue
+        if (result.isFinal) finalChunk = finalChunk ? `${finalChunk} ${chunk}` : chunk
+        else interimChunk = interimChunk ? `${interimChunk} ${chunk}` : chunk
+      }
+      const segment = (finalChunk || interimChunk).trim()
+      if (!segment) return
+      const speaking = speakingKindRef.current
+      const gateOn = speaking === 'question' || speaking === 'nudge' || speaking === 'ack'
+      if (gateOn && classifySpokenSegment(segment, spokenLineRef.current) !== 'clear') return
 
-      if (aiSpeakingRef.current) {
-        if (merged.bargeIn) {
-          handleBargeIn()
-          const line = merged.committed.trim()
-          if (line) {
-            setDraft(line)
-            draftRef.current = line
-            lastSpeechAtRef.current = Date.now()
-          }
-        }
+      if (finalChunk) {
+        // One stamp, on the accepted final. Interim never moves lastSpeechAt.
+        applyTranscriptSegmentRef.current(finalChunk, Date.now())
+        markSttPhase('idle')
         return
       }
 
-      const display = merged.interim
-        ? `${merged.committed} ${merged.interim}`.trim()
-        : merged.committed.trim()
+      const display = `${transcriptCommittedRef.current} ${interimChunk}`.trim()
       if (display) {
         setDraft(display)
         draftRef.current = display
       }
-      if (merged.interim?.trim()) setSttPhase('capturing')
-      if (merged.hadFinal) setSttPhase('idle')
-      if (merged.hadFinal || (merged.interim && merged.interim.length >= 12)) {
-        lastSpeechAtRef.current = Date.now()
-      }
+      markSttPhase('capturing')
+      if (speaking === 'question') handleBargeIn()
     }
     recognition.onerror = () => setListening(false)
     recognition.onend = () => {
       setListening(false)
       listeningRef.current = false
+      const duringQuestion = speakingKindRef.current === 'question'
       if (
         listenAfterTtsRef.current &&
-        !aiSpeakingRef.current &&
+        (duringQuestion || !aiSpeakingRef.current) &&
         stageRef.current === 'interview' &&
         micOnRef.current &&
         !finishingRef.current &&
@@ -989,7 +1027,7 @@ export function InterviewPage() {
 
   function startListening() {
     if (!speechSupported || !micOnRef.current) return
-    if (aiSpeakingRef.current) return
+    if (aiSpeakingRef.current && speakingKindRef.current !== 'question') return
     stopListening()
     baseDraftRef.current = draftRef.current.trim()
     transcriptCommittedRef.current = baseDraftRef.current
@@ -1015,7 +1053,8 @@ export function InterviewPage() {
   useEffect(() => {
     if (stage !== 'interview' || !moonshineSttReady || !moonshineVadReady) return
     if (webSpeechFallbackRef.current || !listeningRef.current || !micOnRef.current) return
-    if (aiSpeakingRef.current || recognitionRef.current) return
+    if (recognitionRef.current) return
+    if (aiSpeakingRef.current && speakingKindRef.current !== 'question') return
     if (!shouldUseMoonshineVad()) return
     stopListening()
     startListening()
@@ -1025,8 +1064,7 @@ export function InterviewPage() {
     if (stage !== 'interview' || !question) return
 
     const gen = ++speakGenRef.current
-    listenAfterTtsRef.current = false
-    stopListening()
+    ignoreTranscriptRef.current = false
     lastSpeechAtRef.current = 0
     answerWindowStartedAtRef.current = 0
     noAnswerSkipTriggeredRef.current = false
@@ -1038,25 +1076,34 @@ export function InterviewPage() {
     draftRef.current = ''
     baseDraftRef.current = ''
     transcriptCommittedRef.current = ''
-    setSttPhase('idle')
+    markSttPhase('idle')
     setAiSpeaking(true)
     aiSpeakingRef.current = true
 
-    const bridge = bridgeRef.current
-    if (bridge) bridgeRef.current = ''
-
-    const intro =
-      bridge ||
-      (current === 0
-        ? `Hello ${firstName}. I am Ava, your interviewer. I will ask clear questions about your ${role} background. Please listen fully, then answer in your own words. `
-        : '')
-
-    const spoken = bridge ? `${bridge} ${question.text}` : `${intro}${question.text}`
+    const intro = current === 0 ? `Hello ${firstName}. I am Ava. ` : ''
+    const spoken = `${intro}${question.text}`
     // Every question gets a fresh 3:00; the clock itself only runs once Ava has finished asking.
     setSecondsLeft(QUESTION_SECONDS)
     const closing = isClosingStatement(question)
+    if (!closing) {
+      // Mic stays up while she asks. The echo gate drops her own line.
+      speakingKindRef.current = 'question'
+      spokenLineRef.current = spoken
+      listenAfterTtsRef.current = true
+      if (micOnRef.current && speechSupported) startListening()
+    } else {
+      speakingKindRef.current = null
+      spokenLineRef.current = ''
+      listenAfterTtsRef.current = false
+    }
 
-    const speakQuestion = () => speakText(spoken, {
+    const endQuestionUtterance = () => {
+      if (speakingKindRef.current === 'question') speakingKindRef.current = null
+      setAiSpeaking(false)
+      aiSpeakingRef.current = false
+    }
+
+    speakText(spoken, {
       onStart: () => {
         if (gen === speakGenRef.current) {
           setAiSpeaking(true)
@@ -1065,8 +1112,7 @@ export function InterviewPage() {
       },
       onEnd: () => {
         if (gen !== speakGenRef.current) return
-        setAiSpeaking(false)
-        aiSpeakingRef.current = false
+        endQuestionUtterance()
         if (closing) {
           finishAfterClosing()
           return
@@ -1083,8 +1129,7 @@ export function InterviewPage() {
       },
       onError: () => {
         if (gen !== speakGenRef.current) return
-        setAiSpeaking(false)
-        aiSpeakingRef.current = false
+        endQuestionUtterance()
         if (closing) {
           finishAfterClosing()
           return
@@ -1095,21 +1140,10 @@ export function InterviewPage() {
       },
     })
 
-    // The bridge ("Thanks Bharath, let's go deeper...") started while this question was being fetched: let it
-    // finish, then ask the question, so the candidate hears Ava straight away instead of silence.
-    const playing = bridgePlaybackRef.current
-    bridgePlaybackRef.current = null
-    if (playing) {
-      void Promise.race([playing, new Promise<void>((r) => window.setTimeout(r, BRIDGE_MAX_WAIT_MS))]).then(() => {
-        if (gen === speakGenRef.current) speakQuestion()
-      })
-    } else {
-      speakQuestion()
-    }
-
     return () => {
       speakGenRef.current += 1
-      if (!bridgeSpeakingRef.current) cancelSpeech() // never cut off a bridge that is playing for the next question
+      speakingKindRef.current = null
+      cancelSpeech()
       stopListening()
       setAiSpeaking(false)
       aiSpeakingRef.current = false
@@ -1125,13 +1159,22 @@ export function InterviewPage() {
         advancingRef.current ||
         aiSpeakingRef.current ||
         interviewBanned ||
-        isClosingStatement(questions[currentRef.current])
+        isClosingQuestionAt(questionsRef.current, currentRef.current)
       ) {
         return
       }
+      const now = Date.now()
+      // A capture that never ends leaves the transcript empty and blocks the timer. Drop it so typing and time-up work.
+      if (
+        sttPhaseRef.current === 'capturing' &&
+        sttPhaseSinceRef.current > 0 &&
+        now - sttPhaseSinceRef.current >= CAPTURE_STUCK_MS
+      ) {
+        markSttPhase('idle')
+      }
       // Rules (and the no-answer timeout) live in answerTiming.decideAnswerTick.
       const decision = decideAnswerTick({
-        now: Date.now(),
+        now,
         transcript: draftRef.current,
         sttPhase: sttPhaseRef.current,
         lastSpeechAt: lastSpeechAtRef.current,
@@ -1156,17 +1199,22 @@ export function InterviewPage() {
         countdownStartedAtRef.current = 0
         setEndingCountdown(false)
         submitAnswerRef.current(decision === 'submit' ? 'voice-complete' : 'said-next')
-      } else if (
-        timeUpRef.current &&
-        timeUpCanAdvance({
-          now: Date.now(),
-          lastSpeechAt: lastSpeechAtRef.current,
-          sttPhase: sttPhaseRef.current,
-          answerWindowStartedAt: answerWindowStartedAtRef.current,
-        })
-      ) {
-        // (c) the answer time fully ran out: save what was said and move on.
-        submitAnswerRef.current('time-up')
+      } else if (timeUpRef.current) {
+        const transcribeInFlight = moonshineVadRef.current?.transcribeInFlight() ?? false
+        // A live transcription joins for up to 12 s. The 4 s grace is only when nothing is in flight.
+        if (
+          transcribeInFlight ||
+          timeUpCanAdvance({
+            now,
+            lastSpeechAt: lastSpeechAtRef.current,
+            sttPhase: sttPhaseRef.current,
+            answerWindowStartedAt: answerWindowStartedAtRef.current,
+            phaseSince: sttPhaseSinceRef.current,
+            transcribeInFlight,
+          })
+        ) {
+          submitAnswerRef.current('time-up')
+        }
       } else if (decision === 'nudge') {
         noAnswerSkipTriggeredRef.current = true
         nudgeCandidate(SILENCE_NUDGE_PROMPT, SILENCE_NUDGE_SPOKEN)
@@ -1176,7 +1224,7 @@ export function InterviewPage() {
       }
     }, 400)
     return () => window.clearInterval(id)
-    // Reads live state through refs; nudgeCandidate / questions are read fresh for the current question.
+    // Reads the live question through questionsRef. Do not add `questions` here: that would restart the tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage, current, interviewBanned])
 
@@ -1190,7 +1238,7 @@ export function InterviewPage() {
         !answerClockRunning({
           answerWindowStartedAt: answerWindowStartedAtRef.current,
           aiSpeaking: aiSpeakingRef.current,
-          closing: isClosingStatement(questions[currentRef.current]),
+          closing: isClosingQuestionAt(questionsRef.current, currentRef.current),
         }) ||
         advancingRef.current
       ) {
@@ -1514,10 +1562,17 @@ export function InterviewPage() {
     // kept out of the spoken-command check while she talks (and the spoken line has no "next question" in it).
     setNoAnswerNotice(text)
     nudgeMutedUntilRef.current = Date.now() + 60_000
+    speakingKindRef.current = 'nudge'
+    spokenLineRef.current = spoken
+    setAiSpeaking(true)
+    aiSpeakingRef.current = true
     let done = false
     const after = () => {
       if (done) return
       done = true
+      if (speakingKindRef.current === 'nudge') speakingKindRef.current = null
+      setAiSpeaking(false)
+      aiSpeakingRef.current = false
       nudgeMutedUntilRef.current = Date.now() + 1_500
       window.setTimeout(() => {
         if (currentRef.current === forIndex) setNoAnswerNotice((n) => (n === text ? '' : n))
@@ -1528,12 +1583,36 @@ export function InterviewPage() {
     speakText(spoken, { onEnd: after, onError: after })
   }
 
-  /** "Skip question": the candidate chose to move on without answering this one. */
+  /** "Skip question": the candidate chose to move on without answering this one. No transcript join. */
   function skipQuestion() {
     if (finishingRef.current || advancingRef.current || stage !== 'interview') return
+    ignoreTranscriptRef.current = true
     draftRef.current = ''
     setDraft('')
+    transcriptCommittedRef.current = ''
+    baseDraftRef.current = ''
     void submitAnswer('skip')
+  }
+
+  /** One "Thank you." while a server save is in flight. Resolves when that utterance ends. */
+  function speakSaveAck(): Promise<void> {
+    const line = 'Thank you.'
+    spokenLineRef.current = line
+    speakingKindRef.current = 'ack'
+    setAiSpeaking(true)
+    aiSpeakingRef.current = true
+    return new Promise((resolve) => {
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        if (speakingKindRef.current === 'ack') speakingKindRef.current = null
+        setAiSpeaking(false)
+        aiSpeakingRef.current = false
+        resolve()
+      }
+      speakText(line, { onEnd: done, onError: done })
+    })
   }
 
   async function submitAnswer(reason: AdvanceReason = 'submit') {
@@ -1545,10 +1624,38 @@ export function InterviewPage() {
     countdownStartedAtRef.current = 0
     setEndingCountdown(false)
     setSaveFailedNotice('')
-    listenAfterTtsRef.current = false
-    stopAllSpeech()
 
-    const answer = stripAnswerDoneCommand(draftRef.current)
+    const waitsForTranscript =
+      reason === 'submit' || reason === 'voice-complete' || reason === 'said-next' || reason === 'time-up'
+
+    // Before any await, so a second tick cannot submit again while the join or the save is running.
+    advancingRef.current = true
+    setAdvancing(true)
+
+    try {
+    if (reason === 'skip') {
+      ignoreTranscriptRef.current = true
+      draftRef.current = ''
+      setDraft('')
+      transcriptCommittedRef.current = ''
+      baseDraftRef.current = ''
+      listenAfterTtsRef.current = false
+      stopAllSpeech()
+    } else if (waitsForTranscript) {
+      // Cancel her voice only. VAD keeps running so an in-flight transcription can still land.
+      speakGenRef.current += 1
+      cancelSpeech()
+      setAiSpeaking(false)
+      aiSpeakingRef.current = false
+      await moonshineVadRef.current?.joinTranscript(TRANSCRIPT_JOIN_MS)
+      if (finishingRef.current || stageRef.current !== 'interview') return
+      speakingKindRef.current = null
+    } else {
+      listenAfterTtsRef.current = false
+      stopAllSpeech()
+    }
+
+    const answer = reason === 'skip' ? '' : stripAnswerDoneCommand(draftRef.current)
     const next = [...answersRef.current]
     next[current] = answer
     answersRef.current = next
@@ -1557,6 +1664,9 @@ export function InterviewPage() {
     if (isEndInterviewCommand(answer)) {
       if (answeredCount < 1 && current === 0 && !answer.replace(/end|stop|finish|done/gi, '').trim()) {
         setDeviceError('Share at least one answer first, then say "end the interview".')
+        listenAfterTtsRef.current = true
+        speakingKindRef.current = null
+        if (micOnRef.current) startListening()
         return
       }
       finishingRef.current = true
@@ -1581,8 +1691,7 @@ export function InterviewPage() {
     // Saved on the server BEFORE moving on (a reload / crash resumes with it). If it cannot be saved, the question
     // stays with "Couldn't save — Retry": never a silent advance. advanceReason says why the question moved on.
     if (isServerInterviewSession(sessionIdRef.current)) {
-      advancingRef.current = true
-      setAdvancing(true)
+      const ackDone = speakSaveAck()
       const saved = await saveAnswerBeforeAdvance(() =>
         recordInterviewAnswer({
           sessionId: sessionIdRef.current,
@@ -1592,10 +1701,12 @@ export function InterviewPage() {
           advanceReason: reason,
         }),
       )
-      advancingRef.current = false
-      setAdvancing(false)
       if (finishingRef.current || stageRef.current !== 'interview') return
       if (!saved) {
+        cancelSpeech()
+        setAiSpeaking(false)
+        aiSpeakingRef.current = false
+        speakingKindRef.current = null
         const offline = typeof navigator !== 'undefined' && navigator.onLine === false
         setSaveFailedNotice(offline ? OFFLINE_ANSWER_MESSAGE : 'Couldn’t save your answer.')
         if (offline) {
@@ -1609,6 +1720,7 @@ export function InterviewPage() {
         if (micOnRef.current) startListening()
         return
       }
+      await ackDone
     }
 
     if (
@@ -1626,56 +1738,22 @@ export function InterviewPage() {
       return
     }
 
-    advancingRef.current = true
-    setAdvancing(true)
     lastSpeechAtRef.current = 0
     answerWindowStartedAtRef.current = 0
+    timeUpRef.current = false
     setDraft('')
     if (answer) {
       setDeviceError('')
     }
 
-    try {
-      const turn = await processInterviewTurn({
-        sessionId: sessionIdRef.current,
-        role,
-        level,
-        question: currentQuestion,
-        answer,
-        questionIndex: current,
-        totalQuestions: Math.max(questions.length, current + 2),
-        profile: getProfile(),
-      })
-      bridgeRef.current = turn.spoken?.trim() ? `${turn.spoken.trim()} ` : ''
-    } catch {
-      bridgeRef.current = `Thanks ${firstName}. Let's continue. `
-    }
-
     if (finishingRef.current || stageRef.current !== 'interview') return
 
-    try {
       const nextIdx = current + 1
       const preloaded = questions[nextIdx]
       const usePreloaded =
         adaptiveRef.current &&
         isPreloadedInterviewQuestion(preloaded) &&
         !isDeferredAdaptiveQuestion(preloaded)
-
-      if (!usePreloaded && bridgeRef.current.trim()) {
-        // The next question has to be generated (a few seconds): say the bridge now, while it loads.
-        const bridgeText = bridgeRef.current
-        bridgeRef.current = ''
-        bridgeSpeakingRef.current = true
-        setAiSpeaking(true)
-        aiSpeakingRef.current = true
-        bridgePlaybackRef.current = new Promise<void>((resolve) => {
-          const done = () => {
-            bridgeSpeakingRef.current = false
-            resolve()
-          }
-          speakText(bridgeText, { onEnd: done, onError: done })
-        })
-      }
 
       if (usePreloaded && typeof navigator !== 'undefined' && navigator.onLine === false) {
         // The next question is already here; the answer is kept and goes with the interview once back online.
@@ -1740,12 +1818,10 @@ export function InterviewPage() {
       if (finishingRef.current || stageRef.current !== 'interview') return
       if (err instanceof Error && err.message === 'INTERVIEW_COMPLETE') {
         finishingRef.current = true
-        finish(next, false)
+        finish([...answersRef.current], false)
         return
       }
       setDeviceError('Could not load the next question. Try again or say "end the interview".')
-      bridgePlaybackRef.current = null
-      bridgeSpeakingRef.current = false
     } finally {
       advancingRef.current = false
       setAdvancing(false)
@@ -1977,8 +2053,7 @@ export function InterviewPage() {
     !aiSpeaking &&
     !faceBlocks &&
     !interviewBanned &&
-    !advancing &&
-    sttPhase !== 'transcribing'
+    !advancing
   return (
     <main className={`${styles.page} ${stage === 'interview' ? styles.pageLocked : ''}`}>
       {stage === 'interview' ? (
@@ -2182,8 +2257,12 @@ export function InterviewPage() {
                           <p className={styles.autoConfigMeta}>
                             {targetJobRaw.company}
                             {targetJobRaw.role ? ` · ${targetJobRaw.role}` : ''}
-                            {targetJobRaw.level ? ` · ${targetJobRaw.level}` : ''}
                           </p>
+                          {waitingRoomJobExperience(targetJobRaw.level, profile?.totalExperience) ? (
+                            <span className="ds-pill ds-pill--neutral" data-testid="job-experience">
+                              {waitingRoomJobExperience(targetJobRaw.level, profile?.totalExperience)}
+                            </span>
+                          ) : null}
                           <p className={styles.autoConfigBlurb}>
                             About{' '}
                             {interviewDurationMinutes(

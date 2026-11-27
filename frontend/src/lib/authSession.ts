@@ -165,6 +165,8 @@ export function resolveAuthenticatedDestination(
     rememberInviteReturn(pendingInvite)
     return '/onboarding?step=1'
   }
+  // A retake purchase must stay on the pricing page even when onboarding is unfinished.
+  if (fromPath === '/pricing/retake') return fromPath
   if (!isOnboardingComplete(profile)) {
     return `/onboarding?step=${onboardingResumeStep(profile)}`
   }

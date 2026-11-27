@@ -49,4 +49,9 @@ describe('after sign-in from an emailed interview link', () => {
     completedSteps = 3
     expect(resolveAuthenticatedDestination(candidate)).toBe('/onboarding?step=2')
   })
+
+  it('keeps a retake visit off onboarding', () => {
+    completedSteps = 0
+    expect(resolveAuthenticatedDestination(candidate, '/pricing/retake')).toBe('/pricing/retake')
+  })
 })

@@ -12,6 +12,7 @@ import {
   subscribeInterviewFinishJob,
   type InterviewFinishStatus,
 } from '../lib/interviewFinishJob'
+import { formatPhoneForDisplay } from '../lib/phone'
 import { getInterviewResult, getProfile, getUser } from '../lib/store'
 import { interviewCompleteHeadline, interviewEndedEarly, interviewEndedEarlyReason } from '../lib/interviewCompleteCopy'
 import styles from './InterviewCompletePage.module.css'
@@ -103,7 +104,7 @@ export function InterviewCompletePage() {
   const details: { label: string; value: string }[] = [
     { label: 'Full name', value: fullName },
     { label: 'Email', value: user?.email || '—' },
-    { label: 'Phone', value: user?.phone || '—' },
+    { label: 'Phone', value: formatPhoneForDisplay(user?.phone || '') || '—' },
     ...(location ? [{ label: 'Location', value: location }] : []),
     { label: 'Interview role', value: interviewRole || '—' },
     { label: 'Experience level', value: interviewLevel || '—' },

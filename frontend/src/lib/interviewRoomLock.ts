@@ -149,7 +149,11 @@ export function attachInterviewRoomGuard(options: InterviewRoomGuardOptions): ()
   const onBeforeUnload = (event: BeforeUnloadEvent) => {
     fire('TAB_HIDDEN')
     event.preventDefault()
-    event.returnValue = ''
+    try {
+      event.returnValue = ''
+    } catch {
+      /* read-only in some runtimes; preventDefault() already asked for the confirmation */
+    }
   }
 
   document.addEventListener('visibilitychange', onVisibility)

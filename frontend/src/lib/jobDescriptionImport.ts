@@ -179,7 +179,7 @@ export async function readJobDescriptionFile(file: File): Promise<ParsedJobDescr
   if (file.size > MAX_FILE_BYTES) {
     throw new Error('Use a PDF or Word file under 8 MB.')
   }
-  const text = (await extractResumeText(file)).replace(/\u0000/g, '').trim()
+  const text = (await extractResumeText(file)).replaceAll('\u0000', '').trim()
   if (text.length < 30) {
     throw new Error('Could not read enough text. Use a PDF or Word file with selectable text, not a scanned image.')
   }

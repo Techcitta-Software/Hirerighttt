@@ -360,7 +360,7 @@ export function ProfileWizard() {
                       ? 'Confirm slot'
                       : 'Pick a time to book'
                     : step === 3
-                      ? 'Explore matched roles'
+                      ? 'Go to dashboard'
                       : 'Save and continue'}
                 {arrowIcon}
               </button>

@@ -42,7 +42,7 @@ from app.services.mail_service import send_mail, smtp_configured
 logger = logging.getLogger("hireright.schedule")
 
 MAX_RESCHEDULES = 3
-MIN_LEAD = timedelta(minutes=15)
+MIN_LEAD = timedelta(hours=2)
 MAX_AHEAD = timedelta(days=30)
 # Do not send a "reminder" right after the confirmation email for a slot booked at short notice.
 QUIET_AFTER_BOOKING = timedelta(minutes=45)
@@ -271,8 +271,10 @@ async def try_schedule_routes(
         now = datetime.now(timezone.utc)
         if not start:
             return json_fn(400, {"error": "Choose a new date and time."})
+        if start <= now:
+            return json_fn(400, {"error": "Choose a future interview time."})
         if start < now + MIN_LEAD:
-            return json_fn(400, {"error": "Pick a time at least 15 minutes from now."})
+            return json_fn(400, {"error": "Pick a time at least 2 hours from now."})
         if start > now + MAX_AHEAD:
             return json_fn(400, {"error": "Pick a time within the next 30 days."})
         end = invite_join_window_end(start)

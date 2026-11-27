@@ -16,6 +16,7 @@ export const routeImports = {
   auth: () => import('./pages/AuthPages'),
   orgSignup: () => import('./pages/OrganizationSignupPage'),
   appPages: () => import('./pages/AppPages'),
+  applicationTrack: () => import('./pages/ApplicationTrackPage'),
   admin: () => import('./pages/AdminDashboard'),
   interview: () => import('./pages/InterviewPage'),
   interviewNow: () => import('./pages/InterviewNowPage'),
@@ -81,6 +82,7 @@ export function routeChunkForPath(pathname: string): RouteChunk | null {
   if (path === '/pricing/retake') return 'retakePricing'
   if (path === '/career-view' || path === '/360-career-view' || path === '/career') return 'careerView'
   if (AUTH_PATHS.has(path)) return 'auth'
+  if (path.startsWith('/applications/')) return 'applicationTrack'
   if (APP_PAGE_PATHS.has(path)) return 'appPages'
   if (path === '/admin') return 'admin'
   if (path === '/interview') return 'interview'
@@ -124,7 +126,9 @@ export function loadRouteForFirstPaint(pathname: string): Promise<unknown> {
   const chunk = routeChunkForPath(path)
   const page = chunk ? loadRouteChunk(chunk) : Promise.resolve(null)
   page.catch(() => undefined) // lazy() imports again on render and shows the real error there
-  if (APP_SHELL_PATHS.has(path)) return loadRouteChunk('appShell').catch(() => undefined)
+  if (APP_SHELL_PATHS.has(path) || path.startsWith('/applications/')) {
+    return loadRouteChunk('appShell').catch(() => undefined)
+  }
   if (AUTH_GATED_PATHS.has(path)) return Promise.resolve()
   return page.catch(() => undefined)
 }

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type DragEvent } from 'react'
+import { useRef, useState, useEffect, useLayoutEffect, type DragEvent } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   parseResumeFile,
@@ -40,6 +40,12 @@ const ACCEPTED = [
 ]
 const MAX_BYTES = 5 * 1024 * 1024
 
+/** PDF, DOCX, and plain-text resumes are stored in cloud storage. */
+export function canCloudStoreResume(fileName: string): boolean {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  return ext === 'pdf' || ext === 'docx' || ext === 'txt'
+}
+
 function isAccepted(file: File) {
   const ext = file.name.split('.').pop()?.toLowerCase()
   return (
@@ -68,6 +74,11 @@ export function ResumeUpload({
   const [status, setStatus] = useState('')
   const [parsing, setParsing] = useState(false)
   const [showWhy, setShowWhy] = useState(false)
+  // Latest validateAndSet for the pending-resume effect, which must re-run only when `file` changes.
+  const validateRef = useRef(validateAndSet)
+  useLayoutEffect(() => {
+    validateRef.current = validateAndSet
+  })
 
   // Only attach a homepage-selected resume when the user explicitly picked a file before auth.
   useEffect(() => {
@@ -81,7 +92,7 @@ export function ResumeUpload({
       try {
         const pending = await getPendingResume()
         if (pending && active) {
-          void validateAndSet(pending, { fromPending: true })
+          void validateRef.current(pending, { fromPending: true })
         } else if (active) {
           await clearPendingResume()
         }
@@ -120,7 +131,7 @@ export function ResumeUpload({
     setStatus('Reading your resume…')
     try {
       const ext = next.name.split('.').pop()?.toLowerCase()
-      const canCloudStore = ext === 'pdf' || ext === 'docx'
+      const canCloudStore = canCloudStoreResume(next.name)
       const uploadPromise = canCloudStore
         ? uploadResumeViaApiWithStatus(next, { background: true })
         : Promise.resolve({ ok: false as const, error: '' })

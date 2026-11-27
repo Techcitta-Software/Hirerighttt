@@ -30,6 +30,7 @@ const InterviewReportPage = lazyPage('appPages', (m) => m.InterviewReportPage)
 const JobsPage = lazyPage('appPages', (m) => m.JobsPage)
 const ProfilePage = lazyPage('appPages', (m) => m.ProfilePage)
 const ApplicationsPage = lazyPage('appPages', (m) => m.ApplicationsPage)
+const ApplicationTrackPage = lazyPage('applicationTrack', (m) => m.ApplicationTrackPage)
 const AdminDashboard = lazyPage('admin', (m) => m.AdminDashboard)
 const InterviewPage = lazyPage('interview', (m) => m.InterviewPage)
 const InterviewNowPage = lazyPage('interviewNow', (m) => m.InterviewNowPage)
@@ -136,6 +137,7 @@ const ROUTE_TITLES: Record<string, string> = {
 
 /** Titles for routes with parameters (job links, invites), so the tab never keeps the previous page's title. */
 const ROUTE_TITLE_PREFIXES: [string, string][] = [
+  ['/applications/', 'Application'],
   ['/apply/', 'Apply for a role'],
   ['/jobs/', 'Apply for a role'],
   ['/interview/invite/', 'Interview invitation'],
@@ -297,9 +299,7 @@ function AnimatedRoutes() {
               element={
                 <Page>
                   <RequireAuth role="jobseeker">
-                    <RequireCandidateOnboardingComplete>
-                      <InterviewRetakePricingPage />
-                    </RequireCandidateOnboardingComplete>
+                    <InterviewRetakePricingPage />
                   </RequireAuth>
                 </Page>
               }
@@ -381,6 +381,18 @@ function AnimatedRoutes() {
                   <RequireAuth role="jobseeker">
                     <RequireCandidateOnboardingComplete>
                       <ApplicationsPage />
+                    </RequireCandidateOnboardingComplete>
+                  </RequireAuth>
+                </Page>
+              }
+            />
+            <Route
+              path="/applications/:id"
+              element={
+                <Page>
+                  <RequireAuth role="jobseeker">
+                    <RequireCandidateOnboardingComplete>
+                      <ApplicationTrackPage />
                     </RequireCandidateOnboardingComplete>
                   </RequireAuth>
                 </Page>

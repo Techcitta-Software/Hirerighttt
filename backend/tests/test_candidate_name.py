@@ -279,3 +279,15 @@ def test_design_tools_never_look_like_a_person():
 def test_parsed_tool_name_is_replaced_by_the_resume_name():
     profile = {"resumeFullName": "Adobe Xd", "resumeText": DESIGNER_RESUME}
     assert resume_name(profile) == "Ananya Kulkarni"
+
+
+def test_email_local_part_never_duplicates():
+    """cand.proc / cand.sec stay out of the name. A dotted token is not a surname."""
+    assert name_from_resume_text("Proc Tor cand.proc@t5.test\nProcurement Analyst") == "Proc Tor"
+    assert name_from_resume_text("Sec Cand\ncand.sec@t5.test\nSecurity Analyst") == "Sec Cand"
+    assert name_from_resume_text("Priya Sharma\ncand.proc\npriya.sharma@example.com\nEngineer") == "Priya Sharma"
+    assert (
+        resume_name({"resumeFullName": "Proc Tor Cand.Proc", "resumeText": "Proc Tor\ncand.proc@t5.test\nAnalyst"})
+        == "Proc Tor"
+    )
+    assert name_from_resume_text(_SPLIT) == "Ravi Shankar Nallamothu"

@@ -13,6 +13,7 @@ import { clientLlmAllowed } from './clientLlm'
 import { computeExperience, latestJob, monthsToLabel } from './resumeExperience'
 import { extractNameFromText, looksLikePersonName, normalizePersonName, pickRole } from './resumeName'
 import { resumeNameOf } from './candidateName'
+import { deriveCompanyTitle, deriveHighestEducation } from './profileDefaults'
 import type { EducationEntry } from './store'
 
 export { extractNameFromText }
@@ -56,6 +57,15 @@ export type ResumeExtract = Partial<
   education?: EducationEntry[]
   /** Months of work the job dates show; the band in totalExperience is only a range ("8 – 12 Years"). */
   experienceMonths?: number
+  email?: string
+  phone?: string
+  /** Content hash from /api/resume/parse so replace can reuse that parse. */
+  fileHash?: string
+  /**
+   * "rules" is a deterministic server extract, not a model profile.
+   * "llm" and "cache" are model extracts (a cache hit is a previous model extract).
+   */
+  parseSource?: 'rules' | 'llm' | 'cache' | string
 }
 
 /** Maps parsed resume fields into onboarding profile shape (shared by upload + wizard). */
@@ -104,6 +114,12 @@ export function resumeExtractToProfilePatch(
     // A new resume replaces the old one's degrees and months (an empty value clears them).
     Object.assign(patch, { education: extract.education ?? [], experienceMonths: extract.experienceMonths ?? 0 })
   }
+  // Filled when the resume has them. Callers that already have a value only apply these when the field is empty.
+  const companyTitle = deriveCompanyTitle(extract.workExperiences)
+  const highestEducation = deriveHighestEducation(extract.education)
+  if (companyTitle) Object.assign(patch, { currentCompanyTitle: companyTitle })
+  if (highestEducation) Object.assign(patch, { highestEducation })
+  if (extract.phone?.trim()) Object.assign(patch, { contactPhone: extract.phone.trim() })
   return patch
 }
 
@@ -241,6 +257,24 @@ export function pdfItemsToLines(items: PdfTextItem[]): string[] {
   return lines
 }
 
+/** The server re-reads the file when client text is shorter than this. Do not invent text to clear it. */
+const SERVER_OWNS_PDF_TEXT_BELOW = 40
+
+async function fileBytesBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const size = 0x8000
+  for (let i = 0; i < bytes.length; i += size) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + size))
+  }
+  return btoa(binary)
+}
+
+/**
+ * pdf.js text, even when it is only a few characters. A short result is still returned: scanned and
+ * Flate-compressed PDFs are read on the server from the original bytes. Never scan the PDF source for
+ * parenthesized strings — that path turns compressed streams into garbage.
+ */
 async function extractPdfText(file: File): Promise<string> {
   const data = new Uint8Array(await file.arrayBuffer())
   try {
@@ -252,25 +286,17 @@ async function extractPdfText(file: File): Promise<string> {
       const lines = pdfItemsToLines(content.items as PdfTextItem[])
       if (lines.length) chunks.push(lines.join('\n'))
     }
-    const combined = chunks.join('\n')
-    if (combined.trim().length > 20) return combined
+    return chunks.join('\n')
   } catch (err) {
-    console.warn('[ResumeParser] pdfjs-dist primary parse error, attempting fallback:', err)
+    console.warn('[ResumeParser] pdfjs-dist parse error:', err)
+    return ''
   }
+}
 
-  // Fallback: extract readable strings directly from PDF binary buffer
-  try {
-    const buf = await file.arrayBuffer()
-    const dec = new TextDecoder('utf-8', { fatal: false })
-    const str = dec.decode(buf)
-    const matches = str.match(/\(([^()]{2,})\)/g)
-    if (matches && matches.length > 5) {
-      const text = matches.map((m) => m.slice(1, -1)).join(' ')
-      if (text.length > 40) return text
-    }
-  } catch {}
-
-  throw new Error('Could not read text from this PDF. Please ensure it contains selectable text, or upload a DOCX/TXT.')
+/** When pdf.js (or another local read) is under 40 characters, keep the server's resume text. */
+function textForExtract(localText: string, serverText: string): string {
+  if (localText.trim().length >= SERVER_OWNS_PDF_TEXT_BELOW) return localText
+  return serverText.trim().length > localText.trim().length ? serverText : localText
 }
 
 async function extractDocxText(file: File): Promise<string> {
@@ -469,7 +495,7 @@ function normalizeResumeText(text: string): string {
 
 function sectionBody(text: string, labels: string[], stopLabels = DEFAULT_SECTION_STOPS): string {
   const pattern = new RegExp(
-    `(?:^|\\n)\\s*(?:${labels.join('|')})\\s*[:\\-]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${stopLabels.join('|')})\\b|$)`,
+    `(?:^|\\n)\\s*(?:${labels.join('|')})\\s*[:-]?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*(?:${stopLabels.join('|')})\\b|$)`,
     'i',
   )
   const match = text.match(pattern)
@@ -516,7 +542,7 @@ function pickLocationFromHeader(lines: string[], fullName: string): string {
   for (const rawLine of lines.slice(0, 8)) {
     if (fullName && rawLine.toLowerCase().includes(fullName.toLowerCase()) && rawLine.length <= fullName.length + 2) continue
     for (const segment of rawLine.split(/\s*[|•·]\s*|\s{2,}|\s+[-–—]\s+/)) {
-      const seg = segment.trim().replace(/^(?:location|address|city)\s*[:\-]\s*/i, '')
+      const seg = segment.trim().replace(/^(?:location|address|city)\s*[:-]\s*/i, '')
       if (!seg || seg.length > 45 || NOT_PLACE.test(seg) || TITLE_LINE.test(seg)) continue
       const option = LOCATION_OPTIONS.find((l) => l !== 'Other' && new RegExp(`\\b${l.replace(/\s+/g, '\\s+')}\\b`, 'i').test(seg))
       if (option) return option
@@ -822,7 +848,7 @@ function deptEmployer(titlePart: string, rest: string): { role: string; company:
 function tidyFragment(value: string): string {
   return value
     .replace(/\(\s*\)/g, '')
-    .replace(/\bduration\s*[:\-]?/gi, '')
+    .replace(/\bduration\s*[:-]?/gi, '')
     .replace(/[\s,;|\-–—:]+$/g, '')
     .replace(/^[\s,;|\-–—:]+/g, '')
     .replace(/\s{2,}/g, ' ')
@@ -983,12 +1009,12 @@ function pickWorkExperiences(text: string): WorkExperience[] {
     .split('\n')
     .map((l) => numericDatesToMonthNames(l.trim()))
     // "Company: Spruce IT (Feb 2024 to Till Now)" / "Role: Technical Recruiter" -> the value after the label
-    .map((l) => l.replace(/^(?:company|organi[sz]ation|employer|firm)\s*[:\-]\s*/i, '').replace(/^(?:role|designation|position|job\s*title|title)\s*[:\-]\s*/i, ''))
+    .map((l) => l.replace(/^(?:company|organi[sz]ation|employer|firm)\s*[:-]\s*/i, '').replace(/^(?:role|designation|position|job\s*title|title)\s*[:-]\s*/i, ''))
     // descriptive labels that are never a job header
     .filter(
       (l) =>
         l &&
-        !/^(?:roles?\s*(?:and|&)\s*responsibilit(?:y|ies)|key\s+responsibilit(?:y|ies)|responsibilit(?:y|ies)|clients?|client\s+assignment|environment|tools(?:\s+used)?|technolog(?:y|ies)(?:\s+used)?|projects?(?:\s+name)?)\s*[:\-]/i.test(l),
+        !/^(?:roles?\s*(?:and|&)\s*responsibilit(?:y|ies)|key\s+responsibilit(?:y|ies)|responsibilit(?:y|ies)|clients?|client\s+assignment|environment|tools(?:\s+used)?|technolog(?:y|ies)(?:\s+used)?|projects?(?:\s+name)?)\s*[:-]/i.test(l),
     )
   if (!lines.length) return []
 
@@ -1687,7 +1713,10 @@ export function formatAiExtract(parsed: Record<string, unknown>, rawText: string
   if (Array.isArray(parsed.workExperiences)) {
     experiences = parsed.workExperiences
       .map((w: Record<string, unknown>) => {
-        const company = String(w.company || '').trim()
+        const rawCompany = String(w.company || '').trim()
+        // "KMC Hospital, Mangaluru" -> company "KMC Hospital", location "Mangaluru".
+        const place = placeTailOf(rawCompany)
+        const company = tidyFragment(stripPlaceTail(rawCompany))
         const jobTitle = String(w.jobTitle || '').trim()
         // Anti-hallucination filter: ignore generic or placeholder company names
         if (
@@ -1720,7 +1749,7 @@ export function formatAiExtract(parsed: Record<string, unknown>, rawText: string
           currentlyWorking: Boolean(
             w.currentlyWorking ?? /present|current|ongoing/i.test(String(w.endDate || '')),
           ),
-          location: String(w.location || ''),
+          location: String(w.location || '').trim() || place,
           responsibilities: clip(String(w.responsibilities || w.description || ''), 800),
         }
       })
@@ -1775,6 +1804,10 @@ export function formatAiExtract(parsed: Record<string, unknown>, rawText: string
 
   const extract: ResumeExtract = {}
   if (fullName) extract.fullName = fullName
+  const email = String(parsed.email || '').trim()
+  if (email) extract.email = email
+  const phone = String(parsed.phone || parsed.contactPhone || '').trim()
+  if (phone) extract.phone = phone
   if (parsed.whoAreYou) extract.whoAreYou = clip(String(parsed.whoAreYou).trim(), 300)
   if (parsed.whatDrivesYou) extract.whatDrivesYou = clip(String(parsed.whatDrivesYou).trim(), 300)
   if (parsed.keyStrengths) extract.keyStrengths = clip(String(parsed.keyStrengths).trim(), 250)
@@ -1830,13 +1863,53 @@ export function formatAiExtract(parsed: Record<string, unknown>, rawText: string
   return extract
 }
 
+function fieldText(value: unknown): string {
+  return String(value ?? '').trim()
+}
+
+function serverParseSource(data: { source?: unknown; extract?: { source?: unknown } }): string {
+  return (fieldText(data.source) || fieldText(data.extract?.source)).toLowerCase()
+}
+
+function serverFileHash(data: { fileHash?: unknown; extract?: { fileHash?: unknown } }): string {
+  return fieldText(data.fileHash) || fieldText(data.extract?.fileHash)
+}
+
+/** Name, email, phone, and location only. A rules extract is not a model profile. */
+function contactFromRulesExtract(parsed: Record<string, unknown>, rawText: string): ResumeExtract {
+  const extract: ResumeExtract = { parseSource: 'rules', resumeText: clip(rawText, 12000) }
+  const rawName = fieldText(parsed.fullName)
+  const generic = !rawName || /^(candidate|name|full\s*name|resume|curriculum\s*vitae|not\s*specified)$/i.test(rawName)
+  if (!generic) extract.fullName = normalizePersonName(rawName)
+  const email = fieldText(parsed.email)
+  if (email) extract.email = email
+  const phone = fieldText(parsed.phone || parsed.contactPhone)
+  if (phone) extract.phone = phone
+  const location = fieldText(parsed.currentLocation || parsed.location)
+  if (location) extract.currentLocation = location
+  return extract
+}
+
+/** Keep the regex jobs and education. Overlay contact fields the rules extract actually returned. */
+function mergeRulesContact(regexFallback: ResumeExtract, rules: ResumeExtract, text: string): ResumeExtract {
+  const merged: ResumeExtract = { ...regexFallback }
+  if (rules.fullName) merged.fullName = rules.fullName
+  if (rules.email) merged.email = rules.email
+  if (rules.phone) merged.phone = rules.phone
+  if (rules.currentLocation) merged.currentLocation = rules.currentLocation
+  if (rules.fileHash) merged.fileHash = rules.fileHash
+  merged.resumeText = clip(text || regexFallback.resumeText || '', 12000)
+  delete merged.parseSource
+  return merged
+}
+
 /**
  * High-accuracy AI Resume Parser powered by Google Gemini
  */
 /** `opts.background`: the caller shows its own progress, so the parse request never raises the loading veil. */
 export async function parseResumeWithAI(
   text: string,
-  opts: { background?: boolean } = {},
+  opts: { background?: boolean; file?: File } = {},
 ): Promise<ResumeExtract | null> {
   const apiKey = clientLlmAllowed()
     ? import.meta.env.VITE_GEMINI_API_KEY || ''
@@ -1908,17 +1981,36 @@ ${text.slice(0, 12000)}`
       await ensureApiSession()
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 12_000)
+      const file = opts.file
+      const body: { text: string; fileData?: string; fileName?: string } = { text }
+      if (file) {
+        body.fileData = await fileBytesBase64(file)
+        body.fileName = file.name
+      }
       const res = await apiFetch('/api/resume/parse', {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(body),
         signal: controller.signal,
         background: opts.background,
       })
       clearTimeout(timer)
       if (res.ok) {
         const data = await res.json()
-        if (data.ok && data.extract) {
-          return formatAiExtract(data.extract, text)
+        if (data.ok && data.extract && typeof data.extract === 'object') {
+          const serverText = typeof data.extract.resumeText === 'string' ? data.extract.resumeText : ''
+          const textUsed = textForExtract(text, serverText)
+          const source = serverParseSource(data)
+          const fileHash = serverFileHash(data)
+          // A rules fallback is contact fields plus the local regex jobs and education, not a model profile.
+          if (source === 'rules') {
+            const contact = contactFromRulesExtract(data.extract, textUsed)
+            if (fileHash) contact.fileHash = fileHash
+            return contact
+          }
+          const formatted = formatAiExtract(data.extract, textUsed)
+          if (fileHash) formatted.fileHash = fileHash
+          if (source === 'llm' || source === 'cache') formatted.parseSource = source
+          return formatted
         }
       }
     } catch (err) {
@@ -2063,25 +2155,34 @@ export function mergeAiWithRegex(text: string, aiExtract: ResumeExtract, regexFa
 
 export async function parseResumeFile(file: File, opts: { background?: boolean } = {}): Promise<ResumeExtract> {
   const text = await extractResumeText(file)
-  if (!text.trim()) {
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  // A scanned or compressed PDF often has little or no pdf.js text. The server still needs the bytes.
+  if (!text.trim() && !isPdf) {
     throw new Error('Could not read text from this file. Please ensure the file contains selectable text, or try a DOCX/TXT.')
   }
 
   const regexFallback = parseResumeText(text)
-  if (!regexFallback.resumeText) regexFallback.resumeText = clip(text, 8000)
+  if (!regexFallback.resumeText && text.trim()) regexFallback.resumeText = clip(text, 8000)
 
   let aiExtract: ResumeExtract | null = null
   try {
     aiExtract = await Promise.race([
-      parseResumeWithAI(text, opts),
+      parseResumeWithAI(text, { ...opts, file }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), RESUME_AI_PARSE_MS)),
     ])
   } catch (err) {
     console.warn('[ResumeParser] AI parsing fallback to local regex:', err)
   }
 
-  if (aiExtract && (aiExtract.fullName || (aiExtract.skills && aiExtract.skills.length > 0))) {
-    return mergeAiWithRegex(text, aiExtract, regexFallback)
+  if (aiExtract?.parseSource === 'rules') {
+    return mergeRulesContact(regexFallback, aiExtract, textForExtract(text, aiExtract.resumeText || ''))
+  }
+
+  const modelExtract = aiExtract?.parseSource === 'llm' || aiExtract?.parseSource === 'cache'
+  if (aiExtract && (modelExtract || aiExtract.fullName || (aiExtract.skills && aiExtract.skills.length > 0))) {
+    const merged = mergeAiWithRegex(textForExtract(text, aiExtract.resumeText || ''), aiExtract, regexFallback)
+    delete merged.parseSource
+    return merged
   }
 
   return regexFallback

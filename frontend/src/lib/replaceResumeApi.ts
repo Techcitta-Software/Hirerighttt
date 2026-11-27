@@ -25,6 +25,7 @@ export type ReplaceResumeOutcome =
 export async function replaceResumeViaApi(
   file: File,
   extract: ResumeExtract,
+  opts: { background?: boolean; fileHash?: string | null } = {},
 ): Promise<ReplaceResumeOutcome> {
   if (!(await ensureApiSession())) {
     return { ok: false, error: 'Sign in is required to update your résumé.' }
@@ -37,6 +38,7 @@ export async function replaceResumeViaApi(
   const resumeText = extract.resumeText || patch.resumeText || ''
 
   const file_base64 = await fileToBase64(file)
+  const fileHash = String(opts.fileHash || extract.fileHash || '').trim()
   const res = await apiFetch('/api/resume/replace', {
     method: 'POST',
     body: JSON.stringify({
@@ -45,7 +47,10 @@ export async function replaceResumeViaApi(
       contentType: file.type || undefined,
       resumeText,
       extract: { ...patch, resumeText },
+      ...(fileHash ? { fileHash } : {}),
     }),
+    // The profile page shows its own "Updating your resume…" line.
+    background: opts.background,
   })
 
   const data = (await res.json().catch(() => ({}))) as {

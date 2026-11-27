@@ -9,6 +9,7 @@ import {
   formatExperience,
   highlightParts,
   indexApplicant,
+  interviewProgressLabel,
   keywordSnippet,
   panelTabFromParam,
   parseKeywordQuery,
@@ -224,21 +225,56 @@ describe('filters and facets', () => {
     expect(held.rows).toEqual([])
   })
 
-  it('groups roles case-insensitively, falls back to the headline, and counts without its own filter', () => {
+  it('groups roles case-insensitively and uses the latest job title when current role is empty', () => {
+    const intro = "I'm Neha, a builder who loves shipping products with teams."
     const people = [
       app({ id: 'a', role: 'Frontend Developer', resumeText: 'x' }),
       app({ id: 'b', role: 'frontend developer', resumeText: 'y' }),
-      app({ id: 'c', role: '', resumeText: 'Neha Gupta\nQA Engineer at Acme | Pune' }),
-      app({ id: 'd', role: '   ', resumeText: 'No headline here' }),
+      app({
+        id: 'c',
+        role: intro,
+        currentRole: '',
+        whoAreYou: intro,
+        resumeText: 'Neha Gupta\nQA Engineer at Acme | Pune\n\nI enjoy building products.',
+        workExperiences: [
+          { jobTitle: 'QA Engineer', company: 'Old Co', startDate: 'Jan 2019', endDate: 'Dec 2020' },
+          { jobTitle: 'QA Lead', company: 'Acme', startDate: 'Jan 2022', currentlyWorking: true },
+        ],
+      }),
+      app({
+        id: 'd',
+        role: "I'm a generalist who has tried a bit of everything over the years.",
+        whoAreYou: "I'm a generalist who has tried a bit of everything over the years.",
+        resumeText: 'No headline here',
+      }),
     ].map(indexApplicant)
-    const result = searchApplicants(people, EMPTY_APPLICANT_FILTERS, 'relevance')
+    const lead = people.find((r) => r.applicant.id === 'c')
+    expect(lead?.roleLabel).toBe('QA Lead')
+    expect(lead?.headline.title).toBe('QA Lead')
+    expect(lead?.headline.company).toBe('Acme')
+    expect(lead?.headline.title).not.toMatch(/I'm|enjoy building/i)
+    const blank = people.find((r) => r.applicant.id === 'd')
+    expect(blank?.roleLabel).toBe('—')
+    expect(blank?.headline.title).toBe('—')
+    expect(blank?.roleKey).toBe('—')
+    const headlineOnly = indexApplicant(app({ id: 'h', role: '', resumeText: 'Neha Gupta\nQA Engineer at Acme | Pune' }))
+    expect(headlineOnly.roleLabel).toBe('QA Engineer')
+    expect(headlineOnly.headline.title).toBe('QA Engineer')
+    const result = searchApplicants([...people, headlineOnly], EMPTY_APPLICANT_FILTERS, 'relevance')
     expect(result.facets.roles.find((r) => r.value === 'frontend developer')).toMatchObject({ label: 'Frontend Developer', count: 2 })
+    expect(result.facets.roles.find((r) => r.value === 'qa lead')?.count).toBe(1)
     expect(result.facets.roles.find((r) => r.value === 'qa engineer')?.count).toBe(1)
-    expect(result.facets.roles.some((r) => r.value === '')).toBe(false)
-    expect(people.find((r) => r.applicant.id === 'd')?.roleKey).toBe('')
-    const only = searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, roles: ['frontend developer'] }, 'relevance')
-    expect(only.rows.map((r) => r.applicant.id).sort()).toEqual(['a', 'b'])
-    expect(only.facets.roles.find((r) => r.value === 'qa engineer')?.count).toBe(1)
+    expect(result.facets.roles.some((r) => r.value === '' || /i'm/i.test(r.label))).toBe(false)
+    const only = searchApplicants(people, { ...EMPTY_APPLICANT_FILTERS, roles: ['qa lead'] }, 'relevance')
+    expect(only.rows.map((r) => r.applicant.id)).toEqual(['c'])
+    expect(only.facets.roles.find((r) => r.value === 'frontend developer')?.count).toBe(2)
+  })
+
+  it('says In progress when the interview session is active', () => {
+    expect(interviewProgressLabel(app({}))).toBeNull()
+    expect(interviewProgressLabel(app({}), true)).toBe('Interview in progress')
+    expect(interviewProgressLabel(app({ interviewSessionStatus: 'active' }))).toBe('In progress')
+    expect(interviewProgressLabel(app({ interviewSessionStatus: 'active' }), true)).toBe('In progress')
   })
 
   it('filters resume presence and counts it without its own filter', () => {

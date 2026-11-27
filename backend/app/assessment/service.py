@@ -121,12 +121,14 @@ def extract_resume_text(body: dict) -> str:
     except ValueError:  # binascii.Error: not base64 (was a 500)
         raise AssessmentError(400, "Invalid or oversized resume upload") from None
     check(0 < len(buf) <= 2_000_000, "Resume must be at most 2 MB")
-    from app.services.resume_text import docx_text, pdf_text
+    from app.services.resume_text import docx_text
 
     if filename.lower().endswith(".pdf"):
         check(buf[:5] == b"%PDF-", "File content does not match its extension")
-        # Real PDFs store text in compressed streams; reading raw bytes gave the AI noise instead of the resume.
-        text_out = pdf_text(buf)
+        # Same reader as POST /api/resume/parse: pdfium column order, pypdf when pdfium cannot open the file.
+        from app.services.resume_parse.extract_pdf import pdf_layout_text
+
+        text_out = pdf_layout_text(buf).text
     else:
         check(buf[:4] == b"PK\x03\x04", "File content does not match its extension")
         text_out = docx_text(buf)

@@ -1,6 +1,7 @@
 import { memo, useRef, type MouseEvent } from 'react'
 import {
   experienceLabel,
+  interviewProgressLabel,
   keywordSnippet,
   proctorFlagBreakdown,
   proctorNotes,
@@ -108,8 +109,10 @@ export const ApplicantTuple = memo(function ApplicantTuple({
   const scoreFrom = pageJobId && (a.interviewJobId ?? a.jobId) === pageJobId ? '' : scoreJobTitle(a)
   const multiJob = !pageJobId && (a.applications?.length ?? 0) > 1
   const name = a.candidateName
+  const progressLabel = interviewProgressLabel(a, inProgress)
   // "Senior Engineer at Flipside" from the resume headline; the application's role when the resume has no title.
-  const title = row.headline.title || a.role || ''
+  // An empty current role is already the latest job title, or "—", on row.headline.
+  const title = row.headline.title || row.roleLabel || ''
   const roleLine = title && row.headline.company ? `${title} at ${row.headline.company}` : title
 
   // The whole row opens the profile, except clicks on its own controls.
@@ -291,9 +294,9 @@ export const ApplicantTuple = memo(function ApplicantTuple({
                   </span>
                 ) : null}
               </>
-            ) : inProgress ? (
+            ) : progressLabel ? (
               <span className={styles.inProgressText} data-testid="interview-in-progress">
-                Interview in progress
+                {progressLabel}
               </span>
             ) : (
               <span className={styles.notInterviewed}>Not interviewed</span>

@@ -48,11 +48,14 @@ export function VendorDashboardPage() {
   const [candidates, setCandidates] = useState<EmployerApplicant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // getUser() returns a fresh object every render, so the load effect keys on these primitives instead.
+  const userEmail = user?.email
+  const userRole = user?.role
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      if (!user || user.role !== 'employer') return
+      if (userRole !== 'employer') return
       setLoading(true)
       setError('')
       try {
@@ -78,7 +81,7 @@ export function VendorDashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [user?.email, user?.role])
+  }, [userEmail, userRole])
 
   const stats = useMemo(() => vendorDashboardStats(jobs, candidates, Date.now()), [jobs, candidates])
 

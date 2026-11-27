@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { VideoProctorTimeline } from '../components/VideoProctorTimeline'
 import { Score } from '../components/Score'
@@ -90,6 +90,48 @@ function formatShortDate(iso: string | undefined): string {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+const EXPERIENCE_BUCKETS = ['0-2 years', '3-5 years', '6+ years'] as const
+
+function yearsInsideBucket(lo: number, hi: number, bucket: (typeof EXPERIENCE_BUCKETS)[number]): number {
+  const start = bucket === '0-2 years' ? 0 : bucket === '3-5 years' ? 3 : 6
+  const end = bucket === '0-2 years' ? 2 : bucket === '3-5 years' ? 5 : hi
+  return Math.max(0, Math.min(hi, end) - Math.max(lo, start) + 1)
+}
+
+/** "4-6 years" onto 0-2 / 3-5 / 6+, whichever of those choices covers more of the range. */
+function bucketWithLargestOverlap(raw: string): (typeof EXPERIENCE_BUCKETS)[number] | '' {
+  const range = raw.match(/(\d+)\s*(?:-|–|to)\s*(\d+)/i)
+  if (!range) return ''
+  const lo = Math.min(Number(range[1]), Number(range[2]))
+  const hi = Math.max(Number(range[1]), Number(range[2]))
+  let bestN = 0
+  const winners: (typeof EXPERIENCE_BUCKETS)[number][] = []
+  for (const bucket of EXPERIENCE_BUCKETS) {
+    const n = yearsInsideBucket(lo, hi, bucket)
+    if (n > bestN) {
+      bestN = n
+      winners.length = 0
+      winners.push(bucket)
+    } else if (n === bestN && n > 0) {
+      winners.push(bucket)
+    }
+  }
+  if (winners.length === 0) return ''
+  if (winners.length === 1) return winners[0]
+  const mid = (lo + hi) / 2
+  const midBucket: (typeof EXPERIENCE_BUCKETS)[number] = mid < 3 ? '0-2 years' : mid <= 5 ? '3-5 years' : '6+ years'
+  return winners.includes(midBucket) ? midBucket : winners[0]
+}
+
+/** A labeled "Experience: 4-6 years", or an unlabeled "4-6 years" near the top of the JD. */
+function importedExperienceLevel(description: string, parsed: string): string {
+  const labeled = description.match(/(?:experience|years of experience|exp\.?)\s*[:\-–]\s*([^\n]{0,160})/i)
+  if (labeled) return bucketWithLargestOverlap(labeled[1]) || parsed
+  const loose = description.slice(0, 1500).match(/(\d+)\s*(?:-|–|to)\s*(\d+)\s*(?:years|yrs)\b/i)
+  if (loose) return bucketWithLargestOverlap(loose[0]) || parsed
+  return parsed
+}
+
 /** One error panel for a failed load, with a way to try again. Replaces the empty state. */
 function LoadErrorPanel({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
@@ -158,7 +200,7 @@ export function EmployerDashboard() {
   const [newJobTitle, setNewJobTitle] = useState('')
   const [newJobRoleTrack, setNewJobRoleTrack] = useState(DEFAULT_JOB_ROLE)
   const [newJobExp, setNewJobExp] = useState('3-5 years')
-  const [newJobLocation, setNewJobLocation] = useState('Hyderabad / Remote')
+  const [newJobLocation, setNewJobLocation] = useState('')
   const [newJobDescription, setNewJobDescription] = useState('')
   const [newJobSkills, setNewJobSkills] = useState('')
   const [jobDocName, setJobDocName] = useState('')
@@ -267,10 +309,19 @@ export function EmployerDashboard() {
     setPortalSyncNote('')
   }
 
+  // getUser() returns a fresh object every render, so the load effects key on these primitives instead.
+  const userEmail = user?.email
+  const userRole = user?.role
+  // Latest loaders for the effects below, which re-run only on user / view changes (not on every render).
+  const loadersRef = useRef({ loadJobsFromApi, loadOrgCandidatesFromApi })
+  useLayoutEffect(() => {
+    loadersRef.current = { loadJobsFromApi, loadOrgCandidatesFromApi }
+  })
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      if (!user || user.role !== 'employer') return
+      if (userRole !== 'employer') return
       setPortalLoading(true)
       setLoadError('')
       try {
@@ -280,9 +331,10 @@ export function EmployerDashboard() {
         }
         if (cancelled) return
         // Jobs (for the invite panel) and candidates load side by side on the directory.
+        const loaders = loadersRef.current
         await Promise.all([
-          loadJobsFromApi({ withCounts: !isCandidatesView }),
-          isCandidatesView ? loadOrgCandidatesFromApi() : null,
+          loaders.loadJobsFromApi({ withCounts: !isCandidatesView }),
+          isCandidatesView ? loaders.loadOrgCandidatesFromApi() : null,
         ])
       } catch (err) {
         if (!cancelled) {
@@ -300,10 +352,10 @@ export function EmployerDashboard() {
     return () => {
       cancelled = true
     }
-  }, [user?.email, user?.role, isCandidatesView, reloadKey])
+  }, [userEmail, userRole, isCandidatesView, reloadKey])
 
   useEffect(() => {
-    if (!user || user.role !== 'employer') return
+    if (userRole !== 'employer') return
     let cancelled = false
     // The page's initial load already fetched every job's count and the roster, so the first batch
     // of alerts only marks what exists now; only alerts that arrive later trigger a refresh.
@@ -328,7 +380,7 @@ export function EmployerDashboard() {
         }
       }
       if (isCandidatesView && !cancelled) {
-        void loadOrgCandidatesFromApi(undefined, { background: true })
+        void loadersRef.current.loadOrgCandidatesFromApi(undefined, { background: true })
       }
     }
 
@@ -338,7 +390,7 @@ export function EmployerDashboard() {
       cancelled = true
       unsubscribe()
     }
-  }, [user?.email, user?.role, isCandidatesView])
+  }, [userEmail, userRole, isCandidatesView])
 
   const inviteJobs = useMemo(() => jobs.map((j) => ({ id: j.id, title: j.title })), [jobs])
   // "Invite to interview" (email interview links) opens in a dialog from the Applicants header.
@@ -381,7 +433,7 @@ export function EmployerDashboard() {
     setNewJobSkills('')
     setNewJobRoleTrack(DEFAULT_JOB_ROLE)
     setNewJobExp('3-5 years')
-    setNewJobLocation('Hyderabad / Remote')
+    setNewJobLocation('')
     setJobDocName('')
     setJobDocError('')
   }
@@ -452,18 +504,19 @@ export function EmployerDashboard() {
   }
 
   function applyImportedJob(fileName: string, draft: Awaited<ReturnType<typeof readJobDescriptionFile>>) {
+    const experience = importedExperienceLevel(draft.description, draft.experienceLevel)
     setJobDocFilled(
       [
         draft.title ? 'title' : '',
         draft.location ? 'location' : '',
-        draft.experienceLevel ? 'experience' : '',
+        experience ? 'experience' : '',
         draft.skills.length ? 'skills' : '',
         draft.description ? 'description' : '',
       ].filter(Boolean),
     )
     if (draft.title) setNewJobTitle(draft.title)
     if (draft.location) setNewJobLocation(draft.location)
-    if (draft.experienceLevel) setNewJobExp(draft.experienceLevel)
+    if (experience) setNewJobExp(experience)
     if (draft.skills.length) setNewJobSkills(draft.skills.join(', '))
     setNewJobDescription(draft.description)
     const suggested = suggestRoleFromTitle(draft.title)
@@ -554,7 +607,7 @@ export function EmployerDashboard() {
       setNewJobSkills('')
       setNewJobRoleTrack(DEFAULT_JOB_ROLE)
       setNewJobExp('3-5 years')
-      setNewJobLocation('Hyderabad / Remote')
+      setNewJobLocation('')
       setJobDocName('')
       setJobDocError('')
       setPortalSyncNote(`Job “${created.title}” published. Share the link to collect applicants.`)

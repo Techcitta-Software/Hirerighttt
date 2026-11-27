@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildApplyPath, buildApplyUrl, publicAppOrigin } from './jobLink'
+import { buildApplyPath, buildApplyUrl, canonicalJobPath, publicAppOrigin } from './jobLink'
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -17,6 +17,16 @@ describe('share links', () => {
     vi.stubEnv('VITE_PUBLIC_APP_URL', '')
     vi.stubGlobal('window', { location: { origin: 'https://staging.example.com' } })
     expect(buildApplyUrl('Acme', 'x1')).toBe('https://staging.example.com/apply/acme/x1')
+  })
+
+  it('replaces a job URL when the code is right and the company slug is not', () => {
+    const job = { company: 'Acme Corp', companySlug: 'acme-corp' }
+    expect(canonicalJobPath('jobs', 'abc123', 'wrong-co', job)).toBe('/jobs/acme-corp/abc123')
+    expect(canonicalJobPath('apply', 'abc123', 'not-acme', job)).toBe('/apply/acme-corp/abc123')
+    expect(canonicalJobPath('jobs', 'abc123', 'acme-corp', job)).toBeNull()
+    expect(canonicalJobPath('jobs', 'abc123', 'ACME-CORP', job)).toBeNull()
+    expect(canonicalJobPath('apply', 'abc123', undefined, job)).toBeNull()
+    expect(canonicalJobPath('jobs', 'pay42', 'other', { company: 'Payflow' })).toBe('/jobs/payflow/pay42')
   })
 
   it('never invent a localhost host without a window', () => {

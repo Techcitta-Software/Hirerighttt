@@ -22,7 +22,7 @@ import { applyToPublicJob } from '../lib/vendorApi'
 import { ensureApiSession } from '../lib/apiSession'
 import { apiHealth, getApiToken } from '../lib/api'
 import { isValidPhone, normalizePhone } from '../lib/phone'
-import { companySlugMatches, slugifyCompany } from '../lib/jobLink'
+import { canonicalJobPath, companySlugMatches, slugifyCompany } from '../lib/jobLink'
 import { setPendingJob } from '../lib/pendingJobApply'
 import styles from './CandidateApplyPage.module.css'
 import { writeTargetJob } from '../lib/targetJob'
@@ -101,6 +101,11 @@ export function CandidateApplyPage() {
       try {
         const { job: remote, error: remoteError } = await resolvePublicJob(code, companySlug)
         if (!cancelled && remote) {
+          const canonical = canonicalJobPath('apply', code, companySlug, remote)
+          if (canonical) {
+            navigate(canonical, { replace: true })
+            return
+          }
           setJob(
             vendorJobToEmployerJob(remote, sessionUser?.email || 'candidate@hireright.com'),
           )
@@ -120,7 +125,7 @@ export function CandidateApplyPage() {
     return () => {
       cancelled = true
     }
-  }, [code, companySlug, sessionUser?.email])
+  }, [code, companySlug, navigate, sessionUser?.email])
 
   /** Remember this job, then sign up / log in. Onboarding (or the return trip) completes the application. */
   function startAuth(path: '/signup' | '/login') {

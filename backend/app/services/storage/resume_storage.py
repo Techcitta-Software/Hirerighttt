@@ -14,7 +14,7 @@ from app.services.storage.s3_storage import object_storage_configured, presign_d
 
 MAX_RESUME_BYTES = 2_000_000
 MAX_RESUME_BASE64_CHARS = (MAX_RESUME_BYTES * 4) // 3 + 8
-RESUME_FILENAME_RE = re.compile(r"\.(pdf|docx)$", re.I)
+RESUME_FILENAME_RE = re.compile(r"\.(pdf|docx|txt)$", re.I)
 RESUME_DOWNLOAD_API_PATH = "/api/resume/download"
 
 
@@ -22,7 +22,7 @@ def parse_resume_upload_body(body: dict) -> dict[str, Any]:
     filename = str(body.get("filename") or "resume.pdf")[:200]
     raw = str(body.get("file_base64") or body.get("fileBase64") or "")
     if not raw or not RESUME_FILENAME_RE.search(filename):
-        err = ValueError("Upload a PDF or DOCX resume (filename + file_base64).")
+        err = ValueError("Upload a PDF, DOCX, or TXT resume (filename + file_base64).")
         err.status = 400  # type: ignore[attr-defined]
         raise err
     b64 = raw.split(",", 1)[1] if "," in raw else raw
@@ -46,6 +46,7 @@ def parse_resume_upload_body(body: dict) -> dict[str, Any]:
 _PDF_TYPE = "application/pdf"
 _DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _DOC_TYPE = "application/msword"
+_TXT_TYPE = "text/plain; charset=utf-8"
 _RESUME_CONTENT_TYPES = frozenset({_PDF_TYPE, _DOCX_TYPE, _DOC_TYPE})
 
 
@@ -61,6 +62,8 @@ def infer_resume_content_type(filename: str, content_type: str | None = None) ->
         by_ext = _DOCX_TYPE
     elif name.endswith(".doc"):
         by_ext = _DOC_TYPE
+    elif name.endswith(".txt"):
+        by_ext = _TXT_TYPE
     else:
         by_ext = ""
     stored = str(content_type or "").split(";", 1)[0].strip().lower()
@@ -79,13 +82,13 @@ def stored_resume_filename(storage_key: str, resume_name: Any = None) -> str:
     The name used to default to "resume.pdf" (and a stale name could say .pdf for a .docx), so Word resumes were
     served as PDFs: the browser downloaded them instead of showing a preview.
     """
-    match = re.search(r"\.(pdf|docx)$", storage_key or "", re.I)
+    match = re.search(r"\.(pdf|docx|txt)$", storage_key or "", re.I)
     ext = f".{match.group(1).lower()}" if match else ""
     name = re.sub(r'[\r\n"\\/]+', " ", str(resume_name or "")).strip()
     if not name:
         return f"resume{ext or '.pdf'}"
     if ext and not name.lower().endswith(ext):
-        return re.sub(r"\.(pdf|docx?)$", "", name, flags=re.I) + ext
+        return re.sub(r"\.(pdf|docx?|txt)$", "", name, flags=re.I) + ext
     return name
 
 

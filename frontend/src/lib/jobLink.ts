@@ -38,3 +38,21 @@ export function companySlugMatches(company: string, slug: string | undefined): b
   if (!slug?.trim()) return true
   return slugifyCompany(company) === slug.trim().toLowerCase()
 }
+
+/**
+ * Replace path when a public job URL has the right code and the wrong company slug.
+ * Null when the slug is missing or already the canonical one (comparison is case-insensitive).
+ */
+export function canonicalJobPath(
+  section: 'jobs' | 'apply',
+  code: string,
+  urlSlug: string | undefined,
+  job: { company?: string | null; companySlug?: string | null },
+): string | null {
+  const given = String(urlSlug || '').trim().toLowerCase()
+  const share = String(code || '').trim()
+  if (!given || !share) return null
+  const canonical = String(job.companySlug || '').trim().toLowerCase() || slugifyCompany(job.company || '')
+  if (!canonical || given === canonical) return null
+  return `/${section}/${encodeURIComponent(canonical)}/${encodeURIComponent(share)}`
+}

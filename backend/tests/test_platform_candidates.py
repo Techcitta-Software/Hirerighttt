@@ -83,6 +83,56 @@ def _by_email(page):
     return {c["candidateName"]: c for c in page["candidates"]}
 
 
+def _allow_demo(monkeypatch, enabled: bool) -> None:
+    from dataclasses import replace
+
+    from app.node_config import config
+
+    monkeypatch.setattr("app.node_config.config", replace(config, allow_demo_accounts=enabled))
+
+
+def test_hides_demo_accounts_and_profiles_without_resume_text(monkeypatch):
+    from app.services.vendor.platform_candidates import platform_candidate_from_where
+
+    db = _db()
+    db["users"].append({"id": "u-demo", "email": "demo@hireright.com", "name": "Arjun Sharma", "role": "jobseeker", "createdAt": "2026-11-05T00:00:00Z"})
+    db["users"].append({"id": "u-empty", "email": "empty@example.com", "name": "No Resume", "role": "jobseeker", "createdAt": "2026-11-06T00:00:00Z"})
+    db["profiles"]["demo@hireright.com"] = {"resumeText": RESUME, "fullName": "Arjun Sharma", "currentRole": "Backend Engineer"}
+    db["profiles"]["empty@example.com"] = {"fullName": "No Resume", "currentRole": "Analyst", "resumeText": "   "}
+
+    _allow_demo(monkeypatch, False)
+    hidden = [c["candidateEmail"] for c in _list(db, "org-a")["candidates"]]
+    assert "demo@hireright.com" not in hidden
+    assert "empty@example.com" not in hidden
+    assert "ganesh.p@example.com" in hidden
+
+    _allow_demo(monkeypatch, True)
+    shown = [c["candidateEmail"] for c in _list(db, "org-a")["candidates"]]
+    assert "demo@hireright.com" in shown
+    assert "empty@example.com" not in shown
+
+    sql = platform_candidate_from_where()
+    assert "COALESCE(p.data->>'resumeText', '')" in sql
+    assert "%(allow_demo)s" in sql
+    assert "demo@hireright.com" in sql
+    assert "NOT IN" in sql
+
+
+def test_org_roster_skips_demo_emails_and_blank_resumes(monkeypatch):
+    from app.services.vendor.org_candidates import _load_all_job_seeker_roster_from_postgres
+
+    db = _db()
+    db["users"].append({"id": "u-demo", "email": "demo@hireright.com", "name": "Arjun Sharma", "role": "jobseeker"})
+    db["users"].append({"id": "u-empty", "email": "empty@example.com", "name": "No Resume", "role": "jobseeker"})
+    db["profiles"]["demo@hireright.com"] = {"resumeText": RESUME, "fullName": "Arjun Sharma"}
+    db["profiles"]["empty@example.com"] = {"resumeText": ""}
+    _allow_demo(monkeypatch, False)
+    emails = [c["candidateEmail"] for c in _load_all_job_seeker_roster_from_postgres("", db)]
+    assert "demo@hireright.com" not in emails
+    assert "empty@example.com" not in emails
+    assert "ganesh.p@example.com" in emails
+
+
 def test_lists_every_visible_job_seeker_not_only_applicants():
     page = _list(_db(), "org-a")
     names = sorted(c["candidateName"] for c in page["candidates"])

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { formatPhoneForDisplay, phoneTelHref } from '../../lib/phone'
-import { experienceLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
+import { experienceLabel, interviewProgressLabel, type IndexedApplicant, type PanelTabKey } from '../../lib/applicantSearch'
 import { CareerIntelligenceDashboard } from '../CareerIntelligenceDashboard'
 import { HrIcon } from '../HrIcon'
 import type { InviteStatus } from '../../lib/vendorApi'
@@ -132,8 +132,9 @@ export function ApplicantResumePanel({
   const shortlisted = a.status === 'Shortlisted'
   const exp = experienceLabel(row)
   const showRank = typeof a.rank === 'number' && rankTotal >= 1
-  // "Frontend Developer at CartWave · 4 yrs · Chennai": the resume headline, else the application's role.
-  const title = row.headline.title || a.role || ''
+  // "Frontend Developer at CartWave · 4 yrs · Chennai": the resume headline, else the resolved current role.
+  const title = row.headline.title || row.roleLabel || ''
+  const progressLabel = interviewProgressLabel(a)
   const roleLine = title && row.headline.company ? `${title} at ${row.headline.company}` : title
   const hasText = Boolean(a.resumeText?.trim())
   // Nothing to download: no file stored (the API said so, or the directory row says so) and no resume text either.
@@ -191,6 +192,8 @@ export function ApplicantResumePanel({
                   <strong>{Math.round(row.score)}</strong>/100
                   {showRank ? <span className={styles.panelRank}> · Rank #{a.rank} of {rankTotal}</span> : null}
                 </>
+              ) : progressLabel ? (
+                <span className={styles.inProgressText}>{progressLabel}</span>
               ) : (
                 <span className={styles.notInterviewed}>Not interviewed</span>
               )}
@@ -330,7 +333,6 @@ export function ApplicantResumePanel({
                     candidateEmail={a.candidateEmail}
                     candidateUserId={originalResume ? a.candidateUserId : undefined}
                     candidateName={a.candidateName}
-                    fallbackText={a.resumeText}
                     onDownload={onDownload}
                     onMissing={() => setMissingFileFor(a.id)}
                   />

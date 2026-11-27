@@ -975,41 +975,59 @@ def open_job_summaries(database_url: str, limit: int | None = None) -> list[dict
     return [dict(r) for r in _open_jobs_cache["rows"]]
 
 
+# First publish (status active or published) stamps published_at. A later edit keeps the original time.
+JOB_PUBLISHED_AT_UPDATE = (
+    "published_at = CASE WHEN EXCLUDED.status IN ('active', 'published') "
+    "THEN COALESCE(jobs.published_at, NOW()) ELSE jobs.published_at END"
+)
+
+
+def job_upsert_sql() -> str:
+    """INSERT/upsert used when a job is created or its status is written, including publish and reopen."""
+    return f"""INSERT INTO jobs (
+               id, organization_id, created_by_user_id, title, company, role_track, experience_level,
+               location, job_description, required_skills, shareable_code, status, published_at, extras, created_at, updated_at
+             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,
+               CASE WHEN %s IN ('active', 'published') THEN NOW() ELSE NULL END,
+               %s::jsonb,%s::timestamptz,NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
+               required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = NOW(),
+               role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
+               location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras,
+               {JOB_PUBLISHED_AT_UPDATE}"""
+
+
+def job_upsert_params(job: dict[str, Any]) -> tuple:
+    status = str(job.get("status") or "published")
+    extras = {"createdByEmail": job.get("createdByEmail") or "", "companySlug": job.get("companySlug")}
+    return (
+        job["id"],
+        job.get("organizationId"),
+        job.get("createdByUserId"),
+        job.get("title") or "",
+        job.get("company") or "",
+        job.get("roleTrack"),
+        job.get("experienceLevel"),
+        job.get("location"),
+        job.get("jobDescription"),
+        json.dumps(job.get("requiredSkills") or []),
+        job["shareableCode"],
+        status,
+        status,
+        json.dumps(extras),
+        job.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+    )
+
+
 @_invalidates_reads
 def upsert_job_record(database_url: str, job: dict[str, Any]) -> None:
     if not job.get("id") or not job.get("shareableCode"):
         return
     _ensure_schema(database_url)
-    extras = {"createdByEmail": job.get("createdByEmail") or "", "companySlug": job.get("companySlug")}
     pool = _ensure_pool(database_url)
     with pool.connection() as conn:
-        conn.execute(
-            """INSERT INTO jobs (
-               id, organization_id, created_by_user_id, title, company, role_track, experience_level,
-               location, job_description, required_skills, shareable_code, status, extras, created_at, updated_at
-             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb,%s::timestamptz,NOW())
-             ON CONFLICT (id) DO UPDATE SET
-               title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
-               required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = NOW(),
-               role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
-               location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras""",
-            (
-                job["id"],
-                job["organizationId"],
-                job.get("createdByUserId"),
-                job["title"],
-                job["company"],
-                job.get("roleTrack"),
-                job.get("experienceLevel"),
-                job.get("location"),
-                job.get("jobDescription"),
-                json.dumps(job.get("requiredSkills") or []),
-                job["shareableCode"],
-                job.get("status") or "published",
-                json.dumps(extras),
-                job.get("createdAt") or datetime.now(timezone.utc).isoformat(),
-            ),
-        )
+        conn.execute(job_upsert_sql(), job_upsert_params(job))
         conn.commit()
 
 

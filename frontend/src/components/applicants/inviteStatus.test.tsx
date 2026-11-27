@@ -110,6 +110,13 @@ describe('applicant row', () => {
     expect(live).not.toContain('Not interviewed')
   })
 
+  it('says "In progress" when interviewSessionStatus is active', () => {
+    const html = tuple(app({ interviewSessionStatus: 'active' }))
+    expect(html).toMatch(/>\s*In progress\s*</)
+    expect(html).not.toContain('Not interviewed')
+    expect(html).not.toContain('Interview in progress')
+  })
+
   it('shows the invite state on the row', () => {
     const html = tuple(app({}), { invite: inv({ applicationId: 'rohit', state: 'booked', scheduledStart: '2026-11-27T04:30:00Z' }) })
     expect(html).toContain('data-testid="invite-status"')

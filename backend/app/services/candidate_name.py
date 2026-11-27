@@ -106,6 +106,21 @@ def looks_like_person_name(value: Any) -> bool:
     return any(len(re.sub(r"[^A-Za-z]", "", w)) >= 2 for w in words)
 
 
+def _is_initial(word: str) -> bool:
+    return bool(re.fullmatch(r"(?:[A-Za-z]\.){1,3}", word))
+
+
+def _email_local_token(word: str) -> bool:
+    """'cand.proc' and 'user28' are email fragments. Initials ('K.', 'B.K.') are names."""
+    if any(ch.isdigit() for ch in word):
+        return True
+    return "." in word and not _is_initial(word)
+
+
+def _without_email_local_tokens(value: Any) -> str:
+    return " ".join(w for w in _clean(value).split() if not _email_local_token(w))
+
+
 def _email_name_words(text: str, scope: str | None = None) -> list[str]:
     """Capitalised words of the resume that are also part of an email address's local part, in text order.
 
@@ -164,15 +179,42 @@ def _name_from_email_hint(text: str) -> str:
     return ""
 
 
+def _name_line_index(lines: list[str], words: list[str]) -> int | None:
+    need = [w.lower() for w in words if w]
+    if not need:
+        return None
+    for i, line in enumerate(lines):
+        low = line.lower()
+        if all(w in low for w in need):
+            return i
+    return None
+
+
 def _extend_with_email_hint(name: str, text: str) -> str:
-    """'Bharath Krishna' + a surname line 'Pachimatla' that the email also contains -> 'Bharath Krishna Pachimatla'."""
-    words = name.split()
-    head = "\n".join(text.splitlines()[:15])
-    for extra in _email_name_words(text, head):
+    """Append one email-corroborated surname that is a capitalised word on a line next to the name.
+
+    'Bharath Krishna' + 'Pachimatla' + pachimatlabharath28@ -> 'Bharath Krishna Pachimatla'.
+    A token with '.' or a digit ('cand.proc') is never appended, and neither is a word already in the name.
+    """
+    words = [w for w in name.split() if not _email_local_token(w)]
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    index = _name_line_index(lines, words)
+    locals_ = [re.sub(r"[^a-z]", "", m.lower()) for m in _EMAIL.findall(text or "")]
+    locals_ = [loc for loc in locals_ if loc]
+    if index is None or not locals_ or len(words) >= 4:
+        return normalize_person_name(" ".join(words))
+    near = "\n".join(lines[max(0, index - 1): index + 2])
+    for extra in _email_name_words(str(text or ""), near):
         if len(words) >= 4:
             break
-        if not _already_in_name(words, extra):
-            words.append(extra)
+        if _email_local_token(extra) or any(ch.isdigit() for ch in extra) or "." in extra:
+            continue
+        low = extra.lower()
+        if not any(low in loc for loc in locals_):
+            continue
+        if _already_in_name(words, extra):
+            continue
+        words.append(extra)
     return normalize_person_name(" ".join(words))
 
 
@@ -197,8 +239,8 @@ def _name_from_top_lines(text: str) -> str:
         segment = _SEGMENT_SPLIT.split(line)[0].strip()
         if not segment or _SECTION_WORDS.search(segment):
             continue
-        words = segment.split()
-        if any(_NOT_NAME_WORDS.match(w) for w in words):
+        words = [w for w in segment.split() if not _email_local_token(w)]
+        if not words or any(_NOT_NAME_WORDS.match(w) for w in words):
             continue
         if (
             2 <= len(words) <= 5
@@ -233,7 +275,7 @@ def resume_name(profile: dict[str, Any] | None) -> str:
     """The name on the candidate's current resume, or "" when there is no resume or no readable name on it."""
     p = profile or {}
     text = str(p.get("resumeText") or "")
-    parsed = _clean(p.get("resumeFullName"))
+    parsed = _without_email_local_tokens(p.get("resumeFullName"))
     if text.strip():
         if parsed and looks_like_person_name(parsed) and name_in_resume(parsed, text):
             return normalize_person_name(parsed)
@@ -241,7 +283,7 @@ def resume_name(profile: dict[str, Any] | None) -> str:
         if from_text:
             return from_text
         for saved in (p.get("fullName"), p.get("name")):
-            s = _clean(saved)
+            s = _without_email_local_tokens(saved)
             if s and not is_demo_name(s) and looks_like_person_name(s) and name_in_resume(s, text):
                 return normalize_person_name(s)
         return ""

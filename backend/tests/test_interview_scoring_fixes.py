@@ -42,7 +42,7 @@ def test_role_skills_count_only_when_demonstrated():
     ctx = {"skills": ["Python", "LLM"], "resumeSnippet": "Python developer working with LLMs"}
     qs = [{"text": "Explain Python generators", "topic": "Python"}, {"text": "What is temperature in an LLM?", "topic": "LLM"}]
     good = compute_session_role_skills_fit_scored(
-        ctx, ["Python", "LLMs"], qs, ["Generators yield values lazily...", "Temperature scales the logits of the LLM..."], [92, 90]
+        ctx, ["Python", "LLMs"], qs, ["Python generators yield values lazily...", "Temperature scales the logits of the LLM..."], [92, 90]
     )
     assert good["evidencedInAnswers"] == ["Python", "LLMs"]  # "LLMs" matches "LLM"; a good Python answer is evidence
     bluff = compute_session_role_skills_fit_scored(
@@ -170,7 +170,12 @@ def test_roles_outside_the_catalog_get_a_fair_role_fit(monkeypatch):
         {"text": "Compare pressure and volume controlled ventilator modes.", "topic": "Ventilator management", "category": "Technical"},
         {"text": "How do you titrate vasopressor infusions safely?", "topic": "Medication administration", "category": "Technical"},
     ]
-    answers = ["I check lactate, MAP and urine output and escalate early..."] * 3
+    # Demonstration needs the skill in the answer (a high score on a question that only names it is not enough).
+    answers = [
+        "In critical care I check lactate, MAP and urine output and escalate early.",
+        "For ventilator management I compare pressure and volume modes and watch the tidal volume.",
+        "Medication administration of a vasopressor starts low and I titrate to the MAP target.",
+    ]
     res = asyncio.run(ia.score_session_async(role="ICU Staff Nurse", level="4 years", questions=questions,
                                              answers=answers, profile=profile, name="Meera"))
     assert res["scoreModel"]["roleFitScore"] >= 80

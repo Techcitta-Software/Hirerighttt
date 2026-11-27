@@ -248,6 +248,17 @@ export type OrgCandidateRecord = {
   candidateName: string
   candidatePhone?: string
   candidateRole?: string
+  currentRole?: string
+  whoAreYou?: string
+  workExperiences?: Array<{
+    jobTitle?: string
+    company?: string
+    startDate?: string
+    endDate?: string
+    currentlyWorking?: boolean
+  }>
+  /** "active" while this person's interview session is in progress. */
+  interviewSessionStatus?: string
   experienceYears?: string
   jobTitle?: string
   company?: string

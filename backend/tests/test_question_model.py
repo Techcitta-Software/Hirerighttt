@@ -44,11 +44,14 @@ def test_data_analyst_with_excel_only_is_non_technical() -> None:
     assert out["questionModel"] == "non_technical"
 
 
-def test_empty_resume_defaults_technical_low() -> None:
-    out = _model({})
-    assert out["questionModel"] == "technical"
-    assert out["questionModelConfidence"] == "low"
-    assert out["questionModelReason"] == "thin_default_technical"
+def test_empty_resume_defaults_non_technical_low() -> None:
+    # Owner decision D2: a thin or empty resume falls back to the non-technical general_professional family
+    # (documented in interview_question_model.py), not to software-engineering prompts.
+    for profile in ({}, None):
+        out = _model(profile)
+        assert out["questionModel"] == "non_technical"
+        assert out["questionModelConfidence"] == "low"
+        assert out["questionModelReason"] == "thin_default_general"
 
 
 def test_mba_without_engineering_degree_or_skills_is_non_technical_low() -> None:

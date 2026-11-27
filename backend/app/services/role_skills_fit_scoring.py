@@ -7,9 +7,9 @@ How the number is built (the same rule everywhere; the browser only displays wha
   At most ``MAX_REQUIRED_SKILLS`` are used, in the order given.
 * Each required skill earns up to 100 points:
     - ``RESUME_POINTS`` (40) when the skill is evidenced on the resume (parsed skills or resume text), and
-    - ``INTERVIEW_POINTS`` (60) when it was demonstrated in the interview: an answer about that skill scored
-      at least ``TARGETED_MIN_SCORE`` (60), or an answer that names the skill scored at least
-      ``MENTION_MIN_SCORE`` (50). Buzzwords inside a weak answer do not count.
+    - ``INTERVIEW_POINTS`` (60) when it was demonstrated in the interview: the answer that evidences
+      the skill scored at least ``MENTION_MIN_SCORE`` (50). A question that merely names the skill is
+      not enough, and buzzwords inside a weaker answer do not count.
 * Role Skills Fit = the average of the per-skill points, rounded.
 
 No embeddings, cosine similarity or randomness: the same resume, questions, answers and answer scores always
@@ -29,8 +29,8 @@ MENTION_MIN_SCORE = 50
 
 METHOD_TEXT = (
     f"Each required skill earns {RESUME_POINTS} points when it is on the resume and {INTERVIEW_POINTS} points "
-    f"when it was demonstrated in the interview (an answer about it scored {TARGETED_MIN_SCORE}+ or an answer "
-    f"naming it scored {MENTION_MIN_SCORE}+). Role Skills Fit is the average across the required skills."
+    f"when it was demonstrated in the interview (the answer that evidences it scored {MENTION_MIN_SCORE}+). "
+    f"Role Skills Fit is the average across the required skills."
 )
 
 
@@ -169,10 +169,7 @@ def compute_role_skills_fit(
             score = answer_scores[i] if i < len(answer_scores) else None
             if score is None or not _clean(answer):
                 continue
-            q = questions[i] if i < len(questions) else {}
-            if (score >= TARGETED_MIN_SCORE and question_targets_skill(q, skill)) or (
-                score >= MENTION_MIN_SCORE and skill_evidence_in_answer(skill, answer)
-            ):
+            if score >= MENTION_MIN_SCORE and skill_evidence_in_answer(skill, answer):
                 demonstrated_in = i + 1
                 break
         points = (RESUME_POINTS if on_resume else 0) + (INTERVIEW_POINTS if demonstrated_in else 0)

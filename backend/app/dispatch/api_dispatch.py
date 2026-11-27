@@ -97,6 +97,7 @@ from app.services.vendor.alerts import (
 )
 from app.services.vendor.candidate_applications import (
     JOB_DELETED_MESSAGE,
+    application_timeline,
     mark_candidate_job_applications_deleted,
     record_candidate_job_application,
 )
@@ -356,16 +357,23 @@ async def _activate_interview_session(session: dict, session_id: str, email: str
     return None
 
 
+def _is_fallback_question(question: object) -> bool:
+    return isinstance(question, dict) and bool(question.get("fallback"))
+
+
 def _session_start_payload(session_id: str, session: dict, *, resumed: bool = False, previous: dict | None = None) -> dict:
     questions = session.get("questions") or []
     state = ivlife.resume_state(session) if resumed else None
     index = state["questionIndex"] if state else 0
     sa = session.get("skillAnalysis")
+    # True only when at least one question was not filled from the deterministic fallback bank.
+    llm_questions = any(not _is_fallback_question(q) for q in questions)
     payload: dict = {
         "sessionId": session_id,
         "agent": session.get("agent"),
         "adaptive": True,
-        "llm": ia.llm_configured(),
+        "llm": llm_questions,
+        "fallbackCount": sum(1 for q in questions if _is_fallback_question(q)),
         "total": session.get("totalTurns"),
         "questionIndex": index,
         "question": questions[index] if questions else None,
@@ -390,6 +398,35 @@ def _session_start_payload(session_id: str, session: dict, *, resumed: bool = Fa
     if previous:
         payload["previousAttempt"] = previous
     return payload
+
+
+def _attach_interview_session_status(db: dict, organization_id: str, payload: dict) -> dict:
+    """Add interviewSessionStatus from the latest session for this organisation. Order is unchanged."""
+    from app.db.finders import sessions_for_org
+
+    latest: dict[str, tuple[str, str]] = {}
+    for session in sessions_for_org(db, organization_id):
+        if not isinstance(session, dict):
+            continue
+        email = str(session.get("email") or "").strip().lower()
+        status = str(session.get("status") or "").strip()
+        if not email or not status:
+            continue
+        stamp = max(str(session.get(key) or "") for key in ("lastActivityAt", "completedAt", "startedAt", "createdAt"))
+        prev = latest.get(email)
+        if prev is None or stamp > prev[0]:
+            latest[email] = (stamp, status)
+    candidates = []
+    for row in payload.get("candidates") or []:
+        if not isinstance(row, dict):
+            candidates.append(row)
+            continue
+        found = latest.get(str(row.get("candidateEmail") or "").strip().lower())
+        if found:
+            candidates.append({**row, "interviewSessionStatus": found[1]})
+        else:
+            candidates.append(row)
+    return {**payload, "candidates": candidates}
 
 
 async def _candidate_booking(db: dict, email: str, user: dict | None) -> dict | None:
@@ -439,11 +476,12 @@ async def _candidate_booking(db: dict, email: str, user: dict | None) -> dict | 
 
 @functools.lru_cache(maxsize=1)
 def paddle_ocr_available() -> bool:
-    """Checked once per process: the OCR subprocess needs the script and the `paddleocr` package.
+    """Off unless PADDLE_OCR_ENABLED=1. When that is set, the OCR subprocess still needs the script and paddleocr.
 
     paddleocr is not in requirements.txt, so without this check every file parse spawned a Python process that failed
     with ModuleNotFoundError (~0.2 s each, on the event loop)."""
-    if os.environ.get("PADDLE_OCR_ENABLED", "").strip().lower() in ("0", "false", "no", "off"):
+    enabled = os.environ.get("PADDLE_OCR_ENABLED", "").strip().lower()
+    if enabled not in ("1", "true", "yes", "on"):
         return False
     if not PADDLE_SCRIPT.is_file():
         return False
@@ -481,6 +519,118 @@ async def _run_paddle(buffer: bytes, filename: str) -> dict | None:
         return None
     # The OCR subprocess can take seconds: run it in a worker thread, never on the event loop.
     return await asyncio.to_thread(_run_paddle_sync, buffer, filename)
+
+
+class _ResumeUploadError(Exception):
+    def __init__(self, status: int, error: str) -> None:
+        self.status = status
+        self.error = error
+
+
+def _decode_file_data(file_data: object) -> bytes:
+    if not isinstance(file_data, str) or len(file_data) > MAX_PARSE_BASE64_CHARS:
+        raise _ResumeUploadError(413, "Resume files must be 2 MB or smaller.")
+    import base64
+
+    raw = file_data.split(",", 1)[1] if "," in file_data else file_data
+    try:
+        return base64.b64decode(raw)
+    except ValueError:
+        raise _ResumeUploadError(400, "The resume file could not be read.") from None
+
+
+def _is_pdf_payload(buf: bytes, file_name: str) -> bool:
+    if buf[:5] == b"%PDF-":
+        return True
+    return file_name.lower().endswith(".pdf") and b"%PDF-" in buf[:1024]
+
+
+async def _read_resume_parse_parts(request: Request) -> tuple[str, str, bytes | None]:
+    """Client text, filename, and raw upload bytes (JSON fileData/fileBase64 or a multipart file)."""
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        text = str(form.get("text") or form.get("resumeText") or "").strip()[:100000]
+        file_name = str(form.get("fileName") or form.get("filename") or "resume.pdf")[:200]
+        upload = form.get("file") or form.get("resume")
+        if upload is not None and hasattr(upload, "read"):
+            data = await upload.read()
+            if len(data) > 2_000_000:
+                raise _ResumeUploadError(413, "Resume files must be 2 MB or smaller.")
+            named = str(getattr(upload, "filename", "") or "")[:200]
+            if named:
+                file_name = named
+            return text, file_name, data
+        file_data = form.get("fileData") or form.get("fileBase64")
+        if file_data:
+            return text, file_name, _decode_file_data(file_data)
+        return text, file_name, None
+
+    body = await runtime.read_json_body(request)
+    file_data = body.get("fileData") or body.get("fileBase64")
+    file_name = str(body.get("fileName") or body.get("filename") or "resume.pdf")[:200]
+    text = str(body.get("text") or body.get("resumeText") or "").strip()[:100000]
+    if file_data:
+        return text, file_name, _decode_file_data(file_data)
+    return text, file_name, None
+
+
+async def _paddle_extract(file_bytes: bytes, file_name: str) -> dict | None:
+    """OCR only when PADDLE_OCR_ENABLED=1. Does not spawn a process otherwise."""
+    if not paddle_ocr_available():
+        return None
+    return await _run_paddle(file_bytes, file_name)
+
+
+async def _resume_bytes_text(buf: bytes, file_name: str) -> str:
+    from app.services.resume_text import resume_file_text
+
+    try:
+        return await asyncio.to_thread(resume_file_text, buf, file_name)
+    except Exception:
+        return ""
+
+
+async def _resume_parse_response(client_text: str, file_name: str, file_bytes: bytes | None) -> JSONResponse:
+    """PDF uploads are read with pdf_layout_text even when the client also sent a text string."""
+    text = client_text
+    warnings: list[str] = []
+    if file_bytes and _is_pdf_payload(file_bytes, file_name):
+        from app.services.resume_parse.extract_pdf import pdf_layout_text
+
+        layout = await asyncio.to_thread(pdf_layout_text, file_bytes)
+        layout_text = (layout.text or "").strip()
+        if layout_text:
+            text = layout_text
+            if layout.scanned:
+                warnings.append("scanned_pdf")
+        elif layout.scanned:
+            # Both pdfium and pypdf returned nothing. Client text is not a substitute for a scanned file.
+            ocr = await _paddle_extract(file_bytes, file_name)
+            if ocr is not None:
+                return _json(200, {"ok": True, "source": "paddle-ocr", "extract": ocr})
+            return _json(422, {"ok": False, "error": "scanned_pdf_unreadable"})
+    else:
+        if file_bytes and len(text) < 40:
+            ocr = await _paddle_extract(file_bytes, file_name)
+            if ocr is not None:
+                return _json(200, {"ok": True, "source": "paddle-ocr", "extract": ocr})
+        if file_bytes and not text:
+            text = await _resume_bytes_text(file_bytes, file_name)
+
+    if text:
+        parsed = await ia.parse_resume_with_ai(text)
+        if parsed:
+            source = str(parsed.pop("_responseSource", "") or "")
+            if source not in ("llm", "rules", "cache"):
+                source = "rules"
+            if source == "rules":
+                parsed.pop("source", None)
+            body: dict[str, Any] = {"ok": True, "source": source, "extract": parsed}
+            if warnings:
+                body["warnings"] = warnings
+            return _json(200, body)
+    return _json(400, {"ok": False, "error": "Could not extract fields from resume."})
 
 
 logger = logging.getLogger("hireright.api")
@@ -930,6 +1080,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                 page = await list_platform_candidates(
                     db, org_id, config.database_url, dict(params), _vendor_recruiter_scope(access)
                 )
+                page = _attach_interview_session_status(db, org_id, page)
                 return _json(200, {"organizationId": org_id, **page})
             filters = {
                 "name": params.get("name") or "",
@@ -944,6 +1095,7 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             roster = await list_organization_candidates(
                 db, org_id, config.database_url, filters, _vendor_recruiter_scope(access)
             )
+            roster = _attach_interview_session_status(db, org_id, roster)
             return _json(200, {"organizationId": org_id, **roster})
 
         if method == "GET" and path == "/api/vendor/candidate-documents/resume":
@@ -1811,6 +1963,28 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             applications = [{**row, "jobStatus": "deleted" if row.get("jobStatus") == "deleted" else "active"} for row in applications]
             return _json(200, {"applications": applications})
 
+        if method == "GET" and path.startswith("/api/applications/"):
+            app_id = path.replace("/api/applications/", "", 1).strip("/")
+            if app_id and "/" not in app_id:
+                email = await runtime.require_auth_email(request)
+                db = ctx.load_db()
+                applications = (db.get("applications") or {}).get(email) or []
+                if persistence_ready(config.database_url):
+                    applications = await asyncio.to_thread(
+                        db_store.load_job_applications_for_email, config.database_url, email
+                    )
+                    db.setdefault("applications", {})[email] = applications
+                found = next((row for row in applications if str(row.get("id")) == app_id), None)
+                if not found:
+                    return _json(404, {"error": "Application not found."})
+                application = {
+                    **found,
+                    "jobStatus": "deleted" if found.get("jobStatus") == "deleted" else "active",
+                }
+                employer_status = application.get("employerStatus") or "applied"
+                application["timeline"] = application_timeline(employer_status, application.get("appliedAt"))
+                return _json(200, {"application": application})
+
         if method == "POST" and path == "/api/applications":
             email = await runtime.require_auth_email(request)
             body = await runtime.read_json_body(request)
@@ -2177,41 +2351,11 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
                     return _json(429, {"error": "Too many resume parse requests. Try again shortly."})
             elif not ctx.rate_limit(f"resume:{ip}", 30, 60_000):
                 return _json(429, {"error": "Too many resume parse requests. Try again shortly."})
-            body = await runtime.read_json_body(request)
-            file_data = body.get("fileData") or body.get("fileBase64")
-            if file_data is not None and (not isinstance(file_data, str) or len(file_data) > MAX_PARSE_BASE64_CHARS):
-                return _json(413, {"ok": False, "error": "Resume files must be 2 MB or smaller."})
-            file_name = str(body.get("fileName") or "resume.pdf")[:200]
-            text = str(body.get("text") or body.get("resumeText") or "").strip()[:100000]
-            client_extracted = len(text) >= 40
-            paddle_extract = None
-            if not client_extracted and file_data:
-                import base64
-
-                b64 = file_data.split(",", 1)[1] if "," in str(file_data) else str(file_data)
-                try:
-                    decoded = base64.b64decode(b64)
-                except ValueError:
-                    return _json(400, {"ok": False, "error": "The resume file could not be read."})
-                paddle_extract = await _run_paddle(decoded, file_name)
-            if paddle_extract:
-                return _json(200, {"ok": True, "source": "paddle-ocr", "extract": paddle_extract})
-            if not text and file_data:
-                # No OCR service: read the text layer of the PDF / DOCX on the server instead.
-                import base64
-
-                from app.services.resume_text import resume_file_text
-
-                try:
-                    b64 = file_data.split(",", 1)[1] if "," in str(file_data) else str(file_data)
-                    text = await asyncio.to_thread(resume_file_text, base64.b64decode(b64), file_name)
-                except Exception:
-                    text = ""
-            if text:
-                parsed = await ia.parse_resume_with_ai(text)
-                if parsed:
-                    return _json(200, {"ok": True, "source": "local", "extract": parsed})
-            return _json(400, {"ok": False, "error": "Could not extract fields from resume."})
+            try:
+                client_text, file_name, file_bytes = await _read_resume_parse_parts(request)
+            except _ResumeUploadError as err:
+                return _json(err.status, {"ok": False, "error": err.error})
+            return await _resume_parse_response(client_text, file_name, file_bytes)
 
         if method == "POST" and path == "/api/resume/replace":
             email = await runtime.require_auth_email(request)
@@ -2221,7 +2365,9 @@ async def handle_api_dispatch(request: Request, ctx: DispatchContext) -> Respons
             try:
                 db = ctx.load_db()
                 result = await replace_candidate_resume(config=config, email=email, body=body, db=db, save_db=ctx.save_db)
-                return _json(200, {"ok": True, **result})
+                timing = str(result.pop("_serverTiming", "") or "")
+                headers = {"Server-Timing": timing} if timing else None
+                return _json(200, {"ok": True, **result}, headers=headers)
             except Exception as err:
                 mapped = public_replace_resume_error(err)
                 return _json(mapped["status"], mapped["body"])

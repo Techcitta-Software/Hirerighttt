@@ -231,6 +231,59 @@ export function interviewAudioConstraints(): MediaTrackConstraints {
 const NOISE_ONLY_RE =
   /^(uh+|um+|hmm+|hm+|ah+|oh+|mm+|mhm+|la+|ha+|the|a|an|and|or|so|well)\.?$/i
 
+/** Lowercase, strip punctuation, collapse whitespace. */
+function normalizedSpeechTokens(text: string): string[] {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return []
+  return normalized.split(' ')
+}
+
+/** Tokens that are not NOISE_ONLY_RE fillers. */
+export function speechContentWords(text: string): string[] {
+  return normalizedSpeechTokens(text).filter((token) => token && !NOISE_ONLY_RE.test(token))
+}
+
+function isContiguousWordSlice(needle: string[], haystack: string[]): boolean {
+  if (needle.length === 0 || needle.length > haystack.length) return false
+  const last = haystack.length - needle.length
+  for (let i = 0; i <= last; i += 1) {
+    let match = true
+    for (let j = 0; j < needle.length; j += 1) {
+      if (haystack[i + j] !== needle[j]) {
+        match = false
+        break
+      }
+    }
+    if (match) return true
+  }
+  return false
+}
+
+export type SpokenSegmentGate = 'echo' | 'noise' | 'clear'
+
+/**
+ * While Ava is speaking, compare a transcript segment to the exact line passed to speakText.
+ * Echo: either content-word sequence is a contiguous slice of the other.
+ * Noise: empty, filler-only, or fewer than 2 content words.
+ * Clear: 2+ content words and not an echo.
+ */
+export function classifySpokenSegment(segment: string, spokenLine: string): SpokenSegmentGate {
+  const segmentWords = speechContentWords(segment)
+  if (segmentWords.length < 2) return 'noise'
+  const spokenWords = speechContentWords(spokenLine)
+  if (
+    spokenWords.length > 0 &&
+    (isContiguousWordSlice(segmentWords, spokenWords) || isContiguousWordSlice(spokenWords, segmentWords))
+  ) {
+    return 'echo'
+  }
+  return 'clear'
+}
+
 /** Final result strong enough to interrupt Ava (ignore fan hum / one-word noise). */
 export function shouldBargeInOnFinal(result: SpeechRecognitionResult): boolean {
   if (!result.isFinal) return false

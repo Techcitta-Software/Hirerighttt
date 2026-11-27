@@ -48,7 +48,7 @@ import { getDemoAccount, isDemoEmail } from '../lib/authDemo'
 import { mirrorAccountToPostgres } from '../lib/accountMirror'
 import { ensureApiSession } from '../lib/apiSession'
 import { isVisibleToEmployers, saveProfileVisibility } from '../lib/candidatePrivacy'
-import { consumeSignupLoginHandoff, stashSignupLoginHandoff } from '../lib/authHandoff'
+import { consumeSignupLoginHandoff } from '../lib/authHandoff'
 import {
   clearSessionValidationCache,
   reconcileAuthOnAuthPage,
@@ -419,21 +419,6 @@ export function LoginPage({
     })
   }
 
-  function finishSignupAndShowLogin(email: string, password: string) {
-    clearProfileForEmail(email)
-    setApiToken(null)
-    logout()
-    clearSessionValidationCache()
-    const message = 'Account created successfully. Sign in with your email and password to continue.'
-    stashSignupLoginHandoff({ email, password, message })
-    setAuthMode('login')
-    setLoginEmail(email)
-    setLoginPassword(password)
-    setSuccessMessage(message)
-    setError('')
-    navigate('/login', { replace: true, state: { explicitLogin: true } })
-  }
-
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -555,21 +540,17 @@ export function LoginPage({
           )
           return
         }
-        await supabaseSignOut()
-        const phoneNormSb = normalizePhone(signupPhone) || signupPhone.trim()
         const createdEmailSb = signupEmail.trim().toLowerCase()
-        saveUser(
-          {
-            name: signupName.trim(),
-            email: createdEmailSb,
-            role: signupRole,
-            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-            phone: phoneNormSb,
-          },
-          true,
-          false,
-        )
-        finishSignupAndShowLogin(createdEmailSb, signupPassword)
+        setLoginEmail(createdEmailSb)
+        clearProfileForEmail(createdEmailSb)
+        const signedIn = await authenticateWithEmailPassword(createdEmailSb, signupPassword, signupRole)
+        if (!signedIn.user) {
+          setError(signedIn.error ?? 'Account created. Sign in with your email and password to continue.')
+          setLoginPassword(signupPassword)
+          setAuthMode('login')
+          return
+        }
+        navigateAfterLogin(signedIn.user, isAdminUser() ? '/admin' : undefined)
         return
       } else if (await apiHealth()) {
         const phoneNorm = normalizePhone(signupPhone) || signupPhone.trim()
@@ -579,7 +560,6 @@ export function LoginPage({
             role: signupRole,
             companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
             phone: phoneNorm,
-            storeSessionToken: false,
           })
         } catch (apiErr) {
           setError(
@@ -589,18 +569,16 @@ export function LoginPage({
           )
           return
         }
-        saveUser(
-          {
-            name: signupName.trim(),
-            email: createdEmail,
-            role: signupRole,
-            companyName: signupRole === 'employer' ? signupCompanyName.trim() : undefined,
-            phone: phoneNorm,
-          },
-          true,
-          false,
-        )
-        finishSignupAndShowLogin(createdEmail, signupPassword)
+        setLoginEmail(createdEmail)
+        clearProfileForEmail(createdEmail)
+        const signedIn = await authenticateWithEmailPassword(createdEmail, signupPassword, signupRole)
+        if (!signedIn.user) {
+          setError(signedIn.error ?? 'Account created. Sign in with your email and password to continue.')
+          setLoginPassword(signupPassword)
+          setAuthMode('login')
+          return
+        }
+        navigateAfterLogin(signedIn.user, isAdminUser() ? '/admin' : undefined)
         return
       } else if (requireApiForAuth()) {
         setError(apiConnectionHint())
@@ -620,7 +598,16 @@ export function LoginPage({
       )
       // Offline-only account: keep a salted digest (never the password) so it can sign in again in this browser.
       await setLocalOfflinePassword(createdEmailLocal, signupPassword)
-      finishSignupAndShowLogin(createdEmailLocal, signupPassword)
+      setLoginEmail(createdEmailLocal)
+      clearProfileForEmail(createdEmailLocal)
+      const signedIn = await authenticateWithEmailPassword(createdEmailLocal, signupPassword, signupRole)
+      if (!signedIn.user) {
+        setError(signedIn.error ?? 'Account created. Sign in with your email and password to continue.')
+        setLoginPassword(signupPassword)
+        setAuthMode('login')
+        return
+      }
+      navigateAfterLogin(signedIn.user, isAdminUser() ? '/admin' : undefined)
       return
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create account.')
@@ -723,13 +710,13 @@ export function LoginPage({
             )}
           </div>
 
-          <p className={styles.leftFooter}>
-            {authMode === 'signup'
-              ? signupRole === 'employer'
+          {authMode !== 'signup' || signupRole === 'employer' ? (
+            <p className={styles.leftFooter}>
+              {authMode === 'signup'
                 ? 'Built for hiring teams, agencies and vendors'
-                : 'No resume required to get started'
-              : 'Your personal AI career companion'}
-          </p>
+                : 'Your personal AI career companion'}
+            </p>
+          ) : null}
         </div>
       </aside>
 

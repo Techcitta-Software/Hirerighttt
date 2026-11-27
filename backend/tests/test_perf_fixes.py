@@ -93,13 +93,13 @@ def test_resume_ai_parse_uses_minimal_thinking_and_is_cached(monkeypatch):
         return Result()
 
     monkeypatch.setattr(gemini_client, "gemini_configured", lambda: True)
-    monkeypatch.setattr(gemini_client, "generate_content", fake_generate)
+    monkeypatch.setattr(gemini_client, "generate_content_hedged", fake_generate)
     ia._resume_parse_cache.clear()
     text = "Priya Raman\nSenior Backend Engineer\nPython, FastAPI, PostgreSQL, Kafka. Built order services." * 2
     first = asyncio.run(ia.parse_resume_with_ai(text))
     first["fullName"] = "mutated by caller"
     second = asyncio.run(ia.parse_resume_with_ai(text))
-    assert len(seen) == 1 and seen[0]["thinking"] == "minimal"
+    assert len(seen) == 1 and seen[0]["thinking"] == "minimal" and seen[0]["cap"] == 6.5
     assert second["fullName"] == "Priya Raman" and second["source"] == "gemini" and "extra" not in second
     asyncio.run(ia.parse_resume_with_ai(text + " More."))  # different resume -> a new call
     assert len(seen) == 2

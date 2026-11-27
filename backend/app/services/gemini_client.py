@@ -339,6 +339,206 @@ async def generate_content(
         pass  # the shared client stays open for the next call (keep-alive)
 
 
+def _hedge_pairs(primary: str | None) -> list[tuple[str, int]]:
+    """One ready (model, key) pair per model, primary first. If every pair is cooling down, try the chain once."""
+    keys = gemini_keys()
+    models = model_chain(primary)
+    if not keys or not models:
+        return []
+    now = time.time()
+    ready: list[tuple[str, int]] = []
+    for model in models:
+        for idx in range(len(keys)):
+            if (
+                _health.key_until.get(idx, 0) <= now
+                and _health.rate_until.get((idx, model), 0) <= now
+                and _health.model_until.get(model, 0) <= now
+            ):
+                ready.append((model, idx))
+                break
+    return ready or [(model, 0) for model in models]
+
+
+async def _hedge_attempt(
+    *,
+    model: str,
+    key_index: int,
+    keys: list[str],
+    body: dict[str, Any],
+    generation: dict[str, Any],
+    thinking: str | None,
+    http: Any,
+    per_request: dict[str, Any],
+    timeout: float,
+) -> GeminiResult | None:
+    """One model, one key. Empty or failed responses are not a valid result."""
+    thinking_cfg = _thinking_config(model, thinking)
+    request_body = body
+    if thinking_cfg:
+        request_body = {**body, "generationConfig": {**generation, "thinkingConfig": thinking_cfg}}
+    try:
+        async with _llm_gate():
+            res = await asyncio.wait_for(
+                http.post(
+                    f"{API_ROOT}/{model}:generateContent",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": keys[key_index]},
+                    json=request_body,
+                    **per_request,
+                ),
+                timeout=max(0.05, timeout),
+            )
+            if thinking_cfg and res.status_code == 400 and "thinking" in getattr(res, "text", "").lower():
+                _no_thinking_config.add(model)
+                logger.info("Model %s rejected thinkingConfig; calling it without", model)
+                res = await http.post(
+                    f"{API_ROOT}/{model}:generateContent",
+                    headers={"Content-Type": "application/json", "x-goog-api-key": keys[key_index]},
+                    json=body,
+                    **per_request,
+                )
+    except Exception as err:
+        _health.last_error = f"key {key_index + 1} / {model}: {type(err).__name__}"
+        logger.warning("Gemini request failed (%s): key %d, model %s", type(err).__name__, key_index + 1, model)
+        return None
+
+    if res.is_success:
+        try:
+            data = res.json()
+            parts = ((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+            text = "".join(p.get("text") or "" for p in parts if not p.get("thought"))
+        except Exception:
+            text = ""
+        if text.strip():
+            _health.last_ok_model, _health.last_ok_key, _health.last_error = model, key_index + 1, ""
+            return GeminiResult(text=text, model=model, key_index=key_index + 1, attempts=1)
+        _health.last_error = f"key {key_index + 1} / {model}: empty response"
+        return None
+
+    try:
+        payload = res.json()
+    except Exception:
+        payload = None
+    kind = _classify(res.status_code, payload)
+    _health.last_error = f"key {key_index + 1} / {model}: HTTP {res.status_code} {kind}"
+    stamp = time.time()
+    if kind == "key_dead":
+        _health.key_until[key_index] = stamp + KEY_DEAD_SECONDS
+        _health.key_reason[key_index] = "invalid or disabled"
+    elif kind == "key_limited":
+        retry_after = res.headers.get("retry-after") if hasattr(res, "headers") else None
+        wait = int(retry_after) if retry_after and str(retry_after).isdigit() else KEY_RATE_LIMIT_SECONDS
+        _health.rate_until[(key_index, model)] = stamp + min(max(wait, 5), 300)
+        _health.key_reason[key_index] = "rate limited"
+    elif kind == "model_dead":
+        _health.model_until[model] = stamp + MODEL_DEAD_SECONDS
+    elif res.status_code == 503:
+        _health.model_until[model] = stamp + MODEL_OVERLOADED_SECONDS
+    return None
+
+
+async def generate_content_hedged(
+    *,
+    system: str,
+    user: str,
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool = False,
+    primary_model: str | None = None,
+    hedge_after: float = 2.5,
+    cap: float = 6.5,
+    client: Any = None,
+    thinking: str | None = None,
+) -> GeminiResult | None:
+    """Call the model chain with a staggered start. If the current model has not returned a valid result within
+    `hedge_after` seconds, the next model starts while the earlier one is still running. The first non-empty
+    result is returned and the rest are cancelled. `cap` is the hard deadline for the whole call.
+
+    Resume parse uses cap 6.5s. Interview question generation can call this with cap 9s.
+    `generate_content` is unchanged (serial failover).
+    """
+    keys = gemini_keys()
+    if not keys:
+        _health.last_error = "No Gemini API key configured."
+        return None
+    pairs = _hedge_pairs(primary_model)
+    if not pairs:
+        return None
+
+    generation: dict[str, Any] = {"temperature": temperature, "maxOutputTokens": max_tokens}
+    if json_mode:
+        generation["responseMimeType"] = "application/json"
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": generation,
+    }
+    http = client or shared_http_client()
+    per_request = {"timeout": cap} if client is None else {}
+    deadline = time.monotonic() + max(0.05, float(cap))
+    gap = max(0.0, float(hedge_after))
+    tasks: list[asyncio.Task] = []
+    next_i = 0
+    launched_at = time.monotonic()
+
+    def launch() -> None:
+        nonlocal next_i, launched_at
+        if next_i >= len(pairs) or time.monotonic() >= deadline:
+            return
+        model, idx = pairs[next_i]
+        next_i += 1
+        launched_at = time.monotonic()
+        tasks.append(
+            asyncio.create_task(
+                _hedge_attempt(
+                    model=model,
+                    key_index=idx,
+                    keys=keys,
+                    body=body,
+                    generation=generation,
+                    thinking=thinking,
+                    http=http,
+                    per_request=per_request,
+                    timeout=max(0.05, deadline - launched_at),
+                )
+            )
+        )
+
+    launch()
+    try:
+        while time.monotonic() < deadline:
+            if not tasks and next_i >= len(pairs):
+                return None
+            hedge_left = gap - (time.monotonic() - launched_at)
+            if next_i < len(pairs) and hedge_left <= 0:
+                launch()
+                continue
+            if not tasks:
+                return None
+            wait = deadline - time.monotonic()
+            if next_i < len(pairs):
+                wait = min(wait, max(0.0, hedge_left))
+            done, _pending = await asyncio.wait(
+                set(tasks), timeout=max(0.0, wait), return_when=asyncio.FIRST_COMPLETED
+            )
+            if not done:
+                continue
+            for task in list(done):
+                if task in tasks:
+                    tasks.remove(task)
+                result = task.result()
+                if result is not None and str(result.text or "").strip():
+                    return result
+            if next_i < len(pairs) and time.monotonic() < deadline:
+                launch()
+        return None
+    finally:
+        pending = [task for task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+
 def _key_status(i: int, now: float) -> dict[str, Any]:
     dead = _health.key_until.get(i, 0) > now
     limited_models = [m for (k, m), until in _health.rate_until.items() if k == i and until > now]

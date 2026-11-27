@@ -363,28 +363,63 @@ def _matches_filters(row: dict, filters: dict) -> bool:
 ROSTER_LIMIT = 200  # newest job seekers listed without a search; searching reaches everyone (talent index)
 
 
+def demo_account_emails() -> frozenset[str]:
+    from app.demo_accounts import DEMO_SEED_USERS
+
+    return frozenset(str(user["email"]).strip().lower() for user in DEMO_SEED_USERS if user.get("email"))
+
+
+def vendor_directory_profile_ok(email: str, resume_text: Any) -> bool:
+    """Vendor directory rows need resume text, and hide demo logins unless ALLOW_DEMO_ACCOUNTS=true."""
+    if not str(resume_text or "").strip():
+        return False
+    from app.node_config import config
+
+    if config.allow_demo_accounts:
+        return True
+    return str(email or "").strip().lower() not in demo_account_emails()
+
+
+def vendor_roster_profile_sql() -> str:
+    """SQL twin of vendor_directory_profile_ok. Demo addresses are the fixed seed list, not user input."""
+    emails = ", ".join("'" + email.replace("'", "''") + "'" for email in sorted(demo_account_emails()))
+    return (
+        "length(btrim(COALESCE(p.data->>'resumeText', ''))) > 0 "
+        f"AND (%(allow_demo)s OR lower(u.email) NOT IN ({emails}))"
+    )
+
+
+def _vendor_roster_sql_params() -> dict[str, Any]:
+    from app.node_config import config
+
+    return {"allow_demo": bool(config.allow_demo_accounts)}
+
+
 def _load_all_job_seeker_roster_from_postgres(database_url: str, db: dict, filters: dict | None = None) -> list[dict]:
     filters = filters or {}
     if not database_url.strip():
-        return [
-            _with_stored_interview(
-                db,
-                _record_from_profile(
+        profiles = db.get("profiles") or {}
+        interviews = db.get("interviews") or {}
+        rows: list[dict] = []
+        for user in db.get("users") or []:
+            if user.get("role") == "employer":
+                continue
+            email = str(user.get("email") or "")
+            profile = profiles.get(email) or profiles.get(email.lower()) or {}
+            if not vendor_directory_profile_ok(email, profile.get("resumeText")):
+                continue
+            rows.append(
+                _with_stored_interview(
                     db,
-                    user,
-                    (db.get("profiles") or {}).get(user.get("email") or "") or {},
-                    (db.get("interviews") or {}).get(user.get("email") or ""),
-                    "platform",
-                ),
+                    _record_from_profile(db, user, profile, interviews.get(email) or interviews.get(email.lower()), "platform"),
+                )
             )
-            for user in db.get("users") or []
-            if user.get("role") != "employer"
-        ]
+        return rows
     try:
         pool = db_pool(database_url)
         with pool.connection() as conn:
             rows = conn.execute(
-                """SELECT
+                f"""SELECT
                      u.id,
                      u.email,
                      u.name,
@@ -403,12 +438,14 @@ def _load_all_job_seeker_roster_from_postgres(database_url: str, db: dict, filte
                          AND om.role IN ('owner', 'admin', 'recruiter')
                      )
                      AND (%(name)s = '' OR u.name ILIKE %(name_like)s OR u.email ILIKE %(name_like)s)
+                     AND {vendor_roster_profile_sql()}
                    ORDER BY u.created_at DESC
                    LIMIT %(limit)s""",
                 {
                     "name": str(filters.get("name") or "").strip(),
                     "name_like": "%" + str(filters.get("name") or "").strip() + "%",
                     "limit": ROSTER_LIMIT,
+                    **_vendor_roster_sql_params(),
                 },
             ).fetchall()
         rows = [dict(r) for r in rows]

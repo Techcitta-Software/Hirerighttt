@@ -84,13 +84,13 @@ describe('no listening window, no advance (the Q3-skip bug)', () => {
 })
 
 describe('a question advances only on an answer, a skip, or the time running out', () => {
-  it('a real voice answer ends only after a silence, then a 3 s "keep talking" countdown', () => {
+  it('a real voice answer ends only after a silence, then a 1.5 s "keep talking" countdown', () => {
     const transcript = 'I would start by profiling the slow query and then add an index on the filter column'
     const spoke = ASKED_AT + 20_000
     expect(tick({ transcript, lastSpeechAt: spoke, now: spoke + 1_000 })).toBe('wait')
-    expect(tick({ transcript, lastSpeechAt: spoke, now: spoke + 7_900 })).toBe('wait') // short answer: 8 s
-    expect(tick({ transcript, lastSpeechAt: spoke, now: spoke + 8_000 })).toBe('start-countdown')
-    const cd = spoke + 8_000
+    expect(tick({ transcript, lastSpeechAt: spoke, now: spoke + 4_400 })).toBe('wait') // under 25 words: 4.5 s
+    expect(tick({ transcript, lastSpeechAt: spoke, now: spoke + 4_500 })).toBe('start-countdown')
+    const cd = spoke + 4_500
     expect(tick({ transcript, lastSpeechAt: spoke, now: cd + 1_000, countdownStartedAt: cd })).toBe('wait')
     expect(tick({ transcript, lastSpeechAt: spoke, now: cd + ENDING_COUNTDOWN_MS, countdownStartedAt: cd })).toBe('submit')
     // Any speech during the countdown cancels it.
@@ -100,11 +100,11 @@ describe('a question advances only on an answer, a skip, or the time running out
     )
   })
 
-  it('false starts never end the answer: under 12 words, or a trailing "and / so / because / like"', () => {
+  it('false starts never end the answer: under 6 words, or a trailing "and / so / because / like"', () => {
     const spoke = ASKED_AT + 5_000
-    const eleven = 'I think the main thing I did there was the cache'
-    expect(countWords(eleven)).toBeLessThan(MIN_ANSWER_WORDS)
-    expect(tick({ transcript: eleven, lastSpeechAt: spoke, now: spoke + 60_000, nudged: true })).toBe('wait')
+    const few = 'I think the main thing'
+    expect(countWords(few)).toBeLessThan(MIN_ANSWER_WORDS)
+    expect(tick({ transcript: few, lastSpeechAt: spoke, now: spoke + 60_000, nudged: true })).toBe('wait')
     for (const tail of ['and', 'so', 'because', 'like', 'but um']) {
       const t = `I would start by profiling the slow query and then add an index ${tail}`
       expect(voiceAnswerComplete({ transcript: t, lastSpeechAt: spoke, now: spoke + 60_000, sttPhase: 'idle' })).toBe(false)
@@ -113,13 +113,13 @@ describe('a question advances only on an answer, a skip, or the time running out
     expect(ENDING_COUNTDOWN_LABEL).toMatch(/keep talking/i)
   })
 
-  it('long answers end sooner (3.5 s) and medium ones after 5 s', () => {
+  it('long answers end sooner (2 s) and medium ones after 3 s', () => {
     const long = Array.from({ length: 70 }, (_, i) => `w${i}`).join(' ')
     const medium = Array.from({ length: 30 }, (_, i) => `w${i}`).join(' ')
     const spoke = ASKED_AT + 5_000
-    expect(tick({ transcript: long, lastSpeechAt: spoke, now: spoke + 3_500 })).toBe('start-countdown')
-    expect(tick({ transcript: medium, lastSpeechAt: spoke, now: spoke + 3_500 })).toBe('wait')
-    expect(tick({ transcript: medium, lastSpeechAt: spoke, now: spoke + 5_000 })).toBe('start-countdown')
+    expect(tick({ transcript: long, lastSpeechAt: spoke, now: spoke + 2_000 })).toBe('start-countdown')
+    expect(tick({ transcript: medium, lastSpeechAt: spoke, now: spoke + 2_900 })).toBe('wait')
+    expect(tick({ transcript: medium, lastSpeechAt: spoke, now: spoke + 3_000 })).toBe('start-countdown')
   })
 
   it('Ava saying a nudge can never trigger a spoken command (mic stays on during the nudge)', () => {
@@ -149,7 +149,15 @@ describe('a question advances only on an answer, a skip, or the time running out
     expect(tick({ transcript, lastSpeechAt: now - 100_000, now, sttPhase: 'transcribing' })).toBe('wait')
     expect(tick({ transcript, lastSpeechAt: now - (SPEECH_SETTLE_MS - 1), now })).toBe('wait')
     expect(timeUpCanAdvance({ now, lastSpeechAt: now - 500, sttPhase: 'idle', answerWindowStartedAt: ASKED_AT })).toBe(false)
-    expect(timeUpCanAdvance({ now, lastSpeechAt: 0, sttPhase: 'capturing', answerWindowStartedAt: ASKED_AT })).toBe(false)
+    expect(
+      timeUpCanAdvance({
+        now,
+        lastSpeechAt: 0,
+        sttPhase: 'capturing',
+        answerWindowStartedAt: ASKED_AT,
+        phaseSince: now,
+      }),
+    ).toBe(false)
   })
 
   it('a typed answer waits for "Submit answer" (no auto-submit on keyboard silence)', () => {
@@ -174,6 +182,35 @@ describe('a question advances only on an answer, a skip, or the time running out
     expect(
       timeUpCanAdvance({ now: ASKED_AT + 181_000, lastSpeechAt: ASKED_AT + 170_000, sttPhase: 'idle', answerWindowStartedAt: ASKED_AT }),
     ).toBe(true)
+    const stuckAt = ASKED_AT + 181_000
+    expect(
+      timeUpCanAdvance({
+        now: stuckAt,
+        lastSpeechAt: stuckAt - 10_000,
+        sttPhase: 'transcribing',
+        answerWindowStartedAt: ASKED_AT,
+        phaseSince: stuckAt - 5_000,
+      }),
+    ).toBe(true)
+    expect(
+      timeUpCanAdvance({
+        now: stuckAt,
+        lastSpeechAt: stuckAt - 10_000,
+        sttPhase: 'transcribing',
+        answerWindowStartedAt: ASKED_AT,
+        phaseSince: stuckAt - 5_000,
+        transcribeInFlight: true,
+      }),
+    ).toBe(false)
+    expect(
+      timeUpCanAdvance({
+        now: stuckAt,
+        lastSpeechAt: stuckAt - 10_000,
+        sttPhase: 'transcribing',
+        answerWindowStartedAt: ASKED_AT,
+        phaseSince: stuckAt - 1_000,
+      }),
+    ).toBe(false)
   })
 })
 

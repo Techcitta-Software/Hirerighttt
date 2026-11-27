@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { firstWordOf, nameInResume, resolveCandidateNameFrom, resumeNameOf } from './candidateName'
+import { firstWordOf, nameInResume, resolveCandidateNameFrom, resumeNameOf, withoutAppendedEmailTokens } from './candidateName'
 import { extractNameFromText, normalizePersonName } from './resumeName'
 
 const NEW_RESUME = 'Bharath Krishna Pachimatla\nAI Engineer | Generative AI | Python\nHyderabad, India | +91 9010383256'
@@ -78,5 +78,14 @@ describe('candidate name: extraction and normalisation', () => {
   it('does not take a job title or technology list for a name', () => {
     expect(extractNameFromText('Senior Software Engineer\nPython | AWS | React')).toBeNull()
     expect(resolveCandidateNameFrom({ resumeText: 'Python Developer\nReact Node AWS' }, 'Asha Rao')).toBe('Asha Rao')
+  })
+
+  it('does not append an email token with a dot, digits, or a word already in the name', () => {
+    const text = 'Priya Nair\nEngineer\npriya.cand.proc9@gmail.com\nHyderabad'
+    expect(withoutAppendedEmailTokens('Priya Nair cand.proc Nair9 Nair')).toBe('Priya Nair')
+    expect(withoutAppendedEmailTokens("Priya D'Souza Souza")).toBe("Priya D'Souza")
+    expect(withoutAppendedEmailTokens('B.K. Singh')).toBe('B.K. Singh')
+    expect(resumeNameOf({ resumeFullName: 'Priya Nair cand.proc Nair9', resumeText: text })).toBe('Priya Nair')
+    expect(resumeNameOf({ resumeText: 'B.K. Singh\nBackend Engineer' })).toBe('B.K. Singh')
   })
 })

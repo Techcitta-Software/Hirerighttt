@@ -130,8 +130,8 @@ describe('End-to-End User Acceptance Testing (UAT) Flow', () => {
       const answer =
         'In my previous cloud architecture role, I successfully led the migration from an on-premise monolithic database to Aurora Postgres with zero downtime.'
       const silenceMs = silenceAdvanceMs(answer)
-      // 22 words is a short answer: the candidate gets the full 8 s pause before it can end by itself.
-      expect(silenceMs).toBe(8000)
+      // 22 words is under 25: the candidate gets the 4.5 s pause before it can end by itself.
+      expect(silenceMs).toBe(4500)
 
       // Spoken voice command: "...and that concludes my thoughts, next question please"
       const commandAnswer = `${answer} next question`

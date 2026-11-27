@@ -1,5 +1,25 @@
 export type MoonshineStatus = 'idle' | 'downloading' | 'ready' | 'error'
 
+/** A transcription that never returns must not leave the interview stuck on "Transcribing". */
+export const TRANSCRIBE_TIMEOUT_MS = 12_000
+export const TRANSCRIBE_TIMEOUT_MESSAGE = 'Voice transcription failed.'
+
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
 export interface MoonshineState {
   status: MoonshineStatus
   percent: number
@@ -162,12 +182,16 @@ class MoonshineSttService {
     const requestId = `ms_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const transferableCopy = new Float32Array(vadFloat32)
 
-    return new Promise((resolve, reject) => {
+    const pending = new Promise<{ text: string; latencyMs: number }>((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject })
       this.worker!.postMessage(
         { action: 'TRANSCRIBE', requestId, audioFloat32: transferableCopy },
         [transferableCopy.buffer],
       )
+    })
+    return withTimeout(pending, TRANSCRIBE_TIMEOUT_MS, TRANSCRIBE_TIMEOUT_MESSAGE).catch((err) => {
+      this.pending.delete(requestId)
+      throw err
     })
   }
 

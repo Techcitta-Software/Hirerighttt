@@ -12,7 +12,8 @@ const MIN_VAD_SAMPLES = 4000
 
 export type MoonshineVadSttHandlers = {
   getStream: () => MediaStream | null
-  onSegmentText: (text: string) => void
+  /** `captureEndedAt` is Date.now() from the start of onSpeechEnd, before transcribeAudio. */
+  onSegmentText: (text: string, captureEndedAt?: number) => void
   onSpeechCaptureStart?: () => void
   onSpeechCaptureEnd?: () => void
   onTranscribing?: (active: boolean) => void
@@ -27,12 +28,16 @@ export type MoonshineVadSttController = {
   start: () => Promise<void>
   stop: () => Promise<void>
   dispose: () => Promise<void>
+  /** Wait for the in-flight transcribeAudio, or resolve immediately when there is none. Gives up at maxMs. */
+  joinTranscript: (maxMs: number) => Promise<void>
+  transcribeInFlight: () => boolean
 }
 
 export async function createMoonshineVadSttController(
   handlers: MoonshineVadSttHandlers,
 ): Promise<MoonshineVadSttController | null> {
   try {
+    const inflight = new Set<Promise<void>>()
     const vad = await MicVAD.new({
       startOnLoad: false,
       baseAssetPath: `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${VAD_PKG_VERSION}/dist/`,
@@ -47,33 +52,41 @@ export async function createMoonshineVadSttController(
       pauseStream: async () => undefined,
       resumeStream: async (stream: MediaStream) => stream,
       onSpeechStart: () => {
-        if (handlers.isAiSpeaking()) return
         handlers.onSpeechStart?.()
       },
       onSpeechRealStart: () => {
-        if (handlers.isAiSpeaking()) return
         handlers.onSpeechCaptureStart?.()
       },
-      onSpeechEnd: async (audio: Float32Array) => {
-        if (handlers.isAiSpeaking()) return
-        handlers.onSpeechCaptureEnd?.()
-        try {
-          if (!audio?.length || audio.length < MIN_VAD_SAMPLES) return
-          handlers.onTranscribing?.(true)
-          const { text } = await moonshineStt.transcribeAudio(audio)
-          if (text?.trim()) {
-            handlers.onSegmentText(text)
-          } else {
-            handlers.onTranscriptionMiss?.('No speech detected in that segment.')
-          }
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : 'Voice transcription failed.'
-          handlers.onError?.(message)
-          handlers.onTranscriptionMiss?.(message)
-        } finally {
+      onSpeechEnd: (audio: Float32Array) => {
+        const captureEndedAt = Date.now()
+        // Too short to transcribe: do not keep a promise, and do not leave the phase on "capturing".
+        if (!audio?.length || audio.length < MIN_VAD_SAMPLES) {
           handlers.onTranscribing?.(false)
+          return
         }
+        const work = (async () => {
+          handlers.onTranscribing?.(true)
+          try {
+            const { text } = await moonshineStt.transcribeAudio(audio)
+            if (text?.trim()) {
+              handlers.onSegmentText(text, captureEndedAt)
+            } else {
+              handlers.onTranscriptionMiss?.('No speech detected in that segment.')
+            }
+          } catch (err) {
+            const message =
+              err instanceof Error ? err.message : 'Voice transcription failed.'
+            handlers.onError?.(message)
+            handlers.onTranscriptionMiss?.(message)
+          } finally {
+            handlers.onTranscribing?.(false)
+          }
+        })()
+        // pause/stop must not abort, drop, or skip a transcription that has already started.
+        inflight.add(work)
+        void work.finally(() => {
+          inflight.delete(work)
+        })
       },
     })
 
@@ -82,8 +95,34 @@ export async function createMoonshineVadSttController(
       start: async () => {
         await vad.start()
       },
+      joinTranscript: (maxMs: number) => {
+        const deadline = Date.now() + Math.max(0, maxMs)
+        const wait = async () => {
+          while (inflight.size > 0 && Date.now() < deadline) {
+            const current = [...inflight]
+            const remaining = deadline - Date.now()
+            if (remaining <= 0) break
+            await new Promise<void>((resolve) => {
+              const timer = window.setTimeout(resolve, remaining)
+              Promise.all(current).then(
+                () => {
+                  window.clearTimeout(timer)
+                  resolve()
+                },
+                () => {
+                  window.clearTimeout(timer)
+                  resolve()
+                },
+              )
+            })
+          }
+        }
+        return wait()
+      },
+      transcribeInFlight: () => inflight.size > 0,
       // pause/destroy throw "MicVAD has null stream, audio context, or processor adapter" when the stream or audio
       // context is already gone (leaving the room). Nothing is left to stop then, so swallow it.
+      // stop does not abort or forget an in-flight transcribeAudio promise.
       stop: async () => {
         if (destroyed) return
         try {

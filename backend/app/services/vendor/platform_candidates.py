@@ -37,7 +37,10 @@ from app.services.vendor.org_candidates import (
     _merge_records,
     _record_from_application,
     _record_from_profile,
+    _vendor_roster_sql_params,
     _with_stored_interview,
+    vendor_directory_profile_ok,
+    vendor_roster_profile_sql,
 )
 
 PAGE_SIZE_DEFAULT = 20
@@ -273,6 +276,8 @@ def _list_memory(db: dict, f: dict, links: dict) -> tuple[list[tuple[dict, dict,
         if not email:
             continue
         profile = profiles.get(email) or {}
+        if not vendor_directory_profile_ok(email, profile.get("resumeText")):
+            continue
         if _visible(profile, email, links):
             visible.append((u, profile, interviews.get(email)))
     stats = _stats_from(visible)
@@ -305,7 +310,9 @@ def _stats_from(visible: list[tuple[dict, dict, dict | None]]) -> dict:
 
 # ----------------------------------------------------------------------------------------------- Postgres path
 
-_BASE_SQL = """
+def platform_candidate_from_where() -> str:
+    """Shared FROM/WHERE for the vendor candidate list, including resume and demo-account guards."""
+    return f"""
   FROM users u
   LEFT JOIN profiles p ON lower(p.email) = lower(u.email)
   LEFT JOIN interview_results ir ON lower(ir.email) = lower(u.email)
@@ -318,6 +325,7 @@ _BASE_SQL = """
       COALESCE(p.data->>'profileVisibility', 'marketplace') NOT IN ('private', 'organization_only')
       OR lower(u.email) = ANY(%(linked)s)
     )
+    AND {vendor_roster_profile_sql()}
 """
 
 _SCORE_SQL = "(CASE WHEN jsonb_typeof(ir.data->'overall') = 'number' THEN (ir.data->>'overall')::numeric END)"
@@ -368,6 +376,8 @@ def _pg_filters(f: dict, links: dict) -> tuple[str, dict]:
 
 def _list_postgres(database_url: str, f: dict, links: dict) -> tuple[list[dict], int, dict]:
     where, params = _pg_filters(f, links)
+    params = {**params, **_vendor_roster_sql_params()}
+    base = platform_candidate_from_where()
     order = {
         "score": f"{_SCORE_SQL} DESC NULLS LAST, {_RECENT_SQL} DESC NULLS LAST",
         "experience": f"{_EXP_SQL} DESC NULLS LAST, {_RECENT_SQL} DESC NULLS LAST",
@@ -378,19 +388,19 @@ def _list_postgres(database_url: str, f: dict, links: dict) -> tuple[list[dict],
             f"""SELECT u.id, u.email, u.name, u.phone, u.created_at, u.last_login_at,
                        p.data AS profile_data, p.updated_at AS profile_updated_at,
                        ir.data AS interview_data
-                {_BASE_SQL} {where}
+                {base} {where}
                 ORDER BY {order}, u.id
                 LIMIT %(limit)s OFFSET %(offset)s""",
             {**params, "limit": f["limit"], "offset": f["offset"]},
         ).fetchall()
-        total = conn.execute(f"SELECT COUNT(*)::int AS n {_BASE_SQL} {where}", params).fetchone()
+        total = conn.execute(f"SELECT COUNT(*)::int AS n {base} {where}", params).fetchone()
         stats = conn.execute(
             f"""SELECT COUNT(*)::int AS total,
                        COUNT(*) FILTER (WHERE COALESCE(p.data->>'resumeText', '') <> '')::int AS parsed,
                        COUNT({_SCORE_SQL})::int AS interviewed,
                        ROUND(AVG({_SCORE_SQL}))::int AS average_score
-                {_BASE_SQL}""",
-            {"linked": params["linked"]},
+                {base}""",
+            {"linked": params["linked"], **_vendor_roster_sql_params()},
         ).fetchone()
     return (
         [dict(r) for r in rows],

@@ -20,7 +20,6 @@ ENV PG_SSL_ROOT_CERT=/app/certs/db-ca.pem
 COPY app ./app
 COPY db ./db
 COPY data ./data
-COPY paddle_resume_parser.py ./paddle_resume_parser.py
 COPY run.py ./run.py
 COPY db_init.py ./db_init.py
 

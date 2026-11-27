@@ -11,10 +11,33 @@ def map_employer_status_to_candidate_status(employer_status: str) -> str:
     mapping = {
         "applied": "Applied",
         "interviewed": "In Review",
-        "shortlisted": "Interview",
-        "rejected": "Applied",
+        "shortlisted": "Selected",
+        "rejected": "Not selected",
     }
-    return mapping.get(str(employer_status or "applied").lower(), "Applied")
+    return mapping.get(str(employer_status or "applied").strip().lower(), "Applied")
+
+
+def application_timeline(employer_status: str, applied_at: str | None = None) -> list[dict[str, Any]]:
+    """Steps a candidate can track. Applied is always done; exactly one step is current (the furthest done).
+
+    Selected and Not selected are mutually exclusive. ``applied_at`` is the candidate's apply time
+    (callers pass the same timestamp stored on the application). The step list does not repeat it.
+    """
+    _ = applied_at  # part of the signature so callers can pass the apply time with the status
+    status = str(employer_status or "applied").strip().lower()
+    review_done = status in ("interviewed", "shortlisted", "rejected")
+    selected_done = status == "shortlisted"
+    closed_done = status == "rejected"
+    steps = [
+        {"key": "applied", "label": "Applied", "done": True},
+        {"key": "review", "label": "In review", "done": review_done},
+        {"key": "selected", "label": "Selected", "done": selected_done},
+        {"key": "closed", "label": "Not selected", "done": closed_done},
+    ]
+    current_at = max((i for i, step in enumerate(steps) if step["done"]), default=0)
+    for i, step in enumerate(steps):
+        step["current"] = i == current_at
+    return steps
 
 
 def build_candidate_job_application_record(job: dict, employer_app: dict, options: dict | None = None) -> dict:
@@ -35,6 +58,9 @@ def build_candidate_job_application_record(job: dict, employer_app: dict, option
     else:
         match_val = 0
     jd = str(job.get("jobDescription") or "")
+    employer_status = str(employer_app.get("status") or "applied").strip() or "applied"
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    applied_at = employer_app.get("appliedAt") or now
     return {
         "id": employer_app["id"],
         "employerApplicationId": employer_app["id"],
@@ -49,9 +75,10 @@ def build_candidate_job_application_record(job: dict, employer_app: dict, option
         "companySlug": job.get("companySlug"),
         "jobDescription": jd[:2000] if jd else "",
         "match": match_val,
-        "status": map_employer_status_to_candidate_status(employer_app.get("status") or "applied"),
-        "employerStatus": employer_app.get("status"),
-        "appliedAt": employer_app.get("appliedAt") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "status": map_employer_status_to_candidate_status(employer_status),
+        "employerStatus": employer_status,
+        "appliedAt": applied_at,
+        "timeline": application_timeline(employer_status, applied_at),
         "atsScore": data.get("atsScore"),
         "jdMatchScore": data.get("jdMatchScore"),
         "interviewScore": interview_overall,

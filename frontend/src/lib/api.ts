@@ -5,7 +5,9 @@ const DEV_API_FALLBACK = (
   import.meta.env.VITE_DEV_API_FALLBACK || 'http://127.0.0.1:8787'
 ).replace(/\/$/, '')
 
+import { decideColdStartRetry, setColdStartBanner } from './coldStart'
 import { trackRequest } from './loadingTracker'
+import { isNetworkFailure } from './networkFailure'
 import { cachedRequest, clearRequestCache } from './requestCache'
 
 let runtimeApiBase = ENV_API_BASE
@@ -90,6 +92,9 @@ export function apiUrl(path: string) {
 /** `background: true` marks a refresh nobody is waiting on, so it never raises the loading veil. */
 export type ApiFetchOptions = RequestInit & { background?: boolean }
 
+/** This tab has already used its one cold-start retry. */
+let coldStartRetryUsed = false
+
 export async function apiFetch(path: string, { background = false, ...options }: ApiFetchOptions = {}) {
   await resolveApiBase()
   // Any write can change what /api/me returns (profile, interview, applications).
@@ -102,15 +107,53 @@ export async function apiFetch(path: string, { background = false, ...options }:
   if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const token = getApiToken()
   if (token) headers.Authorization = `Bearer ${token}`
+
+  const send = (signal?: AbortSignal) => {
+    const pending = fetch(apiUrl(path), { ...options, headers, signal })
+    trackReachability(pending)
+    return pending
+  }
+
   // Interview start can take up to ~36s while the server fails over between Gemini keys/models.
   const timeoutMs = 45_000
   const signal =
     options.signal ??
     (typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined)
-  const pending = fetch(apiUrl(path), { ...options, headers, signal })
-  trackReachability(pending)
-  return pending.finally(settled)
+  try {
+    try {
+      return await send(signal)
+    } catch (err) {
+      const decision = decideColdStartRetry({
+        healthSucceeded: Boolean(healthCache?.ok),
+        alreadyRetriedThisTab: coldStartRetryUsed,
+        // A signal the caller already aborted (navigation) is not a cold host.
+        isTimeoutOrNetwork: isNetworkFailure(err) && !options.signal?.aborted,
+      })
+      if (!decision.retry) throw err
+      coldStartRetryUsed = true
+      setColdStartBanner(decision.banner)
+      const retrySignal =
+        typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(decision.timeoutMs) : undefined
+      const retried = await send(retrySignal)
+      setColdStartBanner('')
+      return retried
+    }
+  } finally {
+    settled()
+  }
 }
+
+/** One deep health check after boot. Not awaited, so the first paint is not held for a sleeping server. */
+let deepHealthBooted = false
+function bootDeepHealthOnce() {
+  if (deepHealthBooted || typeof window === 'undefined') return
+  if (import.meta.env.MODE === 'test') return
+  deepHealthBooted = true
+  queueMicrotask(() => {
+    void apiFetch('/api/health?deep=1', { background: true }).catch(() => undefined)
+  })
+}
+bootDeepHealthOnce()
 
 /**
  * Any answer from the API (even a 401 or 404) proves it is reachable, so a real request doubles as the
@@ -333,13 +376,32 @@ export async function apiSaveInterview(interview: unknown) {
   })
 }
 
+export type ApiApplicationStatus =
+  | 'Applied'
+  | 'In Review'
+  | 'Selected'
+  | 'Not selected'
+  | 'Interview'
+  | 'Offer'
+
+export type ApiApplicationTimelineStep = {
+  key: string
+  label: string
+  done: boolean
+  current: boolean
+}
+
 export type ApiApplication = {
   id: string
   title: string
   company: string
   location: string
   match: number
-  status: 'Applied' | 'In Review' | 'Interview' | 'Offer'
+  status: ApiApplicationStatus
+  /** Employer-side status, when the API includes it. */
+  employerStatus?: 'applied' | 'interviewed' | 'shortlisted' | 'rejected'
+  /** Progress steps. Missing on older responses; the track page derives them from `status`. */
+  timeline?: ApiApplicationTimelineStep[]
   appliedAt: string
   jobId?: string
   employerApplicationId?: string
@@ -354,6 +416,25 @@ export type ApiApplication = {
   jobDeletedMessage?: string
 }
 
+/** HTTP status attached by callers that need to tell a 404 from other failures. */
+export function apiErrorStatus(err: unknown): number | null {
+  if (err && typeof err === 'object' && 'status' in err && typeof (err as { status: unknown }).status === 'number') {
+    return (err as { status: number }).status
+  }
+  return null
+}
+
+function applicationFromPayload(data: unknown): ApiApplication | null {
+  if (!data || typeof data !== 'object') return null
+  const body = data as { application?: unknown; id?: unknown }
+  const nested = body.application
+  if (nested && typeof nested === 'object' && typeof (nested as { id?: unknown }).id === 'string') {
+    return nested as ApiApplication
+  }
+  if (typeof body.id === 'string' && body.id) return body as ApiApplication
+  return null
+}
+
 export async function apiListApplications(): Promise<ApiApplication[]> {
   // Dashboard and the Applications page both load this on mount: share one request for a few seconds.
   // Any write (apply, withdraw, profile save) clears the cache first, so a read after a write is fresh.
@@ -361,6 +442,25 @@ export async function apiListApplications(): Promise<ApiApplication[]> {
     applications?: ApiApplication[]
   }
   return Array.isArray(data.applications) ? data.applications : []
+}
+
+/** One application. Throws an Error with `status` 404 when this application does not exist. */
+export async function apiGetApplication(id: string): Promise<ApiApplication> {
+  const res = await apiFetch(`/api/applications/${encodeURIComponent(id)}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const body = data && typeof data === 'object' ? (data as { error?: unknown; detail?: unknown }) : {}
+    const message =
+      (typeof body.error === 'string' && body.error) ||
+      (typeof body.detail === 'string' && body.detail) ||
+      `Request failed (${res.status})`
+    const err = new Error(message)
+    ;(err as Error & { status: number }).status = res.status
+    throw err
+  }
+  const application = applicationFromPayload(data)
+  if (!application) throw new Error('Application not found')
+  return application
 }
 
 export async function apiWithdrawApplication(applicationId: string): Promise<ApiApplication[]> {

@@ -222,7 +222,7 @@ export function ApplicantsSearch({
   const { indexed, rankTotals } = useJobRanking(shownApplicants, jobs, { enabled: loadRanking, loading })
   const singleJobId = mode === 'applications' && filters.jobs.length === 1 ? filters.jobs[0] : undefined
   const inviteStatus = useInviteStatus({ enabled: loadInviteStatus && !loading, jobId: singleJobId })
-  const actions = useApplicantActions(onUpdateApplicant, inviteStatus.refresh)
+  const actions = useApplicantActions(onUpdateApplicant, inviteStatus.refresh, filters.keywords)
   const { busy, bulkBusy, notice, setNotice } = actions
   // Row / profile "Invite" asks: open link, or a date and time slot.
   const [inviteFor, setInviteFor] = useState<IndexedApplicant | null>(null)

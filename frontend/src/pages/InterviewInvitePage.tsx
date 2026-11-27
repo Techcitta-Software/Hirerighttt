@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { brandedInviteTitle } from '../lib/brandText'
 import { moonshineStt } from '../lib/moonshineStt'
 import { PageLoader } from '../components/SignalLoader'
@@ -78,18 +78,20 @@ export function InterviewInvitePage() {
   }, [isInvitee])
 
   // Remember the link so sign-in / sign-up brings the candidate straight back here.
+  const inviteEmail = invite?.candidateEmail ?? ''
+  const inviteStatus = invite?.status ?? ''
   useEffect(() => {
-    if (!token || !invite || signedInEmail) return
-    rememberInviteReturn(`/interview/invite/${token}`, invite.candidateEmail)
+    if (!token || !inviteEmail || signedInEmail) return
+    rememberInviteReturn(`/interview/invite/${token}`, inviteEmail)
     // Opening the emailed link while signed out goes straight to login; after sign-in the
     // candidate is brought back here and the interview starts at the scheduled time.
-    if (invite.status !== 'expired') {
-      navigate(`/login?email=${encodeURIComponent(invite.candidateEmail)}`, {
+    if (inviteStatus !== 'expired' && inviteStatus !== 'completed') {
+      navigate(`/login?email=${encodeURIComponent(inviteEmail)}`, {
         replace: true,
         state: { explicitLogin: true },
       })
     }
-  }, [token, invite, signedInEmail, navigate])
+  }, [token, inviteEmail, inviteStatus, signedInEmail, navigate])
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000)
@@ -141,8 +143,9 @@ export function InterviewInvitePage() {
     )
   }, [invite, now, serverOffsetMs])
 
-  const canStart = liveAccess?.canStart ?? invite?.canStart ?? false
-  const status = liveAccess?.status ?? invite?.status ?? ''
+  const completed = invite?.status === 'completed'
+  const canStart = completed ? false : (liveAccess?.canStart ?? invite?.canStart ?? false)
+  const status = completed ? 'completed' : (liveAccess?.status ?? invite?.status ?? '')
 
   const countdown = useMemo(() => {
     if (!invite || canStart) return null
@@ -209,11 +212,18 @@ export function InterviewInvitePage() {
     navigate('/interview', { replace: true })
   }
 
+  // Latest startInterview for the auto-start effect, which must not re-run on every render.
+  const startInterviewRef = useRef(startInterview)
+  useLayoutEffect(() => {
+    startInterviewRef.current = startInterview
+  })
+
+  const inviteToken = invite?.token ?? ''
   useEffect(() => {
-    if (!canStart || !invite || !token || loading || error || autoRedirected.current) return
+    if (!canStart || !inviteToken || !token || loading || error || autoRedirected.current) return
     if (!isInvitee) return
-    startInterview()
-  }, [canStart, invite, token, loading, error, isInvitee])
+    startInterviewRef.current()
+  }, [canStart, inviteToken, token, loading, error, isInvitee])
 
   async function reschedule() {
     if (!token || !newSlot) return
@@ -246,7 +256,7 @@ export function InterviewInvitePage() {
   }
 
   const minSlot = useMemo(() => {
-    const d = new Date(Date.now() + 20 * 60000)
+    const d = new Date(Date.now() + 2 * 60 * 60000)
     d.setSeconds(0, 0)
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   }, [])
@@ -451,7 +461,10 @@ export function InterviewInvitePage() {
                   </Link>
                 </div>
               )}
-              {canStart && isInvitee && (
+              {status === 'completed' && (
+                <p className={styles.noticeText}>You have already completed this interview</p>
+              )}
+              {canStart && isInvitee && status !== 'completed' && (
                 <>
                   <p className={styles.noticeOk}>
                     Your interview is open. Ava will use your resume
@@ -463,7 +476,7 @@ export function InterviewInvitePage() {
                   </button>
                 </>
               )}
-              {!canStart && status !== 'expired' && needsSignIn && (
+              {!canStart && status !== 'expired' && status !== 'completed' && needsSignIn && (
                 <Link
                   to={`/login?email=${encodeURIComponent(invite.candidateEmail)}`}
                   state={{ explicitLogin: true, from: `/interview/invite/${token}` }}

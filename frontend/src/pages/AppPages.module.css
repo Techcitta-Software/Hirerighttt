@@ -754,6 +754,19 @@
   overflow-wrap: anywhere;
 }
 
+.appRowTitleLink {
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.appRowTitleLink:hover {
+  color: var(--ds-brand-hover, #4338ca);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .appRowSub {
   margin: 0;
   font-size: var(--fs-xs);

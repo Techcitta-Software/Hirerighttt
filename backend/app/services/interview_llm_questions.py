@@ -19,12 +19,10 @@ class InterviewLlmQuestionError(Exception):
         self.status = status
 
 
-# The browser gives up after ~45s, so key/model failover plus retries must finish (or fail cleanly) inside this.
-REQUEST_DEADLINE_SECONDS = 36.0
-# Job-link interviews: Google often answers 503 "high demand" for ~10-30 s; give the failover chain room for a second
-# full attempt before falling back to the deterministic job-specific questions (the lobby prefetch hides the wait).
-# Worst case = deadline + one 30 s call budget ≈ 75 s, under the browser's 90 s interview-start timeout.
-JD_REQUEST_DEADLINE_SECONDS = 45.0
+# A 503 used to burn the whole serial chain (about 41s). Hedge the models and stop at 9s, then the existing
+# job-description fallback questions are used.
+REQUEST_DEADLINE_SECONDS = 9.0
+JD_REQUEST_DEADLINE_SECONDS = 9.0
 PENDING_FALLBACK_FOCUS = "pending-fallback"
 PENDING_CLOSING_FOCUS = "pending-closing"
 MAX_ROLE_SKILLS = 3
@@ -42,7 +40,7 @@ def _experienced_closing_turn_number() -> int:
     return EXPERIENCED_INTERVIEW_TURN_COUNT
 
 
-from app.services.gemini_client import generate_content  # noqa: E402
+from app.services.gemini_client import generate_content_hedged  # noqa: E402
 from app.services.interview_jd_plan import (  # noqa: E402
     DIFFICULTY_BY_TIER,
     JD_INTERVIEW_DURATION_MINUTES,
@@ -308,15 +306,15 @@ async def _gemini_generate(system: str, user: str, *, temperature: float, max_to
     """Generate JSON with key rotation and model fallback. Returns "" only if every key and model failed.
 
     Latency: JSON output mode (no prose or code fences to retry on) and minimal thinking."""
-    result = await generate_content(
+    result = await generate_content_hedged(
         system=system,
         user=user,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout=25.0,
-        total_budget=30.0,
         json_mode=True,
         thinking=_thinking_level(),
+        hedge_after=2.5,
+        cap=9.0,
     )
     return result.text if result else ""
 
@@ -486,7 +484,7 @@ async def generate_adaptive_question_batch_llm(input: dict) -> dict[str, Any]:
                 }
             ordered[turn - 1] = pending
         elif closing_turn and turn == closing_turn:
-            ordered[turn - 1] = _pending_closing_question()
+            ordered[turn - 1] = closing_statement(role, str(input.get("varietySeed") or ""))
         elif fresher_closing_turn and turn == fresher_closing_turn:
             ordered[turn - 1] = closing_statement(role, str(input.get("varietySeed") or ""))
 

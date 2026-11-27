@@ -171,6 +171,23 @@ def test_non_technical_situational_and_stakeholder_are_the_15_point_slot():
     assert labels["roleSkillsFit"] == "Role Skills Fit"
 
 
+def test_skill_is_demonstrated_only_when_the_evidencing_answer_scores_at_least_50():
+    from app.services.role_skills_fit_scoring import compute_role_skills_fit
+
+    ctx = {"skills": ["Python"], "resumeSnippet": "Python projects"}
+    questions = [{"text": "Explain Python generators", "topic": "Python"}]
+    evidenced = "Python generators yield values one at a time instead of building the whole list."
+    low = compute_role_skills_fit(ctx, ["Python"], questions, [evidenced], [49])
+    assert low["evidencedInAnswers"] == []
+    ok = compute_role_skills_fit(ctx, ["Python"], questions, [evidenced], [50])
+    assert ok["evidencedInAnswers"] == ["Python"] and ok["skills"][0]["demonstrated"] is True
+    # A strong score on a question about the skill is not evidence when the answer never shows the skill.
+    named_only_by_question = compute_role_skills_fit(
+        ctx, ["Python"], questions, ["Generators yield values lazily in a loop."], [92]
+    )
+    assert named_only_by_question["evidencedInAnswers"] == []
+
+
 def test_question_without_question_model_keeps_the_technical_weight_path():
     assert w.is_technical(FRESHER_PLAN[1]) is True
     assert w.is_technical(FRESHER_PLAN[0]) is False

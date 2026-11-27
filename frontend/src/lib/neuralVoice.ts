@@ -8,6 +8,7 @@
  * question is not delayed by another doomed request.
  */
 import { apiFetch } from './api'
+import { SPEECH_WATCHDOG_MARGIN_MS } from './speech'
 
 const SAMPLE_RATE = 24_000
 /** Wait this long for the first audio before giving up and using the device voice. */
@@ -77,16 +78,18 @@ export async function speakNeural(text: string, callbacks: Callbacks = {}): Prom
   let nextTime = 0
 
   const ctx = audioContext()
-  const finish = () => {
-    if (ended) return
-    ended = true
-    if (active === handle) active = null
-    callbacks.onEnd?.()
+  let watchdog: number | undefined
+  let lastProgressAt = 0
+  const clearWatchdog = () => {
+    if (watchdog === undefined) return
+    window.clearTimeout(watchdog)
+    watchdog = undefined
   }
   const handle: NeuralPlayback = {
     cancel: () => {
       if (cancelled) return
       cancelled = true
+      clearWatchdog()
       controller.abort()
       for (const s of sources) {
         try {
@@ -98,6 +101,27 @@ export async function speakNeural(text: string, callbacks: Callbacks = {}): Prom
       }
       sources.clear()
     },
+  }
+  const finish = () => {
+    if (ended || cancelled) return
+    ended = true
+    clearWatchdog()
+    if (active === handle) active = null
+    callbacks.onEnd?.()
+  }
+  // One timer: scheduled end (nextTime - currentTime) plus margin, or last progress plus margin when nothing is queued.
+  const armWatchdog = () => {
+    if (!started || cancelled || ended) return
+    clearWatchdog()
+    const scheduledMs = Math.max(0, (nextTime - ctx.currentTime) * 1000)
+    const delay =
+      scheduledMs > 0
+        ? scheduledMs + SPEECH_WATCHDOG_MARGIN_MS
+        : Math.max(0, lastProgressAt + SPEECH_WATCHDOG_MARGIN_MS - Date.now())
+    watchdog = window.setTimeout(() => {
+      watchdog = undefined
+      if (!cancelled && !ended) finish()
+    }, delay)
   }
   active = handle
 
@@ -125,6 +149,7 @@ export async function speakNeural(text: string, callbacks: Callbacks = {}): Prom
     let pendingSeconds = 0
 
     const schedule = (samples: Float32Array) => {
+      if (cancelled || ended) return
       const buffer = ctx.createBuffer(1, samples.length, SAMPLE_RATE)
       buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0)
       const source = ctx.createBufferSource()
@@ -133,11 +158,14 @@ export async function speakNeural(text: string, callbacks: Callbacks = {}): Prom
       nextTime = Math.max(nextTime, ctx.currentTime + 0.03)
       source.onended = () => {
         sources.delete(source)
+        if (!streamDone && sources.size === 0) armWatchdog()
         maybeFinish()
       }
       sources.add(source)
       source.start(nextTime)
       nextTime += buffer.duration
+      lastProgressAt = Date.now()
+      armWatchdog()
     }
 
     const flushPending = () => {
@@ -148,9 +176,10 @@ export async function speakNeural(text: string, callbacks: Callbacks = {}): Prom
 
     for (;;) {
       const { done, value } = await reader.read()
-      if (cancelled) return started
+      if (cancelled || ended) return started
       if (done) break
       if (!value || value.length === 0) continue
+      lastProgressAt = Date.now()
       let bytes = value
       if (carry) {
         const joined = new Uint8Array(carry.length + bytes.length)

@@ -39,8 +39,9 @@ from app.services.mail_service import send_mail, smtp_configured
 from app.services.storage import interview_artifact_storage as art_store
 from app.services.storage import interview_recording_storage as rec_store
 from app.services.storage.s3_storage import s3_storage_configured
+from app.services.vendor.candidate_applications import record_candidate_job_application
 from app.services.vendor.candidate_documents import assert_vendor_may_view_candidate_documents
-from app.services.vendor.jobs import get_org_application_for_recruiter, get_org_job_for_recruiter
+from app.services.vendor.jobs import get_org_application_for_recruiter, get_org_job, get_org_job_for_recruiter
 
 
 import logging
@@ -186,13 +187,30 @@ async def try_extended_routes(
         app = get_org_application_for_recruiter(db, access["tenant"]["organization"]["id"], app_id, vendor_scope(access))
         if not app:
             return json_fn(404, {"error": "Applicant not found."})
+        status_updated = False
         if body.get("status"):
             # Only the pipeline states the product knows; anything else was stored verbatim (QA: "<script>").
             new_status = str(body["status"]).strip().lower()
             if new_status not in _APPLICANT_STATUSES:
                 return json_fn(400, {"error": "Status must be one of: " + ", ".join(_APPLICANT_STATUSES) + "."})
             app["status"] = new_status
+            status_updated = True
         await ctx.save_db(db)
+        if status_updated:
+            # The candidate's Applications page reads their own copy, not the employer row.
+            email = str(app.get("candidateEmail") or "").strip().lower()
+            if email:
+                org_id = access["tenant"]["organization"]["id"]
+                job = get_org_job(db, org_id, str(app.get("jobId") or ""))
+                if job:
+                    candidate_application = record_candidate_job_application(db, email, job, app)
+                    if persistence_ready(config.database_url):
+                        await asyncio.to_thread(
+                            db_store.upsert_job_application_record,
+                            config.database_url,
+                            email,
+                            candidate_application,
+                        )
         return json_fn(200, {"application": app})
 
     if method == "POST" and re.match(r"^/api/vendor/applicants/[^/]+/interview-invite$", path):
@@ -514,8 +532,12 @@ async def try_extended_routes(
             duration = -1.0
         if not math.isfinite(duration) or duration < 15 or duration > 180:
             return json_fn(400, {"error": "Duration must be between 15 and 180 minutes."})
-        if start.timestamp() <= datetime.now(timezone.utc).timestamp():
+        now = datetime.now(timezone.utc)
+        if start <= now:
             return json_fn(400, {"error": "Choose a future interview time."})
+        # Same lead as the scheduler: later today is fine, the next two hours are not.
+        if start < now + timedelta(hours=2):
+            return json_fn(400, {"error": "Pick a time at least 2 hours from now."})
         db = ctx.load_db()
         user = find_user(db, email=email)
         end = invite_join_window_end(start)
@@ -795,6 +817,14 @@ async def try_extended_routes(
         session_id, artifact_type, action = parts[0] if parts else "", parts[1] if len(parts) > 1 else "", parts[2] if len(parts) > 2 else ""
         if not session_id or artifact_type not in ("transcript", "report") or action != "download":
             return json_fn(400, {"error": "Use /api/interview/artifacts/{sessionId}/transcript|report/download"})
+        # format=json on the report is the scored payload, not a redirect to the PDF.
+        if artifact_type == "report" and request.query_params.get("format") == "json":
+            db = ctx.load_db()
+            session = (db.get("interviewSessions") or {}).get(session_id) or {}
+            result = session.get("result") if isinstance(session, dict) else None
+            owner = str(session.get("email") or "").strip().lower()
+            if owner == str(email or "").strip().lower() and isinstance(result, dict) and result:
+                return json_fn(200, result)
         try:
             pool = db_store.db_pool(config.database_url)
             signed = await art_store.resolve_interview_artifact_download(

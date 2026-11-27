@@ -27,6 +27,7 @@ import { pullInterviewFromApi, pullProfileFromApi, syncSessionFromApi } from '..
 import { sanitizeSkillsList } from '../lib/interviewSessionPayload'
 import { parseResumeFile } from '../lib/resumeParser'
 import { replaceResumeViaApi } from '../lib/replaceResumeApi'
+import { deriveCompanyTitle, deriveHighestEducation } from '../lib/profileDefaults'
 import {
   missingProfileFields,
   profileCheckHref,
@@ -69,6 +70,34 @@ import { EXPERIENCE_RANGE_LABELS } from '../lib/resumeExperience'
 import { formatPhoneForDisplay } from '../lib/phone'
 
 export { DashboardPage } from './CandidateDashboard'
+
+type ProfileWithExtras = {
+  currentCompanyTitle?: string | null
+  highestEducation?: string | null
+  contactPhone?: string | null
+  workExperiences?: Parameters<typeof deriveCompanyTitle>[0]
+  education?: Parameters<typeof deriveHighestEducation>[0]
+  currentLocation?: string | null
+} | null | undefined
+
+function shownCompanyTitle(profile: ProfileWithExtras): string {
+  const saved = String(profile?.currentCompanyTitle || '').trim()
+  return saved || deriveCompanyTitle(profile?.workExperiences)
+}
+
+function shownEducation(profile: ProfileWithExtras): string {
+  const saved = String(profile?.highestEducation || '').trim()
+  return saved || deriveHighestEducation(profile?.education)
+}
+
+function shownContact(profile: ProfileWithExtras, user: { phone?: string | null } | null | undefined) {
+  return {
+    city: profile?.currentLocation || '',
+    companyTitle: shownCompanyTitle(profile),
+    highestEducation: shownEducation(profile),
+    phone: user?.phone || profile?.contactPhone || '',
+  }
+}
 
 /** Dates use one format across candidate pages: "18 Nov 2026". */
 function formatProfileDate(value?: string) {
@@ -1092,6 +1121,8 @@ export function ProfilePage() {
     'idle' | 'updating' | 'updated'
   >('idle')
   const [resumeReplaceError, setResumeReplaceError] = useState('')
+  // Values last written from the saved profile or a resume extract. A difference means the user edited this session.
+  const resumeFieldBaseline = useRef(shownContact(profile, user))
 
   useEffect(() => {
     if (resumeReplaceStatus !== 'updated') return
@@ -1103,8 +1134,11 @@ export function ProfilePage() {
     setResumeReplaceError('')
     setResumeReplaceStatus('updating')
     try {
-      const extract = await parseResumeFile(file)
-      const outcome = await replaceResumeViaApi(file, extract)
+      const extract = await parseResumeFile(file, { background: true })
+      const outcome = await replaceResumeViaApi(file, extract, {
+        background: true,
+        fileHash: extract.fileHash,
+      })
       if (!outcome.ok) {
         setResumeReplaceStatus('idle')
         setResumeReplaceError(outcome.error)
@@ -1121,6 +1155,27 @@ export function ProfilePage() {
       setSkillsList(profileSkillsToList(outcome.profile.skills))
       setTargetRole(outcome.profile.currentRole || targetRole)
       setExperience(outcome.profile.totalExperience || experience)
+      const baseline = resumeFieldBaseline.current
+      const nextCity = (extract.currentLocation || '').trim()
+      if (city === baseline.city) {
+        setCity(nextCity)
+        baseline.city = nextCity
+      }
+      const nextCompany = deriveCompanyTitle(extract.workExperiences)
+      if (companyTitle === baseline.companyTitle) {
+        setCompanyTitle(nextCompany)
+        baseline.companyTitle = nextCompany
+      }
+      const nextEducation = deriveHighestEducation(extract.education)
+      if (highestEducation === baseline.highestEducation) {
+        setHighestEducation(nextEducation)
+        baseline.highestEducation = nextEducation
+      }
+      const nextPhone = (extract.phone || '').trim()
+      if (!phone.trim() && nextPhone) {
+        setPhone(nextPhone)
+        baseline.phone = nextPhone
+      }
       setResumeReplaceStatus('updated')
     } catch (err) {
       setResumeReplaceStatus('idle')
@@ -1145,12 +1200,8 @@ export function ProfilePage() {
 
   const [targetRole, setTargetRole] = useState(profile?.currentRole || '')
   const [experience, setExperience] = useState(profile?.totalExperience || '')
-  const [companyTitle, setCompanyTitle] = useState(
-    profileExtras?.currentCompanyTitle || '',
-  )
-  const [highestEducation, setHighestEducation] = useState(
-    profileExtras?.highestEducation || '',
-  )
+  const [companyTitle, setCompanyTitle] = useState(() => shownCompanyTitle(profile))
+  const [highestEducation, setHighestEducation] = useState(() => shownEducation(profile))
 
   const [basicsEditing, setBasicsEditing] = useState(false)
   const [basicsSaving, setBasicsSaving] = useState(false)
@@ -1213,12 +1264,14 @@ export function ProfilePage() {
         jobTypes?: { fullTime: boolean; contract: boolean; internship: boolean }
       }
       setFullName(accountDisplayName(getUser()) || resolveCandidateName(next, getUser()))
-      setPhone(getUser()?.phone || extras.contactPhone || '')
-      setCity(next.currentLocation || '')
+      const contact = shownContact(next, getUser())
+      setPhone(contact.phone)
+      setCity(contact.city)
       setTargetRole(next.currentRole || '')
       setExperience(next.totalExperience || '')
-      setCompanyTitle(extras.currentCompanyTitle || '')
-      setHighestEducation(extras.highestEducation || '')
+      setCompanyTitle(contact.companyTitle)
+      setHighestEducation(contact.highestEducation)
+      resumeFieldBaseline.current = contact
       setSkillsList(profileSkillsToList(next.skills))
       setExpectedCtc(next.salaryExpectation || '')
       setNoticePeriod(next.noticePeriod || '')
@@ -1776,9 +1829,9 @@ export function ProfilePage() {
                         </span>
                         <div className={styles.resumeFileDetails}>
                           <span className={styles.resumeFileName}>{profile.resumeName}</span>
-                          <span className={styles.resumeFileMeta}>
+                          <span className={styles.resumeFileMeta} role={resumeReplaceStatus === 'updating' ? 'status' : undefined}>
                             {resumeReplaceStatus === 'updating'
-                              ? 'Updating résumé…'
+                              ? 'Updating your resume…'
                               : resumeReplaceStatus === 'updated'
                                 ? 'Updated résumé'
                                 : profileUpdatedLabel
@@ -1875,6 +1928,7 @@ export function ProfilePage() {
                       value={noticePeriod}
                       onChange={(e) => setNoticePeriod(e.target.value)}
                     >
+                      <option value="">Select notice period</option>
                       <option value="Immediate">Immediate</option>
                       <option value="15 days">15 days</option>
                       <option value="30 days">30 days</option>
@@ -2273,15 +2327,26 @@ export function ApplicationsPage() {
                   ? { label: 'Job removed', tone: 'neutral' }
                   : app.status === 'Offer'
                     ? { label: 'Offer', tone: 'success' }
-                    : app.status === 'Interview'
-                      ? { label: 'Interview', tone: 'brand' }
-                      : app.status === 'In Review'
-                        ? { label: 'In review', tone: 'warning' }
-                        : { label: app.status, tone: 'neutral' }
+                    : app.status === 'Selected'
+                      ? { label: 'Selected', tone: 'success' }
+                      : app.status === 'Interview'
+                        ? { label: 'Interview', tone: 'brand' }
+                        : app.status === 'In Review'
+                          ? { label: 'In review', tone: 'warning' }
+                          : app.status === 'Not selected'
+                            ? { label: 'Not selected', tone: 'neutral' }
+                            : { label: app.status, tone: 'neutral' }
                 return (
                   <li key={app.id} className={styles.appRow}>
                     <div className={styles.appRowMain}>
-                      <h2 className={styles.appRowTitle}>{app.title}</h2>
+                      <h2 className={styles.appRowTitle}>
+                        <Link
+                          to={`/applications/${encodeURIComponent(app.id)}`}
+                          className={styles.appRowTitleLink}
+                        >
+                          {app.title}
+                        </Link>
+                      </h2>
                       <p className={styles.appRowSub}>
                         {app.company} · {app.location}
                         {app.roleTrack ? ` · ${app.roleTrack}` : ''}

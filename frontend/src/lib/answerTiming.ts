@@ -3,21 +3,20 @@
  * delay candidates feel most (it used to be a flat 5 seconds of silence after every answer).
  */
 
-/** Silence (ms) after the last words before the answer is submitted. A long answer that has clearly landed
- *  moves on sooner; a short one gets the full pause, because the candidate may still be thinking. */
+/** Silence (ms) after the last words before the answer is submitted. Under 25 words waits 4.5 s, 25 through
+ *  60 waits 3 s, and a longer answer waits 2 s. Never below SPEECH_SETTLE_MS. */
 export function silenceAdvanceMs(transcript: string): number {
   const words = countWords(transcript)
-  if (words > 60) return 3_500
-  if (words >= 25) return 5_000
-  return 8_000
+  const ms = words > 60 ? 2_000 : words >= 25 ? 3_000 : 4_500
+  return Math.max(SPEECH_SETTLE_MS, ms)
 }
 
 /** A spoken answer needs at least this many words before it can end by itself (fewer is a false start). */
-export const MIN_ANSWER_WORDS = 12
+export const MIN_ANSWER_WORDS = 6
 /** "…and", "…so", "…because": the candidate is mid-thought, never end the answer there. */
 const TRAILING_CONNECTOR_RE = /\b(and|so|because|but|like|or|um+|uh+|then)[\s,.…-]*$/i
 /** The visible "Moving on… keep talking to continue" countdown before a voice answer is submitted. */
-export const ENDING_COUNTDOWN_MS = 3_000
+export const ENDING_COUNTDOWN_MS = 1_500
 export const ENDING_COUNTDOWN_LABEL = 'Moving on… keep talking to continue'
 
 export function endsWithConnector(transcript: string): boolean {
@@ -25,8 +24,8 @@ export function endsWithConnector(transcript: string): boolean {
 }
 
 /**
- * Has a spoken answer clearly ended? At least MIN_ANSWER_WORDS words, a silence that scales with the answer
- * (8 s short / 5 s medium / 3.5 s long), no trailing connector, and the recogniser is idle.
+ * Has a spoken answer clearly ended? At least MIN_ANSWER_WORDS words (6), a silence that scales with the answer
+ * (4.5 s under 25 words / 3 s for 25 through 60 / 2 s over 60), no trailing connector, and the recogniser is idle.
  */
 export function voiceAnswerComplete(input: {
   transcript: string
@@ -65,6 +64,43 @@ export function stripAnswerDoneCommand(transcript: string): string {
   return cleaned === null ? transcript.trim() : cleaned
 }
 
+function echoWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .split(/[^a-z0-9+#]+/)
+    .filter(Boolean)
+}
+
+/**
+ * The microphone often opens with the tail of Ava's question ("…design a rate limiter") stuck to the front of
+ * the candidate's answer. Drop that leading fragment when it is only the end of her question. A transcript that
+ * is nothing but that echo comes back empty, so the caller does not save it as an answer.
+ */
+export function stripEchoOfQuestion(transcript: string, questionText: string): string {
+  const raw = transcript.trim()
+  const question = questionText.trim()
+  if (!raw || !question) return raw
+  const qWords = echoWords(question)
+  const parts = raw.split(/\s+/)
+  const tWords = parts.map((part) => echoWords(part)[0] || '')
+  if (!qWords.length || !tWords.some(Boolean)) return raw
+  const max = Math.min(parts.length, qWords.length)
+  let drop = 0
+  for (let n = max; n >= 2; n -= 1) {
+    const lead = tWords.slice(0, n)
+    if (lead.some((word) => !word)) continue
+    const tail = qWords.slice(qWords.length - n)
+    if (lead.every((word, i) => word === tail[i])) {
+      drop = n
+      break
+    }
+  }
+  if (!drop) return raw
+  if (drop >= parts.length) return ''
+  return parts.slice(drop).join(' ').replace(/^[,.;:!?]+/, '').trim()
+}
+
 const EXPLICIT_END_RE = /\b(end (the |this )?interview|stop (the |this )?interview|finish (the |this )?interview|no more questions)\b/i
 const SHORT_END_RE = /^(ok(ay)?[,.]?\s+)?(i'?m done|i am done|that'?s all|that is all)[.!]*$/i
 
@@ -100,6 +136,16 @@ export const TIME_LEFT_NUDGE_SEC = 30
 export const TIME_LEFT_NUDGE_PROMPT = 'About 30 seconds left.'
 /** Nothing advances (and Ava does not speak) within this long after the candidate's last words. */
 export const SPEECH_SETTLE_MS = 2_000
+/**
+ * The 3:00 ran out while speech recognition is still "capturing" or "transcribing" and there is no transcription
+ * promise in flight. Wait this long so a real last sentence can land, then move on anyway. A hung phase with no
+ * promise must not keep the same question on screen. An in-flight promise uses TRANSCRIPT_JOIN_MS instead.
+ */
+export const STUCK_STT_GRACE_MS = 4_000
+/** How long submit / voice-complete / said-next / time-up waits for an in-flight Moonshine transcription. */
+export const TRANSCRIPT_JOIN_MS = 12_000
+/** A capture that never ends (VAD never fires speech-end) is abandoned so the candidate can type or the clock can move on. */
+export const CAPTURE_STUCK_MS = 20_000
 /** Text shorter than this is a false start ("um", "okay"), not yet an answer. */
 export const MIN_ANSWER_CHARS = 10
 /** What Ava SAYS for the silence nudge: the screen shows SILENCE_NUDGE_PROMPT. The spoken line leaves out the
@@ -163,7 +209,7 @@ export type AnswerTickDecision =
 /**
  * What the answer loop should do on this tick:
  * - 'submit-now': the candidate said "next question" / "that's my answer" / "skip" (recogniser idle).
- * - 'start-countdown': a voice answer looks complete (voiceAnswerComplete): show the 3 s ENDING_COUNTDOWN_LABEL.
+ * - 'start-countdown': a voice answer looks complete (voiceAnswerComplete): show the 1.5 s ENDING_COUNTDOWN_LABEL.
  * - 'cancel-countdown': the candidate spoke again during the countdown: keep listening.
  * - 'submit': the countdown ran out with no new speech: submit the voice answer.
  * - 'nudge': SILENCE_NUDGE_MS of quiet and no answer yet: Ava nudges once and keeps listening.
@@ -201,18 +247,27 @@ export function decideAnswerTick(input: AnswerTickInput): AnswerTickDecision {
 }
 
 /**
- * The 3:00 ran out: move on, but never while the candidate is still speaking or within SPEECH_SETTLE_MS of their
- * last words (the answer so far is saved), and never if no listening window was ever opened.
+ * The 3:00 ran out: move on, but not within SPEECH_SETTLE_MS of their last words, and not if no listening window
+ * was opened. A capturing/transcribing phase with no transcription promise that lasts past STUCK_STT_GRACE_MS
+ * still moves on. While a promise is in flight this returns false; the caller submits into TRANSCRIPT_JOIN_MS.
  */
 export function timeUpCanAdvance(input: {
   now: number
   lastSpeechAt: number
   sttPhase: 'idle' | 'capturing' | 'transcribing'
   answerWindowStartedAt: number
+  /** When the current capturing/transcribing phase started. Omit when idle. */
+  phaseSince?: number
+  /** Moonshine transcribeAudio is still running. The 4 s grace does not apply. */
+  transcribeInFlight?: boolean
 }): boolean {
   if (!input.answerWindowStartedAt) return false
-  if (input.sttPhase !== 'idle') return false
-  return !input.lastSpeechAt || input.now - input.lastSpeechAt >= SPEECH_SETTLE_MS
+  if (input.transcribeInFlight) return false
+  const quiet = !input.lastSpeechAt || input.now - input.lastSpeechAt >= SPEECH_SETTLE_MS
+  if (input.sttPhase === 'idle') return quiet
+  const since = input.phaseSince || input.lastSpeechAt
+  if (!since) return true
+  return quiet && input.now - since >= STUCK_STT_GRACE_MS
 }
 
 /**
@@ -222,6 +277,23 @@ export function timeUpCanAdvance(input: {
 export function isClosingStatement(q: { focus?: string | null } | null | undefined): boolean {
   const focus = String(q?.focus ?? '')
   return focus === 'structured-closing' || focus === 'pending-closing'
+}
+
+/** The question the 400ms tick and the answer clock must read: the live list, at the live index. */
+export function questionAtTick<T>(questions: readonly T[] | null | undefined, index: number): T | undefined {
+  if (!questions || index < 0 || index >= questions.length) return undefined
+  return questions[index]
+}
+
+/**
+ * True when the question now at this index is a goodbye. The tick must not nudge and the answer clock must not run.
+ * Callers pass the list they hold now (a ref), not the list captured when the interval started.
+ */
+export function isClosingQuestionAt(
+  questions: readonly { focus?: string | null }[] | null | undefined,
+  index: number,
+): boolean {
+  return isClosingStatement(questionAtTick(questions, index))
 }
 
 /**

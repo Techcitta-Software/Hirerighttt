@@ -405,35 +405,53 @@ def _resume_parse_thinking() -> str | None:
     return None if value in ("", "off", "default", "none") else value
 
 
+def _rules_parse_response(extract: dict) -> dict:
+    """A rules/fallback extract. It is never labelled as a Gemini extract."""
+    from app.services.resume_parse.merge import apply_company_places
+
+    out = apply_company_places(dict(extract))
+    out.pop("source", None)
+    out["_responseSource"] = "rules"
+    return out
+
+
 async def parse_resume_with_ai(text: str) -> dict | None:
-    """Structured resume extraction with Gemini (key rotation + model fallback). Falls back to a minimal extract."""
+    """Structured resume extraction with hedged Gemini. Falls back to a minimal rules extract.
+
+    The returned dict carries `_responseSource` of `llm`, `rules`, or `cache` for `/api/resume/parse`.
+    Only a real Gemini extract is cached, and only that extract keeps `source: gemini`.
+    """
     import json
     import re
 
-    from app.services.gemini_client import gemini_configured, generate_content
+    from app.services.gemini_client import gemini_configured, generate_content_hedged
+    from app.services.resume_parse.merge import apply_company_places
 
     clean = str(text or "").strip()
     if len(clean) < 40:
         return None
     if not gemini_configured():
-        return _resume_fallback_extract(clean)
+        return _rules_parse_response(_resume_fallback_extract(clean))
 
     cache_key = hashlib.sha256(clean[:50000].encode("utf-8", "ignore")).hexdigest()
     cached = _resume_cache_get(cache_key)
     if cached is not None:
         from app.services.interview_question_model import apply_question_model
 
-        return apply_question_model(cached)
+        hit = apply_question_model(cached)
+        hit.pop("_responseSource", None)
+        hit["_responseSource"] = "cache"
+        return hit
 
     try:
-        result = await generate_content(
+        result = await generate_content_hedged(
             system=RESUME_PARSE_SYSTEM,
             user="RESUME TEXT:\n" + clean[:12000],
             temperature=0.1,
             max_tokens=4096,
             json_mode=True,
-            timeout=9.0,
-            total_budget=10.0,  # the browser stops waiting at 12s
+            hedge_after=2.5,
+            cap=6.5,
             thinking=_resume_parse_thinking(),
         )
         match = re.search(r"\{[\s\S]*\}", result.text) if result else None
@@ -441,7 +459,7 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     except Exception:
         data = None
     if not isinstance(data, dict) or not (data.get("fullName") or data.get("skills")):
-        return _resume_fallback_extract(clean)
+        return _rules_parse_response(_resume_fallback_extract(clean))
 
     # Keep only the fields we asked for, and guard the two that a model sometimes gets wrong.
     allowed = {
@@ -450,6 +468,7 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     }
     extract = {k: v for k, v in data.items() if k in allowed}
     extract["resumeText"] = clean[:50000]
+    extract = apply_company_places(extract)
     # The name must be the one written on the resume (never a job title, never the signup name); "KAVYA IYER" -> "Kavya Iyer".
     from app.services.candidate_name import resume_name
 
@@ -460,7 +479,9 @@ async def parse_resume_with_ai(text: str) -> dict | None:
     from app.services.interview_question_model import apply_question_model
 
     extract = apply_question_model(extract)
+    extract.pop("_responseSource", None)
     _resume_cache_put(cache_key, extract)  # only real AI extracts are cached; a fallback retries the model next time
+    extract["_responseSource"] = "llm"
     return extract
 
 

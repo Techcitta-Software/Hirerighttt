@@ -5,6 +5,7 @@ import os
 import hmac
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
 from app.db.store import ping_database
 from app.node_config import config, is_prod_like
@@ -40,8 +41,38 @@ def health_detail_allowed(request: Request) -> bool:
     return bool(secret) and hmac.compare_digest(secret.encode(), given.encode("utf-8", "replace"))
 
 
-@router.get("/health")
-async def health(request: Request) -> dict:
+def _deep_select(database_url: str) -> bool:
+    """SELECT 1 on a fresh connection. connect_timeout is 30s so a suspended database can wake up."""
+    url = (database_url or "").strip()
+    if not url:
+        return False
+    import psycopg
+
+    try:
+        with psycopg.connect(url, connect_timeout=30) as conn:
+            row = conn.execute("SELECT 1").fetchone()
+        if not row:
+            return False
+        value = row[0] if not isinstance(row, dict) else next(iter(row.values()), None)
+        return value == 1
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("hireright.health").warning("deep health check failed: %s", type(exc).__name__)
+        return False
+
+
+async def _deep_ok() -> bool:
+    import asyncio
+
+    return await asyncio.to_thread(_deep_select, config.database_url)
+
+
+@router.get("/health", response_model=None)
+async def health(request: Request) -> dict | JSONResponse:
+    if request.query_params.get("deep") == "1":
+        ok = await _deep_ok()
+        return JSONResponse(status_code=200 if ok else 503, content={"ok": ok, "deep": True})
     full = await _health_full()
     if health_detail_allowed(request):
         return full

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { applicantsToCsv, type IndexedApplicant } from '../../lib/applicantSearch'
 import { mapWithConcurrency } from '../../lib/concurrency'
 import { mapApplicantStatusToApi } from '../../lib/employerCandidateUtils'
@@ -80,15 +80,30 @@ function resumeDownloadFile(
 export const canShortlist = (r: IndexedApplicant) =>
   r.applicant.recordSource === 'application' || (!r.applicant.recordSource && Boolean(r.applicant.jobId))
 
+/** A shortlist or invite notice belongs to the search that produced it. A new query clears it. */
+export function noticeAfterSearchQueryChange<T>(previousQuery: string, nextQuery: string, notice: T | null): T | null {
+  return previousQuery === nextQuery ? notice : null
+}
+
 /** Recruiter actions on applicants, all through existing endpoints. */
 export function useApplicantActions(
   onUpdateApplicant?: (id: string, patch: Partial<EmployerApplicant>) => void,
   /** Called after any invite was created (the invite status reloads). */
   onInvited?: () => void,
+  /** Applied search query. Changing it clears the shortlist / action notice. */
+  searchQuery = '',
 ) {
   const [busy, setBusy] = useState<Record<string, string>>({})
   const [bulkBusy, setBulkBusy] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
+  const queryRef = useRef(searchQuery)
+
+  useEffect(() => {
+    const previous = queryRef.current
+    if (previous === searchQuery) return
+    queryRef.current = searchQuery
+    setNotice((current) => noticeAfterSearchQueryChange(previous, searchQuery, current))
+  }, [searchQuery])
 
   const mark = useCallback((ids: string[], action: string | null) => {
     setBusy((b) => {

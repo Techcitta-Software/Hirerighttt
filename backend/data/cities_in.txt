@@ -1,0 +1,81 @@
+# Indian cities for the resume parser (city|state|aliases separated by ;). Lines starting with # are ignored.
+# Used to lift the confidence of a parsed location and to split a trailing ", City" off a company name.
+Mumbai|Maharashtra|Bombay;Navi Mumbai;Thane
+Pune|Maharashtra|Poona
+Nagpur|Maharashtra|
+Nashik|Maharashtra|
+Aurangabad|Maharashtra|Chhatrapati Sambhajinagar
+Kolhapur|Maharashtra|
+Delhi|Delhi|New Delhi;Delhi NCR;NCR
+Noida|Uttar Pradesh|Greater Noida
+Gurugram|Haryana|Gurgaon
+Faridabad|Haryana|
+Ghaziabad|Uttar Pradesh|
+Bengaluru|Karnataka|Bangalore
+Mysuru|Karnataka|Mysore
+Mangaluru|Karnataka|Mangalore
+Hubballi|Karnataka|Hubli;Hubli-Dharwad
+Belagavi|Karnataka|Belgaum
+Manipal|Karnataka|
+Udupi|Karnataka|
+Hyderabad|Telangana|Secunderabad;Cyberabad
+Warangal|Telangana|
+Chennai|Tamil Nadu|Madras
+Coimbatore|Tamil Nadu|
+Madurai|Tamil Nadu|
+Tiruchirappalli|Tamil Nadu|Trichy
+Salem|Tamil Nadu|
+Vellore|Tamil Nadu|
+Tirunelveli|Tamil Nadu|
+Kolkata|West Bengal|Calcutta
+Howrah|West Bengal|
+Durgapur|West Bengal|
+Siliguri|West Bengal|
+Ahmedabad|Gujarat|
+Surat|Gujarat|
+Vadodara|Gujarat|Baroda
+Rajkot|Gujarat|
+Gandhinagar|Gujarat|
+Jaipur|Rajasthan|
+Jodhpur|Rajasthan|
+Udaipur|Rajasthan|
+Kota|Rajasthan|
+Lucknow|Uttar Pradesh|
+Kanpur|Uttar Pradesh|
+Varanasi|Uttar Pradesh|Banaras
+Agra|Uttar Pradesh|
+Prayagraj|Uttar Pradesh|Allahabad
+Meerut|Uttar Pradesh|
+Indore|Madhya Pradesh|
+Bhopal|Madhya Pradesh|
+Gwalior|Madhya Pradesh|
+Jabalpur|Madhya Pradesh|
+Patna|Bihar|
+Ranchi|Jharkhand|
+Jamshedpur|Jharkhand|
+Bhubaneswar|Odisha|
+Cuttack|Odisha|
+Raipur|Chhattisgarh|
+Chandigarh|Chandigarh|Mohali;Panchkula
+Ludhiana|Punjab|
+Amritsar|Punjab|
+Jalandhar|Punjab|
+Dehradun|Uttarakhand|
+Shimla|Himachal Pradesh|
+Srinagar|Jammu and Kashmir|
+Jammu|Jammu and Kashmir|
+Guwahati|Assam|
+Shillong|Meghalaya|
+Imphal|Manipur|
+Kochi|Kerala|Cochin;Ernakulam
+Thiruvananthapuram|Kerala|Trivandrum
+Kozhikode|Kerala|Calicut
+Thrissur|Kerala|
+Visakhapatnam|Andhra Pradesh|Vizag
+Vijayawada|Andhra Pradesh|
+Guntur|Andhra Pradesh|
+Tirupati|Andhra Pradesh|
+Nellore|Andhra Pradesh|
+Amaravati|Andhra Pradesh|
+Panaji|Goa|Panjim;Goa;Margao
+Puducherry|Puducherry|Pondicherry

@@ -28,9 +28,12 @@ export function ResumeDatabasePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  // getUser() returns a fresh object every render, so the load effect keys on these primitives instead.
+  const userEmail = user?.email
+  const userRole = user?.role
 
   useEffect(() => {
-    if (!user || user.role !== 'employer') return
+    if (userRole !== 'employer') return
     let cancelled = false
     const list = new AbortController()
     setLoading(true)
@@ -60,7 +63,7 @@ export function ResumeDatabasePage() {
       cancelled = true
       list.abort()
     }
-  }, [user?.email, user?.role, reloadKey])
+  }, [userEmail, userRole, reloadKey])
 
   const updateApplicant = useCallback((id: string, patch: Partial<EmployerApplicant>) => {
     setApplicants((prev) => patchApplicantRows(prev, id, patch))

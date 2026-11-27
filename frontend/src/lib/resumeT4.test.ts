@@ -76,6 +76,10 @@ describe('T4 resumes through the regex parser', () => {
     expect(p.workExperiences?.every((w) => w.location === 'Mangaluru')).toBe(true)
     expect(p.workExperiences?.[0].responsibilities).toContain('Trained 12 new nurses')
     expect(p.education?.[0]).toMatchObject({ degree: 'B.Sc Nursing', institution: 'Laxmi Memorial College of Nursing', endYear: '2020' })
+    expect(resumeExtractToProfilePatch(p)).toMatchObject({
+      currentCompanyTitle: 'Staff Nurse – ICU, Father Muller Medical College Hospital',
+      highestEducation: 'B.Sc Nursing, Laxmi Memorial College of Nursing',
+    })
   })
 
   it('two-column designer: the real name (never a tool), Pune, tools + skills, education', () => {
@@ -88,6 +92,22 @@ describe('T4 resumes through the regex parser', () => {
     expect(jobs(DESIGNER_TWO_COLUMN_PDF).map((j) => j[1])).toEqual(['Zeta Fintech', 'Ola Electric', 'Pixel Pebble Studio'])
     expect(p.education?.[0]).toEqual({ degree: 'B.Des, Interaction Design', institution: 'MIT Institute of Design', endYear: '2019' })
     expect(resumeExtractToProfilePatch(p)).toMatchObject({ fullName: 'Ananya Kulkarni' })
+  })
+})
+
+describe('AI job company and city', () => {
+  it('splits a trailing city off the company', () => {
+    const ai = formatAiExtract(
+      {
+        fullName: "Priya D'Souza",
+        workExperiences: [
+          { jobTitle: 'Staff Nurse', company: 'KMC Hospital, Mangaluru', startDate: 'Nov 2020', endDate: 'Sep 2022' },
+        ],
+      },
+      NURSE_PDF,
+    )
+    expect(ai.workExperiences?.[0].company).toBe('KMC Hospital')
+    expect(ai.workExperiences?.[0].location).toBe('Mangaluru')
   })
 })
 

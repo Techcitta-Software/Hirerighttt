@@ -208,3 +208,96 @@ describe('completion page headline', async () => {
     expect(c.interviewEndedEarly({ integrity: undefined })).toBe(false)
   })
 })
+
+describe('neural TTS watchdog', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    const root = globalThis as typeof globalThis & { window?: Window & typeof globalThis }
+    if (!root.window) root.window = root as unknown as Window & typeof globalThis
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  function installPlayback(stall: boolean) {
+    class FakeCtx {
+      state = 'running'
+      currentTime = 0
+      destination = {}
+      resume() {
+        return Promise.resolve()
+      }
+      createBuffer(_channels: number, length: number, rate: number) {
+        return { duration: length / rate, copyToChannel() {} }
+      }
+      createBufferSource() {
+        return {
+          buffer: null as { duration: number } | null,
+          connect() {},
+          start() {},
+          stop() {},
+          onended: null as null | (() => void),
+        }
+      }
+    }
+    const root = globalThis as typeof globalThis & { window: Window & typeof globalThis; AudioContext: unknown }
+    root.AudioContext = FakeCtx
+    root.window.AudioContext = FakeCtx as unknown as typeof AudioContext
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('tts')) {
+          const bytes = new Uint8Array(12_000)
+          const stream = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes)
+              if (!stall) controller.close()
+            },
+          })
+          return new Response(stream, { status: 200 })
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }),
+    )
+  }
+
+  async function realNeural() {
+    return vi.importActual<typeof import('./neuralVoice')>('./neuralVoice')
+  }
+
+  it('a stuck stream calls onEnd once', async () => {
+    installPlayback(true)
+    const { speakNeural } = await realNeural()
+    const onEnd = vi.fn()
+    await new Promise<void>((resolve) => {
+      void speakNeural('Thank you for walking through that project.', { onStart: () => resolve(), onEnd })
+    })
+    expect(onEnd).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(SPEECH_WATCHDOG_MARGIN_MS + 5_000)
+    expect(onEnd).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(onEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancel does not call onEnd', async () => {
+    installPlayback(true)
+    const { speakNeural, cancelNeuralSpeech } = await realNeural()
+    const onEnd = vi.fn()
+    await new Promise<void>((resolve) => {
+      void speakNeural('Thank you for walking through that project.', { onStart: () => resolve(), onEnd })
+    })
+    cancelNeuralSpeech()
+    await vi.advanceTimersByTimeAsync(SPEECH_WATCHDOG_MARGIN_MS + 15_000)
+    expect(onEnd).not.toHaveBeenCalled()
+  })
+})

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fetchMailStatus } from '../lib/api'
 import { useNavigate } from 'react-router-dom'
 import type { ProfileFormData } from '../data/wizard'
 import { beginImmediateInterview } from '../lib/interviewTestMode'
@@ -12,6 +13,9 @@ interface AiInterviewStepProps {
   data: ProfileFormData
   onChange: <K extends keyof ProfileFormData>(key: K, value: ProfileFormData[K]) => void
 }
+
+/** A booked slot has to be at least this far ahead, including later today. */
+const MIN_LEAD_MS = 2 * 60 * 60 * 1000
 
 const SLOT_GROUPS = [
   ['Morning', ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM']],
@@ -46,10 +50,11 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
   const navigate = useNavigate()
   // A job link carried through sign-up is a 20-minute JD interview; otherwise the 15-minute career interview.
   const [minutes] = useState(() => interviewDurationMinutes(resolveInterviewJobContext()))
+  const [mailOk, setMailOk] = useState(false)
   const today = indiaDay(new Date())
   const [initial] = useState(() => {
     const saved = data.interviewNotes.startsWith('Scheduled: ') ? new Date(data.interviewNotes.slice(11)) : null
-    if (saved && !Number.isNaN(saved.getTime()) && saved.getTime() > Date.now()) {
+    if (saved && !Number.isNaN(saved.getTime()) && saved.getTime() >= Date.now() + MIN_LEAD_MS) {
       return { date: indiaDay(saved), slot: saved.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) }
     }
     // Nothing is booked until the candidate picks a time.
@@ -61,6 +66,15 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
   // The candidate can start the interview from this step: warm the speech-to-text model now.
   useEffect(() => {
     moonshineStt.preloadWhenIdle(1500)
+  }, [])
+  useEffect(() => {
+    let cancelled = false
+    void fetchMailStatus().then((status) => {
+      if (!cancelled) setMailOk(status.smtpConfigured === true)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
   // A slot saved earlier that has since passed is not a booking any more.
   useEffect(() => {
@@ -83,7 +97,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
     setSelectedDate(date)
     if (!selectedSlot) return
     // Keep the chosen time on the new day when it is still in the future; otherwise ask for a new time.
-    book(date, appointment(date, selectedSlot).getTime() > Date.now() ? selectedSlot : null)
+    book(date, appointment(date, selectedSlot).getTime() >= Date.now() + MIN_LEAD_MS ? selectedSlot : null)
   }
   function launchLiveInterview() {
     const existing = getInterviewResult()
@@ -149,7 +163,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
               {Array.from({ length: cellCount }, (_, index) => {
                 const date = new Date(month.getFullYear(), month.getMonth(), index - firstDay + 1)
                 const outside = date.getMonth() !== month.getMonth()
-                const disabled = outside || appointment(date, '07:00 PM').getTime() <= Date.now()
+                const disabled = outside || appointment(date, '07:00 PM').getTime() < Date.now() + MIN_LEAD_MS
                 const selected = date.getTime() === selectedDate.getTime()
                 return (
                   <button
@@ -182,7 +196,7 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
                     <button
                       type="button"
                       key={slot}
-                      disabled={appointment(selectedDate, slot).getTime() <= Date.now()}
+                      disabled={appointment(selectedDate, slot).getTime() < Date.now() + MIN_LEAD_MS}
                       aria-pressed={selectedSlot === slot}
                       className={`${styles.slotBtn} ${selectedSlot === slot ? styles.slotActive : ''}`}
                       onClick={() => book(selectedDate, slot)}
@@ -208,7 +222,9 @@ export function AiInterviewStep({ data, onChange }: AiInterviewStepProps) {
             </div>
           </div>
           <ul className={styles.assuranceList}>
-            <li className={styles.assurance}><Icon kind="clock" /><p>We’ll email you a confirmation and a reminder</p></li>
+            {mailOk ? (
+              <li className={styles.assurance}><Icon kind="clock" /><p>We’ll email you a confirmation and a reminder</p></li>
+            ) : null}
             <li className={styles.assurance}><Icon kind="refresh" /><p>You can change the time later</p></li>
           </ul>
         </section>

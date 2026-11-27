@@ -284,39 +284,13 @@ def _write_subs(conn, objs: list[dict]) -> None:
 
 
 def _write_jobs(conn, objs: list[dict]) -> None:
-    from datetime import datetime, timezone
+    from app.db.store import job_upsert_params, job_upsert_sql
 
+    sql = job_upsert_sql()
     for job in objs:
         if not job.get("id") or not job.get("shareableCode") or not job.get("organizationId"):
             continue
-        extras = {"createdByEmail": job.get("createdByEmail") or "", "companySlug": job.get("companySlug")}
-        conn.execute(
-            """INSERT INTO jobs (
-                 id, organization_id, created_by_user_id, title, company, role_track, experience_level,
-                 location, job_description, required_skills, shareable_code, status, extras, created_at, updated_at
-               ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb,%s::timestamptz,NOW())
-               ON CONFLICT (id) DO UPDATE SET
-                 title = EXCLUDED.title, company = EXCLUDED.company, job_description = EXCLUDED.job_description,
-                 required_skills = EXCLUDED.required_skills, status = EXCLUDED.status, updated_at = NOW(),
-                 role_track = EXCLUDED.role_track, experience_level = EXCLUDED.experience_level,
-                 location = EXCLUDED.location, shareable_code = EXCLUDED.shareable_code, extras = EXCLUDED.extras""",
-            (
-                job["id"],
-                job["organizationId"],
-                job.get("createdByUserId"),
-                job.get("title") or "",
-                job.get("company") or "",
-                job.get("roleTrack"),
-                job.get("experienceLevel"),
-                job.get("location"),
-                job.get("jobDescription"),
-                json.dumps(job.get("requiredSkills") or []),
-                job["shareableCode"],
-                job.get("status") or "published",
-                json.dumps(extras),
-                job.get("createdAt") or datetime.now(timezone.utc).isoformat(),
-            ),
-        )
+        conn.execute(sql, job_upsert_params(job))
 
 
 def _write_employer_apps(conn, objs: list[dict]) -> None:

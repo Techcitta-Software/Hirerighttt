@@ -55,22 +55,75 @@ function hasResumeFile(p: NonNullable<NameProfile>): boolean {
   return Boolean(clean(p.resumeName) || clean(p.resumeUrl) || clean(p.resumeStoragePath))
 }
 
+/** "K." and "B.K." are initials. "cand.proc" is an email fragment. */
+function isInitialToken(word: string): boolean {
+  return /^(?:[A-Za-z]\.){1,4}[A-Za-z]?$/.test(word)
+}
+
+/** An email local-part token: it contains a digit, or a dot that is not an initial. */
+function isEmailToken(word: string): boolean {
+  if (/\d/.test(word)) return true
+  return word.includes('.') && !isInitialToken(word)
+}
+
+function lettersOf(word: string): string {
+  return word.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+/**
+ * Drop an email token that contains '.' or a digit, and a token already contained in the name
+ * ("Souza" after "D'Souza", a repeated surname). Initials such as "B.K." stay.
+ */
+export function withoutAppendedEmailTokens(name: string): string {
+  const kept: string[] = []
+  for (const word of name.split(/\s+/).filter(Boolean)) {
+    if (isEmailToken(word)) continue
+    const letters = lettersOf(word)
+    if (!letters) continue
+    if (kept.some((w) => {
+      const prev = lettersOf(w)
+      return prev === letters || prev.includes(letters)
+    })) continue
+    kept.push(word)
+  }
+  return kept.join(' ')
+}
+
+function presentName(value: string): string {
+  const shown = withoutAppendedEmailTokens(normalizePersonName(value))
+  return shown
+}
+
 /** The name on the candidate's current resume, or '' when there is no resume or no readable name on it. */
 export function resumeNameOf(profile: NameProfile): string {
   const p = profile ?? {}
   const text = String(p.resumeText ?? '')
   const parsed = clean(p.resumeFullName)
+  const accept = (value: string) => {
+    const shown = presentName(value)
+    return shown && looksLikePersonName(shown) && nameInResume(shown, text) ? shown : ''
+  }
   if (text.trim()) {
-    if (parsed && looksLikePersonName(parsed) && nameInResume(parsed, text)) return normalizePersonName(parsed)
+    const fromParsed = parsed ? accept(parsed) : ''
+    if (fromParsed) return fromParsed
     const fromText = clean(extractNameFromText(text))
-    if (fromText) return normalizePersonName(fromText)
+    if (fromText) {
+      const shown = presentName(fromText)
+      if (shown && looksLikePersonName(shown)) return shown
+    }
     for (const saved of [p.fullName, p.name]) {
       const s = clean(saved)
-      if (s && !isDemoName(s) && looksLikePersonName(s) && nameInResume(s, text)) return normalizePersonName(s)
+      if (s && !isDemoName(s)) {
+        const shown = accept(s)
+        if (shown) return shown
+      }
     }
     return ''
   }
-  if (parsed && looksLikePersonName(parsed) && hasResumeFile(p)) return normalizePersonName(parsed)
+  if (parsed && looksLikePersonName(presentName(parsed)) && hasResumeFile(p)) {
+    const shown = presentName(parsed)
+    if (shown) return shown
+  }
   return ''
 }
 

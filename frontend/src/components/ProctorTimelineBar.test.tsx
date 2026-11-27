@@ -165,6 +165,8 @@ const css = readFileSync(join(__dirname, 'ProctorTimelineBar.module.css'), 'utf8
 const system = readFileSync(join(__dirname, '..', 'styles', 'system.css'), 'utf8')
 
 function block(source: string, selector: string): string {
+  // A CRLF checkout (core.autocrlf=true) must not break multi-line selectors such as '.rail,\n.played' (BUG-005).
+  source = source.replace(/\r\n/g, '\n')
   const i = source.indexOf(`${selector} {`)
   return source.slice(i, source.indexOf('}', i))
 }
@@ -232,5 +234,13 @@ describe('mark colours', () => {
     expect(block(css, '.tick')).toMatch(/width:\s*4px/)
     expect(block(css, '.rail,\n.played')).toMatch(/height:\s*4px/)
     expect(block(css, '.summary')).toMatch(/white-space:\s*nowrap/)
+  })
+
+  it('finds multi-line selectors in a CRLF copy of the CSS', () => {
+    const lf = css.replace(/\r\n/g, '\n')
+    const crlf = lf.replace(/\n/g, '\r\n')
+    expect(crlf).toContain('.rail,\r\n.played {')
+    expect(block(crlf, '.rail,\n.played')).toMatch(/height:\s*4px/)
+    expect(block(crlf, '.rail,\n.played')).toBe(block(lf, '.rail,\n.played'))
   })
 })

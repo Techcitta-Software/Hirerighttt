@@ -1,22 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  answerClockRunning,
   answerDoneCommand,
+  decideAnswerTick,
+  isClosingQuestionAt,
   isEndInterviewRequest,
   silenceAdvanceMs,
   stripAnswerDoneCommand,
+  stripEchoOfQuestion,
 } from './answerTiming'
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ')
 
 describe('silence before moving on (scales with the answer)', () => {
-  it('waits 8 s on a short answer (the candidate may still be thinking)', () => {
-    expect(silenceAdvanceMs(words(8))).toBe(8000)
-    expect(silenceAdvanceMs(words(24))).toBe(8000)
+  it('waits 4.5 s under 25 words (the candidate may still be thinking)', () => {
+    expect(silenceAdvanceMs(words(8))).toBe(4500)
+    expect(silenceAdvanceMs(words(24))).toBe(4500)
   })
-  it('5 s for a medium answer, 3.5 s for a long one', () => {
-    expect(silenceAdvanceMs(words(25))).toBe(5000)
-    expect(silenceAdvanceMs(words(60))).toBe(5000)
-    expect(silenceAdvanceMs(words(61))).toBe(3500)
+  it('3 s for 25 through 60 words, 2 s after that', () => {
+    expect(silenceAdvanceMs(words(25))).toBe(3000)
+    expect(silenceAdvanceMs(words(60))).toBe(3000)
+    expect(silenceAdvanceMs(words(61))).toBe(2000)
   })
 })
 
@@ -35,6 +39,52 @@ describe('"next question" command', () => {
   it('strips the command from what is saved', () => {
     expect(stripAnswerDoneCommand('Kafka for events. Next question')).toBe('Kafka for events.')
     expect(stripAnswerDoneCommand('Kafka for events.')).toBe('Kafka for events.')
+  })
+})
+
+describe('echo of Ava’s question', () => {
+  const question = 'Can you walk me through how you would design a rate limiter for a public API?'
+
+  it('drops a leading fragment that is only the tail of her question', () => {
+    expect(
+      stripEchoOfQuestion('design a rate limiter for a public API I would use a token bucket', question),
+    ).toBe('I would use a token bucket')
+  })
+
+  it('drops a final that is only her question, and leaves a real answer alone', () => {
+    expect(stripEchoOfQuestion('how you would design a rate limiter for a public API', question)).toBe('')
+    expect(stripEchoOfQuestion('I would use a token bucket and Redis', question)).toBe(
+      'I would use a token bucket and Redis',
+    )
+  })
+})
+
+describe('closing question at the live index', () => {
+  it('treats a closing question appended at the current index as a closing statement', () => {
+    const stale = [{ focus: 'structured-theory-2' }]
+    const current = 0
+    const live = stale.slice()
+    live.splice(current, 0, { focus: 'structured-closing' })
+    expect(isClosingQuestionAt(stale, current)).toBe(false)
+    expect(isClosingQuestionAt(live, current)).toBe(true)
+    expect(
+      answerClockRunning({
+        answerWindowStartedAt: 5_000,
+        aiSpeaking: false,
+        closing: isClosingQuestionAt(live, current),
+      }),
+    ).toBe(false)
+    // The same silence would nudge a normal question. The tick must not do that for the closing line.
+    expect(
+      decideAnswerTick({
+        now: 25_000,
+        transcript: '',
+        sttPhase: 'idle',
+        lastSpeechAt: 0,
+        answerWindowStartedAt: 5_000,
+        nudged: false,
+      }),
+    ).toBe('nudge')
   })
 })
 

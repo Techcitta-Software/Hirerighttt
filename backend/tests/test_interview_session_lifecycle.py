@@ -178,3 +178,33 @@ def test_resume_state_points_at_the_first_unanswered_question():
     assert state["questionIndex"] == 1 and state["answers"] == ["a0"]
     session["history"] = [{"question": {"text": f"q{i}"}, "answer": "a"} for i in range(4)]
     assert ivlife.resume_state(session)["questionIndex"] == 3  # never past the last question
+
+
+def test_llm_flag_false_when_all_fallback(env, monkeypatch):
+    async def fake_batch(_payload):
+        return {"questions": [{"text": f"Fallback {i}?", "fallback": True} for i in range(1, 4)], "totalTurns": 3}
+
+    monkeypatch.setattr(api_dispatch.ia, "generate_adaptive_question_batch", fake_batch)
+    res = _start(env[0])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["llm"] is False
+    assert body["fallbackCount"] == 3
+
+
+def test_llm_flag_true_when_one_question_is_not_a_fallback(env, monkeypatch):
+    async def fake_batch(_payload):
+        return {
+            "questions": [
+                {"text": "What did you ship in your last role?", "fallback": False},
+                {"text": "Fallback question?", "fallback": True},
+            ],
+            "totalTurns": 2,
+        }
+
+    monkeypatch.setattr(api_dispatch.ia, "generate_adaptive_question_batch", fake_batch)
+    res = _start(env[0])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["llm"] is True
+    assert body["fallbackCount"] == 1
